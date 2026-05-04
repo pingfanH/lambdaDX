@@ -63,6 +63,13 @@ impl PadSvgDef {
         Some(svg_to_screen(def.centroid, pad))
     }
 
+    /// The visual center of the pad, computed as the midpoint of C1 and C2 centroids.
+    pub(crate) fn pad_visual_center(&self, pad: &super::types::PadGeom) -> Option<Vec2> {
+        let c1 = self.zone_screen_centroid(17, pad)?;
+        let c2 = self.zone_screen_centroid(34, pad)?;
+        Some((c1 + c2) * 0.5)
+    }
+
     /// Transform a single ZoneDef's vertices and centroid to screen coordinates.
     pub(crate) fn def_screen_verts(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec<Vec2> {
         def.svg_verts.iter().map(|&v| svg_to_screen(v, pad)).collect()

@@ -7,7 +7,8 @@ use super::types::{
     hold_tail_time, is_touch_zone, sanitize_note_zone, Layout, Mode, PadGeom, RectF,
     UiAction, UiButton, LANE_COUNT, LANE_LABELS, PAD_C_ZONE,
     PREVIEW_LEAD_TIME, SCROLL_SPEED, SPEED_MAX, SPEED_MIN, SPEED_STEP, TAP_TRAVEL_TIME,
-    TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, HIT_WINDOW,
+    TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
+    TAP_DISAPPEAR_FRAC, HOLD_DISAPPEAR_FRAC, HIT_WINDOW,
     PAD_ROTATION_RAD, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
 };
 use super::pad_svg;
@@ -65,7 +66,10 @@ fn ui_scale(app: &AppState) -> f32 {
         return v;
     }
     if app.mobile_ui {
-        1.35
+        // Scale based on shorter screen dimension vs desktop reference (760px),
+        // to compensate for high-DPI physical pixels on mobile.
+        let base = screen_width().min(screen_height()) / 760.0;
+        base.max(1.35)
     } else {
         1.0
     }
@@ -703,8 +707,15 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
     let cx = pad.cx;
     let cy = pad.cy;
     let outer_r = pad.outer_r;
+    // Tap spawn center: midpoint of C1 and C2 centroids for alignment
+    let spawn_cx = app.pad_svg.as_ref()
+        .and_then(|svg| svg.pad_visual_center(&pad))
+        .unwrap_or(vec2(cx, cy));
 
     draw_circle(cx, cy, outer_r, Color::from_rgba(16, 24, 38, 255));
+
+    // Tap spawn point indicator
+    draw_circle(spawn_cx.x, spawn_cx.y, 3.0 * scale, Color::from_rgba(255, 255, 255, 180));
 
     let active_zones: Vec<u8> = app.active_pointer_zones.values().copied().collect();
     let feedback_zones: Vec<u8> = app.pad_feedback.iter().map(|fb| fb.zone).collect();
@@ -794,66 +805,71 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         if tail_dt < -0.18 || dt > lead_time {
             continue;
         }
+        // A-zone tap disappears at dt fraction; hold disappears at tail fraction
+        if zone <= 8 {
+            if matches!(note.note_type, NoteType::Hold) {
+                if tail_dt <= (hold_tail_time(note) - note.time) * HOLD_DISAPPEAR_FRAC {
+                    continue;
+                }
+            } else if dt <= TAP_TRAVEL_TIME * TAP_DISAPPEAR_FRAC {
+                continue;
+            }
+        }
 
         if zone <= 8 {
             let dir = app.pad_svg.as_ref()
                 .and_then(|svg| svg.zone_screen_centroid(zone, &pad))
-                .map(|c| (c - vec2(cx, cy)).normalize_or_zero())
+                .map(|c| (c - spawn_cx).normalize_or_zero())
                 .unwrap_or_else(|| {
                     let idx = (zone - 1) as f32;
                     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
                     vec2(ang.cos(), ang.sin())
                 });
             let progress = ((TAP_TRAVEL_TIME - dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
-            let spawn_r = outer_r * 0.24;
-            let target_r = outer_r - 4.0 * scale;
-            let r = spawn_r + (target_r - spawn_r) * progress;
-            let px = cx + dir.x * r;
-            let py = cy + dir.y * r;
-
-            let alpha = (90.0 + 165.0 * progress) as u8;
-            let (stroke, core) = match note.note_type {
-                NoteType::Hold => (
-                    Color::from_rgba(251, 113, 133, alpha),
-                    Color::from_rgba(253, 164, 175, alpha),
-                ),
-                _ => (
-                    Color::from_rgba(244, 114, 182, alpha),
-                    Color::from_rgba(249, 168, 212, alpha),
-                ),
+            // Phase 1: grow from 0 to 1 at spawn point. Phase 2: fly at full size.
+            let size_scale = if progress < TAP_GROW_FRAC {
+                progress / TAP_GROW_FRAC
+            } else {
+                1.0
             };
+            let fly_progress = if progress < TAP_GROW_FRAC {
+                0.0
+            } else {
+                (progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
+            };
+            let spawn_r = outer_r * TAP_SPAWN_FRAC;
+            let target_r = outer_r - 4.0 * scale;
+            let r = spawn_r + (target_r - spawn_r) * fly_progress;
+            let px = spawn_cx.x + dir.x * r;
+            let py = spawn_cx.y + dir.y * r;
 
             if matches!(note.note_type, NoteType::Hold) {
                 let tail_dt = hold_tail_time(note) - current_t;
-                let tail_progress = ((TAP_TRAVEL_TIME - tail_dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
-                let tail_r = spawn_r + (target_r - spawn_r) * tail_progress;
-                let tx = cx + dir.x * tail_r;
-                let ty = cy + dir.y * tail_r;
+                let tail_raw = ((TAP_TRAVEL_TIME - tail_dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
+                let tail_fly = if tail_raw < TAP_GROW_FRAC { 0.0 } else { (tail_raw - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };
+                let tail_r = spawn_r + (target_r - spawn_r) * tail_fly;
+                let tx = spawn_cx.x + dir.x * tail_r;
+                let ty = spawn_cx.y + dir.y * tail_r;
                 if let Some(hold_tex) = &app.hold_texture {
-                    draw_hold_9slice_segment(hold_tex, vec2(px, py), vec2(tx, ty), HOLD_WIDTH * scale, Color::from_rgba(255, 255, 255, alpha));
+                    draw_hold_9slice_segment(hold_tex, vec2(px, py), vec2(tx, ty), HOLD_WIDTH * scale * size_scale, Color::from_rgba(255, 255, 255, 255));
                 } else {
-                    draw_line(px, py, tx, ty, HOLD_WIDTH * 0.233 * scale, Color::from_rgba(251, 113, 133, alpha.saturating_sub(40)));
-                    draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale, Color::from_rgba(253, 164, 175, alpha));
+                    draw_line(px, py, tx, ty, HOLD_WIDTH * 0.233 * scale * size_scale, Color::from_rgba(251, 113, 133, 200));
+                    draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale * size_scale, Color::from_rgba(253, 164, 175, 255));
                 }
             }
 
             if !matches!(note.note_type, NoteType::Hold) {
+                let ts = TAP_SIZE * scale * size_scale;
                 if let Some(tex) = &app.tap_texture {
-                    draw_texture_ex(
-                        tex,
-                        px - 16.0 * scale,
-                        py - 16.0 * scale,
-                        Color::from_rgba(255, 255, 255, alpha),
-                        DrawTextureParams {
-                            dest_size: Some(vec2(TAP_SIZE * scale, TAP_SIZE * scale)),
-                            ..Default::default()
-                        },
-                    );
+                    draw_texture_ex(tex, px - ts * 0.5, py - ts * 0.5, WHITE, DrawTextureParams {
+                        dest_size: Some(vec2(ts, ts)),
+                        ..Default::default()
+                    });
                 } else {
-                    let tr = TAP_SIZE * 0.375 * scale;
-                    draw_circle(px, py, tr, Color::from_rgba(17, 24, 39, alpha));
-                    draw_circle_lines(px, py, tr, tr * 0.25, stroke);
-                    draw_circle(px, py, tr * 0.317, core);
+                    let tr = TAP_SIZE * 0.375 * scale * size_scale;
+                    draw_circle(px, py, tr, Color::from_rgba(17, 24, 39, 255));
+                    draw_circle_lines(px, py, tr, tr * 0.25, Color::from_rgba(244, 114, 182, 255));
+                    draw_circle(px, py, tr * 0.317, Color::from_rgba(249, 168, 212, 255));
                 }
             }
 

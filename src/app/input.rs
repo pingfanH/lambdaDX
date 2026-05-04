@@ -17,6 +17,7 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
         app.recording_notes.clear();
         app.active_record_holds.clear();
         app.active_pointer_zones.clear();
+        app.prev_pointer_pos.clear();
         app.status = "Cleared recording hits".to_string();
     }
     if is_key_pressed(KeyCode::P) {
@@ -167,14 +168,14 @@ pub(crate) fn handle_touch_controls(
     for ev in pointer_events {
         match ev.phase {
             TouchPhase::Started => {
+                app.prev_pointer_pos.insert(ev.id, ev.position);
+
                 if let Some(btn) = buttons.iter().find(|b| rect_contains(b.rect, ev.position)) {
                     trigger_ui_action(app, btn.action);
                     continue;
                 }
 
-                let zone = app
-                    .pad_svg
-                    .as_ref()
+                let zone = app.pad_svg.as_ref()
                     .and_then(|svg| svg.hit_test(ev.position, &pad));
                 if let Some(zone) = zone {
                     app.active_pointer_zones.insert(ev.id, zone);
@@ -185,29 +186,53 @@ pub(crate) fn handle_touch_controls(
                 }
             }
             TouchPhase::Moved | TouchPhase::Stationary => {
-                let old_zone = app.active_pointer_zones.get(&ev.id).copied();
-                let new_zone = app
-                    .pad_svg
-                    .as_ref()
-                    .and_then(|svg| svg.hit_test(ev.position, &pad));
-                if old_zone != new_zone {
-                    if app.mode == super::types::Mode::Recording {
-                        if old_zone.is_some() {
-                            app.finish_record_hold_input(RecordInputId::Pointer(ev.id));
+                let prev = app.prev_pointer_pos.get(&ev.id).copied();
+                app.prev_pointer_pos.insert(ev.id, ev.position);
+
+                // Interpolate between previous and current position to
+                // catch zones skipped during fast movement.
+                let samples = if let Some(p) = prev {
+                    let dist = ev.position.distance(p);
+                    let steps = (dist / 4.0).ceil() as usize; // sample every ~4px
+                    if steps > 0 {
+                        let mut pts = Vec::with_capacity(steps + 1);
+                        for i in 0..=steps {
+                            let t = i as f32 / (steps + 1) as f32;
+                            pts.push(p + (ev.position - p) * t);
+                        }
+                        pts
+                    } else {
+                        vec![ev.position]
+                    }
+                } else {
+                    vec![ev.position]
+                };
+
+                for sample in &samples {
+                    let old_zone = app.active_pointer_zones.get(&ev.id).copied();
+                    let new_zone = app.pad_svg.as_ref()
+                        .and_then(|svg| svg.hit_test(*sample, &pad));
+
+                    if old_zone != new_zone {
+                        if app.mode == super::types::Mode::Recording {
+                            if old_zone.is_some() {
+                                app.finish_record_hold_input(RecordInputId::Pointer(ev.id));
+                            }
+                            if let Some(zone) = new_zone {
+                                app.start_record_hold_input(RecordInputId::Pointer(ev.id), zone);
+                            }
                         }
                         if let Some(zone) = new_zone {
-                            app.start_record_hold_input(RecordInputId::Pointer(ev.id), zone);
+                            app.active_pointer_zones.insert(ev.id, zone);
+                            app.push_feedback(zone, 0.10);
+                        } else {
+                            app.active_pointer_zones.remove(&ev.id);
                         }
-                    }
-                    if let Some(zone) = new_zone {
-                        app.active_pointer_zones.insert(ev.id, zone);
-                        app.push_feedback(zone, 0.10);
-                    } else {
-                        app.active_pointer_zones.remove(&ev.id);
                     }
                 }
             }
             TouchPhase::Ended | TouchPhase::Cancelled => {
+                app.prev_pointer_pos.remove(&ev.id);
                 app.active_pointer_zones.remove(&ev.id);
                 if app.mode == super::types::Mode::Recording {
                     app.finish_record_hold_input(RecordInputId::Pointer(ev.id));

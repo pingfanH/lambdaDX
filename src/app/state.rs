@@ -1,5 +1,5 @@
 use macroquad::audio::{stop_sound, Sound};
-use macroquad::prelude::get_time;
+use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::HashMap;
 
@@ -19,6 +19,7 @@ pub(crate) struct AppState {
     pub(crate) recording_notes: Vec<Note>,
     pub(crate) active_record_holds: HashMap<RecordInputId, ActiveRecordHold>,
     pub(crate) active_pointer_zones: HashMap<u64, u8>,
+    pub(crate) prev_pointer_pos: HashMap<u64, Vec2>,
     pub(crate) pad_feedback: Vec<PadFeedback>,
     pub(crate) playback_cursor: usize,
 
@@ -67,6 +68,7 @@ impl AppState {
             recording_notes: Vec::new(),
             active_record_holds: HashMap::new(),
             active_pointer_zones: HashMap::new(),
+            prev_pointer_pos: HashMap::new(),
             pad_feedback: Vec::new(),
             playback_cursor: 0,
             record_speed: 1.0,
@@ -174,6 +176,7 @@ impl AppState {
             self.recording_notes.clear();
             self.active_record_holds.clear();
             self.active_pointer_zones.clear();
+            self.prev_pointer_pos.clear();
             self.set_mode(Mode::Recording);
             self.status = format!("Recording started @ {:.1}x", self.record_speed);
             self.request_audio_start();
