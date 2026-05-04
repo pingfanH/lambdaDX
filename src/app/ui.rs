@@ -474,8 +474,10 @@ fn draw_hold_9slice_segment(
     let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
     let cap_len = (cap_h * (width / tex_w)).max(1.0);
 
-    let mut head_len = cap_len.min(total_len * 0.5);
-    let mut tail_len = cap_len.min(total_len * 0.5);
+    // Minimum visible cap size in screen pixels
+    let min_cap = 4.0;
+    let mut head_len = cap_len.max(min_cap).min(total_len * 0.5);
+    let mut tail_len = cap_len.max(min_cap).min(total_len * 0.5);
     if head_len + tail_len > total_len {
         let k = total_len / (head_len + tail_len);
         head_len *= k;
@@ -839,22 +841,27 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             };
             let spawn_r = outer_r * TAP_SPAWN_FRAC;
             let target_r = outer_r - 4.0 * scale;
+            // r = midpoint (grow: fixed at spawn, fly: moves to target)
             let r = spawn_r + (target_r - spawn_r) * fly_progress;
             let px = spawn_cx.x + dir.x * r;
             let py = spawn_cx.y + dir.y * r;
 
             if matches!(note.note_type, NoteType::Hold) {
-                let tail_dt = hold_tail_time(note) - current_t;
-                let tail_raw = ((TAP_TRAVEL_TIME - tail_dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
-                let tail_fly = if tail_raw < TAP_GROW_FRAC { 0.0 } else { (tail_raw - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };
-                let tail_r = spawn_r + (target_r - spawn_r) * tail_fly;
+                let hold_dur = hold_tail_time(note) - note.time;
+                let full_hold_len = (target_r - spawn_r) * (hold_dur / TAP_TRAVEL_TIME).min(1.0);
+                // Grow from midpoint: head outward, tail inward, symmetric
+                let hold_half = (full_hold_len * size_scale * 0.5).max(2.0);
+                let head_r = (r + hold_half).min(target_r);
+                let tail_r = (r - hold_half).max(spawn_r * 0.1);
+                let hx = spawn_cx.x + dir.x * head_r;
+                let hy = spawn_cx.y + dir.y * head_r;
                 let tx = spawn_cx.x + dir.x * tail_r;
                 let ty = spawn_cx.y + dir.y * tail_r;
                 if let Some(hold_tex) = &app.hold_texture {
-                    draw_hold_9slice_segment(hold_tex, vec2(px, py), vec2(tx, ty), HOLD_WIDTH * scale * size_scale, Color::from_rgba(255, 255, 255, 255));
+                    draw_hold_9slice_segment(hold_tex, vec2(hx, hy), vec2(tx, ty), HOLD_WIDTH * scale, Color::from_rgba(255, 255, 255, 255));
                 } else {
-                    draw_line(px, py, tx, ty, HOLD_WIDTH * 0.233 * scale * size_scale, Color::from_rgba(251, 113, 133, 200));
-                    draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale * size_scale, Color::from_rgba(253, 164, 175, 255));
+                    draw_line(hx, hy, tx, ty, HOLD_WIDTH * 0.233 * scale, Color::from_rgba(251, 113, 133, 200));
+                    draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale, Color::from_rgba(253, 164, 175, 255));
                 }
             }
 

@@ -12,7 +12,7 @@ pub(crate) const HOLD_TRAVEL_TIME: f32 = 0.40;
 pub(crate) const TAP_GROW_FRAC: f32 = 0.20;
 pub(crate) const TAP_SPAWN_FRAC: f32 = 0.4;
 pub(crate) const TAP_DISAPPEAR_FRAC: f32 = 0.0;
-pub(crate) const HOLD_DISAPPEAR_FRAC: f32 = 0.2;
+pub(crate) const HOLD_DISAPPEAR_FRAC: f32 = 0.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) const TAP_SIZE: f32 = 40.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

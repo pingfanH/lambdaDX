@@ -22,28 +22,10 @@
       "hold_duration": 0.0
     },
     {
-      "time": 1.18,
-      "lane": 4,
-      "note_type": "tap",
-      "hold_duration": 0.0
-    },
-    {
-      "time": 1.4,
-      "lane": 5,
-      "note_type": "tap",
-      "hold_duration": 0.0
-    },
-    {
-      "time": 1.62,
-      "lane": 6,
-      "note_type": "tap",
-      "hold_duration": 0.0
-    },
-    {
-      "time": 1.84,
-      "lane": 7,
-      "note_type": "tap",
-      "hold_duration": 0.0
+      "time": 0.5,
+      "lane": 1,
+      "note_type": "hold",
+      "hold_duration": 0.9
     },
     {
       "time": 2.08,
