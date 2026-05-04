@@ -8,7 +8,8 @@ use super::types::{
     UiAction, UiButton, LANE_COUNT, LANE_LABELS, PAD_C_ZONE,
     PREVIEW_LEAD_TIME, SCROLL_SPEED, SPEED_MAX, SPEED_MIN, SPEED_STEP, TAP_TRAVEL_TIME,
     TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
-    TAP_DISAPPEAR_FRAC, HOLD_DISAPPEAR_FRAC, HIT_WINDOW,
+    TAP_DISAPPEAR_FRAC, HOLD_DISAPPEAR_FRAC, HOLD_TAIL_FLY_TIME, HOLD_LENGTH_FRAC,
+    HIT_WINDOW,
     PAD_ROTATION_RAD, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
 };
 use super::pad_svg;
@@ -848,11 +849,20 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
             if matches!(note.note_type, NoteType::Hold) {
                 let hold_dur = hold_tail_time(note) - note.time;
-                let full_hold_len = (target_r - spawn_r) * (hold_dur / TAP_TRAVEL_TIME).min(1.0);
-                // Grow from midpoint: head outward, tail inward, symmetric
+                let full_hold_len = (target_r - spawn_r) * (hold_dur / TAP_TRAVEL_TIME * HOLD_LENGTH_FRAC).min(1.0);
                 let hold_half = (full_hold_len * size_scale * 0.5).max(2.0);
-                let head_r = (r + hold_half).min(target_r);
-                let tail_r = (r - hold_half).max(spawn_r * 0.1);
+                // Head flies during fly phase
+                let head_fly_r = spawn_r + (target_r - spawn_r) * fly_progress;
+                let head_r = (head_fly_r + hold_half).min(target_r);
+                // Tail lags at spawn, flies to target in last HOLD_TAIL_FLY_TIME seconds
+                let tail_dt = hold_tail_time(note) - current_t;
+                let tail_fly = if tail_dt <= HOLD_TAIL_FLY_TIME {
+                    (1.0 - tail_dt / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let tail_base = spawn_r + (target_r - spawn_r) * tail_fly;
+                let tail_r = (tail_base - hold_half).max(spawn_r * 0.1);
                 let hx = spawn_cx.x + dir.x * head_r;
                 let hy = spawn_cx.y + dir.y * head_r;
                 let tx = spawn_cx.x + dir.x * tail_r;
