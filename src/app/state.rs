@@ -1,0 +1,263 @@
+use macroquad::audio::{stop_sound, Sound};
+use macroquad::prelude::get_time;
+use macroquad::texture::Texture2D;
+use std::collections::HashMap;
+
+use super::types::{
+    ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm,
+    HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, is_touch_zone,
+};
+
+/// Runtime mutable state for the editor/simulator.
+pub(crate) struct AppState {
+    pub(crate) mode: Mode,
+    pub(crate) mode_wall_anchor: f64,
+    pub(crate) mode_song_offset: f32,
+
+    pub(crate) chart: ChartDoc,
+    pub(crate) recording_hits: Vec<HitEvent>,
+    pub(crate) recording_notes: Vec<Note>,
+    pub(crate) active_record_holds: HashMap<RecordInputId, ActiveRecordHold>,
+    pub(crate) active_pointer_zones: HashMap<u64, u8>,
+    pub(crate) pad_feedback: Vec<PadFeedback>,
+    pub(crate) playback_cursor: usize,
+
+    pub(crate) record_speed: f32,
+    pub(crate) play_speed: f32,
+
+    pub(crate) show_pad_only: bool,
+    pub(crate) mobile_ui: bool,
+    pub(crate) ui_scale_override: Option<f32>,
+
+    pub(crate) audio_source_name: Option<String>,
+    pub(crate) audio_wav_pcm: Option<WavPcm>,
+    pub(crate) audio: Option<Sound>,
+    pub(crate) tap_texture: Option<Texture2D>,
+    pub(crate) hold_texture: Option<Texture2D>,
+    pub(crate) audio_cache: HashMap<i32, Sound>,
+    pub(crate) pending_audio_start: bool,
+    pub(crate) audio_enabled: bool,
+
+    pub(crate) status: String,
+}
+
+impl AppState {
+    pub(crate) fn new(
+        chart: ChartDoc,
+        audio_source_name: Option<String>,
+        audio_wav_pcm: Option<WavPcm>,
+    ) -> Self {
+        let mobile_ui = cfg!(any(target_os = "android", target_os = "ios"))
+            || std::env::var("MAI2_MOBILE_UI").map(|v| v == "1").unwrap_or(false);
+
+        let ui_scale_override = std::env::var("MAI2_UI_SCALE")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .map(|v| v.clamp(0.7, 2.4));
+
+        Self {
+            mode: Mode::Idle,
+            mode_wall_anchor: get_time(),
+            mode_song_offset: 0.0,
+            chart,
+            recording_hits: Vec::new(),
+            recording_notes: Vec::new(),
+            active_record_holds: HashMap::new(),
+            active_pointer_zones: HashMap::new(),
+            pad_feedback: Vec::new(),
+            playback_cursor: 0,
+            record_speed: 1.0,
+            play_speed: 1.0,
+            show_pad_only: false,
+            mobile_ui,
+            ui_scale_override,
+            audio_source_name,
+            audio_wav_pcm,
+            audio: None,
+            tap_texture: None,
+            hold_texture: None,
+            audio_cache: HashMap::new(),
+            pending_audio_start: false,
+            audio_enabled: true,
+            status: "Ready".to_string(),
+        }
+    }
+
+    pub(crate) fn current_speed(&self) -> f32 {
+        match self.mode {
+            Mode::Recording => self.record_speed,
+            Mode::Playing => self.play_speed,
+            Mode::Idle => 1.0,
+        }
+    }
+
+    pub(crate) fn song_time(&self) -> f32 {
+        let elapsed_wall = (get_time() - self.mode_wall_anchor) as f32;
+        self.mode_song_offset + elapsed_wall * self.current_speed()
+    }
+
+    fn rebase_song_clock(&mut self) {
+        self.mode_song_offset = self.song_time();
+        self.mode_wall_anchor = get_time();
+    }
+
+    fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+        self.mode_wall_anchor = get_time();
+        self.mode_song_offset = 0.0;
+        if mode == Mode::Playing {
+            self.playback_cursor = 0;
+        }
+    }
+
+    pub(crate) fn set_record_speed(&mut self, new_speed: f32) {
+        if self.mode == Mode::Recording {
+            self.rebase_song_clock();
+            self.request_audio_start();
+        }
+        self.record_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
+    }
+
+    pub(crate) fn set_play_speed(&mut self, new_speed: f32) {
+        if self.mode == Mode::Playing {
+            self.rebase_song_clock();
+            self.request_audio_start();
+        }
+        self.play_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
+    }
+
+    pub(crate) fn stop_audio_if_any(&self) {
+        if let Some(sound) = &self.audio {
+            stop_sound(sound);
+        }
+    }
+
+    pub(crate) fn request_audio_start(&mut self) {
+        self.pending_audio_start = true;
+    }
+
+    pub(crate) fn toggle_play(&mut self) {
+        if self.mode == Mode::Playing {
+            self.set_mode(Mode::Idle);
+            self.stop_audio_if_any();
+            self.status = "Stopped playback".to_string();
+        } else {
+            self.set_mode(Mode::Playing);
+            self.status = format!("Playing chart @ {:.1}x", self.play_speed);
+            self.request_audio_start();
+        }
+    }
+
+    pub(crate) fn toggle_record(&mut self) {
+        if self.mode == Mode::Recording {
+            self.flush_active_record_holds();
+            self.set_mode(Mode::Idle);
+            self.stop_audio_if_any();
+            self.recording_notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+            self.chart.notes = self.recording_notes.clone();
+            self.status = format!(
+                "Record stopped: {} notes @ {:.1}x",
+                self.chart.notes.len(),
+                self.record_speed
+            );
+        } else {
+            self.recording_hits.clear();
+            self.recording_notes.clear();
+            self.active_record_holds.clear();
+            self.active_pointer_zones.clear();
+            self.set_mode(Mode::Recording);
+            self.status = format!("Recording started @ {:.1}x", self.record_speed);
+            self.request_audio_start();
+        }
+    }
+
+    pub(crate) fn update_playback(&mut self) {
+        if self.mode != Mode::Playing {
+            return;
+        }
+        let t = self.song_time();
+
+        while self.playback_cursor < self.chart.notes.len() {
+            if self.chart.notes[self.playback_cursor].time + HIT_WINDOW < t {
+                self.playback_cursor += 1;
+            } else {
+                break;
+            }
+        }
+
+        if let Some(last) = self.chart.notes.last() {
+            if t > last.time + 1.2 {
+                self.set_mode(Mode::Idle);
+                self.stop_audio_if_any();
+                self.status = "Playback finished".to_string();
+            }
+        }
+    }
+
+    pub(crate) fn tick_feedback(&mut self) {
+        let now = get_time();
+        self.pad_feedback.retain(|f| f.until > now);
+    }
+
+    pub(crate) fn push_feedback(&mut self, zone: u8, duration: f64) {
+        self.pad_feedback.push(PadFeedback {
+            zone,
+            until: get_time() + duration,
+        });
+    }
+
+    pub(crate) fn start_record_hold_input(&mut self, input_id: RecordInputId, lane: u8) {
+        let start_time = self.song_time();
+        self.active_record_holds
+            .entry(input_id)
+            .or_insert(ActiveRecordHold { lane, start_time });
+    }
+
+    pub(crate) fn finish_record_hold_input(&mut self, input_id: RecordInputId) {
+        let Some(active) = self.active_record_holds.remove(&input_id) else {
+            return;
+        };
+        self.push_recorded_note(active, self.song_time());
+    }
+
+    pub(crate) fn flush_active_record_holds(&mut self) {
+        if self.active_record_holds.is_empty() {
+            return;
+        }
+        let end_time = self.song_time();
+        let active: Vec<ActiveRecordHold> = self.active_record_holds.drain().map(|(_, v)| v).collect();
+        for item in active {
+            self.push_recorded_note(item, end_time);
+        }
+    }
+
+    fn push_recorded_note(&mut self, active: ActiveRecordHold, end_time: f32) {
+        let duration = (end_time - active.start_time).max(0.0);
+        let note_type = if is_touch_zone(active.lane) {
+            if duration >= HOLD_RECORD_MIN_DURATION {
+                NoteType::Hold
+            } else {
+                NoteType::Touch
+            }
+        } else if duration >= HOLD_RECORD_MIN_DURATION {
+            NoteType::Hold
+        } else {
+            NoteType::Tap
+        };
+
+        self.recording_notes.push(Note {
+            time: active.start_time,
+            lane: active.lane,
+            note_type,
+            hold_duration: if matches!(note_type, NoteType::Hold) {
+                duration
+            } else {
+                0.0
+            },
+        });
+        self.recording_hits.push(HitEvent {
+            time: active.start_time,
+            lane: active.lane,
+        });
+    }
+}

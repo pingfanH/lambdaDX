@@ -1,0 +1,950 @@
+use macroquad::prelude::*;
+use macroquad::texture::{load_texture, DrawTextureParams, FilterMode, Texture2D};
+
+use super::chart;
+use super::state::AppState;
+use super::types::{
+    hold_tail_time, is_touch_zone, pad_zone_center, sanitize_note_zone, Layout, Mode, PadGeom, RectF,
+    UiAction, UiButton, LANE_COUNT, LANE_LABELS, PAD_B_START, PAD_C_ZONE, PAD_D_START, PAD_E_START,
+    PREVIEW_LEAD_TIME, SCROLL_SPEED, SPEED_MAX, SPEED_MIN, SPEED_STEP, TAP_TRAVEL_TIME, HIT_WINDOW,
+    PAD_ROTATION_RAD, NoteType,
+};
+
+pub fn window_conf() -> Conf {
+    Conf {
+        window_title: "Mai2Chart Macroquad Local Demo".to_string(),
+        window_width: 1280,
+        window_height: 760,
+        high_dpi: true,
+        sample_count: 4,
+        ..Default::default()
+    }
+}
+
+/// Load note skins from assets.
+/// - `tap.png`: used for tap notes.
+/// - `hold.png`: used as vertical 9-slice for hold notes.
+pub(crate) async fn load_note_textures(app: &mut AppState) {
+    let tap_candidates = [
+        "tap.png",
+        "Skins/classic/tap.png",
+        "skins/classic/tap.png",
+    ];
+    for path in tap_candidates {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.tap_texture = Some(tex);
+            break;
+        }
+    }
+
+    let hold_candidates = [
+        "hold.png",
+        "Skins/classic/hold.png",
+        "skins/classic/hold.png",
+    ];
+    for path in hold_candidates {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.hold_texture = Some(tex);
+            break;
+        }
+    }
+
+    if app.tap_texture.is_none() {
+        app.status = "tap texture not found (tried tap.png / Skins/classic/tap.png)".to_string();
+    } else if app.hold_texture.is_none() {
+        app.status = "hold texture not found (tried hold.png / Skins/classic/hold.png)".to_string();
+    }
+}
+
+fn ui_scale(app: &AppState) -> f32 {
+    if let Some(v) = app.ui_scale_override {
+        return v;
+    }
+    if app.mobile_ui {
+        1.35
+    } else {
+        1.0
+    }
+}
+
+pub(crate) fn compute_layout(app: &AppState) -> Layout {
+    let scale = ui_scale(app);
+    let sw = screen_width();
+    let sh = screen_height();
+    let margin = 20.0 * scale;
+    let header_h = 110.0 * scale;
+
+    let header = RectF {
+        x: margin,
+        y: margin,
+        w: sw - margin * 2.0,
+        h: header_h - 20.0 * scale,
+    };
+
+    if app.show_pad_only || app.mobile_ui {
+        let pad = RectF {
+            x: margin,
+            y: header_h,
+            w: sw - margin * 2.0,
+            h: sh - header_h - margin,
+        };
+        return Layout {
+            header,
+            timeline: None,
+            pad,
+        };
+    }
+
+    let timeline_w = sw * 0.62;
+    let timeline = RectF {
+        x: margin,
+        y: header_h,
+        w: timeline_w,
+        h: sh - header_h - margin,
+    };
+    let pad = RectF {
+        x: margin + timeline_w + margin,
+        y: header_h,
+        w: sw - timeline_w - margin * 3.0,
+        h: sh - header_h - margin,
+    };
+    Layout {
+        header,
+        timeline: Some(timeline),
+        pad,
+    }
+}
+
+pub(crate) fn compute_pad_geom(panel: RectF) -> PadGeom {
+    let cx = panel.x + panel.w * 0.5;
+    let cy = panel.y + panel.h * 0.38;
+    let outer_r = panel.w.min(panel.h) * 0.34;
+    PadGeom { cx, cy, outer_r }
+}
+
+pub(crate) fn build_ui_buttons(layout: Layout, app: &AppState) -> Vec<UiButton> {
+    let scale = ui_scale(app);
+    let mut out = Vec::new();
+    let bw = if app.mobile_ui { 72.0 } else { 92.0 } * scale;
+    let bh = if app.mobile_ui { 28.0 } else { 26.0 } * scale;
+    let gap = 8.0 * scale;
+
+    let row1 = [
+        ("Play", UiAction::TogglePlay),
+        ("Record", UiAction::ToggleRecord),
+        ("Save", UiAction::Save),
+        ("Load", UiAction::Load),
+        ("Clear", UiAction::Clear),
+        ("Audio", UiAction::ToggleAudio),
+    ];
+    let row2 = [
+        ("Rec-", UiAction::RecSpeedDown),
+        ("Rec+", UiAction::RecSpeedUp),
+        ("Play-", UiAction::PlaySpeedDown),
+        ("Play+", UiAction::PlaySpeedUp),
+        ("PadOnly", UiAction::TogglePadOnly),
+        ("MobileUI", UiAction::ToggleMobileUi),
+    ];
+
+    let row_total = row1.len() as f32 * bw + (row1.len() as f32 - 1.0) * gap;
+    let start_x = (layout.header.x + layout.header.w - row_total - 12.0 * scale)
+        .max(layout.header.x + 14.0 * scale);
+    let row1_y = layout.header.y + 12.0 * scale;
+    let row2_y = row1_y + bh + 8.0 * scale;
+
+    for (i, (label, action)) in row1.iter().enumerate() {
+        out.push(UiButton {
+            rect: RectF {
+                x: start_x + i as f32 * (bw + gap),
+                y: row1_y,
+                w: bw,
+                h: bh,
+            },
+            label,
+            action: *action,
+        });
+    }
+    for (i, (label, action)) in row2.iter().enumerate() {
+        out.push(UiButton {
+            rect: RectF {
+                x: start_x + i as f32 * (bw + gap),
+                y: row2_y,
+                w: bw,
+                h: bh,
+            },
+            label,
+            action: *action,
+        });
+    }
+
+    out
+}
+
+pub(crate) fn draw_layout(app: &AppState, layout: Layout, pad: PadGeom, buttons: &[UiButton]) {
+    let scale = ui_scale(app);
+    draw_rectangle(
+        layout.header.x,
+        layout.header.y,
+        layout.header.w,
+        layout.header.h,
+        Color::from_rgba(17, 24, 39, 255),
+    );
+
+    draw_text(
+        "Mai2Chart Local Demo (macroquad)",
+        layout.header.x + 14.0 * scale,
+        layout.header.y + 30.0 * scale,
+        28.0 * scale,
+        WHITE,
+    );
+
+    let mode_label = match app.mode {
+        Mode::Idle => "IDLE",
+        Mode::Recording => "RECORDING",
+        Mode::Playing => "PLAYBACK",
+    };
+
+    draw_text(
+        &format!(
+            "Touch controls enabled  |  Mode: {mode_label}  |  Hold: press and release"
+        ),
+        layout.header.x + 14.0 * scale,
+        layout.header.y + 56.0 * scale,
+        20.0 * scale,
+        Color::from_rgba(148, 163, 184, 255),
+    );
+
+    draw_text(
+        &format!(
+            "RecSpeed [{:.1}x]   PlaySpeed [{:.1}x]   Status: {}",
+            app.record_speed, app.play_speed, app.status
+        ),
+        layout.header.x + 14.0 * scale,
+        layout.header.y + 84.0 * scale,
+        20.0 * scale,
+        Color::from_rgba(125, 211, 252, 255),
+    );
+
+    draw_ui_buttons(app, buttons);
+
+    if let Some(timeline) = layout.timeline {
+        draw_timeline_panel(app, timeline);
+    }
+
+    draw_pad_panel(app, layout.pad, pad);
+}
+
+fn draw_ui_buttons(app: &AppState, buttons: &[UiButton]) {
+    let scale = ui_scale(app);
+    for b in buttons {
+        let active = match b.action {
+            UiAction::TogglePlay => app.mode == Mode::Playing,
+            UiAction::ToggleRecord => app.mode == Mode::Recording,
+            UiAction::ToggleAudio => app.audio_enabled,
+            UiAction::TogglePadOnly => app.show_pad_only,
+            UiAction::ToggleMobileUi => app.mobile_ui,
+            _ => false,
+        };
+        let bg = if active {
+            Color::from_rgba(30, 58, 138, 255)
+        } else {
+            Color::from_rgba(31, 41, 55, 255)
+        };
+        draw_rectangle(b.rect.x, b.rect.y, b.rect.w, b.rect.h, bg);
+        draw_rectangle_lines(
+            b.rect.x,
+            b.rect.y,
+            b.rect.w,
+            b.rect.h,
+            1.0 * scale,
+            Color::from_rgba(71, 85, 105, 255),
+        );
+        draw_text(
+            b.label,
+            b.rect.x + 10.0 * scale,
+            b.rect.y + 18.0 * scale,
+            16.0 * scale,
+            Color::from_rgba(226, 232, 240, 255),
+        );
+    }
+}
+
+pub(crate) fn rect_contains(r: RectF, p: Vec2) -> bool {
+    p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
+}
+
+pub(crate) fn trigger_ui_action(app: &mut AppState, action: UiAction) {
+    match action {
+        UiAction::TogglePlay => app.toggle_play(),
+        UiAction::ToggleRecord => app.toggle_record(),
+        UiAction::Save => match chart::save_recording_doc(app) {
+            Ok(path) => app.status = format!("Saved recording: {}", path.display()),
+            Err(err) => app.status = format!("Save failed: {err}"),
+        },
+        UiAction::Load => match chart::load_latest_saved_chart() {
+            Ok(chart) => {
+                app.chart = chart;
+                app.status = "Loaded latest saved chart".to_string();
+            }
+            Err(err) => app.status = format!("Load latest failed: {err}"),
+        },
+        UiAction::Clear => {
+            app.recording_hits.clear();
+            app.recording_notes.clear();
+            app.active_record_holds.clear();
+            app.active_pointer_zones.clear();
+            app.status = "Cleared recording hits".to_string();
+        }
+        UiAction::ToggleAudio => {
+            app.audio_enabled = !app.audio_enabled;
+            app.status = format!("Audio enabled: {}", app.audio_enabled);
+            if !app.audio_enabled {
+                app.stop_audio_if_any();
+            } else if matches!(app.mode, Mode::Playing | Mode::Recording) {
+                app.request_audio_start();
+            }
+        }
+        UiAction::RecSpeedDown => {
+            app.set_record_speed((app.record_speed - SPEED_STEP).max(SPEED_MIN));
+            app.status = format!("Record speed: {:.1}x", app.record_speed);
+        }
+        UiAction::RecSpeedUp => {
+            app.set_record_speed((app.record_speed + SPEED_STEP).min(SPEED_MAX));
+            app.status = format!("Record speed: {:.1}x", app.record_speed);
+        }
+        UiAction::PlaySpeedDown => {
+            app.set_play_speed((app.play_speed - SPEED_STEP).max(SPEED_MIN));
+            app.status = format!("Playback speed: {:.1}x", app.play_speed);
+        }
+        UiAction::PlaySpeedUp => {
+            app.set_play_speed((app.play_speed + SPEED_STEP).min(SPEED_MAX));
+            app.status = format!("Playback speed: {:.1}x", app.play_speed);
+        }
+        UiAction::TogglePadOnly => {
+            app.show_pad_only = !app.show_pad_only;
+            app.status = format!("Pad only: {}", app.show_pad_only);
+        }
+        UiAction::ToggleMobileUi => {
+            app.mobile_ui = !app.mobile_ui;
+            app.status = format!("Mobile UI mode: {}", app.mobile_ui);
+        }
+    }
+}
+
+fn draw_tap_sprite(tex: &Texture2D, cx: f32, cy: f32, size: f32) {
+    draw_texture_ex(
+        tex,
+        cx - size * 0.5,
+        cy - size * 0.5,
+        WHITE,
+        DrawTextureParams {
+            dest_size: Some(vec2(size, size)),
+            ..Default::default()
+        },
+    );
+}
+
+/// Draw hold texture with vertical 9-slice behavior:
+/// top cap fixed + middle stretched + bottom cap fixed.
+fn draw_hold_9slice_vertical(tex: &Texture2D, cx: f32, y0: f32, y1: f32, width: f32) {
+    let top = y0.min(y1);
+    let bottom = y0.max(y1);
+    let total_h = (bottom - top).max(1.0);
+
+    let tex_w = tex.width().max(1.0);
+    let tex_h = tex.height().max(3.0);
+    let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
+    let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
+
+    // Keep cap aspect by converting source-pixel cap height into screen height using width ratio.
+    let cap_dest_h = (cap_h * (width / tex_w)).max(1.0);
+    let mut top_h = cap_dest_h.min(total_h * 0.5);
+    let mut bottom_h = cap_dest_h.min(total_h * 0.5);
+    if top_h + bottom_h > total_h {
+        let k = total_h / (top_h + bottom_h);
+        top_h *= k;
+        bottom_h *= k;
+    }
+    let body_h = (total_h - top_h - bottom_h).max(0.0);
+    let x = cx - width * 0.5;
+
+    if top_h > 0.0 {
+        draw_texture_ex(
+            tex,
+            x,
+            top,
+            WHITE,
+            DrawTextureParams {
+                source: Some(Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: tex_w,
+                    h: cap_h,
+                }),
+                dest_size: Some(vec2(width, top_h)),
+                ..Default::default()
+            },
+        );
+    }
+    if body_h > 0.0 {
+        draw_texture_ex(
+            tex,
+            x,
+            top + top_h,
+            WHITE,
+            DrawTextureParams {
+                source: Some(Rect {
+                    x: 0.0,
+                    y: cap_h,
+                    w: tex_w,
+                    h: body_src_h,
+                }),
+                dest_size: Some(vec2(width, body_h)),
+                ..Default::default()
+            },
+        );
+    }
+    if bottom_h > 0.0 {
+        draw_texture_ex(
+            tex,
+            x,
+            bottom - bottom_h,
+            WHITE,
+            DrawTextureParams {
+                source: Some(Rect {
+                    x: 0.0,
+                    y: tex_h - cap_h,
+                    w: tex_w,
+                    h: cap_h,
+                }),
+                dest_size: Some(vec2(width, bottom_h)),
+                ..Default::default()
+            },
+        );
+    }
+}
+
+fn draw_hold_9slice_segment(
+    tex: &Texture2D,
+    from: Vec2,
+    to: Vec2,
+    width: f32,
+    tint: Color,
+) {
+    let delta = to - from;
+    let total_len = delta.length().max(1.0);
+    let dir = delta / total_len;
+    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
+
+    let tex_w = tex.width().max(1.0);
+    let tex_h = tex.height().max(3.0);
+    let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
+    let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
+    let cap_len = (cap_h * (width / tex_w)).max(1.0);
+
+    let mut head_len = cap_len.min(total_len * 0.5);
+    let mut tail_len = cap_len.min(total_len * 0.5);
+    if head_len + tail_len > total_len {
+        let k = total_len / (head_len + tail_len);
+        head_len *= k;
+        tail_len *= k;
+    }
+    let body_len = (total_len - head_len - tail_len).max(0.0);
+
+    let draw_part = |start_offset: f32, part_len: f32, src_y: f32, src_h: f32| {
+        if part_len <= 0.0 {
+            return;
+        }
+        let center = from + dir * (start_offset + part_len * 0.5);
+        draw_texture_ex(
+            tex,
+            center.x - width * 0.5,
+            center.y - part_len * 0.5,
+            tint,
+            DrawTextureParams {
+                source: Some(Rect {
+                    x: 0.0,
+                    y: src_y,
+                    w: tex_w,
+                    h: src_h,
+                }),
+                dest_size: Some(vec2(width, part_len)),
+                rotation: angle,
+                ..Default::default()
+            },
+        );
+    };
+
+    draw_part(0.0, head_len, 0.0, cap_h);
+    draw_part(head_len, body_len, cap_h, body_src_h);
+    draw_part(head_len + body_len, tail_len, tex_h - cap_h, cap_h);
+}
+
+fn draw_timeline_panel(app: &AppState, rect: RectF) {
+    let scale = ui_scale(app);
+    draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::from_rgba(17, 24, 39, 255));
+    draw_text(
+        "Timeline (Vertical) : 1~8 Tap/Hold + T Touch",
+        rect.x + 12.0 * scale,
+        rect.y + 24.0 * scale,
+        24.0 * scale,
+        WHITE,
+    );
+
+    let track_x = rect.x + 14.0 * scale;
+    let track_y = rect.y + 40.0 * scale;
+    let track_w = rect.w - 28.0 * scale;
+    let track_h = rect.h - 54.0 * scale;
+    let ruler_w = 64.0 * scale;
+    let lanes_w = track_w - ruler_w;
+    let lane_w = lanes_w / LANE_COUNT as f32;
+
+    draw_rectangle(track_x, track_y, track_w, track_h, Color::from_rgba(11, 18, 32, 255));
+    draw_rectangle(track_x, track_y, ruler_w, track_h, Color::from_rgba(8, 12, 23, 255));
+
+    for (i, label) in LANE_LABELS.iter().enumerate() {
+        let lx = track_x + ruler_w + lane_w * i as f32 + lane_w * 0.45;
+        let color = if *label == "T" {
+            Color::from_rgba(253, 224, 71, 255)
+        } else {
+            Color::from_rgba(226, 232, 240, 255)
+        };
+        draw_text(label, lx, track_y + 18.0 * scale, 20.0 * scale, color);
+    }
+
+    for i in 0..=LANE_COUNT {
+        let lx = track_x + ruler_w + lane_w * i as f32;
+        let c = if i == 4 {
+            Color::from_rgba(100, 116, 139, 255)
+        } else {
+            Color::from_rgba(51, 65, 85, 255)
+        };
+        draw_line(
+            lx,
+            track_y,
+            lx,
+            track_y + track_h,
+            if i == 4 { 2.0 * scale } else { 1.0 * scale },
+            c,
+        );
+    }
+
+    let rows = 18;
+    for i in 0..=rows {
+        let yy = track_y + (track_h / rows as f32) * i as f32;
+        let is_major = i % 3 == 0;
+        let c = if is_major {
+            Color::from_rgba(185, 28, 28, 255)
+        } else {
+            Color::from_rgba(22, 163, 74, 255)
+        };
+        draw_line(track_x + ruler_w, yy, track_x + track_w, yy, 1.0 * scale, c);
+        if is_major {
+            let bar_num = 108_i32 - (i / 3) as i32;
+            draw_text(
+                &format!("{bar_num}"),
+                track_x + 10.0 * scale,
+                yy + 4.0 * scale,
+                18.0 * scale,
+                Color::from_rgba(148, 163, 184, 255),
+            );
+        }
+    }
+
+    let now = match app.mode {
+        Mode::Playing | Mode::Recording => app.song_time(),
+        Mode::Idle => 0.0,
+    };
+
+    let judge_y = track_y + track_h - 38.0 * scale;
+    draw_line(
+        track_x + ruler_w,
+        judge_y,
+        track_x + track_w,
+        judge_y,
+        2.0 * scale,
+        Color::from_rgba(239, 68, 68, 255),
+    );
+
+    for note in &app.chart.notes {
+        let zone = sanitize_note_zone(note.note_type, note.lane);
+        let dt = note.time - now;
+        let tail_dt = if matches!(note.note_type, NoteType::Hold) {
+            hold_tail_time(note) - now
+        } else {
+            dt
+        };
+        if tail_dt < -0.4 || dt > PREVIEW_LEAD_TIME {
+            continue;
+        }
+        let lane_index = if is_touch_zone(zone) {
+            LANE_COUNT - 1
+        } else {
+            (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1)
+        };
+        let cx = track_x + ruler_w + lane_w * lane_index as f32 + lane_w * 0.5;
+        let ny = judge_y - dt * SCROLL_SPEED;
+
+        match note.note_type {
+            NoteType::Tap => {
+                if let Some(tex) = &app.tap_texture {
+                    draw_tap_sprite(tex, cx, ny, 32.0 * scale);
+                } else {
+                    draw_circle(cx, ny, 10.0 * scale, Color::from_rgba(17, 24, 39, 255));
+                    draw_circle_lines(
+                        cx,
+                        ny,
+                        10.0 * scale,
+                        3.0 * scale,
+                        Color::from_rgba(244, 114, 182, 255),
+                    );
+                    draw_circle(cx, ny, 3.0 * scale, Color::from_rgba(249, 168, 212, 255));
+                }
+            }
+            NoteType::Touch => {
+                draw_rectangle(
+                    cx - 9.0 * scale,
+                    ny - 9.0 * scale,
+                    18.0 * scale,
+                    18.0 * scale,
+                    Color::from_rgba(15, 23, 42, 255),
+                );
+                draw_rectangle_lines(
+                    cx - 9.0 * scale,
+                    ny - 9.0 * scale,
+                    18.0 * scale,
+                    18.0 * scale,
+                    2.0 * scale,
+                    Color::from_rgba(103, 232, 249, 255),
+                );
+                draw_circle(cx, ny, 2.5 * scale, Color::from_rgba(103, 232, 249, 255));
+            }
+            NoteType::Hold => {
+                let tail_time = hold_tail_time(note);
+                let tail_dt = tail_time - now;
+                let tail_y = judge_y - tail_dt * SCROLL_SPEED;
+                if let Some(tex) = &app.hold_texture {
+                    draw_hold_9slice_vertical(tex, cx, ny, tail_y, 30.0 * scale);
+                } else {
+                    let top = ny.min(tail_y);
+                    let h = (ny - tail_y).abs().max(4.0 * scale);
+                    draw_rectangle(
+                        cx - 6.0 * scale,
+                        top,
+                        12.0 * scale,
+                        h,
+                        Color::from_rgba(190, 24, 93, 130),
+                    );
+                    draw_rectangle_lines(
+                        cx - 6.0 * scale,
+                        top,
+                        12.0 * scale,
+                        h,
+                        1.0 * scale,
+                        Color::from_rgba(244, 114, 182, 200),
+                    );
+                    draw_circle(cx, ny, 11.0 * scale, Color::from_rgba(17, 24, 39, 255));
+                    draw_circle_lines(
+                        cx,
+                        ny,
+                        11.0 * scale,
+                        3.0 * scale,
+                        Color::from_rgba(251, 113, 133, 255),
+                    );
+                    draw_circle(cx, ny, 3.2 * scale, Color::from_rgba(253, 164, 175, 255));
+                    draw_circle(cx, tail_y, 4.0 * scale, Color::from_rgba(251, 113, 133, 220));
+                }
+            }
+        }
+    }
+
+    if app.mode == Mode::Recording {
+        for hit in &app.recording_hits {
+            let zone = if hit.lane == 9 { PAD_C_ZONE } else { hit.lane };
+            let dt = hit.time - now;
+            if dt < -0.3 || dt > 1.5 {
+                continue;
+            }
+            let lane_index = if is_touch_zone(zone) {
+                LANE_COUNT - 1
+            } else {
+                (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1)
+            };
+            let cx = track_x + ruler_w + lane_w * lane_index as f32 + lane_w * 0.5;
+            let ny = judge_y - dt * SCROLL_SPEED;
+            draw_circle(cx, ny, 4.0 * scale, Color::from_rgba(56, 189, 248, 220));
+        }
+    }
+}
+
+fn draw_pad_zone_guides(pad: PadGeom, scale: f32) {
+    let cx = pad.cx;
+    let cy = pad.cy;
+    let r = pad.outer_r;
+    let rings = [0.18, 0.31, 0.44, 0.62, 1.00];
+    for rr in rings {
+        draw_circle_lines(
+            cx,
+            cy,
+            r * rr,
+            if rr == 1.0 { 3.0 * scale } else { 1.5 * scale },
+            Color::from_rgba(100, 116, 139, if rr == 1.0 { 255 } else { 170 }),
+        );
+    }
+    for i in 0..8 {
+        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
+        draw_line(
+            cx + ang.cos() * r * 0.18,
+            cy + ang.sin() * r * 0.18,
+            cx + ang.cos() * r * 1.0,
+            cy + ang.sin() * r * 1.0,
+            1.0 * scale,
+            Color::from_rgba(71, 85, 105, 180),
+        );
+    }
+}
+
+fn draw_pad_zone_labels(pad: PadGeom, scale: f32) {
+    let label_c = Color::from_rgba(203, 213, 225, 200);
+    for z in 1_u8..=8 {
+        if let Some(p) = pad_zone_center(z, pad) {
+            draw_text(&format!("A{z}"), p.x - 11.0 * scale, p.y + 5.0 * scale, 14.0 * scale, label_c);
+        }
+    }
+    for z in PAD_B_START..=PAD_B_START + 7 {
+        if let Some(p) = pad_zone_center(z, pad) {
+            draw_text(&format!("B{}", z - PAD_B_START + 1), p.x - 11.0 * scale, p.y + 5.0 * scale, 12.0 * scale, label_c);
+        }
+    }
+    for z in PAD_D_START..=PAD_D_START + 7 {
+        if let Some(p) = pad_zone_center(z, pad) {
+            draw_text(&format!("D{}", z - PAD_D_START + 1), p.x - 11.0 * scale, p.y + 5.0 * scale, 12.0 * scale, label_c);
+        }
+    }
+    for z in PAD_E_START..=PAD_E_START + 7 {
+        if let Some(p) = pad_zone_center(z, pad) {
+            draw_text(&format!("E{}", z - PAD_E_START + 1), p.x - 11.0 * scale, p.y + 5.0 * scale, 12.0 * scale, label_c);
+        }
+    }
+    if let Some(c) = pad_zone_center(PAD_C_ZONE, pad) {
+        draw_text("C", c.x - 5.0 * scale, c.y + 5.0 * scale, 14.0 * scale, label_c);
+    }
+}
+
+fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
+    let scale = ui_scale(app);
+    draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::from_rgba(17, 24, 39, 255));
+    draw_text("Pad View", rect.x + 12.0 * scale, rect.y + 24.0 * scale, 24.0 * scale, WHITE);
+
+    let cx = pad.cx;
+    let cy = pad.cy;
+    let outer_r = pad.outer_r;
+
+    draw_circle(cx, cy, outer_r, Color::from_rgba(16, 24, 38, 255));
+    draw_pad_zone_guides(pad, scale);
+    draw_pad_zone_labels(pad, scale);
+
+    let current_t = if app.mode == Mode::Playing {
+        app.song_time()
+    } else {
+        0.0
+    };
+
+    for note in &app.chart.notes {
+        let zone = sanitize_note_zone(note.note_type, note.lane);
+        let dt = note.time - current_t;
+        let tail_dt = if matches!(note.note_type, NoteType::Hold) {
+            hold_tail_time(note) - current_t
+        } else {
+            dt
+        };
+        if tail_dt < -0.18 || dt > PREVIEW_LEAD_TIME {
+            continue;
+        }
+
+        if zone <= 8 {
+            if dt > TAP_TRAVEL_TIME {
+                continue;
+            }
+            let idx = (zone - 1) as f32;
+            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+            let progress = ((TAP_TRAVEL_TIME - dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
+            let spawn_r = outer_r * 0.24;
+            let target_r = outer_r - 4.0 * scale;
+            let r = spawn_r + (target_r - spawn_r) * progress;
+            let px = cx + ang.cos() * r;
+            let py = cy + ang.sin() * r;
+
+            let alpha = (90.0 + 165.0 * progress) as u8;
+            let (stroke, core) = match note.note_type {
+                NoteType::Hold => (
+                    Color::from_rgba(251, 113, 133, alpha),
+                    Color::from_rgba(253, 164, 175, alpha),
+                ),
+                _ => (
+                    Color::from_rgba(244, 114, 182, alpha),
+                    Color::from_rgba(249, 168, 212, alpha),
+                ),
+            };
+
+            if matches!(note.note_type, NoteType::Hold) {
+                let tail_dt = hold_tail_time(note) - current_t;
+                let tail_progress = ((TAP_TRAVEL_TIME - tail_dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
+                let tail_r = spawn_r + (target_r - spawn_r) * tail_progress;
+                let tx = cx + ang.cos() * tail_r;
+                let ty = cy + ang.sin() * tail_r;
+                if let Some(hold_tex) = &app.hold_texture {
+                    draw_hold_9slice_segment(
+                        hold_tex,
+                        vec2(px, py),
+                        vec2(tx, ty),
+                        30.0 * scale,
+                        Color::from_rgba(255, 255, 255, alpha),
+                    );
+                } else {
+                    draw_line(
+                        px,
+                        py,
+                        tx,
+                        ty,
+                        7.0 * scale,
+                        Color::from_rgba(251, 113, 133, alpha.saturating_sub(40)),
+                    );
+                    draw_circle(tx, ty, 5.0 * scale, Color::from_rgba(253, 164, 175, alpha));
+                }
+            }
+
+            if let Some(tex) = &app.tap_texture {
+                draw_texture_ex(
+                    tex,
+                    px - 16.0 * scale,
+                    py - 16.0 * scale,
+                    Color::from_rgba(255, 255, 255, alpha),
+                    DrawTextureParams {
+                        dest_size: Some(vec2(32.0 * scale, 32.0 * scale)),
+                        ..Default::default()
+                    },
+                );
+            } else {
+                draw_circle(px, py, 12.0 * scale, Color::from_rgba(17, 24, 39, alpha));
+                draw_circle_lines(px, py, 12.0 * scale, 3.0 * scale, stroke);
+                draw_circle(px, py, 3.8 * scale, core);
+            }
+
+            if dt.abs() <= HIT_WINDOW {
+                draw_circle_lines(px, py, 17.0 * scale, 2.0 * scale, Color::from_rgba(255, 255, 255, 220));
+            }
+        } else {
+            let Some(center) = pad_zone_center(zone, pad) else {
+                continue;
+            };
+            let raw = (PREVIEW_LEAD_TIME - dt) / PREVIEW_LEAD_TIME;
+            let progress = smoothstep(raw.clamp(0.0, 1.0));
+            let size = (14.0 + 10.0 * progress) * scale;
+            let half = size * 0.5;
+            let alpha = (90.0 + 165.0 * progress) as u8;
+            draw_rectangle(
+                center.x - half,
+                center.y - half,
+                size,
+                size,
+                Color::from_rgba(15, 23, 42, alpha),
+            );
+            draw_rectangle_lines(
+                center.x - half,
+                center.y - half,
+                size,
+                size,
+                2.0 * scale,
+                Color::from_rgba(103, 232, 249, alpha),
+            );
+            if dt.abs() <= HIT_WINDOW {
+                draw_circle_lines(center.x, center.y, 18.0 * scale, 2.0 * scale, Color::from_rgba(255, 255, 255, 220));
+            }
+            if matches!(note.note_type, NoteType::Hold) {
+                let tail_center = center;
+                let head_center = center;
+                let len = (hold_tail_time(note) - note.time).max(0.0) * (outer_r * 0.38);
+                let dir = (center - vec2(cx, cy)).normalize_or_zero();
+                let seg_to = head_center + dir * len.min(outer_r * 0.26);
+                if let Some(hold_tex) = &app.hold_texture {
+                    draw_hold_9slice_segment(
+                        hold_tex,
+                        head_center,
+                        seg_to,
+                        24.0 * scale,
+                        Color::from_rgba(255, 255, 255, alpha),
+                    );
+                } else {
+                    draw_line(
+                        head_center.x,
+                        head_center.y,
+                        seg_to.x,
+                        seg_to.y,
+                        5.0 * scale,
+                        Color::from_rgba(251, 113, 133, alpha),
+                    );
+                }
+            }
+        }
+    }
+
+    // Preview feedback: upcoming notes pulse on their target zones.
+    for note in &app.chart.notes {
+        let zone = sanitize_note_zone(note.note_type, note.lane);
+        let dt = note.time - current_t;
+        if dt.abs() > HIT_WINDOW {
+            continue;
+        }
+        if let Some(p) = pad_zone_center(zone, pad) {
+            draw_circle_lines(
+                p.x,
+                p.y,
+                22.0 * scale,
+                2.0 * scale,
+                Color::from_rgba(255, 255, 255, 220),
+            );
+        }
+    }
+
+    // Input feedback: active pointer zones + short-lived flash queue.
+    for &zone in app.active_pointer_zones.values() {
+        if let Some(p) = pad_zone_center(zone, pad) {
+            draw_circle(p.x, p.y, 12.0 * scale, Color::from_rgba(56, 189, 248, 140));
+            draw_circle_lines(p.x, p.y, 16.0 * scale, 2.0 * scale, Color::from_rgba(125, 211, 252, 240));
+        }
+    }
+    for fb in &app.pad_feedback {
+        if let Some(p) = pad_zone_center(fb.zone, pad) {
+            draw_circle_lines(
+                p.x,
+                p.y,
+                20.0 * scale,
+                2.0 * scale,
+                Color::from_rgba(250, 204, 21, 220),
+            );
+        }
+    }
+
+    draw_text(
+        "Pad zones: A1~A8 + B1~B8 + C + D1~D8 + E1~E8 (33)",
+        rect.x + 12.0 * scale,
+        rect.y + rect.h - 54.0 * scale,
+        18.0 * scale,
+        Color::from_rgba(252, 211, 77, 255),
+    );
+    draw_text(
+        "Mobile touch: press/move/release supports cross-zone tracking",
+        rect.x + 12.0 * scale,
+        rect.y + rect.h - 30.0 * scale,
+        18.0 * scale,
+        Color::from_rgba(165, 180, 252, 255),
+    );
+}
+
+fn smoothstep(x: f32) -> f32 {
+    let t = x.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}

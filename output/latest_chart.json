@@ -1,0 +1,77 @@
+{
+  "version": "0.1.0",
+  "title": "Generated Chart Preview",
+  "bpm": 180.0,
+  "notes": [
+    {
+      "time": 0.5,
+      "lane": 1,
+      "note_type": "tap"
+    },
+    {
+      "time": 0.72,
+      "lane": 2,
+      "note_type": "tap"
+    },
+    {
+      "time": 0.95,
+      "lane": 3,
+      "note_type": "tap"
+    },
+    {
+      "time": 1.18,
+      "lane": 4,
+      "note_type": "tap"
+    },
+    {
+      "time": 1.4,
+      "lane": 5,
+      "note_type": "tap"
+    },
+    {
+      "time": 1.62,
+      "lane": 6,
+      "note_type": "tap"
+    },
+    {
+      "time": 1.84,
+      "lane": 7,
+      "note_type": "tap"
+    },
+    {
+      "time": 2.08,
+      "lane": 8,
+      "note_type": "tap"
+    },
+    {
+      "time": 2.3,
+      "lane": 9,
+      "note_type": "touch"
+    },
+    {
+      "time": 2.54,
+      "lane": 1,
+      "note_type": "tap"
+    },
+    {
+      "time": 2.78,
+      "lane": 4,
+      "note_type": "tap"
+    },
+    {
+      "time": 3.0,
+      "lane": 8,
+      "note_type": "tap"
+    },
+    {
+      "time": 3.24,
+      "lane": 9,
+      "note_type": "touch"
+    },
+    {
+      "time": 3.46,
+      "lane": 5,
+      "note_type": "tap"
+    }
+  ]
+}
