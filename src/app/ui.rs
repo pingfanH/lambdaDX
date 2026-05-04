@@ -9,6 +9,7 @@ use super::types::{
     PREVIEW_LEAD_TIME, SCROLL_SPEED, SPEED_MAX, SPEED_MIN, SPEED_STEP, TAP_TRAVEL_TIME,
     TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
     TAP_DISAPPEAR_FRAC, HOLD_DISAPPEAR_FRAC, HOLD_TAIL_FLY_TIME, HOLD_LENGTH_FRAC,
+    HOLD_SPAWN_FRAC, HOLD_TARGET_OFFSET, TAP_TARGET_OFFSET, HOLD_FLY_TIME,
     HIT_WINDOW,
     PAD_ROTATION_RAD, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
 };
@@ -798,7 +799,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         };
 
         let lead_time = if zone <= 8 {
-            TAP_TRAVEL_TIME
+            if matches!(note.note_type, NoteType::Hold) { HOLD_FLY_TIME } else { TAP_TRAVEL_TIME }
         } else {
             match note.note_type {
                 NoteType::Hold => HOLD_TRAVEL_TIME,
@@ -841,19 +842,25 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 (progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
             };
             let spawn_r = outer_r * TAP_SPAWN_FRAC;
-            let target_r = outer_r - 4.0 * scale;
+            let target_r = outer_r + TAP_TARGET_OFFSET * scale;
             // r = midpoint (grow: fixed at spawn, fly: moves to target)
             let r = spawn_r + (target_r - spawn_r) * fly_progress;
             let px = spawn_cx.x + dir.x * r;
             let py = spawn_cx.y + dir.y * r;
 
             if matches!(note.note_type, NoteType::Hold) {
+                let h_spawn_r = outer_r * HOLD_SPAWN_FRAC;
+                let h_target_r = outer_r + HOLD_TARGET_OFFSET * scale;
                 let hold_dur = hold_tail_time(note) - note.time;
-                let full_hold_len = (target_r - spawn_r) * (hold_dur / TAP_TRAVEL_TIME * HOLD_LENGTH_FRAC).min(1.0);
-                let hold_half = (full_hold_len * size_scale * 0.5).max(2.0);
-                // Head flies during fly phase
-                let head_fly_r = spawn_r + (target_r - spawn_r) * fly_progress;
-                let head_r = (head_fly_r + hold_half).min(target_r);
+                let h_progress = ((HOLD_FLY_TIME - dt) / HOLD_FLY_TIME).clamp(0.0, 1.0);
+                let h_size_scale = if h_progress < TAP_GROW_FRAC { h_progress / TAP_GROW_FRAC } else { 1.0 };
+                let h_fly_progress = if h_progress < TAP_GROW_FRAC { 0.0 } else { (h_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };
+                let full_hold_len = (h_target_r - h_spawn_r) * HOLD_LENGTH_FRAC;
+                // Uniform scale: length and width both scale 0→1 during grow
+                let hold_half = (full_hold_len * h_size_scale * 0.5).max(2.0);
+                // Head flies during fly phase using hold's own fly time
+                let head_fly_r = h_spawn_r + (h_target_r - h_spawn_r) * h_fly_progress;
+                let head_r = (head_fly_r + hold_half).min(h_target_r);
                 // Tail lags at spawn, flies to target in last HOLD_TAIL_FLY_TIME seconds
                 let tail_dt = hold_tail_time(note) - current_t;
                 let tail_fly = if tail_dt <= HOLD_TAIL_FLY_TIME {
@@ -861,17 +868,19 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 } else {
                     0.0
                 };
-                let tail_base = spawn_r + (target_r - spawn_r) * tail_fly;
-                let tail_r = (tail_base - hold_half).max(spawn_r * 0.1);
+                let tail_base = h_spawn_r + (h_target_r - h_spawn_r) * tail_fly;
+                let tail_r = (tail_base - hold_half).max(h_spawn_r * 0.1);
                 let hx = spawn_cx.x + dir.x * head_r;
                 let hy = spawn_cx.y + dir.y * head_r;
                 let tx = spawn_cx.x + dir.x * tail_r;
                 let ty = spawn_cx.y + dir.y * tail_r;
+                // Width scales 0→1 during grow, body length stays full
+                let hold_w = HOLD_WIDTH * scale * h_size_scale;
                 if let Some(hold_tex) = &app.hold_texture {
-                    draw_hold_9slice_segment(hold_tex, vec2(hx, hy), vec2(tx, ty), HOLD_WIDTH * scale, Color::from_rgba(255, 255, 255, 255));
+                    draw_hold_9slice_segment(hold_tex, vec2(hx, hy), vec2(tx, ty), hold_w.max(1.0), Color::from_rgba(255, 255, 255, 255));
                 } else {
-                    draw_line(hx, hy, tx, ty, HOLD_WIDTH * 0.233 * scale, Color::from_rgba(251, 113, 133, 200));
-                    draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale, Color::from_rgba(253, 164, 175, 255));
+                    draw_line(hx, hy, tx, ty, HOLD_WIDTH * 0.233 * scale * h_size_scale, Color::from_rgba(251, 113, 133, 200));
+                    draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale * h_size_scale, Color::from_rgba(253, 164, 175, 255));
                 }
             }
 
