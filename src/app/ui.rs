@@ -6,8 +6,9 @@ use super::state::AppState;
 use super::types::{
     hold_tail_time, is_touch_zone, sanitize_note_zone, Layout, Mode, PadGeom, RectF,
     UiAction, UiButton, LANE_COUNT, LANE_LABELS, PAD_C_ZONE,
-    PREVIEW_LEAD_TIME, SCROLL_SPEED, SPEED_MAX, SPEED_MIN, SPEED_STEP, TAP_TRAVEL_TIME, HIT_WINDOW,
-    PAD_ROTATION_RAD, NoteType,
+    PREVIEW_LEAD_TIME, SCROLL_SPEED, SPEED_MAX, SPEED_MIN, SPEED_STEP, TAP_TRAVEL_TIME,
+    TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, HIT_WINDOW,
+    PAD_ROTATION_RAD, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
 };
 use super::pad_svg;
 
@@ -148,6 +149,10 @@ pub(crate) fn build_ui_buttons(layout: Layout, app: &AppState) -> Vec<UiButton> 
         ("PadOnly", UiAction::TogglePadOnly),
         ("MobileUI", UiAction::ToggleMobileUi),
     ];
+    // let row3 = [
+    //     ("TSpd-", UiAction::TouchSpeedDown),
+    //     ("TSpd+", UiAction::TouchSpeedUp),
+    // ];
 
     let row_total = row1.len() as f32 * bw + (row1.len() as f32 - 1.0) * gap;
     let start_x = (layout.header.x + layout.header.w - row_total - 12.0 * scale)
@@ -179,6 +184,18 @@ pub(crate) fn build_ui_buttons(layout: Layout, app: &AppState) -> Vec<UiButton> 
             action: *action,
         });
     }
+    // for (i, (label, action)) in row3.iter().enumerate() {
+    //     out.push(UiButton {
+    //         rect: RectF {
+    //             x: start_x + i as f32 * (bw + gap),
+    //             y: row3_y,
+    //             w: bw,
+    //             h: bh,
+    //         },
+    //         label,
+    //         action: *action,
+    //     });
+    // }
 
     out
 }
@@ -219,7 +236,7 @@ pub(crate) fn draw_layout(app: &AppState, layout: Layout, pad: PadGeom, buttons:
 
     draw_text(
         &format!(
-            "RecSpeed [{:.1}x]   PlaySpeed [{:.1}x]   Status: {}",
+            "RecSpeed [{:.1}x]   PlaySpeed [{:.1}x]  Status: {}",
             app.record_speed, app.play_speed, app.status
         ),
         layout.header.x + 14.0 * scale,
@@ -323,6 +340,14 @@ pub(crate) fn trigger_ui_action(app: &mut AppState, action: UiAction) {
             app.set_play_speed((app.play_speed + SPEED_STEP).min(SPEED_MAX));
             app.status = format!("Playback speed: {:.1}x", app.play_speed);
         }
+        // UiAction::TouchSpeedDown => {
+        //     app.set_touch_speed((app.touch_speed - TOUCH_SPEED_STEP).max(TOUCH_SPEED_MIN));
+        //     app.status = format!("Touch speed: {:.1}x", app.touch_speed);
+        // }
+        // UiAction::TouchSpeedUp => {
+        //     app.set_touch_speed((app.touch_speed + TOUCH_SPEED_STEP).min(TOUCH_SPEED_MAX));
+        //     app.status = format!("Touch speed: {:.1}x", app.touch_speed);
+        // }
         UiAction::TogglePadOnly => {
             app.show_pad_only = !app.show_pad_only;
             app.status = format!("Pad only: {}", app.show_pad_only);
@@ -586,76 +611,54 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1)
         };
         let cx = track_x + ruler_w + lane_w * lane_index as f32 + lane_w * 0.5;
-        let ny = judge_y - dt * SCROLL_SPEED;
+        let scroll =  SCROLL_SPEED;
+        //     if is_touch_zone(zone) {
+        //     SCROLL_SPEED * app.touch_speed
+        // } else {
+        //     SCROLL_SPEED
+        // };
+        let ny = judge_y - dt * scroll;
 
         match note.note_type {
             NoteType::Tap => {
                 if let Some(tex) = &app.tap_texture {
-                    draw_tap_sprite(tex, cx, ny, 32.0 * scale);
+                    draw_tap_sprite(tex, cx, ny, TAP_SIZE * scale);
                 } else {
-                    draw_circle(cx, ny, 10.0 * scale, Color::from_rgba(17, 24, 39, 255));
-                    draw_circle_lines(
-                        cx,
-                        ny,
-                        10.0 * scale,
-                        3.0 * scale,
-                        Color::from_rgba(244, 114, 182, 255),
-                    );
-                    draw_circle(cx, ny, 3.0 * scale, Color::from_rgba(249, 168, 212, 255));
+                    let tr = TAP_SIZE * 0.3125 * scale;
+                    draw_circle(cx, ny, tr, Color::from_rgba(17, 24, 39, 255));
+                    draw_circle_lines(cx, ny, tr, tr * 0.3, Color::from_rgba(244, 114, 182, 255));
+                    draw_circle(cx, ny, tr * 0.3, Color::from_rgba(249, 168, 212, 255));
                 }
             }
             NoteType::Touch => {
-                draw_rectangle(
-                    cx - 9.0 * scale,
-                    ny - 9.0 * scale,
-                    18.0 * scale,
-                    18.0 * scale,
-                    Color::from_rgba(15, 23, 42, 255),
-                );
-                draw_rectangle_lines(
-                    cx - 9.0 * scale,
-                    ny - 9.0 * scale,
-                    18.0 * scale,
-                    18.0 * scale,
-                    2.0 * scale,
-                    Color::from_rgba(103, 232, 249, 255),
-                );
-                draw_circle(cx, ny, 2.5 * scale, Color::from_rgba(103, 232, 249, 255));
+                let ts = TOUCH_SIZE * scale;
+                let half = ts * 0.5;
+                draw_rectangle(cx - half, ny - half, ts, ts, Color::from_rgba(15, 23, 42, 255));
+                draw_rectangle_lines(cx - half, ny - half, ts, ts, 2.0 * scale, Color::from_rgba(103, 232, 249, 255));
+                draw_circle(cx, ny, ts * 0.14, Color::from_rgba(103, 232, 249, 255));
             }
             NoteType::Hold => {
                 let tail_time = hold_tail_time(note);
                 let tail_dt = tail_time - now;
-                let tail_y = judge_y - tail_dt * SCROLL_SPEED;
-                if let Some(tex) = &app.hold_texture {
-                    draw_hold_9slice_vertical(tex, cx, ny, tail_y, 30.0 * scale);
+                let scroll = if is_touch_zone(zone) {
+                    SCROLL_SPEED * app.touch_speed
                 } else {
+                    SCROLL_SPEED
+                };
+                let tail_y = judge_y - tail_dt * scroll;
+                if let Some(tex) = &app.hold_texture {
+                    draw_hold_9slice_vertical(tex, cx, ny, tail_y, HOLD_WIDTH * scale);
+                } else {
+                    let hw = HOLD_WIDTH * scale;
                     let top = ny.min(tail_y);
-                    let h = (ny - tail_y).abs().max(4.0 * scale);
-                    draw_rectangle(
-                        cx - 6.0 * scale,
-                        top,
-                        12.0 * scale,
-                        h,
-                        Color::from_rgba(190, 24, 93, 130),
-                    );
-                    draw_rectangle_lines(
-                        cx - 6.0 * scale,
-                        top,
-                        12.0 * scale,
-                        h,
-                        1.0 * scale,
-                        Color::from_rgba(244, 114, 182, 200),
-                    );
-                    draw_circle(cx, ny, 11.0 * scale, Color::from_rgba(17, 24, 39, 255));
-                    draw_circle_lines(
-                        cx,
-                        ny,
-                        11.0 * scale,
-                        3.0 * scale,
-                        Color::from_rgba(251, 113, 133, 255),
-                    );
-                    draw_circle(cx, ny, 3.2 * scale, Color::from_rgba(253, 164, 175, 255));
-                    draw_circle(cx, tail_y, 4.0 * scale, Color::from_rgba(251, 113, 133, 220));
+                    let h = (ny - tail_y).abs().max(hw * 0.133);
+                    draw_rectangle(cx - hw * 0.2, top, hw * 0.4, h, Color::from_rgba(190, 24, 93, 130));
+                    draw_rectangle_lines(cx - hw * 0.2, top, hw * 0.4, h, 1.0 * scale, Color::from_rgba(244, 114, 182, 200));
+                    let hr = hw * 0.367;
+                    draw_circle(cx, ny, hr, Color::from_rgba(17, 24, 39, 255));
+                    draw_circle_lines(cx, ny, hr, hw * 0.1, Color::from_rgba(251, 113, 133, 255));
+                    draw_circle(cx, ny, hw * 0.107, Color::from_rgba(253, 164, 175, 255));
+                    draw_circle(cx, tail_y, hw * 0.133, Color::from_rgba(251, 113, 133, 220));
                 }
             }
         }
@@ -749,6 +752,20 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 text_color,
             );
         }
+
+        // Draw A-zone tap indicators at SVG centroid-projected positions
+        for zone in 1..=8 {
+            if let Some(centroid) = pad_svg.zone_screen_centroid(zone, &pad) {
+                let dir = (centroid - vec2(cx, cy)).normalize_or_zero();
+                let dot_r = outer_r - 4.0 * scale;
+                draw_circle(
+                    cx + dir.x * dot_r,
+                    cy + dir.y * dot_r,
+                    4.0 * scale,
+                    Color::from_rgba(255, 255, 255, 200),
+                );
+            }
+        }
     }
 
     let current_t = if app.mode == Mode::Playing {
@@ -765,22 +782,34 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         } else {
             dt
         };
-        if tail_dt < -0.18 || dt > PREVIEW_LEAD_TIME {
+
+        let lead_time = if zone <= 8 {
+            TAP_TRAVEL_TIME
+        } else {
+            match note.note_type {
+                NoteType::Hold => HOLD_TRAVEL_TIME,
+                _ => TOUCH_TRAVEL_TIME,
+            }
+        };
+        if tail_dt < -0.18 || dt > lead_time {
             continue;
         }
 
         if zone <= 8 {
-            if dt > TAP_TRAVEL_TIME {
-                continue;
-            }
-            let idx = (zone - 1) as f32;
-            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+            let dir = app.pad_svg.as_ref()
+                .and_then(|svg| svg.zone_screen_centroid(zone, &pad))
+                .map(|c| (c - vec2(cx, cy)).normalize_or_zero())
+                .unwrap_or_else(|| {
+                    let idx = (zone - 1) as f32;
+                    let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                    vec2(ang.cos(), ang.sin())
+                });
             let progress = ((TAP_TRAVEL_TIME - dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
             let spawn_r = outer_r * 0.24;
             let target_r = outer_r - 4.0 * scale;
             let r = spawn_r + (target_r - spawn_r) * progress;
-            let px = cx + ang.cos() * r;
-            let py = cy + ang.sin() * r;
+            let px = cx + dir.x * r;
+            let py = cy + dir.y * r;
 
             let alpha = (90.0 + 165.0 * progress) as u8;
             let (stroke, core) = match note.note_type {
@@ -798,54 +827,38 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 let tail_dt = hold_tail_time(note) - current_t;
                 let tail_progress = ((TAP_TRAVEL_TIME - tail_dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
                 let tail_r = spawn_r + (target_r - spawn_r) * tail_progress;
-                let tx = cx + ang.cos() * tail_r;
-                let ty = cy + ang.sin() * tail_r;
+                let tx = cx + dir.x * tail_r;
+                let ty = cy + dir.y * tail_r;
                 if let Some(hold_tex) = &app.hold_texture {
-                    draw_hold_9slice_segment(
-                        hold_tex,
-                        vec2(px, py),
-                        vec2(tx, ty),
-                        30.0 * scale,
-                        Color::from_rgba(255, 255, 255, alpha),
-                    );
+                    draw_hold_9slice_segment(hold_tex, vec2(px, py), vec2(tx, ty), HOLD_WIDTH * scale, Color::from_rgba(255, 255, 255, alpha));
                 } else {
-                    draw_line(
-                        px,
-                        py,
-                        tx,
-                        ty,
-                        7.0 * scale,
-                        Color::from_rgba(251, 113, 133, alpha.saturating_sub(40)),
-                    );
-                    draw_circle(tx, ty, 5.0 * scale, Color::from_rgba(253, 164, 175, alpha));
+                    draw_line(px, py, tx, ty, HOLD_WIDTH * 0.233 * scale, Color::from_rgba(251, 113, 133, alpha.saturating_sub(40)));
+                    draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale, Color::from_rgba(253, 164, 175, alpha));
                 }
             }
 
-            if let Some(tex) = &app.tap_texture {
-                draw_texture_ex(
-                    tex,
-                    px - 16.0 * scale,
-                    py - 16.0 * scale,
-                    Color::from_rgba(255, 255, 255, alpha),
-                    DrawTextureParams {
-                        dest_size: Some(vec2(32.0 * scale, 32.0 * scale)),
-                        ..Default::default()
-                    },
-                );
-            } else {
-                draw_circle(px, py, 12.0 * scale, Color::from_rgba(17, 24, 39, alpha));
-                draw_circle_lines(px, py, 12.0 * scale, 3.0 * scale, stroke);
-                draw_circle(px, py, 3.8 * scale, core);
+            if !matches!(note.note_type, NoteType::Hold) {
+                if let Some(tex) = &app.tap_texture {
+                    draw_texture_ex(
+                        tex,
+                        px - 16.0 * scale,
+                        py - 16.0 * scale,
+                        Color::from_rgba(255, 255, 255, alpha),
+                        DrawTextureParams {
+                            dest_size: Some(vec2(TAP_SIZE * scale, TAP_SIZE * scale)),
+                            ..Default::default()
+                        },
+                    );
+                } else {
+                    let tr = TAP_SIZE * 0.375 * scale;
+                    draw_circle(px, py, tr, Color::from_rgba(17, 24, 39, alpha));
+                    draw_circle_lines(px, py, tr, tr * 0.25, stroke);
+                    draw_circle(px, py, tr * 0.317, core);
+                }
             }
 
             if dt.abs() <= HIT_WINDOW {
-                draw_circle_lines(
-                    px,
-                    py,
-                    17.0 * scale,
-                    2.0 * scale,
-                    Color::from_rgba(255, 255, 255, 220),
-                );
+                draw_circle_lines(px, py, TAP_SIZE * 0.53 * scale, 2.0 * scale, Color::from_rgba(255, 255, 255, 220));
             }
         } else {
             let Some(center) = app
@@ -855,7 +868,11 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             else {
                 continue;
             };
-            let raw = (PREVIEW_LEAD_TIME - dt) / PREVIEW_LEAD_TIME;
+            let travel = match note.note_type {
+                NoteType::Hold => HOLD_TRAVEL_TIME,
+                _ => TOUCH_TRAVEL_TIME,
+            };
+            let raw = (travel - dt) / travel;
             let progress = smoothstep(raw.clamp(0.0, 1.0));
             let size = (14.0 + 10.0 * progress) * scale;
             let half = size * 0.5;
@@ -876,13 +893,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 Color::from_rgba(103, 232, 249, alpha),
             );
             if dt.abs() <= HIT_WINDOW {
-                draw_circle_lines(
-                    center.x,
-                    center.y,
-                    18.0 * scale,
-                    2.0 * scale,
-                    Color::from_rgba(255, 255, 255, 220),
-                );
+                draw_circle_lines(center.x, center.y, TOUCH_SIZE * scale, 2.0 * scale, Color::from_rgba(255, 255, 255, 220));
             }
             if matches!(note.note_type, NoteType::Hold) {
                 let head_center = center;
@@ -890,20 +901,9 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 let dir = (center - vec2(cx, cy)).normalize_or_zero();
                 let seg_to = head_center + dir * len.min(outer_r * 0.26);
                 if let Some(hold_tex) = &app.hold_texture {
-                    draw_hold_9slice_segment(
-                        hold_tex,
-                        head_center,
-                        seg_to,
-                        24.0 * scale,
-                        Color::from_rgba(255, 255, 255, alpha),
-                    );
+                    draw_hold_9slice_segment(hold_tex, head_center, seg_to, HOLD_WIDTH * 0.8 * scale, Color::from_rgba(255, 255, 255, alpha));
                 } else {
-                    draw_line(
-                        head_center.x,
-                        head_center.y,
-                        seg_to.x,
-                        seg_to.y,
-                        5.0 * scale,
+                    draw_line(head_center.x, head_center.y, seg_to.x, seg_to.y, HOLD_WIDTH * 0.133 * scale,
                         Color::from_rgba(251, 113, 133, alpha),
                     );
                 }

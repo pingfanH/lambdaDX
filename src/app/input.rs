@@ -55,6 +55,16 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
         app.status = format!("Playback speed: {:.1}x", app.play_speed);
     }
 
+    // Touch speed: , and .
+    // if is_key_pressed(KeyCode::Comma) {
+    //     app.set_touch_speed((app.touch_speed - TOUCH_SPEED_STEP).max(TOUCH_SPEED_MIN));
+    //     app.status = format!("Touch speed: {:.1}x", app.touch_speed);
+    // }
+    // if is_key_pressed(KeyCode::Period) {
+    //     app.set_touch_speed((app.touch_speed + TOUCH_SPEED_STEP).min(TOUCH_SPEED_MAX));
+    //     app.status = format!("Touch speed: {:.1}x", app.touch_speed);
+    // }
+
     if is_key_pressed(KeyCode::L) {
         match chart::load_latest_saved_chart() {
             Ok(chart) => {
@@ -127,6 +137,12 @@ pub(crate) fn collect_pointer_events() -> Vec<PointerEvent> {
             events.push(PointerEvent {
                 id: MOUSE_POINTER_ID,
                 phase: TouchPhase::Started,
+                position: pos,
+            });
+        } else if is_mouse_button_down(MouseButton::Left) {
+            events.push(PointerEvent {
+                id: MOUSE_POINTER_ID,
+                phase: TouchPhase::Stationary,
                 position: pos,
             });
         }

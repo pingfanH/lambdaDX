@@ -24,6 +24,7 @@ pub(crate) struct AppState {
 
     pub(crate) record_speed: f32,
     pub(crate) play_speed: f32,
+    pub(crate) touch_speed: f32,
 
     pub(crate) show_pad_only: bool,
     pub(crate) mobile_ui: bool,
@@ -70,6 +71,7 @@ impl AppState {
             playback_cursor: 0,
             record_speed: 1.0,
             play_speed: 1.0,
+            touch_speed: 0.3,
             show_pad_only: false,
             mobile_ui,
             ui_scale_override,
@@ -128,6 +130,10 @@ impl AppState {
         }
         self.play_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
     }
+
+    // pub(crate) fn set_touch_speed(&mut self, new_speed: f32) {
+    //     self.touch_speed = new_speed.clamp(TOUCH_SPEED_MIN, TOUCH_SPEED_MAX);
+    // }
 
     pub(crate) fn stop_audio_if_any(&self) {
         if let Some(sound) = &self.audio {

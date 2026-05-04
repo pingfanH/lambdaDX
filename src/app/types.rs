@@ -7,15 +7,23 @@ pub(crate) const SCROLL_SPEED: f32 = 480.0;
 pub(crate) const PREVIEW_LEAD_TIME: f32 = 1.6;
 pub(crate) const HIT_WINDOW: f32 = 0.06;
 pub(crate) const TAP_TRAVEL_TIME: f32 = 0.30;
-pub(crate) const PAD_ROTATION_RAD: f32 = std::f32::consts::FRAC_PI_4;
+pub(crate) const TOUCH_TRAVEL_TIME: f32 = 0.30;
+pub(crate) const HOLD_TRAVEL_TIME: f32 = 0.30;
+pub(crate) const TAP_SIZE: f32 = 40.0;
+pub(crate) const HOLD_WIDTH: f32 = 40.0;
+pub(crate) const TOUCH_SIZE: f32 = 18.0;
+pub(crate) const PAD_ROTATION_RAD: f32 = 0.0;
 pub(crate) const SPEED_MIN: f32 = 0.1;
 pub(crate) const SPEED_MAX: f32 = 3.0;
 pub(crate) const SPEED_STEP: f32 = 0.1;
 pub(crate) const HOLD_RECORD_MIN_DURATION: f32 = 0.12;
+pub(crate) const TOUCH_SPEED_MIN: f32 = 0.5;
+pub(crate) const TOUCH_SPEED_MAX: f32 = 3.0;
+pub(crate) const TOUCH_SPEED_STEP: f32 = 0.1;
 pub(crate) const MOUSE_POINTER_ID: u64 = u64::MAX;
 pub(crate) const PAD_B_START: u8 = 9;
 pub(crate) const PAD_C_ZONE: u8 = 17;
-pub(crate) const PAD_ZONE_MAX: u8 = 33;
+pub(crate) const PAD_ZONE_MAX: u8 = 34;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -99,6 +107,8 @@ pub(crate) enum UiAction {
     RecSpeedUp,
     PlaySpeedDown,
     PlaySpeedUp,
+    // TouchSpeedDown,
+    // TouchSpeedUp,
     TogglePadOnly,
     ToggleMobileUi,
 }

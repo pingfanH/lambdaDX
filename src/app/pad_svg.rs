@@ -39,7 +39,7 @@ impl PadSvgDef {
             if !child.is_element() {
                 continue;
             }
-            collect_zone_elements(child, &mut zones)?;
+            collect_zone_elements(child, None, &mut zones)?;
         }
 
         if zones.is_empty() {
@@ -63,8 +63,6 @@ impl PadSvgDef {
         Some(svg_to_screen(def.centroid, pad))
     }
 
-    /// Hit-test a screen-space point against all zones.
-    /// Returns the zone number if the point is inside a zone polygon.
     /// Transform a single ZoneDef's vertices and centroid to screen coordinates.
     pub(crate) fn def_screen_verts(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec<Vec2> {
         def.svg_verts.iter().map(|&v| svg_to_screen(v, pad)).collect()
@@ -74,6 +72,8 @@ impl PadSvgDef {
         svg_to_screen(def.centroid, pad)
     }
 
+    /// Hit-test a screen-space point against all zones using ray-casting.
+    /// Returns the zone number if the point is inside a zone polygon.
     pub(crate) fn hit_test(&self, screen_point: Vec2, pad: &super::types::PadGeom) -> Option<u8> {
         let svg_pt = screen_to_svg(screen_point, pad);
 
@@ -87,29 +87,34 @@ impl PadSvgDef {
 }
 
 /// Recursively collect zone elements. Handles `<g>` wrappers (like C1).
+/// `parent_id` propagates the id from a parent `<g>` to children that lack their own id.
 fn collect_zone_elements(
     node: roxmltree::Node,
+    parent_id: Option<&str>,
     zones: &mut Vec<ZoneDef>,
 ) -> Result<(), String> {
     let tag = node.tag_name().name();
 
+    // Prefer the node's own id, fall back to the parent group's id.
+    let effective_id = node.attribute("id").or(parent_id);
+
     match tag {
         "polygon" => {
-            if let Some(zone_info) = parse_zone_element(node) {
+            if let Some(zone_info) = parse_zone_element_with_id(node, effective_id) {
                 zones.push(zone_info);
             }
-            // If no zone info, skip (might be inside an unrecognized group)
         }
         "rect" => {
-            if let Some(zone_info) = parse_zone_element(node) {
+            if let Some(zone_info) = parse_zone_element_with_id(node, effective_id) {
                 zones.push(zone_info);
             }
         }
         "g" => {
-            // Recurse into group children
+            // Recurse into group children, passing this group's id as parent.
+            let gid = node.attribute("id");
             for child in node.children() {
                 if child.is_element() {
-                    collect_zone_elements(child, zones)?;
+                    collect_zone_elements(child, gid, zones)?;
                 }
             }
         }
@@ -124,9 +129,9 @@ fn collect_zone_elements(
     Ok(())
 }
 
-/// Parse a polygon or rect element into a ZoneDef.
-fn parse_zone_element(node: roxmltree::Node) -> Option<ZoneDef> {
-    let id = node.attribute("id")?;
+/// Parse a polygon or rect element into a ZoneDef, using the given id.
+fn parse_zone_element_with_id(node: roxmltree::Node, id: Option<&str>) -> Option<ZoneDef> {
+    let id = id?;
 
     // Skip the background circle by id
     if id == "bg" {
@@ -205,7 +210,6 @@ fn apply_rect_transform(transform_str: &str, corners: &[Vec2; 4]) -> [Vec2; 4] {
         return *corners;
     }
 
-    // Parse individual transform commands
     #[derive(Debug)]
     enum XfCmd {
         Translate(f32, f32),
@@ -235,13 +239,7 @@ fn apply_rect_transform(transform_str: &str, corners: &[Vec2; 4]) -> [Vec2; 4] {
         }
     }
 
-    // SVG applies transforms right-to-left: for "translate(A) rotate(B)",
-    // the visual result is translate(rotate(point)). We iterate the parsed
-    // commands in order and build: cmd_n(...(cmd_1(point))). Since we parsed
-    // left-to-right into `cmds` (translate then rotate), that's already correct:
-    // first apply rotate (cmds[1]), then translate (cmds[0])? No — for
-    // "translate(A) rotate(B)" parsed into [Translate, Rotate], SVG applies
-    // rotate first then translate. So we reverse: apply in reverse order.
+    // SVG applies transforms right-to-left.
     cmds.reverse();
 
     let transform_point = |p: Vec2| -> Vec2 {
@@ -287,9 +285,9 @@ fn svg_id_to_zone(id: &str) -> Option<(u8, &'static str)> {
         "B6" => Some((14, "B6")),
         "B7" => Some((15, "B7")),
         "B8" => Some((16, "B8")),
-        // Center — both halves map to zone 17
+        // Center — separate zones
         "C1" => Some((17, "C1")),
-        "C2" => Some((17, "C2")),
+        "C2" => Some((34, "C2")),
         // Left wing (zones 18-25)
         "D1" => Some((18, "D1")),
         "D2" => Some((19, "D2")),
@@ -314,7 +312,11 @@ fn svg_id_to_zone(id: &str) -> Option<(u8, &'static str)> {
 
 /// Transform a point from SVG viewBox coordinates to screen coordinates.
 fn svg_to_screen(svg_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
-    let scale = pad.outer_r / SVG_BG_R;
+    let scale = if pad.outer_r > 0.0 {
+        pad.outer_r / SVG_BG_R
+    } else {
+        1.0
+    };
     vec2(
         pad.cx + (svg_pt.x - SVG_BG_CX) * scale,
         pad.cy + (svg_pt.y - SVG_BG_CY) * scale,
@@ -323,7 +325,11 @@ fn svg_to_screen(svg_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
 
 /// Transform a point from screen coordinates to SVG viewBox coordinates.
 fn screen_to_svg(screen_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
-    let inv_scale = SVG_BG_R / pad.outer_r;
+    let inv_scale = if pad.outer_r > 0.0 {
+        SVG_BG_R / pad.outer_r
+    } else {
+        1.0
+    };
     vec2(
         SVG_BG_CX + (screen_pt.x - pad.cx) * inv_scale,
         SVG_BG_CY + (screen_pt.y - pad.cy) * inv_scale,
@@ -354,15 +360,158 @@ fn point_in_polygon(point: Vec2, polygon: &[Vec2]) -> bool {
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
-/// Draw a filled convex polygon using triangle fan from the first vertex.
+/// Draw a filled polygon using ear-clipping triangulation (works for concave polys).
 pub(crate) fn draw_polygon_fill(verts: &[Vec2], color: Color) {
     if verts.len() < 3 {
         return;
     }
-    let v0 = verts[0];
-    for i in 1..verts.len() - 1 {
-        draw_triangle(v0, verts[i], verts[i + 1], color);
+
+    // Use triangle fan for convex polygons (fast path for A/B/D/E zones)
+    if is_convex(verts) {
+        let v0 = verts[0];
+        for i in 1..verts.len() - 1 {
+            draw_triangle(v0, verts[i], verts[i + 1], color);
+        }
+        return;
     }
+
+    // Ear clipping for concave polygons
+    let tris = ear_clip_triangulate(verts);
+    for (i, j, k) in tris {
+        draw_triangle(verts[i], verts[j], verts[k], color);
+    }
+}
+
+/// Check if a polygon is convex by verifying all cross products have the same sign.
+fn is_convex(verts: &[Vec2]) -> bool {
+    let n = verts.len();
+    if n < 3 {
+        return true;
+    }
+    let mut sign: Option<bool> = None; // true = positive, false = negative
+    for i in 0..n {
+        let a = verts[i];
+        let b = verts[(i + 1) % n];
+        let c = verts[(i + 2) % n];
+        let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+        if cross.abs() < 1e-6 {
+            continue;
+        }
+        let pos = cross > 0.0;
+        match sign {
+            None => sign = Some(pos),
+            Some(s) if s != pos => return false,
+            _ => {}
+        }
+    }
+    true
+}
+
+/// Ear clipping triangulation for simple polygons.
+/// Returns vec of (i, j, k) index triplets.
+fn ear_clip_triangulate(verts: &[Vec2]) -> Vec<(usize, usize, usize)> {
+    let n = verts.len();
+    if n < 3 {
+        return vec![];
+    }
+    if n == 3 {
+        return vec![(0, 1, 2)];
+    }
+
+    // Work with indices; remove ears one by one.
+    let mut indices: Vec<usize> = (0..n).collect();
+    let mut tris: Vec<(usize, usize, usize)> = Vec::new();
+
+    // Precompute signed area to determine winding order.
+    let area = signed_area(verts);
+    // For CCW polygon (area > 0), an ear has positive cross product (convex corner).
+
+    let mut iter = 0;
+    while indices.len() > 3 && iter < indices.len() * 3 {
+        iter += 1;
+        let m = indices.len();
+
+        for i in 0..m {
+            let prev = indices[(i + m - 1) % m];
+            let curr = indices[i];
+            let next = indices[(i + 1) % m];
+
+            let a = verts[prev];
+            let b = verts[curr];
+            let c = verts[next];
+
+            // Check if this corner is convex (an ear candidate).
+            let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+            let is_convex_corner = if area >= 0.0 {
+                cross > 1e-6
+            } else {
+                cross < -1e-6
+            };
+
+            if !is_convex_corner {
+                continue;
+            }
+
+            // Check that no other vertex lies inside triangle (a, b, c).
+            let mut is_ear = true;
+            for &idx in &indices {
+                if idx == prev || idx == curr || idx == next {
+                    continue;
+                }
+                if point_in_triangle(verts[idx], a, b, c) {
+                    is_ear = false;
+                    break;
+                }
+            }
+
+            if is_ear {
+                tris.push((prev, curr, next));
+                indices.remove(i);
+                break;
+            }
+        }
+    }
+
+    // Last 3 indices form the final triangle.
+    if indices.len() == 3 {
+        tris.push((indices[0], indices[1], indices[2]));
+    }
+
+    tris
+}
+
+/// Compute signed polygon area (positive = CCW, negative = CW).
+fn signed_area(verts: &[Vec2]) -> f32 {
+    let mut area = 0.0;
+    let n = verts.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        area += verts[i].x * verts[j].y - verts[j].x * verts[i].y;
+    }
+    area * 0.5
+}
+
+/// Check if point p is inside triangle (a, b, c) using barycentric coordinates.
+fn point_in_triangle(p: Vec2, a: Vec2, b: Vec2, c: Vec2) -> bool {
+    let v0 = c - a;
+    let v1 = b - a;
+    let v2 = p - a;
+
+    let dot00 = v0.dot(v0);
+    let dot01 = v0.dot(v1);
+    let dot02 = v0.dot(v2);
+    let dot11 = v1.dot(v1);
+    let dot12 = v1.dot(v2);
+
+    let denom = dot00 * dot11 - dot01 * dot01;
+    if denom.abs() < 1e-12 {
+        return false;
+    }
+
+    let u = (dot11 * dot02 - dot01 * dot12) / denom;
+    let v = (dot00 * dot12 - dot01 * dot02) / denom;
+
+    u > 1e-9 && v > 1e-9 && (u + v) < 1.0 - 1e-9
 }
 
 /// Draw the outline of a polygon as a closed line loop.
