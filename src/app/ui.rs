@@ -4,11 +4,12 @@ use macroquad::texture::{load_texture, DrawTextureParams, FilterMode, Texture2D}
 use super::chart;
 use super::state::AppState;
 use super::types::{
-    hold_tail_time, is_touch_zone, pad_zone_center, sanitize_note_zone, Layout, Mode, PadGeom, RectF,
-    UiAction, UiButton, LANE_COUNT, LANE_LABELS, PAD_B_START, PAD_C_ZONE, PAD_D_START, PAD_E_START,
+    hold_tail_time, is_touch_zone, sanitize_note_zone, Layout, Mode, PadGeom, RectF,
+    UiAction, UiButton, LANE_COUNT, LANE_LABELS, PAD_C_ZONE,
     PREVIEW_LEAD_TIME, SCROLL_SPEED, SPEED_MAX, SPEED_MIN, SPEED_STEP, TAP_TRAVEL_TIME, HIT_WINDOW,
     PAD_ROTATION_RAD, NoteType,
 };
+use super::pad_svg;
 
 pub fn window_conf() -> Conf {
     Conf {
@@ -119,8 +120,8 @@ pub(crate) fn compute_layout(app: &AppState) -> Layout {
 
 pub(crate) fn compute_pad_geom(panel: RectF) -> PadGeom {
     let cx = panel.x + panel.w * 0.5;
-    let cy = panel.y + panel.h * 0.38;
-    let outer_r = panel.w.min(panel.h) * 0.34;
+    let cy = panel.y + panel.h * 0.5;
+    let outer_r = panel.w.min(panel.h) * 0.42;
     PadGeom { cx, cy, outer_r }
 }
 
@@ -679,72 +680,76 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     }
 }
 
-fn draw_pad_zone_guides(pad: PadGeom, scale: f32) {
-    let cx = pad.cx;
-    let cy = pad.cy;
-    let r = pad.outer_r;
-    let rings = [0.18, 0.31, 0.44, 0.62, 1.00];
-    for rr in rings {
-        draw_circle_lines(
-            cx,
-            cy,
-            r * rr,
-            if rr == 1.0 { 3.0 * scale } else { 1.5 * scale },
-            Color::from_rgba(100, 116, 139, if rr == 1.0 { 255 } else { 170 }),
-        );
-    }
-    for i in 0..8 {
-        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
-        draw_line(
-            cx + ang.cos() * r * 0.18,
-            cy + ang.sin() * r * 0.18,
-            cx + ang.cos() * r * 1.0,
-            cy + ang.sin() * r * 1.0,
-            1.0 * scale,
-            Color::from_rgba(71, 85, 105, 180),
-        );
-    }
-}
-
-fn draw_pad_zone_labels(pad: PadGeom, scale: f32) {
-    let label_c = Color::from_rgba(203, 213, 225, 200);
-    for z in 1_u8..=8 {
-        if let Some(p) = pad_zone_center(z, pad) {
-            draw_text(&format!("A{z}"), p.x - 11.0 * scale, p.y + 5.0 * scale, 14.0 * scale, label_c);
-        }
-    }
-    for z in PAD_B_START..=PAD_B_START + 7 {
-        if let Some(p) = pad_zone_center(z, pad) {
-            draw_text(&format!("B{}", z - PAD_B_START + 1), p.x - 11.0 * scale, p.y + 5.0 * scale, 12.0 * scale, label_c);
-        }
-    }
-    for z in PAD_D_START..=PAD_D_START + 7 {
-        if let Some(p) = pad_zone_center(z, pad) {
-            draw_text(&format!("D{}", z - PAD_D_START + 1), p.x - 11.0 * scale, p.y + 5.0 * scale, 12.0 * scale, label_c);
-        }
-    }
-    for z in PAD_E_START..=PAD_E_START + 7 {
-        if let Some(p) = pad_zone_center(z, pad) {
-            draw_text(&format!("E{}", z - PAD_E_START + 1), p.x - 11.0 * scale, p.y + 5.0 * scale, 12.0 * scale, label_c);
-        }
-    }
-    if let Some(c) = pad_zone_center(PAD_C_ZONE, pad) {
-        draw_text("C", c.x - 5.0 * scale, c.y + 5.0 * scale, 14.0 * scale, label_c);
-    }
-}
-
 fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
     let scale = ui_scale(app);
-    draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::from_rgba(17, 24, 39, 255));
-    draw_text("Pad View", rect.x + 12.0 * scale, rect.y + 24.0 * scale, 24.0 * scale, WHITE);
+    draw_rectangle(
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        Color::from_rgba(17, 24, 39, 255),
+    );
+    draw_text(
+        "Pad View",
+        rect.x + 12.0 * scale,
+        rect.y + 24.0 * scale,
+        24.0 * scale,
+        WHITE,
+    );
 
     let cx = pad.cx;
     let cy = pad.cy;
     let outer_r = pad.outer_r;
 
     draw_circle(cx, cy, outer_r, Color::from_rgba(16, 24, 38, 255));
-    draw_pad_zone_guides(pad, scale);
-    draw_pad_zone_labels(pad, scale);
+
+    let active_zones: Vec<u8> = app.active_pointer_zones.values().copied().collect();
+    let feedback_zones: Vec<u8> = app.pad_feedback.iter().map(|fb| fb.zone).collect();
+
+    if let Some(ref pad_svg) = app.pad_svg {
+        for def in &pad_svg.zones {
+            let screen_verts = pad_svg.def_screen_verts(def, &pad);
+            let centroid = pad_svg.def_screen_centroid(def, &pad);
+
+            let is_active = active_zones.contains(&def.zone);
+            let is_feedback = feedback_zones.contains(&def.zone);
+
+            let (fill_color, stroke_color) = if is_active {
+                (
+                    Color::from_rgba(56, 189, 248, 180),
+                    Color::from_rgba(125, 211, 252, 255),
+                )
+            } else if is_feedback {
+                (
+                    Color::from_rgba(250, 204, 21, 160),
+                    Color::from_rgba(252, 211, 77, 255),
+                )
+            } else {
+                (
+                    Color::from_rgba(30, 41, 59, 255),
+                    Color::from_rgba(71, 85, 105, 255),
+                )
+            };
+
+            pad_svg::draw_polygon_fill(&screen_verts, fill_color);
+            pad_svg::draw_polygon_lines(&screen_verts, 2.0 * scale, stroke_color);
+
+            let text_color = if is_active || is_feedback {
+                WHITE
+            } else {
+                Color::from_rgba(148, 163, 184, 255)
+            };
+            let text_size = 14.0 * scale;
+            let text_dims = measure_text(&def.label, None, text_size as _, 1.0);
+            draw_text(
+                &def.label,
+                centroid.x - text_dims.width * 0.5,
+                centroid.y + text_dims.height * 0.35,
+                text_size,
+                text_color,
+            );
+        }
+    }
 
     let current_t = if app.mode == Mode::Playing {
         app.song_time()
@@ -834,10 +839,20 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             }
 
             if dt.abs() <= HIT_WINDOW {
-                draw_circle_lines(px, py, 17.0 * scale, 2.0 * scale, Color::from_rgba(255, 255, 255, 220));
+                draw_circle_lines(
+                    px,
+                    py,
+                    17.0 * scale,
+                    2.0 * scale,
+                    Color::from_rgba(255, 255, 255, 220),
+                );
             }
         } else {
-            let Some(center) = pad_zone_center(zone, pad) else {
+            let Some(center) = app
+                .pad_svg
+                .as_ref()
+                .and_then(|svg| svg.zone_screen_centroid(zone, &pad))
+            else {
                 continue;
             };
             let raw = (PREVIEW_LEAD_TIME - dt) / PREVIEW_LEAD_TIME;
@@ -861,10 +876,15 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 Color::from_rgba(103, 232, 249, alpha),
             );
             if dt.abs() <= HIT_WINDOW {
-                draw_circle_lines(center.x, center.y, 18.0 * scale, 2.0 * scale, Color::from_rgba(255, 255, 255, 220));
+                draw_circle_lines(
+                    center.x,
+                    center.y,
+                    18.0 * scale,
+                    2.0 * scale,
+                    Color::from_rgba(255, 255, 255, 220),
+                );
             }
             if matches!(note.note_type, NoteType::Hold) {
-                let tail_center = center;
                 let head_center = center;
                 let len = (hold_tail_time(note) - note.time).max(0.0) * (outer_r * 0.38);
                 let dir = (center - vec2(cx, cy)).normalize_or_zero();
@@ -891,52 +911,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         }
     }
 
-    // Preview feedback: upcoming notes pulse on their target zones.
-    for note in &app.chart.notes {
-        let zone = sanitize_note_zone(note.note_type, note.lane);
-        let dt = note.time - current_t;
-        if dt.abs() > HIT_WINDOW {
-            continue;
-        }
-        if let Some(p) = pad_zone_center(zone, pad) {
-            draw_circle_lines(
-                p.x,
-                p.y,
-                22.0 * scale,
-                2.0 * scale,
-                Color::from_rgba(255, 255, 255, 220),
-            );
-        }
-    }
-
-    // Input feedback: active pointer zones + short-lived flash queue.
-    for &zone in app.active_pointer_zones.values() {
-        if let Some(p) = pad_zone_center(zone, pad) {
-            draw_circle(p.x, p.y, 12.0 * scale, Color::from_rgba(56, 189, 248, 140));
-            draw_circle_lines(p.x, p.y, 16.0 * scale, 2.0 * scale, Color::from_rgba(125, 211, 252, 240));
-        }
-    }
-    for fb in &app.pad_feedback {
-        if let Some(p) = pad_zone_center(fb.zone, pad) {
-            draw_circle_lines(
-                p.x,
-                p.y,
-                20.0 * scale,
-                2.0 * scale,
-                Color::from_rgba(250, 204, 21, 220),
-            );
-        }
-    }
-
     draw_text(
-        "Pad zones: A1~A8 + B1~B8 + C + D1~D8 + E1~E8 (33)",
-        rect.x + 12.0 * scale,
-        rect.y + rect.h - 54.0 * scale,
-        18.0 * scale,
-        Color::from_rgba(252, 211, 77, 255),
-    );
-    draw_text(
-        "Mobile touch: press/move/release supports cross-zone tracking",
+        "Pad zones: A1~A8(Outer) + B1~B8(Inner) + C1(Center) + D1~8(Left) + E1~8(Right)",
         rect.x + 12.0 * scale,
         rect.y + rect.h - 30.0 * scale,
         18.0 * scale,

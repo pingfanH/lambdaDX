@@ -1,6 +1,7 @@
 mod audio;
 mod chart;
 mod input;
+mod pad_svg;
 mod platform;
 mod state;
 mod types;
@@ -22,6 +23,17 @@ pub async fn run_app() {
     let chart = chart::load_generated_chart().await;
     let (audio_source_name, audio_wav_pcm) = audio::load_audio_pcm_from_assets().await;
     let mut app = AppState::new(chart, audio_source_name, audio_wav_pcm);
+
+    // Parse the SVG pad definition
+    match pad_svg::PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")) {
+        Ok(def) => {
+            app.pad_svg = Some(def);
+        }
+        Err(e) => {
+            app.status = format!("Failed to parse pad.svg: {e}");
+        }
+    }
+
     ui::load_note_textures(&mut app).await;
     audio::warm_audio_cache(&mut app, 1.0).await;
 

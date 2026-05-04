@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 
 use super::chart;
 use super::state::AppState;
-use super::types::{pad_zone_from_point, PadGeom, PointerEvent, RecordInputId, UiButton, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP};
+use super::types::{PadGeom, PointerEvent, RecordInputId, UiButton, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP};
 use super::ui::{rect_contains, trigger_ui_action};
 
 pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
@@ -156,7 +156,11 @@ pub(crate) fn handle_touch_controls(
                     continue;
                 }
 
-                if let Some(zone) = pad_zone_from_point(ev.position, pad) {
+                let zone = app
+                    .pad_svg
+                    .as_ref()
+                    .and_then(|svg| svg.hit_test(ev.position, &pad));
+                if let Some(zone) = zone {
                     app.active_pointer_zones.insert(ev.id, zone);
                     app.push_feedback(zone, 0.12);
                     if app.mode == super::types::Mode::Recording {
@@ -166,7 +170,10 @@ pub(crate) fn handle_touch_controls(
             }
             TouchPhase::Moved | TouchPhase::Stationary => {
                 let old_zone = app.active_pointer_zones.get(&ev.id).copied();
-                let new_zone = pad_zone_from_point(ev.position, pad);
+                let new_zone = app
+                    .pad_svg
+                    .as_ref()
+                    .and_then(|svg| svg.hit_test(ev.position, &pad));
                 if old_zone != new_zone {
                     if app.mode == super::types::Mode::Recording {
                         if old_zone.is_some() {

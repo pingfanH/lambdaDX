@@ -38,6 +38,8 @@ pub(crate) struct AppState {
     pub(crate) pending_audio_start: bool,
     pub(crate) audio_enabled: bool,
 
+    pub(crate) pad_svg: Option<super::pad_svg::PadSvgDef>,
+
     pub(crate) status: String,
 }
 
@@ -79,6 +81,7 @@ impl AppState {
             audio_cache: HashMap::new(),
             pending_audio_start: false,
             audio_enabled: true,
+            pad_svg: None,
             status: "Ready".to_string(),
         }
     }

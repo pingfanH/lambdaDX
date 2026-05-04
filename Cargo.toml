@@ -18,6 +18,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hound = "3"
 minimp3 = "0.5"
+roxmltree = "0.20"
 
 [package.metadata.android]
 package_name = "com.mai2chart.macroquad_sim"

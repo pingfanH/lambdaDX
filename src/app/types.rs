@@ -1,4 +1,4 @@
-use macroquad::prelude::{vec2, TouchPhase, Vec2};
+use macroquad::prelude::{TouchPhase, Vec2};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const LANE_COUNT: usize = 9;
@@ -13,11 +13,8 @@ pub(crate) const SPEED_MAX: f32 = 3.0;
 pub(crate) const SPEED_STEP: f32 = 0.1;
 pub(crate) const HOLD_RECORD_MIN_DURATION: f32 = 0.12;
 pub(crate) const MOUSE_POINTER_ID: u64 = u64::MAX;
-pub(crate) const PAD_ZONE_COUNT: usize = 33;
 pub(crate) const PAD_B_START: u8 = 9;
 pub(crate) const PAD_C_ZONE: u8 = 17;
-pub(crate) const PAD_D_START: u8 = 18;
-pub(crate) const PAD_E_START: u8 = 26;
 pub(crate) const PAD_ZONE_MAX: u8 = 33;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -159,62 +156,4 @@ pub(crate) fn sanitize_note_zone(note_type: NoteType, lane: u8) -> u8 {
 
 pub(crate) fn is_touch_zone(zone: u8) -> bool {
     zone >= PAD_B_START
-}
-
-pub(crate) fn pad_zone_center(zone: u8, pad: PadGeom) -> Option<Vec2> {
-    let base = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD;
-    let sec = std::f32::consts::TAU / 8.0;
-    let mut by_ring = |idx: u8, rr: f32| -> Vec2 {
-        let i = idx.saturating_sub(1) as f32;
-        let ang = base + i * sec;
-        vec2(pad.cx + ang.cos() * rr, pad.cy + ang.sin() * rr)
-    };
-
-    match zone {
-        1..=8 => Some(by_ring(zone, pad.outer_r * 0.96)),
-        9..=16 => Some(by_ring(zone - 8, pad.outer_r * 0.56)),
-        PAD_C_ZONE => Some(vec2(pad.cx, pad.cy)),
-        18..=25 => Some(by_ring(zone - 17, pad.outer_r * 0.40)),
-        26..=33 => Some(by_ring(zone - 25, pad.outer_r * 0.26)),
-        _ => None,
-    }
-}
-
-pub(crate) fn pad_zone_from_point(p: Vec2, pad: PadGeom) -> Option<u8> {
-    let dx = p.x - pad.cx;
-    let dy = p.y - pad.cy;
-    let dist = (dx * dx + dy * dy).sqrt();
-
-    let c_r = pad.outer_r * 0.18;
-    let e_i = c_r;
-    let e_o = pad.outer_r * 0.31;
-    let d_o = pad.outer_r * 0.44;
-    let b_o = pad.outer_r * 0.62;
-    let a_i = b_o;
-    let a_o = pad.outer_r * 1.05;
-
-    if dist <= c_r {
-        return Some(PAD_C_ZONE);
-    }
-    if dist < e_i || dist > a_o {
-        return None;
-    }
-
-    let ang = dy.atan2(dx);
-    let base = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD;
-    let sector = std::f32::consts::TAU / 8.0;
-    let delta = (ang - base).rem_euclid(std::f32::consts::TAU);
-    let idx = (delta / sector).floor() as u8 + 1;
-
-    if dist <= e_o {
-        Some(PAD_E_START + idx - 1)
-    } else if dist <= d_o {
-        Some(PAD_D_START + idx - 1)
-    } else if dist <= b_o {
-        Some(PAD_B_START + idx - 1)
-    } else if dist >= a_i {
-        Some(idx)
-    } else {
-        None
-    }
 }
