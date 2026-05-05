@@ -19,6 +19,9 @@ pub(crate) const HOLD_LENGTH_FRAC: f32 = 0.4;
 pub(crate) const HOLD_SPAWN_FRAC: f32 = 0.5;
 pub(crate) const HOLD_TARGET_OFFSET: f32 = 40.0;
 pub(crate) const TAP_TARGET_OFFSET: f32 = 15.;
+pub(crate) const TOUCH_CROSS_START_DIST: f32 = 60.0;
+pub(crate) const TOUCH_CROSS_END_DIST: f32 = 10.0;
+pub(crate) const TOUCH_CROSS_SIZE: f32 = 40.0;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) const TAP_SIZE: f32 = 40.0;
