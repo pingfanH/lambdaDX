@@ -842,7 +842,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 (progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
             };
             let spawn_r = outer_r * TAP_SPAWN_FRAC;
-            let target_r = outer_r + TAP_TARGET_OFFSET * scale;
+            let target_r = outer_r + TAP_TARGET_OFFSET;
             // r = midpoint (grow: fixed at spawn, fly: moves to target)
             let r = spawn_r + (target_r - spawn_r) * fly_progress;
             let px = spawn_cx.x + dir.x * r;
@@ -850,8 +850,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
             if matches!(note.note_type, NoteType::Hold) {
                 let h_spawn_r = outer_r * HOLD_SPAWN_FRAC;
-                let h_target_r = outer_r + HOLD_TARGET_OFFSET * scale;
-                let hold_dur = hold_tail_time(note) - note.time;
+                let h_target_r = outer_r + HOLD_TARGET_OFFSET;
                 let h_progress = ((HOLD_FLY_TIME - dt) / HOLD_FLY_TIME).clamp(0.0, 1.0);
                 let h_size_scale = if h_progress < TAP_GROW_FRAC { h_progress / TAP_GROW_FRAC } else { 1.0 };
                 let h_fly_progress = if h_progress < TAP_GROW_FRAC { 0.0 } else { (h_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };

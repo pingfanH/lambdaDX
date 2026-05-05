@@ -7,6 +7,7 @@ mod state;
 mod types;
 mod ui;
 
+use macroquad::audio::load_sound_from_bytes;
 use macroquad::file::set_pc_assets_folder;
 use macroquad::prelude::{clear_background, next_frame, Color};
 
@@ -34,6 +35,14 @@ pub async fn run_app() {
         }
     }
 
+    // Load hit sound from embedded bytes
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/answer.wav")).await {
+        Ok(s) => {
+            app.hit_sound = Some(s);
+        }
+        Err(e) => app.status = format!("Failed to load hit sound: {e:?}"),
+    }
+
     ui::load_note_textures(&mut app).await;
     audio::warm_audio_cache(&mut app, 1.0).await;
 
@@ -50,6 +59,7 @@ pub async fn run_app() {
         input::handle_lane_input(&mut app);
         audio::service_audio(&mut app).await;
         app.update_playback();
+        app.service_hit_sounds();
         app.tick_feedback();
 
         ui::draw_layout(&app, layout, pad_geom, &buttons);

@@ -1,11 +1,11 @@
-use macroquad::audio::{stop_sound, Sound};
+use macroquad::audio::{play_sound, stop_sound, PlaySoundParams, Sound};
 use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::types::{
     ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm,
-    HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, is_touch_zone,
+    HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, hold_tail_time, is_touch_zone,
 };
 
 /// Runtime mutable state for the editor/simulator.
@@ -41,6 +41,9 @@ pub(crate) struct AppState {
     pub(crate) audio_enabled: bool,
 
     pub(crate) pad_svg: Option<super::pad_svg::PadSvgDef>,
+
+    pub(crate) hit_sound: Option<Sound>,
+    pub(crate) hit_sounds_played: HashSet<usize>,
 
     pub(crate) status: String,
 }
@@ -86,6 +89,8 @@ impl AppState {
             pending_audio_start: false,
             audio_enabled: true,
             pad_svg: None,
+            hit_sound: None,
+            hit_sounds_played: HashSet::new(),
             status: "Ready".to_string(),
         }
     }
@@ -154,6 +159,7 @@ impl AppState {
             self.status = "Stopped playback".to_string();
         } else {
             self.set_mode(Mode::Playing);
+            self.hit_sounds_played.clear();
             self.status = format!("Playing chart @ {:.1}x", self.play_speed);
             self.request_audio_start();
         }
@@ -209,6 +215,41 @@ impl AppState {
     pub(crate) fn tick_feedback(&mut self) {
         let now = get_time();
         self.pad_feedback.retain(|f| f.until > now);
+    }
+
+    /// Play hit sound for notes that just reached their hit point or tail end.
+    pub(crate) fn service_hit_sounds(&mut self) {
+        if self.mode != Mode::Playing {
+            return;
+        }
+        if self.hit_sound.is_none() {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            eprintln!("[hit] sound is None");
+            return;
+        }
+        let t = self.song_time();
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        eprintln!("[hit] t={t:.3} notes={}", self.chart.notes.len());
+
+        let sound = self.hit_sound.as_ref().unwrap();
+        for (i, note) in self.chart.notes.iter().enumerate() {
+            if !self.hit_sounds_played.contains(&i) && note.time <= t {
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                eprintln!("[hit] PLAY tap/head i={i} zone={} time={:.3}", note.lane, note.time);
+                play_sound(sound, PlaySoundParams { looped: false, volume: 1.0 });
+                self.hit_sounds_played.insert(i);
+            }
+            let tail_key = i + self.chart.notes.len();
+            if matches!(note.note_type, NoteType::Hold)
+                && !self.hit_sounds_played.contains(&tail_key)
+                && hold_tail_time(note) <= t
+            {
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                eprintln!("[hit] PLAY tail i={i} zone={} time={:.3}", note.lane, hold_tail_time(note));
+                play_sound(sound, PlaySoundParams { looped: false, volume: 1.0 });
+                self.hit_sounds_played.insert(tail_key);
+            }
+        }
     }
 
     pub(crate) fn push_feedback(&mut self, zone: u8, duration: f64) {
