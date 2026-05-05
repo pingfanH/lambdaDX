@@ -6,6 +6,12 @@ use super::state::AppState;
 use super::types::{ChartDoc, Note, NoteType, RecordingDoc};
 
 pub(crate) async fn load_generated_chart() -> ChartDoc {
+    // Try latest saved chart first, then generated_chart, then fallback
+    if let Ok(s) = platform::read_output_text("latest_chart.json") {
+        if let Ok(chart) = serde_json::from_str::<ChartDoc>(&s) {
+            return chart;
+        }
+    }
     match platform::load_asset_bytes("generated_chart.json").await {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes);

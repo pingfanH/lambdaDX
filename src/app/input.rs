@@ -69,8 +69,9 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     if is_key_pressed(KeyCode::L) {
         match chart::load_latest_saved_chart() {
             Ok(chart) => {
+                let n = chart.notes.len();
                 app.chart = chart;
-                app.status = "Loaded latest saved chart".to_string();
+                app.status = format!("Loaded {n} notes");
             }
             Err(err) => {
                 app.status = format!("Load latest failed: {err}");
@@ -104,7 +105,7 @@ pub(crate) fn handle_lane_input(app: &mut AppState) {
         (KeyCode::Key6, 6_u8),
         (KeyCode::Key7, 7_u8),
         (KeyCode::Key8, 8_u8),
-        (KeyCode::T, 9_u8),
+        (KeyCode::T, super::types::PAD_C_ZONE),
     ];
 
     for (key, lane) in bindings {

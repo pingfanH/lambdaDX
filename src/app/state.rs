@@ -1,4 +1,5 @@
 use macroquad::audio::{play_sound, stop_sound, PlaySoundParams, Sound};
+use macroquad::material::Material;
 use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
@@ -6,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use super::types::{
     ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm,
     HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, EACH_WINDOW,
-    TOUCH_DISAPPEAR_TIME, hold_tail_time, is_touch_zone,
+    TOUCH_DISAPPEAR_TIME, hold_tail_time, is_touch_zone, sanitize_note_zone,
 };
 
 /// Runtime mutable state for the editor/simulator.
@@ -45,6 +46,7 @@ pub(crate) struct AppState {
     pub(crate) touch_point_each_tex: Option<Texture2D>,
     pub(crate) touchhold_tex: [Option<Texture2D>; 4],
     pub(crate) touchhold_border_tex: Option<Texture2D>,
+    pub(crate) mask_material: Option<Material>,
     pub(crate) audio_cache: HashMap<i32, Sound>,
     pub(crate) pending_audio_start: bool,
     pub(crate) audio_enabled: bool,
@@ -53,6 +55,8 @@ pub(crate) struct AppState {
 
     pub(crate) hit_sound: Option<Sound>,
     pub(crate) touch_sound: Option<Sound>,
+    pub(crate) touch_riser_sound: Option<Sound>,
+    pub(crate) touch_riser_playing: bool,
     pub(crate) hit_sounds_played: HashSet<usize>,
 
     pub(crate) status: String,
@@ -103,12 +107,15 @@ impl AppState {
             touch_point_each_tex: None,
             touchhold_tex: [None, None, None, None],
             touchhold_border_tex: None,
+            mask_material: None,
             audio_cache: HashMap::new(),
             pending_audio_start: false,
             audio_enabled: true,
             pad_svg: None,
             hit_sound: None,
             touch_sound: None,
+            touch_riser_sound: None,
+            touch_riser_playing: false,
             hit_sounds_played: HashSet::new(),
             status: "Ready".to_string(),
         }
@@ -290,6 +297,24 @@ impl AppState {
                     play_sound(sound, PlaySoundParams { looped: false, volume: 1.0 });
                 }
                 self.hit_sounds_played.insert(tail_key);
+            }
+        }
+
+        // Touch hold riser: play while any touch hold is active
+        let active_th = self.chart.notes.iter()
+            .filter(|n| matches!(n.note_type, NoteType::Hold)
+                && is_touch_zone(sanitize_note_zone(n.note_type, n.lane))
+                && n.time <= t && hold_tail_time(n) > t)
+            .count();
+        if active_th > 0 && !self.touch_riser_playing {
+            if let Some(s) = &self.touch_riser_sound {
+                play_sound(s, PlaySoundParams { looped: true, volume: 0.5 });
+                self.touch_riser_playing = true;
+            }
+        } else if active_th == 0 && self.touch_riser_playing {
+            if let Some(s) = &self.touch_riser_sound {
+                stop_sound(s);
+                self.touch_riser_playing = false;
             }
         }
     }

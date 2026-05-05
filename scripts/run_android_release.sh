@@ -198,4 +198,4 @@ ensure_dx_compat() {
 ensure_dx_compat
 
 echo "[Mai2Chart] building and running via cargo quad-apk (macroquad-compatible glue)..."
-cargo quad-apk run --manifest-path "$MANIFEST" --release
+cargo quad-apk run --manifest-path "$MANIFEST" --release --bin macroquad_sim

@@ -10,9 +10,9 @@ use super::types::{
     TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
     TAP_DISAPPEAR_FRAC, HOLD_DISAPPEAR_FRAC, HOLD_TAIL_FLY_TIME, HOLD_LENGTH_FRAC,
     HOLD_SPAWN_FRAC, HOLD_TARGET_OFFSET, TAP_TARGET_OFFSET, HOLD_FLY_TIME,
-    TOUCH_CROSS_START_DIST, TOUCH_CROSS_END_DIST, TOUCHHOLD_CROSS_START_DIST,
-    TOUCHHOLD_CROSS_END_DIST, TOUCH_CROSS_SIZE, TOUCHHOLD_CROSS_SIZE,
-    TOUCHHOLD_BORDER_SIZE,
+    TOUCH_START_DIST, TOUCH_END_DIST, TOUCHHOLD_START_DIST,
+    TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCH_CROSS_SIZE, TOUCH_SCALE, TOUCHHOLD_SCALE,
+    TOUCHHOLD_CROSS_BASE, TOUCHHOLD_BORDER_BASE,
     TOUCH_GROW_FRAC,
     TOUCH_DISAPPEAR_TIME,
     HIT_WINDOW,
@@ -150,7 +150,7 @@ pub(crate) fn compute_layout(app: &AppState) -> Layout {
     let sw = screen_width();
     let sh = screen_height();
     let margin = 20.0 * scale;
-    let header_h = 110.0 * scale;
+    let header_h = if app.mobile_ui { 150.0 } else { 110.0 } * scale;
 
     let header = RectF {
         x: margin,
@@ -203,9 +203,9 @@ pub(crate) fn compute_pad_geom(panel: RectF) -> PadGeom {
 pub(crate) fn build_ui_buttons(layout: Layout, app: &AppState) -> Vec<UiButton> {
     let scale = ui_scale(app);
     let mut out = Vec::new();
-    let bw = if app.mobile_ui { 72.0 } else { 92.0 } * scale;
-    let bh = if app.mobile_ui { 28.0 } else { 26.0 } * scale;
-    let gap = 8.0 * scale;
+    let bw = if app.mobile_ui { 130.0 } else { 92.0 } * scale;
+    let bh = if app.mobile_ui { 46.0 } else { 26.0 } * scale;
+    let gap = if app.mobile_ui { 12.0 } else { 8.0 } * scale;
 
     let row1 = [
         ("Play", UiAction::TogglePlay),
@@ -825,7 +825,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             } else {
                 Color::from_rgba(148, 163, 184, 255)
             };
-            let text_size = 14.0 * scale;
+            let text_size = 17.0 * scale;
             let text_dims = measure_text(&def.label, None, text_size as _, 1.0);
             draw_text(
                 &def.label,
@@ -986,15 +986,19 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             };
             let raw = (travel - dt) / travel;
             let progress = smoothstep(raw.clamp(0.0, 1.0));
-            // Grow fade-in: 0→1 over first TOUCH_GROW_FRAC, then full opacity
+            // Phase 1: fade in 0→255. Phase 2: animate movement.
             let alpha = if progress < TOUCH_GROW_FRAC {
                 (progress / TOUCH_GROW_FRAC * 255.0) as u8
             } else {
                 255
             };
-            // Cross triangles move from outside toward center
-            let dist = TOUCH_CROSS_START_DIST + (TOUCH_CROSS_END_DIST - TOUCH_CROSS_START_DIST) * progress;
-            let ts = TOUCH_CROSS_SIZE * scale;
+            let move_progress = if progress < TOUCH_GROW_FRAC {
+                0.0
+            } else {
+                (progress - TOUCH_GROW_FRAC) / (1.0 - TOUCH_GROW_FRAC)
+            };
+            let dist = (TOUCH_START_DIST + (TOUCH_END_DIST - TOUCH_START_DIST) * move_progress) * TOUCH_SCALE * scale;
+            let ts = TOUCH_CROSS_SIZE * TOUCH_SCALE * scale;
 
             // Regular touch cross (skip for hold)
             if !matches!(note.note_type, NoteType::Hold) {
@@ -1028,15 +1032,16 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             if matches!(note.note_type, NoteType::Hold) {
                 // Touch hold: 4-texture cross rotated 45°, with progress border
                 let hold_progress = ((current_t - note.time) / (hold_tail_time(note) - note.time).max(0.01)).clamp(0.0, 1.0);
-                let hold_dist = TOUCHHOLD_CROSS_START_DIST + (TOUCHHOLD_CROSS_END_DIST - TOUCHHOLD_CROSS_START_DIST) * progress;
+                let hold_dist = (TOUCHHOLD_START_DIST + (TOUCHHOLD_END_DIST - TOUCHHOLD_START_DIST) * move_progress) * TOUCHHOLD_SCALE * scale;
                 let d = hold_dist * 0.707; // √2/2 for diagonal
                 // Cross rotated 45° CW from regular touch, starting top-right
-                let hts = TOUCHHOLD_CROSS_SIZE * scale;
+                let hts = TOUCHHOLD_CROSS_BASE * TOUCHHOLD_SCALE * scale;
+                let ro = TOUCHHOLD_ROT_OFFSET;
                 let positions = [
-                    (center.x + d, center.y - d, -3.0 * std::f32::consts::FRAC_PI_4), // top-right (0)
-                    (center.x + d, center.y + d, -std::f32::consts::FRAC_PI_4),        // bottom-right (1)
-                    (center.x - d, center.y + d, std::f32::consts::FRAC_PI_4),         // bottom-left (2)
-                    (center.x - d, center.y - d, 3.0 * std::f32::consts::FRAC_PI_4),   // top-left (3)
+                    (center.x + d, center.y - d, -3.0 * std::f32::consts::FRAC_PI_4 + ro), // top-right (0)
+                    (center.x + d, center.y + d, -std::f32::consts::FRAC_PI_4 + ro),        // bottom-right (1)
+                    (center.x - d, center.y + d, std::f32::consts::FRAC_PI_4 + ro),         // bottom-left (2)
+                    (center.x - d, center.y - d, 3.0 * std::f32::consts::FRAC_PI_4 + ro),   // top-left (3)
                 ];
                 for (i, (px, py, rot)) in positions.iter().enumerate() {
                     if let Some(tex) = &app.touchhold_tex[i] {
@@ -1048,34 +1053,24 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: *rot, ..Default::default() });
                     }
                 }
-                // Progress border: clock sweep from 12 o'clock clockwise
+                // Progress border: shader-based clockwise sweep
                 if let Some(border) = &app.touchhold_border_tex {
-                    let bs = TOUCHHOLD_BORDER_SIZE * scale;
-                    // Draw full ghost border at low alpha
+                    let bs = TOUCHHOLD_BORDER_BASE * TOUCHHOLD_SCALE * scale;
+                    // Ghost ring
                     draw_texture_ex(border, center.x - bs * 0.5, center.y - bs * 0.5,
-                        Color::from_rgba(255, 255, 255, 40),
+                        Color::from_rgba(255, 255, 255, 0),
                         DrawTextureParams { dest_size: Some(vec2(bs, bs)), ..Default::default() });
-                    // Draw sweep using triangle fan from center
-                    let r = bs * 0.45;
-                    let sweep_end = hold_progress * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
-                    let segs = 48;
-                    for i in 0..segs {
-                        let a1 = i as f32 * std::f32::consts::TAU / segs as f32 - std::f32::consts::FRAC_PI_2;
-                        let a2 = (i + 1) as f32 * std::f32::consts::TAU / segs as f32 - std::f32::consts::FRAC_PI_2;
-                        if a1 <= sweep_end {
-                            let ea = a2.min(sweep_end);
-                            draw_triangle(
-                                center,
-                                vec2(center.x + a1.cos() * r, center.y + a1.sin() * r),
-                                vec2(center.x + ea.cos() * r, center.y + ea.sin() * r),
-                                Color::from_rgba(255, 255, 255, 220),
-                            );
-                        }
+                    // Shader sweep
+                    if let Some(ref mat) = app.mask_material {
+                        macroquad::material::gl_use_material(mat);
+                        mat.set_uniform("progress", hold_progress);
                     }
-                    // Redraw border on top of sweep
                     draw_texture_ex(border, center.x - bs * 0.5, center.y - bs * 0.5,
-                        Color::from_rgba(255, 255, 255, 255),
+                        WHITE,
                         DrawTextureParams { dest_size: Some(vec2(bs, bs)), ..Default::default() });
+                    if app.mask_material.is_some() {
+                        macroquad::material::gl_use_default_material();
+                    }
                 }
                 // Center dot on top for hold
                 let pt_tex = if note.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() };

@@ -44,6 +44,16 @@ pub async fn run_app() {
         Ok(s) => { app.touch_sound = Some(s); }
         Err(e) => app.status = format!("Failed to load touch.wav: {e:?}"),
     }
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/touch_Hold_riser.wav")).await {
+        Ok(s) => { app.touch_riser_sound = Some(s); }
+        Err(e) => app.status = format!("Failed to load touch_Hold_riser.wav: {e:?}"),
+    }
+
+    // Load mask shader material
+    match load_mask_material() {
+        Ok(m) => app.mask_material = Some(m),
+        Err(e) => app.status = format!("Shader: {e}"),
+    }
 
     ui::load_note_textures(&mut app).await;
     audio::warm_audio_cache(&mut app, 1.0).await;
@@ -68,4 +78,43 @@ pub async fn run_app() {
 
         next_frame().await;
     }
+}
+
+fn load_mask_material() -> Result<macroquad::material::Material, String> {
+    use macroquad::material::{load_material, MaterialParams};
+    use macroquad::prelude::{ShaderSource, UniformDesc, UniformType};
+
+    let vertex = r#"#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+varying vec2 uv;
+varying vec4 color;
+uniform mat4 Model;
+uniform mat4 Projection;
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1.0);
+    uv = texcoord;
+    color = color0;
+}"#;
+
+    load_material(
+        ShaderSource::Glsl {
+            vertex,
+            fragment: include_str!("mask.frag"),
+        },
+        MaterialParams {
+            uniforms: vec![UniformDesc::new("progress", UniformType::Float1)],
+            pipeline_params: macroquad::miniquad::PipelineParams {
+                color_blend: Some(macroquad::miniquad::BlendState::new(
+                    macroquad::miniquad::Equation::Add,
+                    macroquad::miniquad::BlendFactor::Value(macroquad::miniquad::BlendValue::SourceAlpha),
+                    macroquad::miniquad::BlendFactor::OneMinusValue(macroquad::miniquad::BlendValue::SourceAlpha),
+                )),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .map_err(|e| format!("{e:?}"))
 }

@@ -15,17 +15,25 @@ pub(crate) const TAP_DISAPPEAR_FRAC: f32 = 0.0;
 pub(crate) const HOLD_DISAPPEAR_FRAC: f32 = 0.1;
 pub(crate) const HOLD_FLY_TIME: f32 = 0.6;
 pub(crate) const HOLD_TAIL_FLY_TIME: f32 = 0.40;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) const HOLD_LENGTH_FRAC: f32 = 0.4;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub(crate) const HOLD_LENGTH_FRAC: f32 = 0.6;
+
 pub(crate) const HOLD_SPAWN_FRAC: f32 = 0.5;
 pub(crate) const HOLD_TARGET_OFFSET: f32 = 40.0;
 pub(crate) const TAP_TARGET_OFFSET: f32 = 15.;
-pub(crate) const TOUCH_CROSS_START_DIST: f32 = 30.0;
-pub(crate) const TOUCH_CROSS_END_DIST: f32 = 10.0;
-pub(crate) const TOUCHHOLD_CROSS_START_DIST: f32 = 30.0;
-pub(crate) const TOUCHHOLD_CROSS_END_DIST: f32 = 10.0;
+// touch: base values (multiplied by TOUCH_SCALE in code)
 pub(crate) const TOUCH_CROSS_SIZE: f32 = 50.0;
-pub(crate) const TOUCHHOLD_CROSS_SIZE: f32 = 50.0;
-pub(crate) const TOUCHHOLD_BORDER_SIZE: f32 = 110.0;
+pub(crate) const TOUCH_START_DIST: f32 = 30.0;
+pub(crate) const TOUCH_END_DIST: f32 = 10.0;
+// touchhold: base values (multiplied by TOUCHHOLD_SCALE in code)
+pub(crate) const TOUCHHOLD_CROSS_BASE: f32 = 86.0;
+pub(crate) const TOUCHHOLD_BORDER_BASE: f32 = 170.0;
+pub(crate) const TOUCHHOLD_START_DIST: f32 = 30.0;
+pub(crate) const TOUCHHOLD_END_DIST: f32 = 19.0;
+pub(crate) const TOUCHHOLD_ROT_OFFSET: f32 = 0.0;
 pub(crate) const EACH_WINDOW: f32 = 0.05;
 pub(crate) const TOUCH_GROW_FRAC: f32 = 0.25;
 pub(crate) const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
@@ -36,12 +44,20 @@ pub(crate) const TAP_SIZE: f32 = 40.0;
 pub(crate) const HOLD_WIDTH: f32 = 40.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) const TOUCH_SIZE: f32 = 18.0;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) const TOUCH_SCALE: f32 = 1.0;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) const TOUCHHOLD_SCALE: f32 = 0.6;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub(crate) const TAP_SIZE: f32 = 80.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub(crate) const HOLD_WIDTH: f32 = 80.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub(crate) const TOUCH_SIZE: f32 = 30.0;
+pub(crate) const TOUCH_SIZE: f32 = 70.0;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub(crate) const TOUCH_SCALE: f32 = 1.5;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub(crate) const TOUCHHOLD_SCALE: f32 = 1.0;
 
 pub(crate) const PAD_ROTATION_RAD: f32 = 0.0;
 pub(crate) const SPEED_MIN: f32 = 0.1;
@@ -189,11 +205,7 @@ pub(crate) fn hold_tail_time(note: &Note) -> f32 {
     note.time + note.hold_duration.max(0.15)
 }
 
-pub(crate) fn sanitize_note_zone(note_type: NoteType, lane: u8) -> u8 {
-    // Backward compatibility: historical Touch lane 9 means center.
-    if matches!(note_type, NoteType::Touch) && lane == 9 {
-        return PAD_C_ZONE;
-    }
+pub(crate) fn sanitize_note_zone(_note_type: NoteType, lane: u8) -> u8 {
     lane.clamp(1, PAD_ZONE_MAX)
 }
 
