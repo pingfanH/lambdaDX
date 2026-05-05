@@ -10,7 +10,8 @@ use super::types::{
     TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
     TAP_DISAPPEAR_FRAC, HOLD_DISAPPEAR_FRAC, HOLD_TAIL_FLY_TIME, HOLD_LENGTH_FRAC,
     HOLD_SPAWN_FRAC, HOLD_TARGET_OFFSET, TAP_TARGET_OFFSET, HOLD_FLY_TIME,
-    TOUCH_CROSS_START_DIST, TOUCH_CROSS_END_DIST, TOUCH_CROSS_SIZE,
+    TOUCH_CROSS_START_DIST, TOUCH_CROSS_END_DIST, TOUCH_CROSS_SIZE, TOUCH_GROW_FRAC,
+    TOUCH_DISAPPEAR_TIME,
     HIT_WINDOW,
     PAD_ROTATION_RAD, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
 };
@@ -70,6 +71,35 @@ pub(crate) async fn load_note_textures(app: &mut AppState) {
         if let Ok(tex) = load_texture(path).await {
             tex.set_filter(FilterMode::Linear);
             app.touch_point_tex = Some(tex);
+            break;
+        }
+    }
+    // Each variant textures
+    for path in ["Skins/classic/tap_each.png", "tap_each.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.tap_each_tex = Some(tex);
+            break;
+        }
+    }
+    for path in ["Skins/classic/hold_each.png", "hold_each.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.hold_each_tex = Some(tex);
+            break;
+        }
+    }
+    for path in ["Skins/classic/touch_each.png", "touch_each.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.touch_tri_each_tex = Some(tex);
+            break;
+        }
+    }
+    for path in ["Skins/classic/touch_point_each.png", "touch_point_each.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.touch_point_each_tex = Some(tex);
             break;
         }
     }
@@ -824,7 +854,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 _ => TOUCH_TRAVEL_TIME,
             }
         };
-        if tail_dt < -0.18 || dt > lead_time {
+        let disappear_time = if matches!(note.note_type, NoteType::Touch) { TOUCH_DISAPPEAR_TIME } else { 0.18 };
+        if tail_dt < -disappear_time || dt > lead_time {
             continue;
         }
         // A-zone tap disappears at dt fraction; hold disappears at tail fraction
@@ -893,8 +924,9 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 let ty = spawn_cx.y + dir.y * tail_r;
                 // Width scales 0→1 during grow, body length stays full
                 let hold_w = HOLD_WIDTH * scale * h_size_scale;
-                if let Some(hold_tex) = &app.hold_texture {
-                    draw_hold_9slice_segment(hold_tex, vec2(hx, hy), vec2(tx, ty), hold_w.max(1.0), Color::from_rgba(255, 255, 255, 255));
+                let hold_tex = if note.is_each { app.hold_each_tex.as_ref() } else { app.hold_texture.as_ref() };
+                if let Some(tex) = hold_tex.or(app.hold_texture.as_ref()) {
+                    draw_hold_9slice_segment(tex, vec2(hx, hy), vec2(tx, ty), hold_w.max(1.0), Color::from_rgba(255, 255, 255, 255));
                 } else {
                     draw_line(hx, hy, tx, ty, HOLD_WIDTH * 0.233 * scale * h_size_scale, Color::from_rgba(251, 113, 133, 200));
                     draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale * h_size_scale, Color::from_rgba(253, 164, 175, 255));
@@ -903,7 +935,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
             if !matches!(note.note_type, NoteType::Hold) {
                 let ts = TAP_SIZE * scale * size_scale;
-                if let Some(tex) = &app.tap_texture {
+                let tap_tex = if note.is_each { app.tap_each_tex.as_ref() } else { app.tap_texture.as_ref() };
+                if let Some(tex) = tap_tex.or(app.tap_texture.as_ref()) {
                     draw_texture_ex(tex, px - ts * 0.5, py - ts * 0.5, WHITE, DrawTextureParams {
                         dest_size: Some(vec2(ts, ts)),
                         ..Default::default()
@@ -933,34 +966,34 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             };
             let raw = (travel - dt) / travel;
             let progress = smoothstep(raw.clamp(0.0, 1.0));
+            // Grow fade-in: 0→1 over first TOUCH_GROW_FRAC, then full opacity
+            let alpha = if progress < TOUCH_GROW_FRAC {
+                (progress / TOUCH_GROW_FRAC * 255.0) as u8
+            } else {
+                255
+            };
             // Cross triangles move from outside toward center
             let dist = TOUCH_CROSS_START_DIST + (TOUCH_CROSS_END_DIST - TOUCH_CROSS_START_DIST) * progress;
-            let alpha = (1.0 - progress) as u8; // fade out as they meet
             let ts = TOUCH_CROSS_SIZE * scale;
 
-            if let Some(tri_tex) = &app.touch_tri_tex {
-                // Bottom: ↑ pointing up (obtuse at top = 0°)
-                draw_texture_ex(tri_tex, center.x - ts * 0.5, center.y + dist - ts * 0.5,
-                    Color::from_rgba(255, 255, 255, 255 - alpha),
-                    DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: 0.0, ..Default::default() });
-                // Top: ↓ pointing down (180°)
-                draw_texture_ex(tri_tex, center.x - ts * 0.5, center.y - dist - ts * 0.5,
-                    Color::from_rgba(255, 255, 255, 255 - alpha),
-                    DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: std::f32::consts::PI, ..Default::default() });
-                // Left: → pointing right (90°)
-                draw_texture_ex(tri_tex, center.x - dist - ts * 0.5, center.y - ts * 0.5,
-                    Color::from_rgba(255, 255, 255, 255 - alpha),
-                    DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
-                // Right: ← pointing left (-90°)
-                draw_texture_ex(tri_tex, center.x + dist - ts * 0.5, center.y - ts * 0.5,
-                    Color::from_rgba(255, 255, 255, 255 - alpha),
-                    DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
+            let tri_tex = if note.is_each { app.touch_tri_each_tex.as_ref() } else { app.touch_tri_tex.as_ref() };
+            if let Some(tex) = tri_tex {
+                let color = Color::from_rgba(255, 255, 255, alpha);
+                draw_texture_ex(tex, center.x - ts * 0.5, center.y + dist - ts * 0.5,
+                    color, DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: 0.0, ..Default::default() });
+                draw_texture_ex(tex, center.x - ts * 0.5, center.y - dist - ts * 0.5,
+                    color, DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: std::f32::consts::PI, ..Default::default() });
+                draw_texture_ex(tex, center.x - dist - ts * 0.5, center.y - ts * 0.5,
+                    color, DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
+                draw_texture_ex(tex, center.x + dist - ts * 0.5, center.y - ts * 0.5,
+                    color, DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
             }
             // Center dot
-            if let Some(pt_tex) = &app.touch_point_tex {
+            let pt_tex = if note.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() };
+            if let Some(tex) = pt_tex {
                 let ps = ts * 0.4;
-                draw_texture_ex(pt_tex, center.x - ps * 0.5, center.y - ps * 0.5,
-                    Color::from_rgba(255, 255, 255, 255 - alpha),
+                draw_texture_ex(tex, center.x - ps * 0.5, center.y - ps * 0.5,
+                    Color::from_rgba(255, 255, 255, alpha),
                     DrawTextureParams { dest_size: Some(vec2(ps, ps)), ..Default::default() });
             }
 

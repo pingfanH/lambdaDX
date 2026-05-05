@@ -7,7 +7,7 @@ pub(crate) const SCROLL_SPEED: f32 = 480.0;
 pub(crate) const PREVIEW_LEAD_TIME: f32 = 1.6;
 pub(crate) const HIT_WINDOW: f32 = 0.06;
 pub(crate) const TAP_TRAVEL_TIME: f32 = 0.55;
-pub(crate) const TOUCH_TRAVEL_TIME: f32 = 0.55;
+pub(crate) const TOUCH_TRAVEL_TIME: f32 = 0.4;
 pub(crate) const HOLD_TRAVEL_TIME: f32 = 0.55;
 pub(crate) const TAP_GROW_FRAC: f32 = 0.35;
 pub(crate) const TAP_SPAWN_FRAC: f32 = 0.3;
@@ -19,9 +19,12 @@ pub(crate) const HOLD_LENGTH_FRAC: f32 = 0.4;
 pub(crate) const HOLD_SPAWN_FRAC: f32 = 0.5;
 pub(crate) const HOLD_TARGET_OFFSET: f32 = 40.0;
 pub(crate) const TAP_TARGET_OFFSET: f32 = 15.;
-pub(crate) const TOUCH_CROSS_START_DIST: f32 = 60.0;
-pub(crate) const TOUCH_CROSS_END_DIST: f32 = 10.0;
+pub(crate) const TOUCH_CROSS_START_DIST: f32 = 30.0;
+pub(crate) const TOUCH_CROSS_END_DIST: f32 = 15.0;
 pub(crate) const TOUCH_CROSS_SIZE: f32 = 40.0;
+pub(crate) const EACH_WINDOW: f32 = 0.05;
+pub(crate) const TOUCH_GROW_FRAC: f32 = 0.25;
+pub(crate) const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) const TAP_SIZE: f32 = 40.0;
@@ -64,6 +67,8 @@ pub(crate) struct Note {
     pub(crate) note_type: NoteType,
     #[serde(default)]
     pub(crate) hold_duration: f32,
+    #[serde(default)]
+    pub(crate) is_each: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

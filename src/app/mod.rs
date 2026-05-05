@@ -35,12 +35,14 @@ pub async fn run_app() {
         }
     }
 
-    // Load hit sound from embedded bytes
+    // Load hit sounds from embedded bytes
     match load_sound_from_bytes(include_bytes!("../../assets/Sfx/answer.wav")).await {
-        Ok(s) => {
-            app.hit_sound = Some(s);
-        }
-        Err(e) => app.status = format!("Failed to load hit sound: {e:?}"),
+        Ok(s) => { app.hit_sound = Some(s); }
+        Err(e) => app.status = format!("Failed to load answer.wav: {e:?}"),
+    }
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/touch.wav")).await {
+        Ok(s) => { app.touch_sound = Some(s); }
+        Err(e) => app.status = format!("Failed to load touch.wav: {e:?}"),
     }
 
     ui::load_note_textures(&mut app).await;
