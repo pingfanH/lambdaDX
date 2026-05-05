@@ -10,7 +10,10 @@ use super::types::{
     TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
     TAP_DISAPPEAR_FRAC, HOLD_DISAPPEAR_FRAC, HOLD_TAIL_FLY_TIME, HOLD_LENGTH_FRAC,
     HOLD_SPAWN_FRAC, HOLD_TARGET_OFFSET, TAP_TARGET_OFFSET, HOLD_FLY_TIME,
-    TOUCH_CROSS_START_DIST, TOUCH_CROSS_END_DIST, TOUCH_CROSS_SIZE, TOUCH_GROW_FRAC,
+    TOUCH_CROSS_START_DIST, TOUCH_CROSS_END_DIST, TOUCHHOLD_CROSS_START_DIST,
+    TOUCHHOLD_CROSS_END_DIST, TOUCH_CROSS_SIZE, TOUCHHOLD_CROSS_SIZE,
+    TOUCHHOLD_BORDER_SIZE,
+    TOUCH_GROW_FRAC,
     TOUCH_DISAPPEAR_TIME,
     HIT_WINDOW,
     PAD_ROTATION_RAD, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
@@ -100,6 +103,23 @@ pub(crate) async fn load_note_textures(app: &mut AppState) {
         if let Ok(tex) = load_texture(path).await {
             tex.set_filter(FilterMode::Linear);
             app.touch_point_each_tex = Some(tex);
+            break;
+        }
+    }
+    // Touch hold textures (4-frame cross, rotated 45°)
+    for (i, name) in ["touchhold_0", "touchhold_1", "touchhold_2", "touchhold_3"].iter().enumerate() {
+        for path in [format!("Skins/classic/{name}.png"), format!("{name}.png")] {
+            if let Ok(tex) = load_texture(&path).await {
+                tex.set_filter(FilterMode::Linear);
+                app.touchhold_tex[i] = Some(tex);
+                break;
+            }
+        }
+    }
+    for path in ["Skins/classic/touchhold_border.png", "touchhold_border.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.touchhold_border_tex = Some(tex);
             break;
         }
     }
@@ -976,38 +996,94 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             let dist = TOUCH_CROSS_START_DIST + (TOUCH_CROSS_END_DIST - TOUCH_CROSS_START_DIST) * progress;
             let ts = TOUCH_CROSS_SIZE * scale;
 
-            let tri_tex = if note.is_each { app.touch_tri_each_tex.as_ref() } else { app.touch_tri_tex.as_ref() };
-            if let Some(tex) = tri_tex {
-                let color = Color::from_rgba(255, 255, 255, alpha);
-                draw_texture_ex(tex, center.x - ts * 0.5, center.y + dist - ts * 0.5,
-                    color, DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: 0.0, ..Default::default() });
-                draw_texture_ex(tex, center.x - ts * 0.5, center.y - dist - ts * 0.5,
-                    color, DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: std::f32::consts::PI, ..Default::default() });
-                draw_texture_ex(tex, center.x - dist - ts * 0.5, center.y - ts * 0.5,
-                    color, DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
-                draw_texture_ex(tex, center.x + dist - ts * 0.5, center.y - ts * 0.5,
-                    color, DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
+            // Regular touch cross (skip for hold)
+            if !matches!(note.note_type, NoteType::Hold) {
+                let tri_tex = if note.is_each { app.touch_tri_each_tex.as_ref() } else { app.touch_tri_tex.as_ref() };
+                if let Some(tex) = tri_tex {
+                    let ratio = tex.width() / tex.height();
+                    let tw = ts;
+                    let th = ts / ratio;
+                    let draw_tri = |cx: f32, cy: f32, rot: f32| {
+                        draw_texture_ex(tex, cx - tw * 0.5, cy - th * 0.5,
+                            Color::from_rgba(255, 255, 255, alpha),
+                            DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: rot, ..Default::default() });
+                    };
+                    draw_tri(center.x, center.y + dist, 0.0);
+                    draw_tri(center.x, center.y - dist, std::f32::consts::PI);
+                    draw_tri(center.x - dist, center.y, std::f32::consts::FRAC_PI_2);
+                    draw_tri(center.x + dist, center.y, -std::f32::consts::FRAC_PI_2);
+                }
             }
-            // Center dot
-            let pt_tex = if note.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() };
-            if let Some(tex) = pt_tex {
-                let ps = ts * 0.4;
-                draw_texture_ex(tex, center.x - ps * 0.5, center.y - ps * 0.5,
-                    Color::from_rgba(255, 255, 255, alpha),
-                    DrawTextureParams { dest_size: Some(vec2(ps, ps)), ..Default::default() });
+            // Center dot (for non-hold; hold draws it later on top)
+            if !matches!(note.note_type, NoteType::Hold) {
+                let pt_tex = if note.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() };
+                if let Some(tex) = pt_tex {
+                    let ps = ts * 0.4;
+                    draw_texture_ex(tex, center.x - ps * 0.5, center.y - ps * 0.5,
+                        Color::from_rgba(255, 255, 255, alpha),
+                        DrawTextureParams { dest_size: Some(vec2(ps, ps)), ..Default::default() });
+                }
             }
 
             if matches!(note.note_type, NoteType::Hold) {
-                let head_center = center;
-                let len = (hold_tail_time(note) - note.time).max(0.0) * (outer_r * 0.38);
-                let dir = (center - vec2(cx, cy)).normalize_or_zero();
-                let seg_to = head_center + dir * len.min(outer_r * 0.26);
-                if let Some(hold_tex) = &app.hold_texture {
-                    draw_hold_9slice_segment(hold_tex, head_center, seg_to, HOLD_WIDTH * 0.8 * scale, Color::from_rgba(255, 255, 255, 255 - alpha));
-                } else {
-                    draw_line(head_center.x, head_center.y, seg_to.x, seg_to.y, HOLD_WIDTH * 0.133 * scale,
-                        Color::from_rgba(251, 113, 133, 255 - alpha),
-                    );
+                // Touch hold: 4-texture cross rotated 45°, with progress border
+                let hold_progress = ((current_t - note.time) / (hold_tail_time(note) - note.time).max(0.01)).clamp(0.0, 1.0);
+                let hold_dist = TOUCHHOLD_CROSS_START_DIST + (TOUCHHOLD_CROSS_END_DIST - TOUCHHOLD_CROSS_START_DIST) * progress;
+                let d = hold_dist * 0.707; // √2/2 for diagonal
+                // Cross rotated 45° CW from regular touch, starting top-right
+                let hts = TOUCHHOLD_CROSS_SIZE * scale;
+                let positions = [
+                    (center.x + d, center.y - d, -3.0 * std::f32::consts::FRAC_PI_4), // top-right (0)
+                    (center.x + d, center.y + d, -std::f32::consts::FRAC_PI_4),        // bottom-right (1)
+                    (center.x - d, center.y + d, std::f32::consts::FRAC_PI_4),         // bottom-left (2)
+                    (center.x - d, center.y - d, 3.0 * std::f32::consts::FRAC_PI_4),   // top-left (3)
+                ];
+                for (i, (px, py, rot)) in positions.iter().enumerate() {
+                    if let Some(tex) = &app.touchhold_tex[i] {
+                        let ratio = tex.width() / tex.height();
+                        let tw = hts;
+                        let th = hts / ratio;
+                        draw_texture_ex(tex, px - tw * 0.5, py - th * 0.5,
+                            Color::from_rgba(255, 255, 255, alpha),
+                            DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: *rot, ..Default::default() });
+                    }
+                }
+                // Progress border: clock sweep from 12 o'clock clockwise
+                if let Some(border) = &app.touchhold_border_tex {
+                    let bs = TOUCHHOLD_BORDER_SIZE * scale;
+                    // Draw full ghost border at low alpha
+                    draw_texture_ex(border, center.x - bs * 0.5, center.y - bs * 0.5,
+                        Color::from_rgba(255, 255, 255, 40),
+                        DrawTextureParams { dest_size: Some(vec2(bs, bs)), ..Default::default() });
+                    // Draw sweep using triangle fan from center
+                    let r = bs * 0.45;
+                    let sweep_end = hold_progress * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                    let segs = 48;
+                    for i in 0..segs {
+                        let a1 = i as f32 * std::f32::consts::TAU / segs as f32 - std::f32::consts::FRAC_PI_2;
+                        let a2 = (i + 1) as f32 * std::f32::consts::TAU / segs as f32 - std::f32::consts::FRAC_PI_2;
+                        if a1 <= sweep_end {
+                            let ea = a2.min(sweep_end);
+                            draw_triangle(
+                                center,
+                                vec2(center.x + a1.cos() * r, center.y + a1.sin() * r),
+                                vec2(center.x + ea.cos() * r, center.y + ea.sin() * r),
+                                Color::from_rgba(255, 255, 255, 220),
+                            );
+                        }
+                    }
+                    // Redraw border on top of sweep
+                    draw_texture_ex(border, center.x - bs * 0.5, center.y - bs * 0.5,
+                        Color::from_rgba(255, 255, 255, 255),
+                        DrawTextureParams { dest_size: Some(vec2(bs, bs)), ..Default::default() });
+                }
+                // Center dot on top for hold
+                let pt_tex = if note.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() };
+                if let Some(tex) = pt_tex {
+                    let ps = hts * 0.4;
+                    draw_texture_ex(tex, center.x - ps * 0.5, center.y - ps * 0.5,
+                        Color::from_rgba(255, 255, 255, alpha),
+                        DrawTextureParams { dest_size: Some(vec2(ps, ps)), ..Default::default() });
                 }
             }
         }

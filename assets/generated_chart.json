@@ -1,79 +1,114 @@
 {
-  "version": "0.1.0",
-  "title": "Generated Chart Preview",
-  "bpm": 180.0,
-  "notes": [
+  "created_at_epoch_ms": 1777985762743,
+  "source": "macroquad_sim",
+  "chart": {
+    "version": "0.1.0",
+    "title": "Fallback Demo Chart",
+    "bpm": 180.0,
+    "notes": [
+      {
+        "time": 0.40397096,
+        "lane": 17,
+        "note_type": "hold",
+        "hold_duration": 3.029012,
+        "is_each": false
+      },
+      {
+        "time": 1.2999449,
+        "lane": 1,
+        "note_type": "tap",
+        "hold_duration": 0.0,
+        "is_each": false
+      },
+      {
+        "time": 1.532929,
+        "lane": 1,
+        "note_type": "tap",
+        "hold_duration": 0.0,
+        "is_each": false
+      },
+      {
+        "time": 1.7664261,
+        "lane": 1,
+        "note_type": "tap",
+        "hold_duration": 0.0,
+        "is_each": false
+      },
+      {
+        "time": 2.016462,
+        "lane": 1,
+        "note_type": "tap",
+        "hold_duration": 0.0,
+        "is_each": false
+      },
+      {
+        "time": 2.316384,
+        "lane": 2,
+        "note_type": "tap",
+        "hold_duration": 0.0,
+        "is_each": false
+      },
+      {
+        "time": 2.549817,
+        "lane": 2,
+        "note_type": "tap",
+        "hold_duration": 0.0,
+        "is_each": false
+      },
+      {
+        "time": 2.782908,
+        "lane": 2,
+        "note_type": "tap",
+        "hold_duration": 0.0,
+        "is_each": false
+      },
+      {
+        "time": 3.033084,
+        "lane": 2,
+        "note_type": "tap",
+        "hold_duration": 0.0,
+        "is_each": false
+      }
+    ]
+  },
+  "hits": [
     {
-      "time": 0.6,
-      "lane": 1,
-      "note_type": "tap",
-      "hold_duration": 0.0
+      "time": 1.2999449,
+      "lane": 1
     },
     {
-      "time": 0.72,
-      "lane": 2,
-      "note_type": "tap",
-      "hold_duration": 0.0
+      "time": 1.532929,
+      "lane": 1
     },
     {
-      "time": 0.95,
-      "lane": 3,
-      "note_type": "tap",
-      "hold_duration": 0.0
+      "time": 1.7664261,
+      "lane": 1
     },
     {
-      "time": 0.6,
-      "lane": 1,
-      "note_type": "hold",
-      "hold_duration": 0.9
+      "time": 2.016462,
+      "lane": 1
     },
     {
-      "time": 2.08,
-      "lane": 8,
-      "note_type": "tap",
-      "hold_duration": 0.0
+      "time": 2.316384,
+      "lane": 2
     },
     {
-      "time": 2.3,
-      "lane": 9,
-      "note_type": "touch",
-      "hold_duration": 0.0
+      "time": 2.549817,
+      "lane": 2
     },
     {
-      "time": 2.54,
-      "lane": 1,
-      "note_type": "tap",
-      "hold_duration": 0.0
+      "time": 2.782908,
+      "lane": 2
     },
     {
-      "time": 2.78,
-      "lane": 4,
-      "note_type": "tap",
-      "hold_duration": 0.0
+      "time": 3.033084,
+      "lane": 2
     },
     {
-      "time": 2.95,
-      "lane": 6,
-      "note_type": "hold",
-      "hold_duration": 0.9
-    },
-    {
-      "time": 3.0,
-      "lane": 8,
-      "note_type": "tap",
-      "hold_duration": 0.0
-    },
-    {
-      "time": 3.24,
-      "lane": 9,
-      "note_type": "touch",
-      "hold_duration": 0.0
-    },
-    {
-      "time": 3.46,
-      "lane": 5,
-      "note_type": "tap",
-      "hold_duration": 0.0
+      "time": 0.40397096,
+      "lane": 17
     }
-  ]
+  ],
+  "record_speed": 1.0,
+  "play_speed": 1.0
 }
