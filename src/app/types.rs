@@ -34,7 +34,7 @@ pub(crate) const TOUCHHOLD_BORDER_BASE: f32 = 170.0;
 pub(crate) const TOUCHHOLD_START_DIST: f32 = 30.0;
 pub(crate) const TOUCHHOLD_END_DIST: f32 = 19.0;
 pub(crate) const TOUCHHOLD_ROT_OFFSET: f32 = 0.0;
-pub(crate) const EACH_WINDOW: f32 = 0.05;
+pub(crate) const EACH_WINDOW: f32 = 0.02;
 pub(crate) const TOUCH_GROW_FRAC: f32 = 0.25;
 pub(crate) const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
 
@@ -59,7 +59,8 @@ pub(crate) const TOUCH_SCALE: f32 = 1.5;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub(crate) const TOUCHHOLD_SCALE: f32 = 1.0;
 
-pub(crate) const PAD_ROTATION_RAD: f32 = 0.0;
+pub(crate) const PAD_ROTATION_RAD: f32 = std::f32::consts::FRAC_PI_8;
+pub(crate) const TAP_RING_OFFSET: f32 = 14.;
 pub(crate) const SPEED_MIN: f32 = 0.1;
 pub(crate) const SPEED_MAX: f32 = 3.0;
 pub(crate) const SPEED_STEP: f32 = 0.1;

@@ -16,7 +16,7 @@ use super::types::{
     TOUCH_GROW_FRAC,
     TOUCH_DISAPPEAR_TIME,
     HIT_WINDOW,
-    PAD_ROTATION_RAD, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
+    PAD_ROTATION_RAD, TAP_RING_OFFSET, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
 };
 use super::pad_svg;
 
@@ -836,18 +836,20 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             );
         }
 
-        // Draw A-zone tap indicators at SVG centroid-projected positions
-        for zone in 1..=8 {
-            if let Some(centroid) = pad_svg.zone_screen_centroid(zone, &pad) {
-                let dir = (centroid - vec2(cx, cy)).normalize_or_zero();
-                let dot_r = outer_r - 4.0 * scale;
-                draw_circle(
-                    cx + dir.x * dot_r,
-                    cy + dir.y * dot_r,
-                    4.0 * scale,
-                    Color::from_rgba(255, 255, 255, 200),
-                );
-            }
+        // Draw A-zone tap indicators with connecting octagon
+        // Draw A-zone tap indicators as a perfect circle centered on spawn_cx
+        let dot_r = outer_r + TAP_RING_OFFSET * scale;
+        let mut a_dots: Vec<Vec2> = Vec::new();
+        for i in 0..8 {
+            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
+            a_dots.push(vec2(spawn_cx.x + ang.cos() * dot_r, spawn_cx.y + ang.sin() * dot_r));
+        }
+        for i in 0..8 {
+            let j = (i + 1) % 8;
+            draw_line(a_dots[i].x, a_dots[i].y, a_dots[j].x, a_dots[j].y, 2.0 * scale, Color::from_rgba(255, 255, 255, 120));
+        }
+        for dot in &a_dots {
+            draw_circle(dot.x, dot.y, 5.0 * scale, Color::from_rgba(255, 255, 255, 220));
         }
     }
 
@@ -890,14 +892,9 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         }
 
         if zone <= 8 {
-            let dir = app.pad_svg.as_ref()
-                .and_then(|svg| svg.zone_screen_centroid(zone, &pad))
-                .map(|c| (c - spawn_cx).normalize_or_zero())
-                .unwrap_or_else(|| {
-                    let idx = (zone - 1) as f32;
-                    let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-                    vec2(ang.cos(), ang.sin())
-                });
+            let idx = (zone - 1) as f32;
+            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+            let dir = vec2(ang.cos(), ang.sin());
             let progress = ((TAP_TRAVEL_TIME - dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
             // Phase 1: grow from 0 to 1 at spawn point. Phase 2: fly at full size.
             let size_scale = if progress < TAP_GROW_FRAC {
