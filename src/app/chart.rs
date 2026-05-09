@@ -33,6 +33,7 @@ fn fallback_chart() -> ChartDoc {
                 note_type: NoteType::Tap,
                 hold_duration: 0.0,
                 is_each: false,
+                slide_points: Vec::new(),
             },
             Note {
                 time: 0.90,
@@ -40,6 +41,7 @@ fn fallback_chart() -> ChartDoc {
                 note_type: NoteType::Tap,
                 hold_duration: 0.0,
                 is_each: false,
+                slide_points: Vec::new(),
             },
             Note {
                 time: 1.20,
@@ -47,6 +49,7 @@ fn fallback_chart() -> ChartDoc {
                 note_type: NoteType::Tap,
                 hold_duration: 0.0,
                 is_each: false,
+                slide_points: Vec::new(),
             },
             Note {
                 time: 1.50,
@@ -54,6 +57,7 @@ fn fallback_chart() -> ChartDoc {
                 note_type: NoteType::Tap,
                 hold_duration: 0.0,
                 is_each: false,
+                slide_points: Vec::new(),
             },
             Note {
                 time: 1.80,
@@ -61,6 +65,7 @@ fn fallback_chart() -> ChartDoc {
                 note_type: NoteType::Touch,
                 hold_duration: 0.0,
                 is_each: false,
+                slide_points: Vec::new(),
             },
             Note {
                 time: 2.20,
@@ -68,6 +73,7 @@ fn fallback_chart() -> ChartDoc {
                 note_type: NoteType::Hold,
                 hold_duration: 0.80,
                 is_each: false,
+                slide_points: Vec::new(),
             },
         ],
     }

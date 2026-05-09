@@ -179,9 +179,15 @@ pub(crate) async fn service_audio(app: &mut AppState) {
                 if let Some(s) = &app.audio {
                     play_sound_once(s);
                 }
+                app.audio_seek_offset = None;
+                // Build waveform data on first load
+                if app.waveform_data.is_empty() {
+                    build_waveform(app);
+                }
                 app.status = format!("Audio speed applied: {:.1}x", speed);
             }
             Err(err) => {
+                app.audio_seek_offset = None;
                 app.status = format!("Audio load failed @ {:.1}x: {err}", speed);
             }
         }
@@ -216,7 +222,8 @@ async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<S
         .audio_wav_pcm
         .as_ref()
         .ok_or_else(|| "pcm source missing".to_string())?;
-    let bytes = build_speed_wav_bytes(wav, speed);
+    let seek = app.audio_seek_offset.unwrap_or(0.0);
+    let bytes = build_speed_wav_bytes_impl(wav, speed, seek);
     let sound = load_sound_from_bytes(&bytes)
         .await
         .map_err(|e| format!("{e}"))?;
@@ -224,11 +231,56 @@ async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<S
     Ok(sound)
 }
 
-fn build_speed_wav_bytes(wav: &WavPcm, speed: f32) -> Vec<u8> {
+pub(crate) fn build_waveform(app: &mut super::state::AppState) {
+    let Some(pcm) = &app.audio_wav_pcm else { return };
+    let ch = pcm.channels.max(1) as usize;
+    let sr = pcm.sample_rate.max(1) as usize;
+    let total_frames = pcm.samples.len() / ch;
+
+    let fft_size = 1024;
+    let hop = 512;
+    let mut planner = rustfft::FftPlanner::new();
+    let fft = planner.plan_fft_forward(fft_size);
+
+    let mut window: Vec<f32> = (0..fft_size).map(|i| {
+        0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (fft_size - 1) as f32).cos()
+    }).collect();
+
+    let time_bins = (total_frames.saturating_sub(fft_size)) / hop + 1;
+    let freq_bins = fft_size / 2; // positive frequencies only
+    app.waveform_data.clear();
+    // Store as flat array: time_bin * freq_bins
+    let mut pos = 0;
+    while pos + fft_size <= total_frames {
+        let mut real: Vec<f32> = (0..fft_size).map(|i| {
+            let s = pcm.samples[(pos + i) * ch] as f32 / 32768.0;
+            s * window[i]
+        }).collect();
+        let mut imag = vec![0.0_f32; fft_size];
+        // interleave to complex
+        let mut complex: Vec<rustfft::num_complex::Complex<f32>> = real.iter().zip(imag.iter())
+            .map(|(&r, &i)| rustfft::num_complex::Complex::new(r, i)).collect();
+        fft.process(&mut complex);
+        // Magnitudes (positive frequencies only)
+        for i in 0..freq_bins {
+            let mag = complex[i].norm().ln().max(0.0);
+            app.waveform_data.push(mag);
+        }
+        pos += hop;
+    }
+    // Store metadata for rendering
+    app.waveform_freq_bins = freq_bins as u32;
+    app.waveform_time_res = hop as f32 / sr as f32;
+}
+
+fn build_speed_wav_bytes_impl(wav: &WavPcm, speed: f32, seek_offset: f32) -> Vec<u8> {
     let speed = speed.clamp(SPEED_MIN, SPEED_MAX);
     let channels = wav.channels.max(1);
     let ch = channels as usize;
-    let in_frames = wav.samples.len() / ch;
+    let sample_rate = wav.sample_rate as f32;
+    let skip_frames = (seek_offset.max(0.0) * sample_rate) as usize;
+    let total_frames = wav.samples.len() / ch;
+    let in_frames = total_frames.saturating_sub(skip_frames);
     if in_frames == 0 {
         let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
         let spec = hound::WavSpec {
@@ -248,11 +300,11 @@ fn build_speed_wav_bytes(wav: &WavPcm, speed: f32) -> Vec<u8> {
 
     let out_frames = ((in_frames as f32) / speed).max(1.0).round() as usize;
     let mut out_samples = vec![0_i16; out_frames * ch];
-    let max_src_i = in_frames.saturating_sub(1);
+    let max_src_i = total_frames.saturating_sub(1);
 
     for out_i in 0..out_frames {
-        let src_pos = (out_i as f32 * speed).min(max_src_i as f32);
-        let src_i0 = src_pos.floor().min(max_src_i as f32) as usize;
+        let src_pos = skip_frames as f32 + (out_i as f32 * speed).min(in_frames as f32);
+        let src_i0 = (src_pos.floor() as usize).min(max_src_i);
         let src_i1 = (src_i0 + 1).min(max_src_i);
         let frac = src_pos - src_i0 as f32;
 

@@ -5,9 +5,9 @@ use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 
 use super::types::{
-    ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm,
+    ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm, DragPart,
     HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, EACH_WINDOW,
-    TOUCH_DISAPPEAR_TIME, hold_tail_time, is_touch_zone, sanitize_note_zone,
+    TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone, sanitize_note_zone,
 };
 
 /// Runtime mutable state for the editor/simulator.
@@ -24,6 +24,25 @@ pub(crate) struct AppState {
     pub(crate) prev_pointer_pos: HashMap<u64, Vec2>,
     pub(crate) pad_feedback: Vec<PadFeedback>,
     pub(crate) playback_cursor: usize,
+    pub(crate) selected_note: Option<usize>,
+    pub(crate) dragging_note: Option<usize>,
+    pub(crate) drag_part: Option<DragPart>,
+    pub(crate) drag_start_pos: Option<Vec2>,
+    pub(crate) drag_start_time: f32,
+    pub(crate) drag_multi_orig: Vec<(usize, f32, u8)>,
+    pub(crate) box_start: Option<Vec2>,
+    pub(crate) box_end: Option<Vec2>,
+    pub(crate) waveform_data: Vec<f32>,
+    pub(crate) waveform_freq_bins: u32,
+    pub(crate) waveform_time_res: f32,
+    pub(crate) waveform_threshold: f32,
+    pub(crate) record_snap_grid: bool,
+    pub(crate) selected_notes: Vec<usize>,
+    pub(crate) drag_orig_note: Option<super::types::Note>,
+    pub(crate) timeline_view_time: f32,
+    pub(crate) undo_stack: Vec<super::types::ChartDoc>,
+    pub(crate) clipboard: Vec<super::types::Note>,
+    pub(crate) pasting: bool,
 
     pub(crate) record_speed: f32,
     pub(crate) play_speed: f32,
@@ -46,8 +65,12 @@ pub(crate) struct AppState {
     pub(crate) touch_point_each_tex: Option<Texture2D>,
     pub(crate) touchhold_tex: [Option<Texture2D>; 4],
     pub(crate) touchhold_border_tex: Option<Texture2D>,
+    pub(crate) slide_tex: Option<Texture2D>,
+    pub(crate) slide_each_tex: Option<Texture2D>,
     pub(crate) mask_material: Option<Material>,
+    pub(crate) pad_rect: Option<egui_macroquad::egui::Rect>,
     pub(crate) audio_cache: HashMap<i32, Sound>,
+    pub(crate) audio_seek_offset: Option<f32>,
     pub(crate) pending_audio_start: bool,
     pub(crate) audio_enabled: bool,
 
@@ -88,6 +111,25 @@ impl AppState {
             prev_pointer_pos: HashMap::new(),
             pad_feedback: Vec::new(),
             playback_cursor: 0,
+            selected_note: None,
+            dragging_note: None,
+            drag_part: None,
+            drag_start_pos: None,
+            drag_start_time: 0.0,
+            drag_multi_orig: Vec::new(),
+            box_start: None,
+            box_end: None,
+            waveform_data: Vec::new(),
+            waveform_freq_bins: 0,
+            waveform_time_res: 0.0,
+            waveform_threshold: 0.3,
+            record_snap_grid: true,
+            selected_notes: Vec::new(),
+            drag_orig_note: None,
+            timeline_view_time: 0.0,
+            undo_stack: Vec::new(),
+            clipboard: Vec::new(),
+            pasting: false,
             record_speed: 1.0,
             play_speed: 1.0,
             touch_speed: 0.3,
@@ -107,8 +149,12 @@ impl AppState {
             touch_point_each_tex: None,
             touchhold_tex: [None, None, None, None],
             touchhold_border_tex: None,
+            slide_tex: None,
+            slide_each_tex: None,
             mask_material: None,
+            pad_rect: None,
             audio_cache: HashMap::new(),
+            audio_seek_offset: None,
             pending_audio_start: false,
             audio_enabled: true,
             pad_svg: None,
@@ -125,7 +171,7 @@ impl AppState {
         match self.mode {
             Mode::Recording => self.record_speed,
             Mode::Playing => self.play_speed,
-            Mode::Idle => 1.0,
+            Mode::Idle => 0.0,
         }
     }
 
@@ -178,16 +224,53 @@ impl AppState {
         self.pending_audio_start = true;
     }
 
+    pub(crate) fn seek_audio_to(&mut self, time: f32) {
+        self.audio_seek_offset = Some(time);
+        self.pending_audio_start = true;
+    }
+
+    pub(crate) fn push_undo(&mut self) {
+        self.undo_stack.push(self.chart.clone());
+        if self.undo_stack.len() > 64 { self.undo_stack.remove(0); }
+    }
+
+    pub(crate) fn undo(&mut self) {
+        if let Some(prev) = self.undo_stack.pop() {
+            self.chart = prev;
+            self.recompute_each();
+            self.status = "Undo".to_string();
+        }
+    }
+
+    pub(crate) fn recompute_each(&mut self) {
+        let len = self.chart.notes.len();
+        for i in 0..len {
+            let t = self.chart.notes[i].time;
+            let has_sibling = self.chart.notes.iter().enumerate().any(|(j, n)| i != j && (n.time - t).abs() < 0.001);
+            self.chart.notes[i].is_each = has_sibling;
+        }
+    }
+
     pub(crate) fn toggle_play(&mut self) {
         if self.mode == Mode::Playing {
-            self.set_mode(Mode::Idle);
+            // Pause
+            self.mode_song_offset = self.song_time();
+            self.mode = Mode::Idle;
+            self.mode_wall_anchor = get_time();
             self.stop_audio_if_any();
-            self.status = "Stopped playback".to_string();
+            if let Some(s) = &self.touch_riser_sound { stop_sound(s); }
+            self.touch_riser_playing = false;
+            self.timeline_view_time = self.mode_song_offset;
+            self.status = format!("Paused at {:.2}s", self.mode_song_offset);
         } else {
-            self.set_mode(Mode::Playing);
+            // Resume with audio seek
+            self.audio_seek_offset = Some(self.mode_song_offset);
+            self.mode = Mode::Playing;
+            self.mode_wall_anchor = get_time();
             self.hit_sounds_played.clear();
-            self.status = format!("Playing chart @ {:.1}x", self.play_speed);
+            self.playback_cursor = 0;
             self.request_audio_start();
+            self.status = format!("Resumed @ {:.1}x from {:.2}s", self.play_speed, self.mode_song_offset);
         }
     }
 
@@ -197,25 +280,6 @@ impl AppState {
             self.set_mode(Mode::Idle);
             self.stop_audio_if_any();
             self.recording_notes.sort_by(|a, b| a.time.total_cmp(&b.time));
-            // Mark simultaneous notes as each
-            {
-                let notes = &mut self.recording_notes;
-                let window = EACH_WINDOW / self.record_speed;
-                let mut i = 0;
-                while i < notes.len() {
-                    let t = notes[i].time;
-                    let mut j = i;
-                    while j < notes.len() && notes[j].time - t <= window {
-                        j += 1;
-                    }
-                    if j - i >= 2 {
-                        for k in i..j {
-                            notes[k].is_each = true;
-                        }
-                    }
-                    i = j;
-                }
-            }
             self.chart.notes = self.recording_notes.clone();
             self.status = format!(
                 "Record stopped: {} notes @ {:.1}x",
@@ -330,7 +394,7 @@ impl AppState {
         let start_time = self.song_time();
         self.active_record_holds
             .entry(input_id)
-            .or_insert(ActiveRecordHold { lane, start_time });
+            .or_insert(ActiveRecordHold { lane, start_time, slide_zones: vec![(lane, 0.0)] });
     }
 
     pub(crate) fn finish_record_hold_input(&mut self, input_id: RecordInputId) {
@@ -351,9 +415,33 @@ impl AppState {
         }
     }
 
+    pub(crate) fn record_slide_zone(&mut self, input_id: RecordInputId, zone: u8) {
+        let t = self.song_time();
+        if let Some(active) = self.active_record_holds.get_mut(&input_id) {
+            let last_zone = active.slide_zones.last().map(|z| z.0).unwrap_or(active.lane);
+            if zone != last_zone {
+                active.slide_zones.push((zone, t - active.start_time));
+            }
+        }
+    }
+
     fn push_recorded_note(&mut self, active: ActiveRecordHold, end_time: f32) {
         let duration = (end_time - active.start_time).max(0.0);
-        let note_type = if is_touch_zone(active.lane) {
+        let start_time = if self.record_snap_grid {
+            let beat = 60.0 / self.chart.bpm;
+            let grid = beat / (super::types::GRID_DIVISION as f32 / 4.0);
+            (active.start_time / grid).round() * grid
+        } else { active.start_time };
+        // Unique zones visited
+        let mut visited: Vec<u8> = Vec::new();
+        for (z, _) in &active.slide_zones {
+            if visited.last() != Some(z) {
+                visited.push(*z);
+            }
+        }
+        let note_type = if visited.len() >= SLIDE_MIN_POINTS && is_touch_zone(active.lane) {
+            NoteType::Slide
+        } else if is_touch_zone(active.lane) {
             if duration >= HOLD_RECORD_MIN_DURATION {
                 NoteType::Hold
             } else {
@@ -365,16 +453,22 @@ impl AppState {
             NoteType::Tap
         };
 
+        let slide_points: Vec<super::types::SlidePoint> = active.slide_zones.iter()
+            .map(|(z, off)| super::types::SlidePoint { zone: *z, beat_offset: *off })
+            .collect();
+
+        self.chart.notes.push(Note {
+            time: start_time, lane: active.lane, note_type,
+            hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
+            is_each: false, slide_points: slide_points.clone(),
+        });
+        self.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+        self.recompute_each();
+
         self.recording_notes.push(Note {
-            time: active.start_time,
-            lane: active.lane,
-            note_type,
-            hold_duration: if matches!(note_type, NoteType::Hold) {
-                duration
-            } else {
-                0.0
-            },
-            is_each: false,
+            time: start_time, lane: active.lane, note_type,
+            hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
+            is_each: false, slide_points,
         });
         self.recording_hits.push(HitEvent {
             time: active.start_time,

@@ -4,53 +4,60 @@
   "bpm": 180.0,
   "notes": [
     {
-      "time": 0.61215305,
+      "time": 0.6563151,
       "lane": 4,
       "note_type": "tap",
       "hold_duration": 0.0,
-      "is_each": false
+      "is_each": false,
+      "slide_points": []
     },
     {
       "time": 0.7789061,
       "lane": 4,
       "note_type": "tap",
       "hold_duration": 0.0,
-      "is_each": false
+      "is_each": false,
+      "slide_points": []
     },
     {
       "time": 1.0955021,
       "lane": 9,
       "note_type": "hold",
       "hold_duration": 0.999876,
-      "is_each": false
+      "is_each": false,
+      "slide_points": []
     },
     {
       "time": 2.462317,
       "lane": 5,
       "note_type": "tap",
       "hold_duration": 0.0,
-      "is_each": false
+      "is_each": false,
+      "slide_points": []
     },
     {
       "time": 2.833646,
       "lane": 5,
       "note_type": "tap",
       "hold_duration": 0.0,
-      "is_each": false
+      "is_each": false,
+      "slide_points": []
     },
     {
       "time": 3.195441,
       "lane": 9,
       "note_type": "touch",
       "hold_duration": 0.0,
-      "is_each": false
+      "is_each": false,
+      "slide_points": []
     },
     {
       "time": 3.378766,
       "lane": 9,
       "note_type": "touch",
       "hold_duration": 0.0,
-      "is_each": false
+      "is_each": false,
+      "slide_points": []
     }
   ]
 }

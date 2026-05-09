@@ -14,9 +14,9 @@ use super::types::{
     TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCH_CROSS_SIZE, TOUCH_SCALE, TOUCHHOLD_SCALE,
     TOUCHHOLD_CROSS_BASE, TOUCHHOLD_BORDER_BASE,
     TOUCH_GROW_FRAC,
-    TOUCH_DISAPPEAR_TIME,
+    TOUCH_DISAPPEAR_TIME, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE,
     HIT_WINDOW,
-    PAD_ROTATION_RAD, TAP_RING_OFFSET, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
+    PAD_ROTATION_RAD, TAP_RING_OFFSET, GRID_DIVISION, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
 };
 use super::pad_svg;
 
@@ -123,6 +123,21 @@ pub(crate) async fn load_note_textures(app: &mut AppState) {
             break;
         }
     }
+    // Slide textures
+    for path in ["Skins/classic/slide.png", "slide.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.slide_tex = Some(tex);
+            break;
+        }
+    }
+    for path in ["Skins/classic/slide_each.png", "slide_each.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.slide_each_tex = Some(tex);
+            break;
+        }
+    }
 
     if app.tap_texture.is_none() {
         app.status = "tap texture not found (tried tap.png / Skins/classic/tap.png)".to_string();
@@ -150,7 +165,7 @@ pub(crate) fn compute_layout(app: &AppState) -> Layout {
     let sw = screen_width();
     let sh = screen_height();
     let margin = 20.0 * scale;
-    let header_h = if app.mobile_ui { 150.0 } else { 110.0 } * scale;
+    let header_h = if app.mobile_ui { 60.0 } else { 40.0 } * scale;
 
     let header = RectF {
         x: margin,
@@ -274,52 +289,14 @@ pub(crate) fn build_ui_buttons(layout: Layout, app: &AppState) -> Vec<UiButton> 
     out
 }
 
-pub(crate) fn draw_layout(app: &AppState, layout: Layout, pad: PadGeom, buttons: &[UiButton]) {
-    let scale = ui_scale(app);
-    draw_rectangle(
-        layout.header.x,
-        layout.header.y,
-        layout.header.w,
-        layout.header.h,
-        Color::from_rgba(17, 24, 39, 255),
-    );
+pub(crate) fn draw_layout(app: &AppState, layout: Layout, pad: PadGeom, _buttons: &[UiButton]) {
+    // Header bg (egui toolbar overlays on top)
+    // draw_rectangle(layout.header.x, layout.header.y, layout.header.w, layout.header.h,
+    //     Color::from_rgba(17, 24, 39, 255));
 
-    draw_text(
-        "Mai2Chart Local Demo (macroquad)",
-        layout.header.x + 14.0 * scale,
-        layout.header.y + 30.0 * scale,
-        28.0 * scale,
-        WHITE,
-    );
-
-    let mode_label = match app.mode {
-        Mode::Idle => "IDLE",
-        Mode::Recording => "RECORDING",
-        Mode::Playing => "PLAYBACK",
-    };
-
-    draw_text(
-        &format!(
-            "Touch controls enabled  |  Mode: {mode_label}  |  Hold: press and release"
-        ),
-        layout.header.x + 14.0 * scale,
-        layout.header.y + 56.0 * scale,
-        20.0 * scale,
-        Color::from_rgba(148, 163, 184, 255),
-    );
-
-    draw_text(
-        &format!(
-            "RecSpeed [{:.1}x]   PlaySpeed [{:.1}x]  Status: {}",
-            app.record_speed, app.play_speed, app.status
-        ),
-        layout.header.x + 14.0 * scale,
-        layout.header.y + 84.0 * scale,
-        20.0 * scale,
-        Color::from_rgba(125, 211, 252, 255),
-    );
-
-    draw_ui_buttons(app, buttons);
+    // Waveform threshold control
+    let s = ui_scale(app);
+    draw_text(&format!("Wave threshold: {:.2}  [/] keys", app.waveform_threshold), layout.header.x + 14.0 * s, layout.header.y + 80.0 * s, 16.0 * s, Color::from_rgba(125, 211, 252, 200));
 
     if let Some(timeline) = layout.timeline {
         draw_timeline_panel(app, timeline);
@@ -586,7 +563,7 @@ fn draw_hold_9slice_segment(
 
 fn draw_timeline_panel(app: &AppState, rect: RectF) {
     let scale = ui_scale(app);
-    draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::from_rgba(17, 24, 39, 255));
+    // draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::from_rgba(17, 24, 39, 255));
     draw_text(
         "Timeline (Vertical) : 1~8 Tap/Hold + T Touch",
         rect.x + 12.0 * scale,
@@ -602,9 +579,6 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     let ruler_w = 64.0 * scale;
     let lanes_w = track_w - ruler_w;
     let lane_w = lanes_w / LANE_COUNT as f32;
-
-    draw_rectangle(track_x, track_y, track_w, track_h, Color::from_rgba(11, 18, 32, 255));
-    draw_rectangle(track_x, track_y, ruler_w, track_h, Color::from_rgba(8, 12, 23, 255));
 
     for (i, label) in LANE_LABELS.iter().enumerate() {
         let lx = track_x + ruler_w + lane_w * i as f32 + lane_w * 0.45;
@@ -633,44 +607,112 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         );
     }
 
-    let rows = 18;
-    for i in 0..=rows {
-        let yy = track_y + (track_h / rows as f32) * i as f32;
-        let is_major = i % 3 == 0;
-        let c = if is_major {
+    let judge_y = track_y + track_h - 38.0 * scale;
+    let now = match app.mode {
+        Mode::Playing | Mode::Recording => app.song_time(),
+        Mode::Idle => app.timeline_view_time,
+    };
+
+    // BPM-based grid lines (cover full track height)
+    let beat_s = 60.0 / app.chart.bpm;
+    let grid_s = beat_s / (GRID_DIVISION as f32 / 4.0);
+    let margin_s = track_h / SCROLL_SPEED;
+    let view_start = now - margin_s;
+    let view_end = now + margin_s;
+
+    let mut t = (view_start / grid_s).floor() * grid_s;
+    while t <= view_end {
+        let yy = judge_y - (t - now) * SCROLL_SPEED;
+        let bar_s = beat_s * 4.0;
+        let dist_to_bar = ((t % bar_s) + bar_s) % bar_s;
+        let is_bar = dist_to_bar < grid_s * 0.5 || (bar_s - dist_to_bar) < grid_s * 0.5;
+        let dist_to_beat = ((t % beat_s) + beat_s) % beat_s;
+        let is_beat = dist_to_beat < grid_s * 0.5 || (beat_s - dist_to_beat) < grid_s * 0.5;
+        let color = if is_bar {
             Color::from_rgba(185, 28, 28, 255)
+        } else if is_beat {
+            Color::from_rgba(100, 116, 139, 255)
         } else {
-            Color::from_rgba(22, 163, 74, 255)
+            Color::from_rgba(30, 41, 55, 255)
         };
-        draw_line(track_x + ruler_w, yy, track_x + track_w, yy, 1.0 * scale, c);
-        if is_major {
-            let bar_num = 108_i32 - (i / 3) as i32;
-            draw_text(
-                &format!("{bar_num}"),
-                track_x + 10.0 * scale,
-                yy + 4.0 * scale,
-                18.0 * scale,
-                Color::from_rgba(148, 163, 184, 255),
-            );
+        let thickness = if is_bar { 2.0 } else if is_beat { 1.5 } else { 0.5 } * scale;
+        draw_line(track_x + ruler_w, yy, track_x + track_w, yy, thickness, color);
+        if is_bar {
+            let bar_num = (t / (beat_s * 4.0)) as i32;
+            draw_text(&format!("{bar_num}"), track_x + 10.0 * scale, yy + 4.0 * scale, 16.0 * scale,
+                Color::from_rgba(148, 163, 184, 255));
+        }
+        t += grid_s;
+    }
+
+    // Beat-focused vertical spectrum (low freqs = wider, brighter)
+    if app.waveform_freq_bins > 0 && !app.waveform_data.is_empty() {
+        let fb = app.waveform_freq_bins as usize;
+        let num_tb = app.waveform_data.len() / fb;
+        let dt = app.waveform_time_res;
+        let max_val = app.waveform_data.iter().cloned().fold(0.0_f32, f32::max).max(0.1);
+        // Only use low frequencies (0-500Hz for kick/snare/beat detection)
+        let sr = app.audio_wav_pcm.as_ref().map(|p| p.sample_rate as f32).unwrap_or(44100.0);
+        let max_hz = 600.0;
+        let beat_bins = ((fb as f32 * max_hz / (sr * 0.5)) as usize).min(fb).max(8);
+        let bin_step = (beat_bins as f32 / 40.0).max(1.0) as usize;
+        let disp_bins = beat_bins / bin_step;
+        let half_w = lanes_w * 0.45;
+        for ti in 0..num_tb {
+            let t = ti as f32 * dt;
+            let cy = judge_y - (t - now) * SCROLL_SPEED;
+            if cy < track_y || cy > track_y + track_h { continue; }
+            // Compute total low-freq energy for this time bin
+            let mut total = 0.0;
+            let mut peak = 0.0;
+            for fi in 0..beat_bins {
+                let v = app.waveform_data[ti * fb + fi];
+                total += v;
+                if v > peak { peak = v; }
+            }
+            let avg_norm = (total / beat_bins as f32 / max_val).min(1.0);
+            let peak_norm = (peak / max_val).min(1.0);
+            if avg_norm < 0.005 { continue; }
+            // Draw a prominent beat bar
+            let bar_w = half_w * peak_norm * 1.5;
+            let color = if peak_norm > app.waveform_threshold {
+                Color::from_rgba(255, 180, 50, (peak_norm * 255.0) as u8)
+            } else {
+                Color::from_rgba(60, 120, (avg_norm*200.0) as u8, (avg_norm * 180.0) as u8)
+            };
+            draw_rectangle(track_x + ruler_w + half_w - bar_w, cy - 2.0, bar_w * 2.0, 4.0, color);
+            // Per-frequency thin bars overlaid
+            for di in 0..disp_bins {
+                let fi = di * bin_step;
+                let mag = app.waveform_data[ti * fb + fi];
+                let norm = (mag / max_val).min(1.0);
+                if norm < 0.03 { continue; }
+                let fw = half_w * norm * 0.6 / disp_bins as f32;
+                let fcolor = if norm > app.waveform_threshold {
+                    Color::from_rgba(255, 200, 80, (norm * 200.0) as u8)
+                } else {
+                    Color::from_rgba(60, 140, 255, (norm * 150.0) as u8)
+                };
+                let lx = track_x + ruler_w + half_w - fw * di as f32 * 0.3;
+                let rx = track_x + ruler_w + half_w + fw * di as f32 * 0.3 - fw;
+                draw_rectangle(lx, cy - 1.0, fw, 2.0, fcolor);
+                draw_rectangle(rx, cy - 1.0, fw, 2.0, fcolor);
+            }
         }
     }
 
-    let now = match app.mode {
-        Mode::Playing | Mode::Recording => app.song_time(),
-        Mode::Idle => 0.0,
-    };
+    // Scrubber triangle on ruler at now position
+    let scrub_y = judge_y;
+    if scrub_y >= track_y && scrub_y <= track_y + track_h {
+        draw_triangle(
+            vec2(track_x + ruler_w - 4.0 * scale, scrub_y),
+            vec2(track_x + ruler_w - 14.0 * scale, scrub_y - 6.0 * scale),
+            vec2(track_x + ruler_w - 14.0 * scale, scrub_y + 6.0 * scale),
+            Color::from_rgba(239, 68, 68, 255),
+        );
+    }
 
-    let judge_y = track_y + track_h - 38.0 * scale;
-    draw_line(
-        track_x + ruler_w,
-        judge_y,
-        track_x + track_w,
-        judge_y,
-        2.0 * scale,
-        Color::from_rgba(239, 68, 68, 255),
-    );
-
-    for note in &app.chart.notes {
+    for (idx, note) in app.chart.notes.iter().enumerate() {
         let zone = sanitize_note_zone(note.note_type, note.lane);
         let dt = note.time - now;
         let tail_dt = if matches!(note.note_type, NoteType::Hold) {
@@ -688,12 +730,12 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         };
         let cx = track_x + ruler_w + lane_w * lane_index as f32 + lane_w * 0.5;
         let scroll =  SCROLL_SPEED;
-        //     if is_touch_zone(zone) {
-        //     SCROLL_SPEED * app.touch_speed
-        // } else {
-        //     SCROLL_SPEED
-        // };
         let ny = judge_y - dt * scroll;
+
+        // Selection highlight
+        if app.selected_note == Some(idx) {
+            draw_circle(cx, ny, 16.0, Color::from_rgba(56, 189, 248, 100));
+        }
 
         match note.note_type {
             NoteType::Tap => {
@@ -706,12 +748,22 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     draw_circle(cx, ny, tr * 0.3, Color::from_rgba(249, 168, 212, 255));
                 }
             }
-            NoteType::Touch => {
-                let ts = TOUCH_SIZE * scale;
-                let half = ts * 0.5;
-                draw_rectangle(cx - half, ny - half, ts, ts, Color::from_rgba(15, 23, 42, 255));
-                draw_rectangle_lines(cx - half, ny - half, ts, ts, 2.0 * scale, Color::from_rgba(103, 232, 249, 255));
-                draw_circle(cx, ny, ts * 0.14, Color::from_rgba(103, 232, 249, 255));
+            NoteType::Touch | NoteType::Slide => {
+                if let Some(tex) = &app.touch_tri_tex {
+                    let ratio = tex.width() / tex.height();
+                    let ts = 30.0 * scale;
+                    let tw = ts; let th = ts / ratio;
+                    let color = Color::from_rgba(255, 255, 255, 200);
+                    draw_texture_ex(tex, cx - tw*0.5, ny + ts*0.3 - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), ..Default::default() });
+                    draw_texture_ex(tex, cx - tw*0.5, ny - ts*0.3 - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::PI, ..Default::default() });
+                    draw_texture_ex(tex, cx - ts*0.3 - tw*0.5, ny - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
+                    draw_texture_ex(tex, cx + ts*0.3 - tw*0.5, ny - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
+                }
+                if let Some(pt) = &app.touch_point_tex {
+                    draw_texture_ex(pt, cx - 6.0*scale, ny - 6.0*scale, Color::from_rgba(255,255,255,200), DrawTextureParams { dest_size: Some(vec2(12.0*scale,12.0*scale)), ..Default::default() });
+                } else {
+                    draw_circle(cx, ny, 3.0*scale, Color::from_rgba(103,232,249,200));
+                }
             }
             NoteType::Hold => {
                 let tail_time = hold_tail_time(note);
@@ -739,9 +791,46 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             }
         }
     }
+            // Ghost note at mouse position (hover indicator)
+        let (mx, my) = mouse_position();
+        //println!("mouse_position {} {}",mx,my);
+        if mx >= track_x + ruler_w && mx <= track_x + track_w && my >= track_y && my <= track_y + track_h {
+            let dt = (judge_y - my) / SCROLL_SPEED;
+            let gt = (now + dt).max(0.0);
+            let beat_s = 60.0 / app.chart.bpm;
+            let grid_s = beat_s / (GRID_DIVISION as f32 / 4.0);
+            let gt = (gt / grid_s).round() * grid_s;
+            let gy = judge_y - (gt - now) * SCROLL_SPEED;
+            let glx = mx - (track_x + ruler_w);
+            if glx >= 0.0 {
+                let glane_i = ((glx / lane_w) as i32).clamp(0, LANE_COUNT as i32 - 1);
+                let glane = if glane_i == LANE_COUNT as i32 - 1 { 9 } else { (glane_i + 1) as u8 };
+                let gcx = track_x + ruler_w + lane_w * glane_i as f32 + lane_w * 0.5;
+                let gzone = sanitize_note_zone(super::types::NoteType::Tap, glane);
+                if is_touch_zone(gzone) {
+                    if let Some(tex) = &app.touch_tri_tex {
+                        let ratio = tex.width() / tex.height();
+                        let ts = 30.0 * scale;
+                        let tw = ts; let th = ts / ratio;
+                        draw_texture_ex(tex, gcx - tw * 0.5, gy - th * 0.5 + ts * 0.3, Color::from_rgba(255,255,255,120),
+                            DrawTextureParams { dest_size: Some(vec2(tw, th)), ..Default::default() });
+                        draw_texture_ex(tex, gcx - tw * 0.5, gy - th * 0.5 - ts * 0.3, Color::from_rgba(255,255,255,120),
+                            DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: std::f32::consts::PI, ..Default::default() });
+                        draw_texture_ex(tex, gcx - ts * 0.3 - tw * 0.5, gy - th * 0.5, Color::from_rgba(255,255,255,120),
+                            DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
+                        draw_texture_ex(tex, gcx + ts * 0.3 - tw * 0.5, gy - th * 0.5, Color::from_rgba(255,255,255,120),
+                            DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
+                    }
+                    if let Some(pt) = &app.touch_point_tex { draw_texture_ex(pt, gcx - 6.0*scale, gy - 6.0*scale, Color::from_rgba(255,255,255,120), DrawTextureParams { dest_size: Some(vec2(12.0*scale, 12.0*scale)), ..Default::default() }); }
+                } else {
+                    if let Some(tex) = &app.tap_texture { draw_texture_ex(tex, gcx - TAP_SIZE*0.5*scale, gy - TAP_SIZE*0.5*scale, Color::from_rgba(255,255,255,120), DrawTextureParams { dest_size: Some(vec2(TAP_SIZE*scale, TAP_SIZE*scale)), ..Default::default() }); }
+                    else { draw_circle(gcx, gy, 11.0*scale, Color::from_rgba(244,114,182,100)); draw_circle_lines(gcx, gy, 11.0*scale, 2.5*scale, Color::from_rgba(244,114,182,180)); }
+                }
+            }
+        }
 
-    if app.mode == Mode::Recording {
-        for hit in &app.recording_hits {
+
+    for hit in &app.recording_hits {
             let zone = if hit.lane == 9 { PAD_C_ZONE } else { hit.lane };
             let dt = hit.time - now;
             if dt < -0.3 || dt > 1.5 {
@@ -756,7 +845,83 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             let ny = judge_y - dt * SCROLL_SPEED;
             draw_circle(cx, ny, 4.0 * scale, Color::from_rgba(56, 189, 248, 220));
         }
-    }
+        // Box selection preview
+        if let (Some(start), Some(end)) = (app.box_start, app.box_end) {
+            if start != end {
+                let x1 = start.x.min(end.x); let x2 = start.x.max(end.x);
+                let y1 = start.y.min(end.y); let y2 = start.y.max(end.y);
+                draw_rectangle(x1, y1, x2 - x1, y2 - y1, Color::from_rgba(56, 189, 248, 30));
+                draw_rectangle_lines(x1, y1, x2 - x1, y2 - y1, 1.5 * scale, Color::from_rgba(56, 189, 248, 180));
+            }
+        }
+        // Multi-select highlight
+        for &i in &app.selected_notes {
+            if let Some(note) = app.chart.notes.get(i) {
+                let zone = sanitize_note_zone(note.note_type, note.lane);
+                let dt = note.time - now;
+                if dt < -0.3 || dt > PREVIEW_LEAD_TIME { continue; }
+                let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
+                let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
+                let ny = judge_y - dt * SCROLL_SPEED;
+                draw_circle(cx, ny, 15.0, Color::from_rgba(250, 204, 21, 80));
+            }
+        }
+
+        // Paste ghost
+        if app.pasting && !app.clipboard.is_empty() {
+            let (mx, my) = mouse_position();
+            let dt = (judge_y - my) / SCROLL_SPEED;
+            let beat = 60.0 / app.chart.bpm;
+            let gd = beat / (GRID_DIVISION as f32 / 4.0);
+            let target_t = ((now + dt).max(0.0) / gd).round() * gd;
+            let min_t = app.clipboard.iter().map(|n| n.time).fold(f32::MAX, f32::min);
+            let t_off = target_t - min_t;
+            let lx = mx - (track_x + ruler_w);
+            let tgt_lane = if lx >= 0.0 {
+                let l = (lx / lane_w) as i32; let l = l.clamp(0, LANE_COUNT as i32 - 1) as u8;
+                if l == LANE_COUNT as u8 - 1 { 9 } else { l + 1 }
+            } else { 1 };
+            let a_lane = app.clipboard.first().map(|n| n.lane).unwrap_or(1);
+            let l_off = tgt_lane as i32 - a_lane as i32;
+            for n in &app.clipboard {
+                let t = n.time + t_off;
+                let lane = (n.lane as i32 + l_off).clamp(1, super::types::PAD_ZONE_MAX as i32) as u8;
+                let zone = sanitize_note_zone(n.note_type, lane);
+                let dt2 = t - now;
+                if dt2 < -0.3 || dt2 > PREVIEW_LEAD_TIME { continue; }
+                let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
+                let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
+                let ny = judge_y - dt2 * SCROLL_SPEED;
+                if is_touch_zone(zone) || matches!(n.note_type, super::types::NoteType::Touch) {
+                    if let Some(tex) = &app.touch_tri_tex {
+                        let ratio = tex.width() / tex.height();
+                        let ts = 20.0 * scale; let tw = ts; let th = ts / ratio;
+                        let c = Color::from_rgba(255,255,255,120);
+                        draw_texture_ex(tex, cx - tw*0.5, ny + ts*0.15 - th*0.5, c, DrawTextureParams { dest_size: Some(vec2(tw,th)), ..Default::default() });
+                        draw_texture_ex(tex, cx - tw*0.5, ny - ts*0.15 - th*0.5, c, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::PI, ..Default::default() });
+                        draw_texture_ex(tex, cx - ts*0.15 - tw*0.5, ny - th*0.5, c, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
+                        draw_texture_ex(tex, cx + ts*0.15 - tw*0.5, ny - th*0.5, c, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
+                    }
+                    if let Some(pt) = &app.touch_point_tex {
+                        draw_texture_ex(pt, cx - 5.0*scale, ny - 5.0*scale, Color::from_rgba(255,255,255,120), DrawTextureParams { dest_size: Some(vec2(10.0*scale,10.0*scale)), ..Default::default() });
+                    }
+                } else {
+                    if let Some(tex) = &app.tap_texture {
+                        draw_texture_ex(tex, cx - TAP_SIZE*0.4*scale, ny - TAP_SIZE*0.4*scale, Color::from_rgba(255,255,255,120), DrawTextureParams { dest_size: Some(vec2(TAP_SIZE*0.8*scale, TAP_SIZE*0.8*scale)), ..Default::default() });
+                    } else {
+                        draw_circle(cx, ny, 11.0*scale, Color::from_rgba(244,114,182,80));
+                        draw_circle_lines(cx, ny, 11.0*scale, 2.0*scale, Color::from_rgba(244,114,182,160));
+                    }
+                }
+            }
+        }
+
+        // Judge line on top
+        draw_line(track_x + ruler_w, judge_y, track_x + track_w, judge_y, 2.0 * scale, Color::from_rgba(239, 68, 68, 255));
+}
+
+pub(crate) fn draw_pad_only(app: &AppState, pad: PadGeom, rect: RectF) {
+    draw_pad_panel(app, rect, pad);
 }
 
 fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
@@ -853,10 +1018,9 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         }
     }
 
-    let current_t = if app.mode == Mode::Playing {
-        app.song_time()
-    } else {
-        0.0
+    let current_t = match app.mode {
+        Mode::Playing | Mode::Recording => app.song_time(),
+        Mode::Idle => app.timeline_view_time,
     };
 
     for note in &app.chart.notes {
@@ -1081,6 +1245,47 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         }
     }
 
+    // Slide note paths
+    for note in &app.chart.notes {
+        if !matches!(note.note_type, NoteType::Slide) || note.slide_points.is_empty() {
+            continue;
+        }
+        let dt = note.time - current_t;
+        if dt > TOUCH_TRAVEL_TIME || dt < -TOUCH_DISAPPEAR_TIME { continue; }
+
+        let slide_tex = if note.is_each { app.slide_each_tex.as_ref() } else { app.slide_tex.as_ref() };
+        let ts = SLIDE_TILE_SIZE * scale;
+
+        // Build path of centroids
+        let mut path: Vec<Vec2> = Vec::new();
+        if let Some(ref svg) = app.pad_svg {
+            if let Some(c) = svg.zone_screen_centroid(note.lane, &pad) { path.push(c); }
+            for sp in &note.slide_points {
+                if let Some(c) = svg.zone_screen_centroid(sp.zone, &pad) { path.push(c); }
+            }
+        }
+        if path.len() < 2 { continue; }
+
+        // Tile slide.png along each segment
+        for w in path.windows(2) {
+            let a = w[0]; let b = w[1];
+            let delta = b - a;
+            let len = delta.length().max(1.0);
+            let dir = delta / len;
+            let angle = dir.y.atan2(dir.x);
+            let spacing = SLIDE_TILE_SPACING * scale;
+            let mut pos = 0.0;
+            while pos < len {
+                let pt = a + dir * pos;
+                if let Some(tex) = slide_tex {
+                    draw_texture_ex(tex, pt.x - ts * 0.5, pt.y - ts * 0.5, WHITE,
+                        DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: angle, ..Default::default() });
+                }
+                pos += spacing;
+            }
+        }
+    }
+
     draw_text(
         "Pad zones: A1~A8(Outer) + B1~B8(Inner) + C1(Center) + D1~8(Left) + E1~8(Right)",
         rect.x + 12.0 * scale,
@@ -1093,4 +1298,15 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 fn smoothstep(x: f32) -> f32 {
     let t = x.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+fn freq_to_color(freq_frac: f32, norm: f32) -> Color {
+    let alpha = (norm * 200.0) as u8;
+    if freq_frac < 0.33 {
+        Color::from_rgba(0, (norm*255.0) as u8, (norm*200.0) as u8, alpha)
+    } else if freq_frac < 0.66 {
+        Color::from_rgba((norm*200.0) as u8, (norm*255.0) as u8, 0, alpha)
+    } else {
+        Color::from_rgba((norm*255.0) as u8, (norm*100.0) as u8, (norm*100.0) as u8, alpha)
+    }
 }

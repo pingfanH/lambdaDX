@@ -61,6 +61,13 @@ pub(crate) const TOUCHHOLD_SCALE: f32 = 1.0;
 
 pub(crate) const PAD_ROTATION_RAD: f32 = std::f32::consts::FRAC_PI_8;
 pub(crate) const TAP_RING_OFFSET: f32 = 14.;
+pub(crate) const GRID_DIVISION: u32 = 64;
+pub(crate) const SCROLL_SPEED_FACTOR: f32 = 0.01;
+pub(crate) const SCROLL_INVERT: bool = true;
+pub(crate) const SLIDE_TILE_SPACING: f32 = 30.0;
+pub(crate) const SLIDE_TILE_SIZE: f32 = 40.0;
+pub(crate) const SLIDE_TRAIL_ALPHA: f32 = 0.4;
+pub(crate) const SLIDE_MIN_POINTS: usize = 2;
 pub(crate) const SPEED_MIN: f32 = 0.1;
 pub(crate) const SPEED_MAX: f32 = 3.0;
 pub(crate) const SPEED_STEP: f32 = 0.1;
@@ -73,12 +80,19 @@ pub(crate) const PAD_B_START: u8 = 9;
 pub(crate) const PAD_C_ZONE: u8 = 17;
 pub(crate) const PAD_ZONE_MAX: u8 = 34;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum NoteType {
     Tap,
     Touch,
     Hold,
+    Slide,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SlidePoint {
+    pub(crate) zone: u8,
+    pub(crate) beat_offset: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +104,8 @@ pub(crate) struct Note {
     pub(crate) hold_duration: f32,
     #[serde(default)]
     pub(crate) is_each: bool,
+    #[serde(default)]
+    pub(crate) slide_points: Vec<SlidePoint>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,10 +199,11 @@ pub(crate) enum RecordInputId {
     Pointer(u64),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct ActiveRecordHold {
     pub(crate) lane: u8,
     pub(crate) start_time: f32,
+    pub(crate) slide_zones: Vec<(u8, f32)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -195,6 +212,9 @@ pub(crate) struct PointerEvent {
     pub(crate) phase: TouchPhase,
     pub(crate) position: Vec2,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum DragPart { Head, Body, Tail }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PadFeedback {

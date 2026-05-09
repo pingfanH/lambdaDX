@@ -1,5 +1,6 @@
 mod audio;
 mod chart;
+mod egui_ui;
 mod input;
 mod pad_svg;
 mod platform;
@@ -61,20 +62,32 @@ pub async fn run_app() {
     loop {
         clear_background(Color::from_rgba(10, 17, 30, 255));
 
+        // Layout: timeline (left) + pad (right), below toolbar
         let layout = ui::compute_layout(&app);
         let pad_geom = ui::compute_pad_geom(layout.pad);
-        let buttons = ui::build_ui_buttons(layout, &app);
-        let pointer_events = input::collect_pointer_events();
+        let buttons: Vec<types::UiButton> = Vec::new(); // buttons via egui
 
+        // Draw timeline + pad (native macroquad first)
+        ui::draw_layout(&app, layout, pad_geom, &buttons);
+
+        // Input
         input::handle_global_hotkeys(&mut app);
-        input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
         input::handle_lane_input(&mut app);
         audio::service_audio(&mut app).await;
         app.update_playback();
         app.service_hit_sounds();
         app.tick_feedback();
 
-        ui::draw_layout(&app, layout, pad_geom, &buttons);
+        let pointer_events = input::collect_pointer_events();
+        input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
+        input::handle_timeline_editing(&mut app, layout.timeline);
+
+        // Egui on top (build UI + draw)
+        egui_macroquad::ui(|egui_ctx| {
+            egui_ctx.set_pixels_per_point(2.0);
+            egui_ui::draw_egui_ui(egui_ctx, &mut app);
+        });
+        egui_macroquad::draw();
 
         next_frame().await;
     }
