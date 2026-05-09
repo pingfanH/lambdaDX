@@ -77,8 +77,11 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
         }
     }
 
-    // Delete selected note
-    if is_key_pressed(KeyCode::Delete) || is_key_pressed(KeyCode::Backspace) {
+    // Delete selected note (skipped while editing a slide trajectory: there
+    // Backspace pops the last slide point instead).
+    if (is_key_pressed(KeyCode::Delete)
+        || (is_key_pressed(KeyCode::Backspace) && app.editing_slide_path.is_none()))
+    {
         if let Some(i) = app.selected_note {
             if i < app.chart.notes.len() {
                 app.chart.notes.remove(i);
@@ -125,6 +128,44 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
         }
     }
     if app.pasting && is_key_pressed(KeyCode::Escape) { eprintln!("[hotkey] cancel paste"); app.pasting = false; }
+
+    // E: toggle slide-trajectory edit mode for the selected slide note.
+    // While active, clicking pad zones appends to the note's slide_points.
+    if is_key_pressed(KeyCode::E) && !mod_down {
+        if app.editing_slide_path.is_some() {
+            app.editing_slide_path = None;
+            app.status = "Trajectory edit: off".to_string();
+        } else if let Some(i) = app.selected_note {
+            if let Some(n) = app.chart.notes.get(i) {
+                if matches!(n.note_type, super::types::NoteType::Slide) {
+                    app.editing_slide_path = Some(i);
+                    app.status = format!(
+                        "Trajectory edit: click pad zones to append (Backspace=undo, Esc=exit). #{i}"
+                    );
+                } else {
+                    app.status = "Trajectory edit: select a Slide note first".to_string();
+                }
+            }
+        } else {
+            app.status = "Trajectory edit: no note selected".to_string();
+        }
+    }
+    // Esc exits trajectory edit mode.
+    if is_key_pressed(KeyCode::Escape) && app.editing_slide_path.is_some() {
+        app.editing_slide_path = None;
+        app.status = "Trajectory edit: off".to_string();
+    }
+    // Backspace removes last point of the slide being edited (when not deleting note).
+    if app.editing_slide_path.is_some() && is_key_pressed(KeyCode::Backspace) {
+        if let Some(i) = app.editing_slide_path {
+            if let Some(n) = app.chart.notes.get_mut(i) {
+                if let Some(removed) = n.slide_points.pop() {
+                    n.slide_shape = super::slide_match::match_slide_shape(n.lane, &n.slide_points);
+                    app.status = format!("Removed zone {}", removed.zone);
+                }
+            }
+        }
+    }
     // Toggle grid snap for recording
     if is_key_pressed(KeyCode::G) {
         app.record_snap_grid = !app.record_snap_grid;
@@ -225,6 +266,43 @@ pub(crate) fn handle_touch_controls(
 
                 let zone = app.pad_svg.as_ref()
                     .and_then(|svg| svg.hit_test(ev.position, &pad));
+
+                // Slide-trajectory edit mode: clicks append to slide_points
+                // of the selected slide note (Idle mode only; recording/playing
+                // keep their normal behaviour).
+                if matches!(app.mode, super::types::Mode::Idle) {
+                    if let (Some(i), Some(z)) = (app.editing_slide_path, zone) {
+                        let mut handled = false;
+                        let mut new_count = 0usize;
+                        if let Some(n) = app.chart.notes.get_mut(i) {
+                            if matches!(n.note_type, super::types::NoteType::Slide) {
+                                let beat_offset = (n.slide_points.len() as f32 + 1.0)
+                                    * (n.slide_duration.max(0.3)
+                                        / (n.slide_points.len() as f32 + 2.0));
+                                let last_zone = n.slide_points.last().map(|p| p.zone)
+                                    .unwrap_or(n.lane);
+                                if z != last_zone {
+                                    n.slide_points.push(super::types::SlidePoint {
+                                        zone: z, beat_offset,
+                                    });
+                                    n.slide_shape = super::slide_match::match_slide_shape(
+                                        n.lane, &n.slide_points,
+                                    );
+                                    new_count = n.slide_points.len();
+                                }
+                                handled = true;
+                            }
+                        }
+                        if handled {
+                            if new_count > 0 {
+                                app.push_feedback(z, 0.18);
+                                app.status = format!("Added zone {} (#{} points)", z, new_count);
+                            }
+                            continue;
+                        }
+                    }
+                }
+
                 if let Some(zone) = zone {
                     app.active_pointer_zones.insert(ev.id, zone);
                     app.push_feedback(zone, 0.12);

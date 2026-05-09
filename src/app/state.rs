@@ -42,6 +42,10 @@ pub(crate) struct AppState {
     pub(crate) place_tool: super::types::PlaceTool,
     /// Multi-step placement state machine (for Hold and Star tools).
     pub(crate) placement: super::types::PlacementState,
+    /// When `Some(i)`, the user is editing the trajectory (slide_points) of
+    /// chart.notes[i] by clicking zones on the Pad. Only meaningful when the
+    /// note is a Slide and the app is in Idle mode.
+    pub(crate) editing_slide_path: Option<usize>,
     pub(crate) waveform_data: Vec<f32>,
     pub(crate) waveform_freq_bins: u32,
     pub(crate) waveform_time_res: f32,
@@ -138,6 +142,7 @@ impl AppState {
             box_anchor_t: None,
             place_tool: super::types::PlaceTool::Tap,
             placement: super::types::PlacementState::Idle,
+            editing_slide_path: None,
             waveform_data: Vec::new(),
             waveform_freq_bins: 0,
             waveform_time_res: 0.0,

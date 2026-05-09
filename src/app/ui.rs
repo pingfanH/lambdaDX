@@ -831,7 +831,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
 
         match note.note_type {
             NoteType::Tap => {
-                if let Some(tex) = &app.tap_texture {
+                let tap_tex = if note.is_each { app.tap_each_tex.as_ref() } else { app.tap_texture.as_ref() }
+                    .or(app.tap_texture.as_ref());
+                if let Some(tex) = tap_tex {
                     draw_tap_sprite(tex, cx, ny, TAP_SIZE * scale);
                 } else {
                     let tr = TAP_SIZE * 0.3125 * scale;
@@ -841,7 +843,11 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 }
             }
             NoteType::Touch => {
-                if let Some(tex) = &app.touch_tri_tex {
+                let tri_tex = if note.is_each { app.touch_tri_each_tex.as_ref() } else { app.touch_tri_tex.as_ref() }
+                    .or(app.touch_tri_tex.as_ref());
+                let pt_tex = if note.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() }
+                    .or(app.touch_point_tex.as_ref());
+                if let Some(tex) = tri_tex {
                     let ratio = tex.width() / tex.height();
                     let ts = 30.0 * scale;
                     let tw = ts; let th = ts / ratio;
@@ -851,7 +857,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     draw_texture_ex(tex, cx - ts*0.3 - tw*0.5, ny - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
                     draw_texture_ex(tex, cx + ts*0.3 - tw*0.5, ny - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
                 }
-                if let Some(pt) = &app.touch_point_tex {
+                if let Some(pt) = pt_tex {
                     draw_texture_ex(pt, cx - 6.0*scale, ny - 6.0*scale, Color::from_rgba(255,255,255,200), DrawTextureParams { dest_size: Some(vec2(12.0*scale,12.0*scale)), ..Default::default() });
                 } else {
                     draw_circle(cx, ny, 3.0*scale, Color::from_rgba(103,232,249,200));
@@ -950,7 +956,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     SCROLL_SPEED
                 };
                 let tail_y = judge_y - tail_dt * scroll;
-                if let Some(tex) = &app.hold_texture {
+                let hold_tex = if note.is_each { app.hold_each_tex.as_ref() } else { app.hold_texture.as_ref() }
+                    .or(app.hold_texture.as_ref());
+                if let Some(tex) = hold_tex {
                     draw_hold_9slice_vertical(tex, cx, ny, tail_y, HOLD_WIDTH * scale);
                 } else {
                     let hw = HOLD_WIDTH * scale;
@@ -1313,6 +1321,48 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         Mode::Playing | Mode::Recording => app.song_time(),
         Mode::Idle => app.timeline_view_time,
     };
+
+    // ── Trajectory edit overlay ──
+    // When the user is editing a slide note's path, highlight its current
+    // start + slide_points with numbered markers and connecting polyline so
+    // they can see what will be appended next.
+    if let (Some(i), Some(svg)) = (app.editing_slide_path, app.pad_svg.as_ref()) {
+        if let Some(note) = app.chart.notes.get(i) {
+            if matches!(note.note_type, NoteType::Slide) {
+                let mut pts: Vec<(Vec2, String)> = Vec::new();
+                if let Some(c) = svg.zone_screen_centroid(note.lane, &pad) {
+                    pts.push((c, format!("S{}", note.lane)));
+                }
+                for (k, sp) in note.slide_points.iter().enumerate() {
+                    if let Some(c) = svg.zone_screen_centroid(sp.zone, &pad) {
+                        pts.push((c, format!("{}", k + 1)));
+                    }
+                }
+                let line_col = Color::from_rgba(250, 204, 21, 220);
+                for w in pts.windows(2) {
+                    draw_line(w[0].0.x, w[0].0.y, w[1].0.x, w[1].0.y, 4.0 * scale, line_col);
+                }
+                for (p, lbl) in &pts {
+                    draw_circle(p.x, p.y, 12.0 * scale, Color::from_rgba(250, 204, 21, 220));
+                    draw_circle_lines(p.x, p.y, 12.0 * scale, 2.0 * scale, BLACK);
+                    let sz = 16.0 * scale;
+                    let dims = measure_text(lbl, None, sz as _, 1.0);
+                    draw_text(lbl, p.x - dims.width * 0.5, p.y + dims.height * 0.35, sz, BLACK);
+                }
+                let banner = format!(
+                    "Trajectory edit  #{}  pts={}  shape={:?}  [click=add  Bksp=undo  Esc/E=exit]",
+                    i, note.slide_points.len(), note.slide_shape
+                );
+                draw_rectangle(
+                    rect.x + 8.0 * scale, rect.y + 36.0 * scale,
+                    (rect.w - 16.0 * scale).max(10.0), 24.0 * scale,
+                    Color::from_rgba(250, 204, 21, 60),
+                );
+                draw_text(&banner, rect.x + 14.0 * scale, rect.y + 53.0 * scale,
+                    16.0 * scale, Color::from_rgba(250, 204, 21, 255));
+            }
+        }
+    }
 
     for note in &app.chart.notes {
         let zone = sanitize_note_zone(note.note_type, note.lane);
