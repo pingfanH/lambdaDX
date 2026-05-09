@@ -35,6 +35,13 @@ pub(crate) struct AppState {
     pub(crate) drag_multi_orig: Vec<(usize, f32, u8)>,
     pub(crate) box_start: Option<Vec2>,
     pub(crate) box_end: Option<Vec2>,
+    /// Chart time anchored for the box-select start, so the start point sticks
+    /// to the timeline as the user scrolls during a selection drag.
+    pub(crate) box_anchor_t: Option<f32>,
+    /// Currently selected sidebar tool (Tap / Hold / Star).
+    pub(crate) place_tool: super::types::PlaceTool,
+    /// Multi-step placement state machine (for Hold and Star tools).
+    pub(crate) placement: super::types::PlacementState,
     pub(crate) waveform_data: Vec<f32>,
     pub(crate) waveform_freq_bins: u32,
     pub(crate) waveform_time_res: f32,
@@ -128,6 +135,9 @@ impl AppState {
             drag_multi_orig: Vec::new(),
             box_start: None,
             box_end: None,
+            box_anchor_t: None,
+            place_tool: super::types::PlaceTool::Tap,
+            placement: super::types::PlacementState::Idle,
             waveform_data: Vec::new(),
             waveform_freq_bins: 0,
             waveform_time_res: 0.0,

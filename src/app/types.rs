@@ -244,7 +244,44 @@ pub(crate) struct PointerEvent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum DragPart { Head, Body, Tail }
+pub(crate) enum DragPart { Head, Body, Tail, SlideDelayEnd }
+
+/// Currently selected tool in the timeline-left sidebar (Blender-style N-panel).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlaceTool { Tap, Hold, Star }
+
+/// Multi-step placement state machine driven by clicks on the timeline.
+/// Tap is single-shot, so it has no in-progress state.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PlacementState {
+    Idle,
+    /// First click of a Hold has been made; cursor preview shows the tail.
+    HoldPending { anchor_t: f32, lane: u8 },
+    /// First click of a Star (head) has been made; preview a dashed line.
+    StarHead { head_t: f32, lane: u8 },
+    /// Second click confirmed slide_start_delay; preview the slide bar.
+    StarDelay { head_t: f32, lane: u8, delay_end_t: f32 },
+}
+
+/// Width of the tool sidebar inside the timeline panel (in screen pixels,
+/// before applying ui_scale). Kept as a single source of truth so the
+/// renderer (`ui.rs`) and input handler (`input.rs`) stay aligned.
+pub(crate) const TIMELINE_SIDEBAR_W: f32 = 56.0;
+
+/// Compute the screen rects for the three sidebar tool buttons given the
+/// timeline panel rect. Returned in the order [Tap, Hold, Star].
+pub(crate) fn timeline_sidebar_buttons(tl: &RectF) -> [(RectF, PlaceTool, &'static str); 3] {
+    let pad = 6.0_f32;
+    let btn_h = 50.0_f32;
+    let x = tl.x + pad;
+    let w = TIMELINE_SIDEBAR_W - pad * 2.0;
+    let y0 = tl.y + 66.0;
+    [
+        (RectF { x, y: y0,                       w, h: btn_h }, PlaceTool::Tap,  "Tap"),
+        (RectF { x, y: y0 + (btn_h + 6.0),       w, h: btn_h }, PlaceTool::Hold, "Hold"),
+        (RectF { x, y: y0 + (btn_h + 6.0) * 2.0, w, h: btn_h }, PlaceTool::Star, "Star"),
+    ]
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PadFeedback {

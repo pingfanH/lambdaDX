@@ -614,10 +614,58 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         WHITE,
     );
 
-    let track_x = rect.x + 14.0 * scale;
+    let sidebar_w = super::types::TIMELINE_SIDEBAR_W;
+    let track_x = rect.x + 14.0 * scale + sidebar_w;
     let track_y = rect.y + 40.0 * scale;
-    let track_w = rect.w - 28.0 * scale;
+    let track_w = rect.w - 28.0 * scale - sidebar_w;
     let track_h = rect.h - 54.0 * scale;
+
+    // ── Tool sidebar (Tap / Hold / Star) ──
+    for (btn, tool, label) in super::types::timeline_sidebar_buttons(&rect) {
+        let active = app.place_tool == tool;
+        let (fill, border) = if active {
+            (Color::from_rgba(56, 189, 248, 200), Color::from_rgba(255, 255, 255, 230))
+        } else {
+            (Color::from_rgba(30, 41, 59, 220), Color::from_rgba(71, 85, 105, 255))
+        };
+        draw_rectangle(btn.x, btn.y, btn.w, btn.h, fill);
+        draw_rectangle_lines(btn.x, btn.y, btn.w, btn.h, 1.5, border);
+        // Icon glyph based on tool.
+        match tool {
+            super::types::PlaceTool::Tap => {
+                if let Some(tex) = &app.tap_texture {
+                    let s = btn.w.min(btn.h) * 0.55;
+                    draw_texture_ex(tex, btn.x + btn.w * 0.5 - s * 0.5, btn.y + btn.h * 0.35 - s * 0.5,
+                        WHITE, DrawTextureParams { dest_size: Some(vec2(s, s)), ..Default::default() });
+                } else {
+                    draw_circle(btn.x + btn.w * 0.5, btn.y + btn.h * 0.35, btn.w * 0.18,
+                        Color::from_rgba(244, 114, 182, 230));
+                }
+            }
+            super::types::PlaceTool::Hold => {
+                let hw = btn.w * 0.18;
+                let cx = btn.x + btn.w * 0.5;
+                let top = btn.y + btn.h * 0.18;
+                let h = btn.h * 0.42;
+                draw_rectangle(cx - hw * 0.5, top, hw, h, Color::from_rgba(244, 114, 182, 200));
+                draw_rectangle_lines(cx - hw * 0.5, top, hw, h, 1.0, Color::from_rgba(251, 113, 133, 255));
+            }
+            super::types::PlaceTool::Star => {
+                let cx = btn.x + btn.w * 0.5;
+                let cy = btn.y + btn.h * 0.35;
+                if let Some(tex) = &app.star_tex {
+                    let s = btn.w.min(btn.h) * 0.55;
+                    draw_texture_ex(tex, cx - s * 0.5, cy - s * 0.5,
+                        WHITE, DrawTextureParams { dest_size: Some(vec2(s, s)), ..Default::default() });
+                } else {
+                    draw_poly(cx, cy, 5, btn.w * 0.22, 0.0, Color::from_rgba(250, 204, 21, 230));
+                }
+            }
+        }
+        let lbl_color = if active { Color::from_rgba(15, 23, 42, 255) } else { WHITE };
+        let tw = measure_text(label, None, 16, 1.0).width;
+        draw_text(label, btn.x + (btn.w - tw) * 0.5, btn.y + btn.h - 8.0, 16.0, lbl_color);
+    }
     let ruler_w = 64.0 * scale;
     let lanes_w = track_w - ruler_w;
     let lane_w = lanes_w / LANE_COUNT as f32;
@@ -810,19 +858,67 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 }
             }
             NoteType::Slide => {
-                // Star head + vertical duration bar (tail handle at note.time + slide_duration).
+                // Slide is split into two editable regions on the timeline:
+                //   [note.time, note.time + slide_start_delay]  → dashed (start delay)
+                //   [note.time + slide_start_delay, note.time + slide_duration] → slide.png tiles
                 let dur = note.slide_duration.max(0.0);
+                let delay = note.slide_start_delay.max(0.0).min(dur);
+                let delay_y = judge_y - (dt + delay) * scroll;
                 let tail_y = judge_y - (dt + dur) * scroll;
-                // Bar from head (ny) up to tail (tail_y, smaller y = future).
-                let bar_w = 6.0 * scale;
-                let top = ny.min(tail_y);
-                let h = (ny - tail_y).abs();
-                if h > 0.5 {
-                    draw_rectangle(cx - bar_w * 0.5, top, bar_w, h,
-                        Color::from_rgba(250, 204, 21, 110));
-                    draw_rectangle_lines(cx - bar_w * 0.5, top, bar_w, h, 1.0 * scale,
-                        Color::from_rgba(253, 224, 71, 200));
+
+                // Dashed line for the start-delay region (between head and delay_y).
+                let delay_h = (ny - delay_y).abs();
+                if delay_h > 0.5 {
+                    let dash_len = 6.0 * scale;
+                    let gap = 4.0 * scale;
+                    let period = dash_len + gap;
+                    let top = ny.min(delay_y);
+                    let n_dashes = (delay_h / period).ceil() as i32;
+                    let col = Color::from_rgba(253, 224, 71, 220);
+                    for k in 0..n_dashes {
+                        let y0 = top + (k as f32) * period;
+                        let y1 = (y0 + dash_len).min(top + delay_h);
+                        draw_line(cx, y0, cx, y1, 2.0 * scale, col);
+                    }
                 }
+
+                // Travel region: tile slide.png vertically (same texture as the pad).
+                let slide_tex = if note.is_each { app.slide_each_tex.as_ref() } else { app.slide_tex.as_ref() };
+                let travel_h = (delay_y - tail_y).abs();
+                if travel_h > 0.5 {
+                    let top = delay_y.min(tail_y);
+                    if let Some(tex) = slide_tex {
+                        let tw_nat = tex.width() * scale * SLIDE_TILE_SCALE;
+                        let th_nat = tex.height() * scale * SLIDE_TILE_SCALE;
+                        // Width fits a typical timeline lane; height keeps aspect ratio.
+                        let bar_w = 18.0 * scale;
+                        let tile_h = th_nat * (bar_w / tw_nat).max(0.001);
+                        let spacing = SLIDE_TILE_SPACING * scale;
+                        let mut yy = top + travel_h;
+                        // Rotation angle 0 means texture's "up" points to +Y; we want
+                        // the tile pointing toward the head (downward on timeline).
+                        let angle = -std::f32::consts::FRAC_PI_2;
+                        while yy > top - spacing * 0.5 {
+                            let py = yy - tile_h * 0.5;
+                            draw_texture_ex(tex, cx - bar_w * 0.5, py - tile_h * 0.5,
+                                Color::from_rgba(255, 255, 255, 230),
+                                DrawTextureParams {
+                                    dest_size: Some(vec2(bar_w, tile_h)),
+                                    rotation: angle,
+                                    ..Default::default()
+                                });
+                            yy -= spacing;
+                        }
+                    } else {
+                        // Fallback: solid bar.
+                        let bar_w = 6.0 * scale;
+                        draw_rectangle(cx - bar_w * 0.5, top, bar_w, travel_h,
+                            Color::from_rgba(250, 204, 21, 140));
+                        draw_rectangle_lines(cx - bar_w * 0.5, top, bar_w, travel_h, 1.0 * scale,
+                            Color::from_rgba(253, 224, 71, 220));
+                    }
+                }
+
                 // Star head at note.time
                 let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
                 let ss = 18.0 * scale;
@@ -833,10 +929,16 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 } else {
                     draw_poly(cx, ny, 5, ss * 0.4, 0.0, Color::from_rgba(250, 204, 21, 230));
                 }
-                // Tail handle (drag target)
-                if h > 0.5 {
-                    draw_circle(cx, tail_y, 5.0 * scale, Color::from_rgba(250, 204, 21, 230));
-                    draw_circle_lines(cx, tail_y, 5.0 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
+
+                // Delay-end handle (smaller, white-bordered, drag adjusts slide_start_delay).
+                if delay_h > 0.5 || dur > 0.0 {
+                    draw_circle(cx, delay_y, 4.5 * scale, Color::from_rgba(56, 189, 248, 230));
+                    draw_circle_lines(cx, delay_y, 4.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
+                }
+                // Tail handle (drag adjusts slide_duration).
+                if dur > 0.0 {
+                    draw_circle(cx, tail_y, 5.5 * scale, Color::from_rgba(250, 204, 21, 230));
+                    draw_circle_lines(cx, tail_y, 5.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
                 }
             }
             NoteType::Hold => {
@@ -903,6 +1005,121 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             }
         }
 
+
+        // Placement preview for Hold / Star multi-step tools.
+        {
+            use super::types::{PlacementState, PlaceTool};
+            let (mx, my) = mouse_position();
+            let inside = mx >= track_x + ruler_w && mx <= track_x + track_w
+                && my >= track_y && my <= track_y + track_h;
+            // Cursor's snapped chart time and lane (best-effort; only used when inside).
+            let beat_s = 60.0 / app.chart.bpm;
+            let grid_s = beat_s / (GRID_DIVISION as f32 / 4.0);
+            let cursor_t = if inside {
+                let raw = (now + (judge_y - my) / SCROLL_SPEED).max(0.0);
+                Some((raw / grid_s).round() * grid_s)
+            } else { None };
+            // Helper to compute lane center x.
+            let lane_cx = |lane: u8| -> f32 {
+                let li = if is_touch_zone(sanitize_note_zone(super::types::NoteType::Tap, lane))
+                    { LANE_COUNT - 1 }
+                    else { (lane.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
+                track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+            };
+            let t_to_y = |t: f32| -> f32 { judge_y - (t - now) * SCROLL_SPEED };
+            // Dashed-line helper.
+            let dashed = |cx: f32, y0: f32, y1: f32, col: Color| {
+                let h = (y1 - y0).abs();
+                if h < 0.5 { return; }
+                let dash = 6.0 * scale; let gap = 4.0 * scale;
+                let period = dash + gap;
+                let top = y0.min(y1);
+                let n = (h / period).ceil() as i32;
+                for k in 0..n {
+                    let a = top + (k as f32) * period;
+                    let b = (a + dash).min(top + h);
+                    draw_line(cx, a, cx, b, 2.0 * scale, col);
+                }
+            };
+
+            match app.placement {
+                PlacementState::HoldPending { anchor_t, lane } => {
+                    let cx = lane_cx(lane);
+                    let ay = t_to_y(anchor_t);
+                    // Anchor dot
+                    draw_circle(cx, ay, 6.0 * scale, Color::from_rgba(244, 114, 182, 230));
+                    draw_circle_lines(cx, ay, 6.0 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
+                    if let Some(t2) = cursor_t {
+                        let by = t_to_y(t2);
+                        let bar_w = HOLD_WIDTH * 0.4 * scale;
+                        let top = ay.min(by); let h = (ay - by).abs();
+                        if h > 0.5 {
+                            draw_rectangle(cx - bar_w * 0.5, top, bar_w, h,
+                                Color::from_rgba(244, 114, 182, 90));
+                            draw_rectangle_lines(cx - bar_w * 0.5, top, bar_w, h, 1.0 * scale,
+                                Color::from_rgba(244, 114, 182, 180));
+                        }
+                        draw_circle(cx, by, 4.0 * scale, Color::from_rgba(244, 114, 182, 180));
+                    }
+                }
+                PlacementState::StarHead { head_t, lane } => {
+                    let cx = lane_cx(lane);
+                    let hy = t_to_y(head_t);
+                    // Star head marker
+                    let ss = 18.0 * scale;
+                    if let Some(tex) = &app.star_tex {
+                        draw_texture_ex(tex, cx - ss * 0.5, hy - ss * 0.5,
+                            Color::from_rgba(255, 255, 255, 230),
+                            DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
+                    } else {
+                        draw_poly(cx, hy, 5, ss * 0.4, 0.0, Color::from_rgba(250, 204, 21, 230));
+                    }
+                    if let Some(t2) = cursor_t {
+                        if t2 > head_t {
+                            let cy = t_to_y(t2);
+                            dashed(cx, hy, cy, Color::from_rgba(253, 224, 71, 220));
+                            draw_circle(cx, cy, 4.5 * scale, Color::from_rgba(56, 189, 248, 180));
+                        }
+                    }
+                }
+                PlacementState::StarDelay { head_t, lane, delay_end_t } => {
+                    let cx = lane_cx(lane);
+                    let hy = t_to_y(head_t);
+                    let dy = t_to_y(delay_end_t);
+                    // Star head
+                    let ss = 18.0 * scale;
+                    if let Some(tex) = &app.star_tex {
+                        draw_texture_ex(tex, cx - ss * 0.5, hy - ss * 0.5,
+                            Color::from_rgba(255, 255, 255, 230),
+                            DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
+                    } else {
+                        draw_poly(cx, hy, 5, ss * 0.4, 0.0, Color::from_rgba(250, 204, 21, 230));
+                    }
+                    // Dashed delay segment
+                    dashed(cx, hy, dy, Color::from_rgba(253, 224, 71, 220));
+                    // Delay-end handle
+                    draw_circle(cx, dy, 4.5 * scale, Color::from_rgba(56, 189, 248, 230));
+                    draw_circle_lines(cx, dy, 4.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
+                    // Travel preview to cursor
+                    if let Some(t2) = cursor_t {
+                        if t2 > delay_end_t {
+                            let cy = t_to_y(t2);
+                            let bar_w = 6.0 * scale;
+                            let top = dy.min(cy); let h = (dy - cy).abs();
+                            if h > 0.5 {
+                                draw_rectangle(cx - bar_w * 0.5, top, bar_w, h,
+                                    Color::from_rgba(250, 204, 21, 110));
+                                draw_rectangle_lines(cx - bar_w * 0.5, top, bar_w, h, 1.0 * scale,
+                                    Color::from_rgba(253, 224, 71, 200));
+                            }
+                            draw_circle(cx, cy, 5.0 * scale, Color::from_rgba(250, 204, 21, 180));
+                        }
+                    }
+                    let _ = PlaceTool::Star; // silence unused-warning if tool path changes later
+                }
+                PlacementState::Idle => {}
+            }
+        }
 
     for hit in &app.recording_hits {
             let zone = if hit.lane == 9 { PAD_C_ZONE } else { hit.lane };
@@ -1168,7 +1385,12 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     let seg_lens: Vec<f32> = path.windows(2).map(|w| (w[1] - w[0]).length().max(0.001)).collect();
                     let total_len: f32 = seg_lens.iter().sum();
 
-                    let fade_in = note.slide_start_delay.max(0.0).min(slide_dur * 0.5).max(0.001);
+                    // Honor the full configured delay; clamp only to the total
+                    // slide duration so travel_dur stays positive.
+                    let fade_in = note.slide_start_delay
+                        .max(0.0)
+                        .min(slide_dur - 0.001)
+                        .max(0.001);
                     let path_alpha: u8 = if dt > 0.0 {
                         0
                     } else {

@@ -295,6 +295,20 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     let dir = if SCROLL_INVERT { 1.0 } else { -1.0 };
     if wy != 0.0 { shift = dir * wy * SCROLL_SPEED_FACTOR; }
     if is_mouse_button_down(MouseButton::Middle) { shift = -mouse_delta_position().y * 0.02; }
+    // Edge auto-scroll while box-selecting: cursor above/below the timeline
+    // pans the view so the user can extend the selection beyond the viewport.
+    if app.box_anchor_t.is_some() && is_mouse_button_down(MouseButton::Left) {
+        let above = (tl.y - pos.y).max(0.0);
+        let below = (pos.y - (tl.y + tl.h)).max(0.0);
+        // Speed scales with how far past the edge the cursor is (in chart time).
+        // Frame-time-multiplied so it's roughly framerate-independent.
+        let dt_frame = macroquad::prelude::get_frame_time().min(0.05);
+        let edge_speed = (above - below) / SCROLL_SPEED * 4.0; // chart-seconds per second
+        let edge_shift = edge_speed * dt_frame;
+        if edge_shift != 0.0 {
+            shift += edge_shift;
+        }
+    }
     if shift != 0.0 {
         if matches!(app.mode, super::types::Mode::Playing) {
             app.mode_song_offset = app.song_time();
@@ -321,15 +335,46 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         app.timeline_view_time = now;
     }
 
-    let track_x = tl.x + 14.0;
+    let sidebar_w = super::types::TIMELINE_SIDEBAR_W;
+    let track_x = tl.x + 14.0 + sidebar_w;
     let track_y = tl.y + 66.0;
-    let track_w = tl.w - 28.0;
+    let track_w = tl.w - 28.0 - sidebar_w;
     let track_h = tl.h - 80.0;
     let ruler_w = 64.0;
     let lanes_w = track_w - ruler_w;
     let lane_w = lanes_w / LANE_COUNT as f32;
     let judge_y = track_y + track_h - 38.0;
     let lanes_x = track_x + ruler_w;
+
+    // Re-derive the box-select start screen y from its chart-time anchor each
+    // frame, so scrolling pans the entire selection rectangle along with the
+    // notes (the start sticks to its original chart time, not its screen y).
+    if let (Some(anchor_t), Some(start)) = (app.box_anchor_t, app.box_start.as_mut()) {
+        start.y = judge_y - (anchor_t - now) * SCROLL_SPEED;
+    }
+
+    // ── Sidebar tool buttons (Tap / Hold / Star) ──
+    if is_mouse_button_pressed(MouseButton::Left) {
+        for (btn, tool, _label) in super::types::timeline_sidebar_buttons(&tl) {
+            if pos.x >= btn.x && pos.x <= btn.x + btn.w
+                && pos.y >= btn.y && pos.y <= btn.y + btn.h
+            {
+                if app.place_tool != tool {
+                    app.place_tool = tool;
+                    app.placement = super::types::PlacementState::Idle;
+                    app.status = format!("Tool: {:?}", tool);
+                }
+                return;
+            }
+        }
+    }
+    // Escape cancels any in-progress multi-step placement.
+    if is_key_pressed(KeyCode::Escape) {
+        if !matches!(app.placement, super::types::PlacementState::Idle) {
+            app.placement = super::types::PlacementState::Idle;
+            app.status = "Placement cancelled".to_string();
+        }
+    }
 
     // ── Ruler scrub ──
     if pos.x >= track_x && pos.x <= lanes_x && is_mouse_button_down(MouseButton::Left) {
@@ -369,6 +414,18 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         for (i, note) in app.chart.notes.iter().enumerate() {
             let (cx, ny, tail_ny, has_tail) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y);
             let d = pos.distance(vec2(cx, ny));
+            // Slide-specific delay-end handle (between head and tail).
+            if matches!(note.note_type, super::types::NoteType::Slide) && note.slide_duration > 0.0 {
+                let delay_dt = note.time + note.slide_start_delay - now;
+                let delay_y = judge_y - delay_dt * SCROLL_SPEED;
+                let delay_d = pos.distance(vec2(cx, delay_y));
+                let tail_d = pos.distance(vec2(cx, tail_ny));
+                // Compare delay handle first; it sits between head and tail.
+                if delay_d < best_d && delay_d < d && delay_d < tail_d {
+                    best = Some(i); best_d = delay_d; best_part = DragPart::SlideDelayEnd;
+                    continue;
+                }
+            }
             if has_tail {
                 let tail_d = pos.distance(vec2(cx, tail_ny));
                 let mid_y = (ny + tail_ny) * 0.5;
@@ -393,6 +450,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     super::types::NoteType::Slide => n.time + n.slide_duration,
                     _ => n.time,
                 },
+                DragPart::SlideDelayEnd => n.time + n.slide_start_delay,
                 _ => n.time,
             };
             app.drag_part = Some(best_part);
@@ -402,6 +460,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             app.selected_note = None;
             app.box_start = Some(pos);
             app.box_end = Some(pos);
+            app.box_anchor_t = Some(cursor_t_at_click);
             app.drag_start_pos = Some(pos);
             app.drag_part = None;
             app.drag_orig_note = None;
@@ -483,6 +542,13 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                             }
                         }
                     }
+                    DragPart::SlideDelayEnd => {
+                        if let Some(o) = orig {
+                            // Adjust the start-delay; clamp to [0, slide_duration].
+                            let delay = (new_t - o.time).max(0.0).min(o.slide_duration);
+                            note.slide_start_delay = delay;
+                        }
+                    }
                     DragPart::Body => {
                         if let Some(o) = orig {
                             note.time = new_t;
@@ -504,8 +570,18 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     }
     if is_mouse_button_released(MouseButton::Left) {
         // Box selection: select all notes within drag rectangle
-        if let (Some(start), None) = (app.drag_start_pos, app.drag_part) {
-            let moved = pos.distance(start) >= drag_threshold;
+        if let (Some(click_start), None) = (app.drag_start_pos, app.drag_part) {
+            // Use the live box_start (already synced from box_anchor_t) so the
+            // selection rectangle correctly reflects scroll-during-drag.
+            let start = app.box_start.unwrap_or(click_start);
+            // "Moved" considers either screen-distance from click OR any
+            // chart-time scroll that happened (anchor_t != cursor's release t).
+            let moved_screen = pos.distance(click_start) >= drag_threshold;
+            let moved_anchor = app.box_anchor_t.map(|a_t| {
+                let cursor_release_t = (now + (judge_y - pos.y) / SCROLL_SPEED).max(0.0);
+                (a_t - cursor_release_t).abs() > 0.01
+            }).unwrap_or(false);
+            let moved = moved_screen || moved_anchor;
             if moved {
                 let x1 = start.x.min(pos.x); let x2 = start.x.max(pos.x);
                 let y1 = start.y.min(pos.y); let y2 = start.y.max(pos.y);
@@ -517,8 +593,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 if !app.selected_notes.is_empty() { app.selected_note = Some(app.selected_notes[0]); }
                 app.status = format!("Selected {} notes", app.selected_notes.len());
             } else {
-                // Click empty → place note
-                app.push_undo();
+                // Click empty → tool-aware placement.
                 let dt = (judge_y - pos.y) / SCROLL_SPEED;
                 let t = snap_to_grid((now + dt).max(0.0), app.chart.bpm);
                 let lx = pos.x - lanes_x;
@@ -526,15 +601,11 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     let l = (lx / lane_w) as i32; let l = l.clamp(0, LANE_COUNT as i32 - 1) as u8;
                     if l == LANE_COUNT as u8 - 1 { 9 } else { l + 1 }
                 } else { 1 };
-                let nt = if is_touch_zone(sanitize_note_zone(super::types::NoteType::Tap, lane)) { super::types::NoteType::Touch } else { super::types::NoteType::Tap };
-                app.chart.notes.push(super::types::Note { time: t, lane, note_type: nt, hold_duration: 0.0, is_each: false, slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None });
-                app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
-                app.recompute_each();
-                app.status = format!("Placed {} at {:.2}s", if nt == super::types::NoteType::Tap {"Tap"} else {"Touch"}, t);
+                handle_tool_click(app, t, lane);
             }
         }
         app.dragging_note = None; app.drag_start_pos = None; app.drag_orig_note = None;
-        app.box_start = None; app.box_end = None;
+        app.box_start = None; app.box_end = None; app.box_anchor_t = None;
         app.recompute_each();
     }
     // ── Click while pasting: place notes ──
@@ -560,6 +631,100 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         app.recompute_each();
         app.pasting = false;
         app.status = format!("Placed {} notes", app.clipboard.len());
+    }
+}
+
+/// Sidebar-tool placement dispatcher. Called once per "click empty space" on
+/// the timeline. Implements the multi-step state machines for Hold and Star.
+fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
+    use super::types::{NoteType, PlaceTool, PlacementState, Note};
+    let zone = sanitize_note_zone(NoteType::Tap, lane);
+    let touch = is_touch_zone(zone);
+    match app.place_tool {
+        PlaceTool::Tap => {
+            app.push_undo();
+            let nt = if touch { NoteType::Touch } else { NoteType::Tap };
+            app.chart.notes.push(Note {
+                time: t, lane, note_type: nt, hold_duration: 0.0, is_each: false,
+                slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0,
+                slide_shape: None,
+            });
+            app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+            app.recompute_each();
+            app.status = format!("Placed {} at {:.2}s",
+                if matches!(nt, NoteType::Tap) { "Tap" } else { "Touch" }, t);
+        }
+        PlaceTool::Hold => {
+            match app.placement {
+                PlacementState::Idle => {
+                    app.placement = PlacementState::HoldPending { anchor_t: t, lane };
+                    app.status = format!("Hold #1 set at {:.2}s; click again to set the other end", t);
+                }
+                PlacementState::HoldPending { anchor_t, lane: lane0 } => {
+                    // Head = earlier time, tail = later time (regardless of click order).
+                    // Lane is locked to the first click.
+                    let (head_t, tail_t) = if t >= anchor_t { (anchor_t, t) } else { (t, anchor_t) };
+                    let dur = (tail_t - head_t).max(0.05);
+                    app.push_undo();
+                    app.chart.notes.push(Note {
+                        time: head_t, lane: lane0, note_type: NoteType::Hold,
+                        hold_duration: dur, is_each: false,
+                        slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0,
+                        slide_shape: None,
+                    });
+                    app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+                    app.recompute_each();
+                    app.placement = PlacementState::Idle;
+                    app.status = format!("Placed Hold {:.2}s + {:.2}s", head_t, dur);
+                }
+                _ => {
+                    // Tool changed mid-flow; reset and start over.
+                    app.placement = PlacementState::HoldPending { anchor_t: t, lane };
+                }
+            }
+        }
+        PlaceTool::Star => {
+            match app.placement {
+                PlacementState::Idle => {
+                    app.placement = PlacementState::StarHead { head_t: t, lane };
+                    app.status = format!("Star head at {:.2}s; click later to set delay end", t);
+                }
+                PlacementState::StarHead { head_t, lane: lane0 } => {
+                    // Second click must be later in time than the head.
+                    if t <= head_t {
+                        app.status = "Star: 第二次点击必须在星星头上方（更晚）".to_string();
+                        return;
+                    }
+                    app.placement = PlacementState::StarDelay {
+                        head_t, lane: lane0, delay_end_t: t,
+                    };
+                    app.status = format!("Star delay end at {:.2}s; click later to set tail", t);
+                }
+                PlacementState::StarDelay { head_t, lane: lane0, delay_end_t } => {
+                    if t <= delay_end_t {
+                        app.status = "Star: 第三次点击必须在 delay handle 上方（更晚）".to_string();
+                        return;
+                    }
+                    let slide_duration = t - head_t;
+                    let slide_start_delay = (delay_end_t - head_t).max(0.0).min(slide_duration);
+                    app.push_undo();
+                    app.chart.notes.push(Note {
+                        time: head_t, lane: lane0, note_type: NoteType::Slide,
+                        hold_duration: 0.0, is_each: false,
+                        slide_points: vec![], slide_duration, slide_start_delay,
+                        slide_shape: None,
+                    });
+                    app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+                    app.recompute_each();
+                    app.placement = PlacementState::Idle;
+                    app.status = format!("Placed Star {:.2}s, delay {:.2}s, dur {:.2}s",
+                        head_t, slide_start_delay, slide_duration);
+                }
+                _ => {
+                    app.placement = PlacementState::StarHead { head_t: t, lane };
+                }
+            }
+        }
     }
 }
 
