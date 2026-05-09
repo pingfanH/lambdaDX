@@ -64,10 +64,13 @@ pub(crate) const TAP_RING_OFFSET: f32 = 14.;
 pub(crate) const GRID_DIVISION: u32 = 64;
 pub(crate) const SCROLL_SPEED_FACTOR: f32 = 0.01;
 pub(crate) const SCROLL_INVERT: bool = true;
-pub(crate) const SLIDE_TILE_SPACING: f32 = 30.0;
+
+pub(crate) const SLIDE_TILE_SPACING: f32 = 20.0;
 pub(crate) const SLIDE_TILE_SIZE: f32 = 40.0;
-pub(crate) const SLIDE_TRAIL_ALPHA: f32 = 0.4;
+pub(crate) const SLIDE_TILE_SCALE: f32 = 0.4;
 pub(crate) const SLIDE_MIN_POINTS: usize = 2;
+pub(crate) const STAR_SIZE: f32 = 45.0;
+pub(crate) const SLIDE_TRAVEL_TIME: f32 = 0.55;
 pub(crate) const SPEED_MIN: f32 = 0.1;
 pub(crate) const SPEED_MAX: f32 = 3.0;
 pub(crate) const SPEED_STEP: f32 = 0.1;
@@ -89,6 +92,24 @@ pub(crate) enum NoteType {
     Slide,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SlideShape {
+    Line,
+    Caret,
+    Left,
+    Right,
+    VShape,
+    P,
+    Q,
+    S,
+    Z,
+    PP,
+    QQ,
+    BigV,
+    Wifi,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SlidePoint {
     pub(crate) zone: u8,
@@ -106,6 +127,10 @@ pub(crate) struct Note {
     pub(crate) is_each: bool,
     #[serde(default)]
     pub(crate) slide_points: Vec<SlidePoint>,
+    #[serde(default)]
+    pub(crate) slide_duration: f32,
+    #[serde(default)]
+    pub(crate) slide_shape: Option<SlideShape>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,4 +257,8 @@ pub(crate) fn sanitize_note_zone(_note_type: NoteType, lane: u8) -> u8 {
 
 pub(crate) fn is_touch_zone(zone: u8) -> bool {
     zone >= PAD_B_START
+}
+
+pub(crate) fn slide_end_time(note: &Note) -> f32 {
+    note.time + note.slide_duration.max(0.3)
 }

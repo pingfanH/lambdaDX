@@ -4,7 +4,7 @@ use macroquad::texture::{load_texture, DrawTextureParams, FilterMode, Texture2D}
 use super::chart;
 use super::state::AppState;
 use super::types::{
-    hold_tail_time, is_touch_zone, sanitize_note_zone, Layout, Mode, PadGeom, RectF,
+    hold_tail_time, is_touch_zone, sanitize_note_zone, slide_end_time, Layout, Mode, PadGeom, RectF,
     UiAction, UiButton, LANE_COUNT, LANE_LABELS, PAD_C_ZONE,
     PREVIEW_LEAD_TIME, SCROLL_SPEED, SPEED_MAX, SPEED_MIN, SPEED_STEP, TAP_TRAVEL_TIME,
     TOUCH_TRAVEL_TIME, HOLD_TRAVEL_TIME, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
@@ -14,7 +14,7 @@ use super::types::{
     TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCH_CROSS_SIZE, TOUCH_SCALE, TOUCHHOLD_SCALE,
     TOUCHHOLD_CROSS_BASE, TOUCHHOLD_BORDER_BASE,
     TOUCH_GROW_FRAC,
-    TOUCH_DISAPPEAR_TIME, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE,
+    TOUCH_DISAPPEAR_TIME, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE,
     HIT_WINDOW,
     PAD_ROTATION_RAD, TAP_RING_OFFSET, GRID_DIVISION, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
 };
@@ -41,10 +41,15 @@ pub(crate) async fn load_note_textures(app: &mut AppState) {
         "skins/classic/tap.png",
     ];
     for path in tap_candidates {
-        if let Ok(tex) = load_texture(path).await {
-            tex.set_filter(FilterMode::Linear);
+        match load_texture(path).await {
+          Ok(tex)=>{
+              tex.set_filter(FilterMode::Linear);
             app.tap_texture = Some(tex);
             break;
+          },
+          Err(e)=>{
+            println!("e:{}",e);
+          }
         }
     }
 
@@ -135,6 +140,43 @@ pub(crate) async fn load_note_textures(app: &mut AppState) {
         if let Ok(tex) = load_texture(path).await {
             tex.set_filter(FilterMode::Linear);
             app.slide_each_tex = Some(tex);
+            break;
+        }
+    }
+
+    // Star textures
+    for path in ["Skins/classic/star.png", "star.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.star_tex = Some(tex);
+            break;
+        }
+    }
+    for path in ["Skins/classic/star_each.png", "star_each.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.star_each_tex = Some(tex);
+            break;
+        }
+    }
+    for path in ["Skins/classic/star_break.png", "star_break.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.star_break_tex = Some(tex);
+            break;
+        }
+    }
+    for path in ["Skins/classic/star_double.png", "star_double.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.star_double_tex = Some(tex);
+            break;
+        }
+    }
+    for path in ["Skins/classic/star_double_each.png", "star_double_each.png"] {
+        if let Ok(tex) = load_texture(path).await {
+            tex.set_filter(FilterMode::Linear);
+            app.star_double_each_tex = Some(tex);
             break;
         }
     }
@@ -1033,15 +1075,25 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         };
 
         let lead_time = if zone <= 8 {
-            if matches!(note.note_type, NoteType::Hold) { HOLD_FLY_TIME } else { TAP_TRAVEL_TIME }
+            if matches!(note.note_type, NoteType::Hold) { HOLD_FLY_TIME }
+            else if matches!(note.note_type, NoteType::Slide) { SLIDE_TRAVEL_TIME }
+            else { TAP_TRAVEL_TIME }
         } else {
             match note.note_type {
                 NoteType::Hold => HOLD_TRAVEL_TIME,
+                NoteType::Slide => SLIDE_TRAVEL_TIME,
                 _ => TOUCH_TRAVEL_TIME,
             }
         };
-        let disappear_time = if matches!(note.note_type, NoteType::Touch) { TOUCH_DISAPPEAR_TIME } else { 0.18 };
-        if tail_dt < -disappear_time || dt > lead_time {
+        let slide_tail_dt = if matches!(note.note_type, NoteType::Slide) {
+            slide_end_time(note) - current_t
+        } else {
+            tail_dt
+        };
+        let disappear_time = if matches!(note.note_type, NoteType::Touch) { TOUCH_DISAPPEAR_TIME }
+            else if matches!(note.note_type, NoteType::Slide) { 0.3 }
+            else { 0.18 };
+        if slide_tail_dt < -disappear_time || dt > lead_time {
             continue;
         }
         // A-zone tap disappears at dt fraction; hold disappears at tail fraction
@@ -1050,7 +1102,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 if tail_dt <= (hold_tail_time(note) - note.time) * HOLD_DISAPPEAR_FRAC {
                     continue;
                 }
-            } else if dt <= TAP_TRAVEL_TIME * TAP_DISAPPEAR_FRAC {
+            } else if !matches!(note.note_type, NoteType::Slide) && dt <= TAP_TRAVEL_TIME * TAP_DISAPPEAR_FRAC {
                 continue;
             }
         }
@@ -1059,7 +1111,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             let idx = (zone - 1) as f32;
             let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
             let dir = vec2(ang.cos(), ang.sin());
-            let progress = ((TAP_TRAVEL_TIME - dt) / TAP_TRAVEL_TIME).clamp(0.0, 1.0);
+            let head_travel = if matches!(note.note_type, NoteType::Slide) { SLIDE_TRAVEL_TIME } else { TAP_TRAVEL_TIME };
+            let progress = ((head_travel - dt) / head_travel).clamp(0.0, 1.0);
             // Phase 1: grow from 0 to 1 at spawn point. Phase 2: fly at full size.
             let size_scale = if progress < TAP_GROW_FRAC {
                 progress / TAP_GROW_FRAC
@@ -1114,7 +1167,24 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 }
             }
 
-            if !matches!(note.note_type, NoteType::Hold) {
+            if matches!(note.note_type, NoteType::Slide) {
+                // Star head for Slide notes
+                let ss = STAR_SIZE * scale * size_scale;
+                let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+                let star_rot = fly_progress * std::f32::consts::TAU;
+                if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                    draw_texture_ex(tex, px - ss * 0.5, py - ss * 0.5, WHITE, DrawTextureParams {
+                        dest_size: Some(vec2(ss, ss)),
+                        rotation: star_rot,
+                        ..Default::default()
+                    });
+                } else {
+                    // Fallback: yellow diamond
+                    let tr = STAR_SIZE * 0.4 * scale * size_scale;
+                    draw_poly(px, py, 4, tr, star_rot.to_degrees(), Color::from_rgba(250, 204, 21, 255));
+                    draw_poly_lines(px, py, 4, tr, star_rot.to_degrees(), 2.0 * scale, Color::from_rgba(253, 224, 71, 255));
+                }
+            } else if !matches!(note.note_type, NoteType::Hold) {
                 let ts = TAP_SIZE * scale * size_scale;
                 let tap_tex = if note.is_each { app.tap_each_tex.as_ref() } else { app.tap_texture.as_ref() };
                 if let Some(tex) = tap_tex.or(app.tap_texture.as_ref()) {
@@ -1134,6 +1204,10 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 draw_circle_lines(px, py, TAP_SIZE * 0.53 * scale, 2.0 * scale, Color::from_rgba(255, 255, 255, 220));
             }
         } else {
+            // Slide head in touch zone is drawn in the dedicated slide section below
+            if matches!(note.note_type, NoteType::Slide) {
+                continue;
+            }
             let Some(center) = app
                 .pad_svg
                 .as_ref()
@@ -1245,43 +1319,141 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         }
     }
 
-    // Slide note paths
+    // Slide notes: path tiles + star head + flying star
     for note in &app.chart.notes {
         if !matches!(note.note_type, NoteType::Slide) || note.slide_points.is_empty() {
             continue;
         }
         let dt = note.time - current_t;
-        if dt > TOUCH_TRAVEL_TIME || dt < -TOUCH_DISAPPEAR_TIME { continue; }
+        let slide_dur = note.slide_duration.max(0.3);
+        let slide_end = note.time + slide_dur;
+        if dt > SLIDE_TRAVEL_TIME || current_t > slide_end + 0.2 { continue; }
 
         let slide_tex = if note.is_each { app.slide_each_tex.as_ref() } else { app.slide_tex.as_ref() };
-        let ts = SLIDE_TILE_SIZE * scale;
+        // Natural texture dimensions (scaled by ui scale only)
+        let (tw, th) = if let Some(t) = slide_tex {
+            (t.width() * scale * SLIDE_TILE_SCALE, t.height() * scale * SLIDE_TILE_SCALE)
+        } else {
+            (SLIDE_TILE_SIZE * scale, SLIDE_TILE_SIZE * scale)
+        };
 
-        // Build path of centroids
+        // Build path of centroids: start from note.lane (zone), pass through slide_points
         let mut path: Vec<Vec2> = Vec::new();
         if let Some(ref svg) = app.pad_svg {
-            if let Some(c) = svg.zone_screen_centroid(note.lane, &pad) { path.push(c); }
+            // Start point: A-zone uses tap target ring, touch zone uses zone centroid
+            let start_pt = if note.lane <= 8 {
+                let idx = (note.lane - 1) as f32;
+                let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                let target_r = outer_r + TAP_TARGET_OFFSET;
+                Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
+            } else {
+                svg.zone_screen_centroid(note.lane, &pad)
+            };
+            if let Some(c) = start_pt { path.push(c); }
             for sp in &note.slide_points {
-                if let Some(c) = svg.zone_screen_centroid(sp.zone, &pad) { path.push(c); }
+                if sp.zone == note.lane && path.len() == 1 { continue; }
+                if let Some(c) = svg.zone_screen_centroid(sp.zone, &pad) {
+                    if path.last().map(|p| (*p - c).length() > 1.0).unwrap_or(true) {
+                        path.push(c);
+                    }
+                }
             }
         }
         if path.len() < 2 { continue; }
 
-        // Tile slide.png along each segment
-        for w in path.windows(2) {
+        // Compute cumulative segment lengths for parameterization
+        let seg_lens: Vec<f32> = path.windows(2).map(|w| (w[1] - w[0]).length().max(0.001)).collect();
+        let total_len: f32 = seg_lens.iter().sum();
+
+        // Path appearance progress: head judge approaches → fade in path tiles
+        let path_alpha = if dt > 0.0 {
+            // Before head judge: fade in over SLIDE_TRAVEL_TIME * 0.6
+            let fade = ((SLIDE_TRAVEL_TIME - dt) / (SLIDE_TRAVEL_TIME * 0.6)).clamp(0.0, 1.0);
+            (fade * 200.0) as u8
+        } else {
+            220
+        };
+
+        // Star travel parameter along path: 0..1 from note.time to slide_end
+        let star_t = ((current_t - note.time) / slide_dur).clamp(0.0, 1.0);
+        let star_dist_along = star_t * total_len;
+
+        // Helper: find point + direction at distance d along path
+        let point_at = |d: f32| -> (Vec2, f32) {
+            let mut acc = 0.0;
+            for (i, w) in path.windows(2).enumerate() {
+                let len = seg_lens[i];
+                if d <= acc + len {
+                    let local = (d - acc) / len;
+                    let p = w[0] + (w[1] - w[0]) * local;
+                    let dir = (w[1] - w[0]).normalize_or_zero();
+                    return (p, dir.y.atan2(dir.x));
+                }
+                acc += len;
+            }
+            // End
+            let last = path.windows(2).last().unwrap();
+            let dir = (last[1] - last[0]).normalize_or_zero();
+            (*path.last().unwrap(), dir.y.atan2(dir.x))
+        };
+
+        // Tile path; tiles already passed by star are cleared (not drawn)
+        for (si, w) in path.windows(2).enumerate() {
             let a = w[0]; let b = w[1];
-            let delta = b - a;
-            let len = delta.length().max(1.0);
-            let dir = delta / len;
-            let angle = dir.y.atan2(dir.x);
+            let seg_len = seg_lens[si];
+            let dir = (b - a) / seg_len;
+            // Reverse texture facing direction (+PI)
+            let angle = dir.y.atan2(dir.x) + std::f32::consts::PI;
             let spacing = SLIDE_TILE_SPACING * scale;
+            let seg_start_d: f32 = seg_lens.iter().take(si).sum();
             let mut pos = 0.0;
-            while pos < len {
+            while pos < seg_len {
+                let abs_d = seg_start_d + pos;
+                // Skip tiles already traversed by the flying star
+                if abs_d < star_dist_along {
+                    pos += spacing;
+                    continue;
+                }
                 let pt = a + dir * pos;
                 if let Some(tex) = slide_tex {
-                    draw_texture_ex(tex, pt.x - ts * 0.5, pt.y - ts * 0.5, WHITE,
-                        DrawTextureParams { dest_size: Some(vec2(ts, ts)), rotation: angle, ..Default::default() });
+                    draw_texture_ex(tex, pt.x - tw * 0.5, pt.y - th * 0.5,
+                        Color::from_rgba(255, 255, 255, path_alpha),
+                        DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: angle, ..Default::default() });
                 }
                 pos += spacing;
+            }
+        }
+
+        // Star head for slide that starts in touch zone (A-zone heads already drawn above)
+        if note.lane > 8 && dt < SLIDE_TRAVEL_TIME && dt > -slide_dur {
+            // Head fade-in progress
+            let head_progress = ((SLIDE_TRAVEL_TIME - dt) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
+            let size_scale = if head_progress < TAP_GROW_FRAC { head_progress / TAP_GROW_FRAC } else { 1.0 };
+            // Head sits at start of path until note.time, then flying star takes over
+            if dt >= 0.0 {
+                let ss = STAR_SIZE * scale * size_scale;
+                let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+                let head_rot = head_progress * std::f32::consts::TAU;
+                if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                    draw_texture_ex(tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
+                        DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
+                }
+            }
+        }
+
+        // Flying star: travels along the path during slide playback
+        if current_t >= note.time && current_t <= slide_end {
+            let (star_pos, angle) = point_at(star_dist_along);
+            let ss = STAR_SIZE * scale;
+            let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+            // Spin while flying — also align with movement direction
+            let spin = (current_t - note.time) * 6.0;
+            let rot = angle + spin;
+            if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                draw_texture_ex(tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
+                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: rot, ..Default::default() });
+            } else {
+                draw_poly(star_pos.x, star_pos.y, 5, ss * 0.4, rot.to_degrees(), Color::from_rgba(250, 204, 21, 255));
             }
         }
     }

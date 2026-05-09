@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use super::types::{
     ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm, DragPart,
     HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, EACH_WINDOW,
-    TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone, sanitize_note_zone,
+    TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone, sanitize_note_zone, slide_end_time,
 };
 
 /// Runtime mutable state for the editor/simulator.
@@ -67,6 +67,11 @@ pub(crate) struct AppState {
     pub(crate) touchhold_border_tex: Option<Texture2D>,
     pub(crate) slide_tex: Option<Texture2D>,
     pub(crate) slide_each_tex: Option<Texture2D>,
+    pub(crate) star_tex: Option<Texture2D>,
+    pub(crate) star_each_tex: Option<Texture2D>,
+    pub(crate) star_break_tex: Option<Texture2D>,
+    pub(crate) star_double_tex: Option<Texture2D>,
+    pub(crate) star_double_each_tex: Option<Texture2D>,
     pub(crate) mask_material: Option<Material>,
     pub(crate) pad_rect: Option<egui_macroquad::egui::Rect>,
     pub(crate) audio_cache: HashMap<i32, Sound>,
@@ -151,6 +156,11 @@ impl AppState {
             touchhold_border_tex: None,
             slide_tex: None,
             slide_each_tex: None,
+            star_tex: None,
+            star_each_tex: None,
+            star_break_tex: None,
+            star_double_tex: None,
+            star_double_each_tex: None,
             mask_material: None,
             pad_rect: None,
             audio_cache: HashMap::new(),
@@ -457,10 +467,13 @@ impl AppState {
             .map(|(z, off)| super::types::SlidePoint { zone: *z, beat_offset: *off })
             .collect();
 
+        let slide_dur = if matches!(note_type, NoteType::Slide) { duration } else { 0.0 };
+
         self.chart.notes.push(Note {
             time: start_time, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
             is_each: false, slide_points: slide_points.clone(),
+            slide_duration: slide_dur, slide_shape: None,
         });
         self.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
         self.recompute_each();
@@ -469,6 +482,7 @@ impl AppState {
             time: start_time, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
             is_each: false, slide_points,
+            slide_duration: slide_dur, slide_shape: None,
         });
         self.recording_hits.push(HitEvent {
             time: active.start_time,
