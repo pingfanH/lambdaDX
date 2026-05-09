@@ -473,7 +473,7 @@ impl AppState {
             time: start_time, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
             is_each: false, slide_points: slide_points.clone(),
-            slide_duration: slide_dur, slide_shape: None,
+            slide_duration: slide_dur, slide_start_delay: 0.12, slide_shape: None,
         });
         self.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
         self.recompute_each();
@@ -482,7 +482,7 @@ impl AppState {
             time: start_time, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
             is_each: false, slide_points,
-            slide_duration: slide_dur, slide_shape: None,
+            slide_duration: slide_dur, slide_start_delay: 0.12, slide_shape: None,
         });
         self.recording_hits.push(HitEvent {
             time: active.start_time,

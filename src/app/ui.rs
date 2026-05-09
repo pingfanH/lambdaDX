@@ -1168,21 +1168,23 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             }
 
             if matches!(note.note_type, NoteType::Slide) {
-                // Star head for Slide notes
-                let ss = STAR_SIZE * scale * size_scale;
-                let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
-                let star_rot = fly_progress * std::f32::consts::TAU;
-                if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
-                    draw_texture_ex(tex, px - ss * 0.5, py - ss * 0.5, WHITE, DrawTextureParams {
-                        dest_size: Some(vec2(ss, ss)),
-                        rotation: star_rot,
-                        ..Default::default()
-                    });
-                } else {
-                    // Fallback: yellow diamond
-                    let tr = STAR_SIZE * 0.4 * scale * size_scale;
-                    draw_poly(px, py, 4, tr, star_rot.to_degrees(), Color::from_rgba(250, 204, 21, 255));
-                    draw_poly_lines(px, py, 4, tr, star_rot.to_degrees(), 2.0 * scale, Color::from_rgba(253, 224, 71, 255));
+                // Star head flies in like a tap before judge time. Hide once the
+                // dedicated slide section takes over (at/after note.time).
+                if dt > 0.0 {
+                    let ss = STAR_SIZE * scale * size_scale;
+                    let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+                    let star_rot = fly_progress * std::f32::consts::TAU;
+                    if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                        draw_texture_ex(tex, px - ss * 0.5, py - ss * 0.5, WHITE, DrawTextureParams {
+                            dest_size: Some(vec2(ss, ss)),
+                            rotation: star_rot,
+                            ..Default::default()
+                        });
+                    } else {
+                        let tr = STAR_SIZE * 0.4 * scale * size_scale;
+                        draw_poly(px, py, 4, tr, star_rot.to_degrees(), Color::from_rgba(250, 204, 21, 255));
+                        draw_poly_lines(px, py, 4, tr, star_rot.to_degrees(), 2.0 * scale, Color::from_rgba(253, 224, 71, 255));
+                    }
                 }
             } else if !matches!(note.note_type, NoteType::Hold) {
                 let ts = TAP_SIZE * scale * size_scale;
@@ -1365,17 +1367,24 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         let seg_lens: Vec<f32> = path.windows(2).map(|w| (w[1] - w[0]).length().max(0.001)).collect();
         let total_len: f32 = seg_lens.iter().sum();
 
-        // Path appearance progress: head judge approaches → fade in path tiles
-        let path_alpha = if dt > 0.0 {
-            // Before head judge: fade in over SLIDE_TRAVEL_TIME * 0.6
-            let fade = ((SLIDE_TRAVEL_TIME - dt) / (SLIDE_TRAVEL_TIME * 0.6)).clamp(0.0, 1.0);
-            (fade * 200.0) as u8
+        // Per-note start delay (path fade-in + star wait time before traveling).
+        let fade_in = note.slide_start_delay.max(0.0).min(slide_dur * 0.5).max(0.001);
+
+        // Path tiles only appear AFTER the star head's hit time, fading in over `fade_in` seconds.
+        let path_alpha: u8 = if dt > 0.0 {
+            0
         } else {
-            220
+            let f = ((current_t - note.time) / fade_in).clamp(0.0, 1.0);
+            (f * 220.0) as u8
         };
 
-        // Star travel parameter along path: 0..1 from note.time to slide_end
-        let star_t = ((current_t - note.time) / slide_dur).clamp(0.0, 1.0);
+        // Star travel: stays at start during fade-in, then travels along path.
+        let travel_dur = (slide_dur - fade_in).max(0.001);
+        let star_t = if current_t < note.time + fade_in {
+            0.0
+        } else {
+            ((current_t - note.time - fade_in) / travel_dur).clamp(0.0, 1.0)
+        };
         let star_dist_along = star_t * total_len;
 
         // Helper: find point + direction at distance d along path
@@ -1424,36 +1433,32 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             }
         }
 
-        // Star head for slide that starts in touch zone (A-zone heads already drawn above)
-        if note.lane > 8 && dt < SLIDE_TRAVEL_TIME && dt > -slide_dur {
-            // Head fade-in progress
+        // Star head before note.time for slide that starts in touch zone (A-zone heads
+        // are drawn in the main note loop above).
+        if note.lane > 8 && dt > 0.0 && dt < SLIDE_TRAVEL_TIME {
             let head_progress = ((SLIDE_TRAVEL_TIME - dt) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
             let size_scale = if head_progress < TAP_GROW_FRAC { head_progress / TAP_GROW_FRAC } else { 1.0 };
-            // Head sits at start of path until note.time, then flying star takes over
-            if dt >= 0.0 {
-                let ss = STAR_SIZE * scale * size_scale;
-                let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
-                let head_rot = head_progress * std::f32::consts::TAU;
-                if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
-                    draw_texture_ex(tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
-                        DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
-                }
+            let ss = STAR_SIZE * scale * size_scale;
+            let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+            let head_rot = head_progress * std::f32::consts::TAU;
+            if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                draw_texture_ex(tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
+                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
             }
         }
 
-        // Flying star: travels along the path during slide playback
+        // Flying star: from note.time onward, slides along path WITHOUT rotation.
         if current_t >= note.time && current_t <= slide_end {
             let (star_pos, angle) = point_at(star_dist_along);
             let ss = STAR_SIZE * scale;
             let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
-            // Spin while flying — also align with movement direction
-            let spin = (current_t - note.time) * 6.0;
-            let rot = angle + spin;
+            // Orientation aligns to path direction; no spin
             if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
                 draw_texture_ex(tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
-                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: rot, ..Default::default() });
+                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: angle, ..Default::default() });
             } else {
-                draw_poly(star_pos.x, star_pos.y, 5, ss * 0.4, rot.to_degrees(), Color::from_rgba(250, 204, 21, 255));
+                draw_poly(star_pos.x, star_pos.y, 5, ss * 0.4, angle.to_degrees(),
+                    Color::from_rgba(250, 204, 21, 255));
             }
         }
     }

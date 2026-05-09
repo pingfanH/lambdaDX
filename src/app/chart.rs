@@ -35,6 +35,7 @@ fn fallback_chart() -> ChartDoc {
                 is_each: false,
                 slide_points: Vec::new(),
                 slide_duration: 0.0,
+                slide_start_delay: 0.0,
                 slide_shape: None,
             },
             Note {
@@ -45,6 +46,7 @@ fn fallback_chart() -> ChartDoc {
                 is_each: false,
                 slide_points: Vec::new(),
                 slide_duration: 0.0,
+                slide_start_delay: 0.0,
                 slide_shape: None,
             },
             Note {
@@ -55,6 +57,7 @@ fn fallback_chart() -> ChartDoc {
                 is_each: false,
                 slide_points: Vec::new(),
                 slide_duration: 0.0,
+                slide_start_delay: 0.0,
                 slide_shape: None,
             },
             Note {
@@ -65,6 +68,7 @@ fn fallback_chart() -> ChartDoc {
                 is_each: false,
                 slide_points: Vec::new(),
                 slide_duration: 0.0,
+                slide_start_delay: 0.0,
                 slide_shape: None,
             },
             Note {
@@ -75,6 +79,7 @@ fn fallback_chart() -> ChartDoc {
                 is_each: false,
                 slide_points: Vec::new(),
                 slide_duration: 0.0,
+                slide_start_delay: 0.0,
                 slide_shape: None,
             },
             Note {
@@ -85,6 +90,7 @@ fn fallback_chart() -> ChartDoc {
                 is_each: false,
                 slide_points: Vec::new(),
                 slide_duration: 0.0,
+                slide_start_delay: 0.0,
                 slide_shape: None,
             },
             // Slide 1: A1 -> A5 (straight line across pad)
@@ -98,6 +104,7 @@ fn fallback_chart() -> ChartDoc {
                     super::types::SlidePoint { zone: 5, beat_offset: 0.0 },
                 ],
                 slide_duration: 0.80,
+                slide_start_delay: 0.10,
                 slide_shape: None,
             },
             // Slide 2: A3 -> A7 (line across, opposite direction)
@@ -111,6 +118,7 @@ fn fallback_chart() -> ChartDoc {
                     super::types::SlidePoint { zone: 7, beat_offset: 0.0 },
                 ],
                 slide_duration: 0.80,
+                slide_start_delay: 0.20,
                 slide_shape: None,
             },
             // Slide 3: A1 -> A3 -> A5 (caret/V shape via vertex)
@@ -125,6 +133,7 @@ fn fallback_chart() -> ChartDoc {
                     super::types::SlidePoint { zone: 5, beat_offset: 0.0 },
                 ],
                 slide_duration: 1.0,
+                slide_start_delay: 0.05,
                 slide_shape: None,
             },
             // Slide 4: A2 -> A4 -> A6 -> A8 (zigzag through 3 vertices)
@@ -140,6 +149,7 @@ fn fallback_chart() -> ChartDoc {
                     super::types::SlidePoint { zone: 8, beat_offset: 0.0 },
                 ],
                 slide_duration: 1.2,
+                slide_start_delay: 0.30,
                 slide_shape: None,
             },
             // Slide 5: Each pair — two simultaneous slides at t=8.0
@@ -153,6 +163,7 @@ fn fallback_chart() -> ChartDoc {
                     super::types::SlidePoint { zone: 5, beat_offset: 0.0 },
                 ],
                 slide_duration: 0.80,
+                slide_start_delay: 0.15,
                 slide_shape: None,
             },
             Note {
@@ -165,6 +176,7 @@ fn fallback_chart() -> ChartDoc {
                     super::types::SlidePoint { zone: 1, beat_offset: 0.0 },
                 ],
                 slide_duration: 0.80,
+                slide_start_delay: 0.15,
                 slide_shape: None,
             },
         ],

@@ -29,7 +29,8 @@
         { "zone": 5, "beat_offset": 0.0 },
         { "zone": 1, "beat_offset": 0.0 }
       ],
-      "slide_duration": 2.80
+      "slide_duration": 2.80,
+      "slide_start_delay": 2.0
     },
     {
       "time": 1.0955021,

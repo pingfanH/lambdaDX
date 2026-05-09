@@ -469,7 +469,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     if l == LANE_COUNT as u8 - 1 { 9 } else { l + 1 }
                 } else { 1 };
                 let nt = if is_touch_zone(sanitize_note_zone(super::types::NoteType::Tap, lane)) { super::types::NoteType::Touch } else { super::types::NoteType::Tap };
-                app.chart.notes.push(super::types::Note { time: t, lane, note_type: nt, hold_duration: 0.0, is_each: false, slide_points: vec![], slide_duration: 0.0, slide_shape: None });
+                app.chart.notes.push(super::types::Note { time: t, lane, note_type: nt, hold_duration: 0.0, is_each: false, slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None });
                 app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
                 app.recompute_each();
                 app.status = format!("Placed {} at {:.2}s", if nt == super::types::NoteType::Tap {"Tap"} else {"Touch"}, t);

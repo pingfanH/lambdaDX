@@ -71,6 +71,7 @@ pub(crate) const SLIDE_TILE_SCALE: f32 = 0.4;
 pub(crate) const SLIDE_MIN_POINTS: usize = 2;
 pub(crate) const STAR_SIZE: f32 = 45.0;
 pub(crate) const SLIDE_TRAVEL_TIME: f32 = 0.55;
+pub(crate) const SLIDE_STAR_FADE_IN: f32 = 0.12;
 pub(crate) const SPEED_MIN: f32 = 0.1;
 pub(crate) const SPEED_MAX: f32 = 3.0;
 pub(crate) const SPEED_STEP: f32 = 0.1;
@@ -129,9 +130,13 @@ pub(crate) struct Note {
     pub(crate) slide_points: Vec<SlidePoint>,
     #[serde(default)]
     pub(crate) slide_duration: f32,
+    #[serde(default = "default_slide_start_delay")]
+    pub(crate) slide_start_delay: f32,
     #[serde(default)]
     pub(crate) slide_shape: Option<SlideShape>,
 }
+
+fn default_slide_start_delay() -> f32 { SLIDE_STAR_FADE_IN }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ChartDoc {
