@@ -224,19 +224,25 @@ impl AppState {
     }
 
     pub(crate) fn set_record_speed(&mut self, new_speed: f32) {
+        self.record_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
         if self.mode == Mode::Recording {
+            // Anchor the song clock at the current time, then rebuild audio
+            // from that exact offset at the new speed. Without setting
+            // `audio_seek_offset` the rebuild would start from t=0 and
+            // immediately desync from the chart cursor.
             self.rebase_song_clock();
+            self.audio_seek_offset = Some(self.mode_song_offset);
             self.request_audio_start();
         }
-        self.record_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
     }
 
     pub(crate) fn set_play_speed(&mut self, new_speed: f32) {
+        self.play_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
         if self.mode == Mode::Playing {
             self.rebase_song_clock();
+            self.audio_seek_offset = Some(self.mode_song_offset);
             self.request_audio_start();
         }
-        self.play_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
     }
 
     // pub(crate) fn set_touch_speed(&mut self, new_speed: f32) {
@@ -255,7 +261,18 @@ impl AppState {
 
     pub(crate) fn seek_audio_to(&mut self, time: f32) {
         self.audio_seek_offset = Some(time);
-        self.pending_audio_start = true;
+        // Only kick off a fresh audio build/play when the user is actually
+        // playing or recording. While Idle (paused), we just remember the
+        // intended seek; resuming via `toggle_play` will use it. Triggering
+        // audio in Idle would call `current_speed() == 0.0`, which clamps to
+        // `SPEED_MIN = 0.1` inside the speed-shift builder, producing
+        // 1/10x-speed audio — that's the "very slow music after pause" bug.
+        if matches!(self.mode, Mode::Playing | Mode::Recording) {
+            self.pending_audio_start = true;
+        } else {
+            // Stop any leftover audio so scrubbing while paused stays silent.
+            self.stop_audio_if_any();
+        }
     }
 
     pub(crate) fn push_undo(&mut self) {
@@ -356,11 +373,21 @@ impl AppState {
     }
 
     /// Play hit sound for notes that just reached their hit point or tail end.
+    ///
+    /// To avoid overwhelming macroquad's audio mixer when many notes hit in
+    /// the same frame (e.g. dense "each" clusters), we cap the number of
+    /// actual `play_sound` calls per frame and scale volume down when several
+    /// sounds fire simultaneously.
     pub(crate) fn service_hit_sounds(&mut self) {
+        const MAX_HIT_SOUNDS_PER_FRAME: usize = 3;
+
         if self.mode != Mode::Playing {
             return;
         }
         let t = self.song_time();
+
+        // --- collect pending hit-sound events (key, is_touch) ---
+        let mut pending: Vec<(usize, bool)> = Vec::new();
 
         for (i, note) in self.chart.notes.iter().enumerate() {
             // Head hit — touch uses TOUCH_DISAPPEAR_TIME to align with visual
@@ -370,14 +397,8 @@ impl AppState {
                 note.time
             };
             if !self.hit_sounds_played.contains(&i) && hit_time <= t {
-                let s = if matches!(note.note_type, NoteType::Touch) {
-                    self.touch_sound.as_ref()
-                } else {
-                    self.hit_sound.as_ref()
-                };
-                if let Some(sound) = s {
-                    play_sound(sound, PlaySoundParams { looped: false, volume: 1.0 });
-                }
+                let is_touch = matches!(note.note_type, NoteType::Touch);
+                pending.push((i, is_touch));
                 self.hit_sounds_played.insert(i);
             }
             // Hold tail
@@ -386,10 +407,22 @@ impl AppState {
                 && !self.hit_sounds_played.contains(&tail_key)
                 && hold_tail_time(note) <= t
             {
-                if let Some(sound) = self.hit_sound.as_ref() {
-                    play_sound(sound, PlaySoundParams { looped: false, volume: 1.0 });
-                }
+                pending.push((tail_key, false));
                 self.hit_sounds_played.insert(tail_key);
+            }
+        }
+
+        // --- play at most MAX, with volume scaled by count ---
+        let count = pending.len().min(MAX_HIT_SOUNDS_PER_FRAME);
+        let vol = if count <= 1 { 1.0 } else { 1.0 / (count as f32).sqrt() };
+        for &(_key, is_touch) in pending.iter().take(MAX_HIT_SOUNDS_PER_FRAME) {
+            let s = if is_touch {
+                self.touch_sound.as_ref()
+            } else {
+                self.hit_sound.as_ref()
+            };
+            if let Some(sound) = s {
+                play_sound(sound, PlaySoundParams { looped: false, volume: vol });
             }
         }
 

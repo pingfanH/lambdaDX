@@ -1,6 +1,7 @@
 use egui_macroquad::egui::{self, TopBottomPanel};
 
 use super::chart;
+use super::simai_io;
 use super::state::AppState;
 use super::types::Mode;
 
@@ -28,6 +29,30 @@ pub(crate) fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                 match chart::load_latest_saved_chart() {
                     Ok(c) => { let n = c.notes.len(); app.chart = c; app.status = format!("{n} notes"); }
                     Err(e) => app.status = format!("Load: {e}"),
+                }
+            }
+            if ui.button("⬇ Simai")
+                .on_hover_text("Import maidata.txt or chart body from output/import.simai")
+                .clicked()
+            {
+                match simai_io::import_from_simai_path("import.simai") {
+                    Ok(c) => {
+                        let n = c.notes.len();
+                        app.chart = c;
+                        app.selected_note = None;
+                        app.editing_slide_path = None;
+                        app.status = format!("Imported Simai: {n} notes");
+                    }
+                    Err(e) => app.status = format!("Import Simai: {e}"),
+                }
+            }
+            if ui.button("⬆ Simai")
+                .on_hover_text("Export current chart to output/export.simai (Simai format)")
+                .clicked()
+            {
+                match simai_io::export_to_simai_path(&app.chart, "export.simai") {
+                    Ok(p) => app.status = format!("Exported Simai: {}", p.display()),
+                    Err(e) => app.status = format!("Export Simai: {e}"),
                 }
             }
             if ui.button("🗑 Clear").clicked() {

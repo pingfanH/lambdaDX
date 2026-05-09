@@ -24,6 +24,7 @@ minimp3 = "0.5"
 roxmltree = "0.20"
 rustfft = "6"
 egui-macroquad = "0.17"
+maisimai = { path = "../maisimai" }
 
 [package.metadata.android]
 package_name = "com.mai2chart.macroquad_sim"

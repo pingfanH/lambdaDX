@@ -171,12 +171,23 @@ pub(crate) async fn service_audio(app: &mut AppState) {
     }
 
     let speed = app.current_speed();
+    if speed <= 0.0 {
+        // Idle: nothing should be playing. Drop any leftover seek hint so
+        // a future Play picks up the latest scroll-anchored offset.
+        app.audio_seek_offset = None;
+        return;
+    }
 
     if app.audio_wav_pcm.is_some() {
         match load_cached_audio_for_speed(app, speed).await {
             Ok(sound) => {
                 app.audio = Some(sound);
                 if let Some(s) = &app.audio {
+                    // Re-anchor the song clock to the moment audio actually
+                    // begins. Without this, the latency of the speed-shift
+                    // build + `load_sound_from_bytes` (tens to hundreds of
+                    // ms) makes the chart visibly run ahead of the music.
+                    app.mode_wall_anchor = macroquad::prelude::get_time();
                     play_sound_once(s);
                 }
                 app.audio_seek_offset = None;
@@ -215,19 +226,29 @@ pub(crate) async fn warm_audio_cache(app: &mut AppState, speed: f32) {
 
 async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<Sound, String> {
     let key = speed_cache_key(speed);
-    if let Some(sound) = app.audio_cache.get(&key) {
-        return Ok(sound.clone());
+    let seek = app.audio_seek_offset.unwrap_or(0.0);
+    // Only the unseeked variant (seek=0) is cacheable per speed: macroquad's
+    // `Sound` has no playhead control, so a sound built starting at t=30s is
+    // a fundamentally different buffer from one starting at t=0. Reusing the
+    // unseeked cached entry when the user seeks (e.g. pause + scrub + resume)
+    // is the root cause of "resume plays from the wrong position" — the
+    // visual cursor jumps to the seek target while audio replays from 0.
+    if seek <= 0.0 {
+        if let Some(sound) = app.audio_cache.get(&key) {
+            return Ok(sound.clone());
+        }
     }
     let wav = app
         .audio_wav_pcm
         .as_ref()
         .ok_or_else(|| "pcm source missing".to_string())?;
-    let seek = app.audio_seek_offset.unwrap_or(0.0);
     let bytes = build_speed_wav_bytes_impl(wav, speed, seek);
     let sound = load_sound_from_bytes(&bytes)
         .await
         .map_err(|e| format!("{e}"))?;
-    app.audio_cache.insert(key, sound.clone());
+    if seek <= 0.0 {
+        app.audio_cache.insert(key, sound.clone());
+    }
     Ok(sound)
 }
 

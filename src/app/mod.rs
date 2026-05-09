@@ -4,6 +4,7 @@ mod egui_ui;
 mod input;
 mod pad_svg;
 mod platform;
+mod simai_io;
 mod slide_match;
 mod state;
 mod types;
@@ -38,9 +39,9 @@ pub async fn run_app() {
     }
 
     // Load hit sounds from embedded bytes
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/answer.wav")).await {
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/tap_perfect.wav")).await {
         Ok(s) => { app.hit_sound = Some(s); }
-        Err(e) => app.status = format!("Failed to load answer.wav: {e:?}"),
+        Err(e) => app.status = format!("Failed to load tap_perfect.wav: {e:?}"),
     }
     match load_sound_from_bytes(include_bytes!("../../assets/Sfx/touch.wav")).await {
         Ok(s) => { app.touch_sound = Some(s); }

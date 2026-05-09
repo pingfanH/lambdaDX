@@ -584,12 +584,17 @@ dependencies = [
  "egui-macroquad",
  "hound",
  "macroquad",
+ "maisimai",
  "minimp3",
  "roxmltree",
  "rustfft",
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "maisimai"
+version = "0.1.0"
 
 [[package]]
 name = "malloc_buf"
