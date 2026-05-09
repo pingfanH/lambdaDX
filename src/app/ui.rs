@@ -757,12 +757,14 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     for (idx, note) in app.chart.notes.iter().enumerate() {
         let zone = sanitize_note_zone(note.note_type, note.lane);
         let dt = note.time - now;
-        let tail_dt = if matches!(note.note_type, NoteType::Hold) {
-            hold_tail_time(note) - now
-        } else {
-            dt
+        let tail_dt = match note.note_type {
+            NoteType::Hold => hold_tail_time(note) - now,
+            NoteType::Slide => note.time + note.slide_duration - now,
+            _ => dt,
         };
-        if tail_dt < -0.4 || dt > PREVIEW_LEAD_TIME {
+        // Keep the note visible while either its head OR its tail is on-screen.
+        // (For Tap/Touch tail_dt == dt, so the check collapses to the original.)
+        if tail_dt < -0.4 || dt.min(tail_dt) > PREVIEW_LEAD_TIME {
             continue;
         }
         let lane_index = if is_touch_zone(zone) {
@@ -790,7 +792,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     draw_circle(cx, ny, tr * 0.3, Color::from_rgba(249, 168, 212, 255));
                 }
             }
-            NoteType::Touch | NoteType::Slide => {
+            NoteType::Touch => {
                 if let Some(tex) = &app.touch_tri_tex {
                     let ratio = tex.width() / tex.height();
                     let ts = 30.0 * scale;
@@ -805,6 +807,36 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     draw_texture_ex(pt, cx - 6.0*scale, ny - 6.0*scale, Color::from_rgba(255,255,255,200), DrawTextureParams { dest_size: Some(vec2(12.0*scale,12.0*scale)), ..Default::default() });
                 } else {
                     draw_circle(cx, ny, 3.0*scale, Color::from_rgba(103,232,249,200));
+                }
+            }
+            NoteType::Slide => {
+                // Star head + vertical duration bar (tail handle at note.time + slide_duration).
+                let dur = note.slide_duration.max(0.0);
+                let tail_y = judge_y - (dt + dur) * scroll;
+                // Bar from head (ny) up to tail (tail_y, smaller y = future).
+                let bar_w = 6.0 * scale;
+                let top = ny.min(tail_y);
+                let h = (ny - tail_y).abs();
+                if h > 0.5 {
+                    draw_rectangle(cx - bar_w * 0.5, top, bar_w, h,
+                        Color::from_rgba(250, 204, 21, 110));
+                    draw_rectangle_lines(cx - bar_w * 0.5, top, bar_w, h, 1.0 * scale,
+                        Color::from_rgba(253, 224, 71, 200));
+                }
+                // Star head at note.time
+                let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+                let ss = 18.0 * scale;
+                if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                    draw_texture_ex(tex, cx - ss * 0.5, ny - ss * 0.5,
+                        Color::from_rgba(255, 255, 255, 230),
+                        DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
+                } else {
+                    draw_poly(cx, ny, 5, ss * 0.4, 0.0, Color::from_rgba(250, 204, 21, 230));
+                }
+                // Tail handle (drag target)
+                if h > 0.5 {
+                    draw_circle(cx, tail_y, 5.0 * scale, Color::from_rgba(250, 204, 21, 230));
+                    draw_circle_lines(cx, tail_y, 5.0 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
                 }
             }
             NoteType::Hold => {

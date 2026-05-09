@@ -4,6 +4,7 @@ mod egui_ui;
 mod input;
 mod pad_svg;
 mod platform;
+mod slide_match;
 mod state;
 mod types;
 mod ui;

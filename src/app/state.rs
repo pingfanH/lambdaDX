@@ -29,6 +29,9 @@ pub(crate) struct AppState {
     pub(crate) drag_part: Option<DragPart>,
     pub(crate) drag_start_pos: Option<Vec2>,
     pub(crate) drag_start_time: f32,
+    /// Cursor's chart time at the moment of click. Used so dragging tracks the
+    /// mouse's absolute position even if the user scrolls the timeline mid-drag.
+    pub(crate) drag_cursor_anchor_t: f32,
     pub(crate) drag_multi_orig: Vec<(usize, f32, u8)>,
     pub(crate) box_start: Option<Vec2>,
     pub(crate) box_end: Option<Vec2>,
@@ -121,6 +124,7 @@ impl AppState {
             drag_part: None,
             drag_start_pos: None,
             drag_start_time: 0.0,
+            drag_cursor_anchor_t: 0.0,
             drag_multi_orig: Vec::new(),
             box_start: None,
             box_end: None,
@@ -469,11 +473,18 @@ impl AppState {
 
         let slide_dur = if matches!(note_type, NoteType::Slide) { duration } else { 0.0 };
 
+        // Phase 4: classify the recorded trajectory against known shape templates.
+        let slide_shape = if matches!(note_type, NoteType::Slide) {
+            super::slide_match::match_slide_shape(active.lane, &slide_points)
+        } else {
+            None
+        };
+
         self.chart.notes.push(Note {
             time: start_time, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
             is_each: false, slide_points: slide_points.clone(),
-            slide_duration: slide_dur, slide_start_delay: 0.12, slide_shape: None,
+            slide_duration: slide_dur, slide_start_delay: 0.12, slide_shape,
         });
         self.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
         self.recompute_each();
@@ -482,7 +493,7 @@ impl AppState {
             time: start_time, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
             is_each: false, slide_points,
-            slide_duration: slide_dur, slide_start_delay: 0.12, slide_shape: None,
+            slide_duration: slide_dur, slide_start_delay: 0.12, slide_shape,
         });
         self.recording_hits.push(HitEvent {
             time: active.start_time,
