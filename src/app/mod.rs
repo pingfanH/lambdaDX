@@ -56,6 +56,26 @@ pub async fn run_app() {
         Ok(s) => { app.touch_riser_sound = Some(s); }
         Err(e) => app.set_status(format!("Failed to load touch_Hold_riser.wav: {e:?}")),
     }
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/break.wav")).await {
+        Ok(s) => { app.break_sound = Some(s); }
+        Err(e) => app.set_status(format!("Failed to load break.wav: {e:?}")),
+    }
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/break_tap.wav")).await {
+        Ok(s) => { app.break_tap_sound = Some(s); }
+        Err(e) => app.set_status(format!("Failed to load break_tap.wav: {e:?}")),
+    }
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/tap_ex.wav")).await {
+        Ok(s) => { app.tap_ex_sound = Some(s); }
+        Err(e) => app.set_status(format!("Failed to load tap_ex.wav: {e:?}")),
+    }
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/slide_break_start.wav")).await {
+        Ok(s) => { app.slide_break_start_sound = Some(s); }
+        Err(e) => app.set_status(format!("Failed to load slide_break_start.wav: {e:?}")),
+    }
+    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/break_slide.wav")).await {
+        Ok(s) => { app.slide_break_slide_sound = Some(s); }
+        Err(e) => app.set_status(format!("Failed to load break_slide.wav: {e:?}")),
+    }
 
     // Load mask shader material
     match load_mask_material() {

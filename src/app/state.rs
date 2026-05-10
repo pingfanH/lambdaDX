@@ -87,6 +87,16 @@ pub(crate) struct AppState {
     pub(crate) star_break_tex: Option<Texture2D>,
     pub(crate) star_double_tex: Option<Texture2D>,
     pub(crate) star_double_each_tex: Option<Texture2D>,
+    // Break textures
+    pub(crate) tap_break_tex: Option<Texture2D>,
+    pub(crate) hold_break_tex: Option<Texture2D>,
+    pub(crate) slide_break_tex: Option<Texture2D>,
+    pub(crate) star_double_break_tex: Option<Texture2D>,
+    // Ex overlay textures
+    pub(crate) tap_ex_tex: Option<Texture2D>,
+    pub(crate) hold_ex_tex: Option<Texture2D>,
+    pub(crate) star_ex_tex: Option<Texture2D>,
+    pub(crate) star_double_ex_tex: Option<Texture2D>,
     pub(crate) mask_material: Option<Material>,
     pub(crate) pad_rect: Option<egui_macroquad::egui::Rect>,
     pub(crate) audio_cache: HashMap<i32, Sound>,
@@ -100,6 +110,12 @@ pub(crate) struct AppState {
     pub(crate) touch_sound: Option<Sound>,
     pub(crate) slide_sound: Option<Sound>,
     pub(crate) touch_riser_sound: Option<Sound>,
+    // Break/Ex sounds
+    pub(crate) break_sound: Option<Sound>,
+    pub(crate) break_tap_sound: Option<Sound>,
+    pub(crate) tap_ex_sound: Option<Sound>,
+    pub(crate) slide_break_start_sound: Option<Sound>,
+    pub(crate) slide_break_slide_sound: Option<Sound>,
     pub(crate) touch_riser_playing: bool,
     pub(crate) hit_sounds_played: HashSet<usize>,
 
@@ -182,6 +198,14 @@ impl AppState {
             star_break_tex: None,
             star_double_tex: None,
             star_double_each_tex: None,
+            tap_break_tex: None,
+            hold_break_tex: None,
+            slide_break_tex: None,
+            star_double_break_tex: None,
+            tap_ex_tex: None,
+            hold_ex_tex: None,
+            star_ex_tex: None,
+            star_double_ex_tex: None,
             mask_material: None,
             pad_rect: None,
             audio_cache: HashMap::new(),
@@ -193,6 +217,11 @@ impl AppState {
             touch_sound: None,
             slide_sound: None,
             touch_riser_sound: None,
+            break_sound: None,
+            break_tap_sound: None,
+            tap_ex_sound: None,
+            slide_break_start_sound: None,
+            slide_break_slide_sound: None,
             touch_riser_playing: false,
             hit_sounds_played: HashSet::new(),
             status: "Ready".to_string(),
@@ -428,6 +457,10 @@ impl AppState {
         let mut tap_count: u32 = 0;
         let mut touch_count: u32 = 0;
         let mut slide_count: u32 = 0;
+        let mut break_tap_count: u32 = 0;
+        let mut ex_tap_count: u32 = 0;
+        let mut slide_break_start_count: u32 = 0;
+        let mut slide_break_end_count: u32 = 0;
 
         for (i, note) in self.chart.notes.iter().enumerate() {
             let ns = note_secs(note, bpm);
@@ -440,7 +473,17 @@ impl AppState {
             if !self.hit_sounds_played.contains(&i) && hit_time <= t {
                 if matches!(note.note_type, NoteType::Touch) {
                     touch_count += 1;
-                } else {
+                } else if note.is_break {
+                    // Break tap/star/hold head: play break_tap + break simultaneously
+                    break_tap_count += 1;
+                } else if note.is_ex {
+                    ex_tap_count += 1;
+                } else if !matches!(note.note_type, NoteType::Slide) {
+                    // Normal tap/hold head (not slide — slide star head gets tap sound below)
+                    tap_count += 1;
+                }
+                // Slide (non-break, non-ex) star head also gets a tap sound
+                if matches!(note.note_type, NoteType::Slide) && !note.is_break && !note.is_ex {
                     tap_count += 1;
                 }
                 self.hit_sounds_played.insert(i);
@@ -450,8 +493,22 @@ impl AppState {
                 let slide_key = i + self.chart.notes.len() * 3;
                 let slide_move_time = ns + mdur_to_secs(note.slide_start_delay, bpm);
                 if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
-                    slide_count += 1;
+                    if note.is_break {
+                        slide_break_start_count += 1;
+                    } else {
+                        slide_count += 1;
+                    }
                     self.hit_sounds_played.insert(slide_key);
+                }
+                // Slide end sound (break slides only)
+                let slide_end_key = i + self.chart.notes.len() * 4;
+                let slide_end_t = ns + mdur_to_secs(note.slide_duration, bpm);
+                if note.is_break
+                    && !self.hit_sounds_played.contains(&slide_end_key)
+                    && slide_end_t <= t
+                {
+                    slide_break_end_count += 1;
+                    self.hit_sounds_played.insert(slide_end_key);
                 }
             }
             // Hold tail
@@ -472,6 +529,22 @@ impl AppState {
                 play_sound(s, PlaySoundParams { looped: false, volume: vol });
             }
         }
+        if break_tap_count > 0 {
+            if let Some(s) = &self.break_tap_sound {
+                let vol = (0.6 + 0.1 * break_tap_count as f32).min(1.0);
+                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+            }
+            if let Some(s) = &self.break_sound {
+                let vol = (0.6 + 0.1 * break_tap_count as f32).min(1.0);
+                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+            }
+        }
+        if ex_tap_count > 0 {
+            if let Some(s) = &self.tap_ex_sound {
+                let vol = (0.6 + 0.1 * ex_tap_count as f32).min(1.0);
+                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+            }
+        }
         if touch_count > 0 {
             if let Some(s) = &self.touch_sound {
                 let vol = (0.6 + 0.1 * touch_count as f32).min(1.0);
@@ -481,6 +554,18 @@ impl AppState {
         if slide_count > 0 {
             if let Some(s) = &self.slide_sound {
                 let vol = (0.6 + 0.1 * slide_count as f32).min(1.0);
+                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+            }
+        }
+        if slide_break_start_count > 0 {
+            if let Some(s) = &self.slide_break_start_sound {
+                let vol = (0.6 + 0.1 * slide_break_start_count as f32).min(1.0);
+                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+            }
+        }
+        if slide_break_end_count > 0 {
+            if let Some(s) = &self.slide_break_slide_sound {
+                let vol = (0.6 + 0.1 * slide_break_end_count as f32).min(1.0);
                 play_sound(s, PlaySoundParams { looped: false, volume: vol });
             }
         }
