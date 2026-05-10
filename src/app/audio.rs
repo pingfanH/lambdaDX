@@ -172,8 +172,6 @@ pub(crate) async fn service_audio(app: &mut AppState) {
 
     let speed = app.current_speed();
     if speed <= 0.0 {
-        // Idle: nothing should be playing. Drop any leftover seek hint so
-        // a future Play picks up the latest scroll-anchored offset.
         app.audio_seek_offset = None;
         return;
     }
@@ -183,15 +181,10 @@ pub(crate) async fn service_audio(app: &mut AppState) {
             Ok(sound) => {
                 app.audio = Some(sound);
                 if let Some(s) = &app.audio {
-                    // Re-anchor the song clock to the moment audio actually
-                    // begins. Without this, the latency of the speed-shift
-                    // build + `load_sound_from_bytes` (tens to hundreds of
-                    // ms) makes the chart visibly run ahead of the music.
                     app.mode_wall_anchor = macroquad::prelude::get_time();
                     play_sound_once(s);
                 }
                 app.audio_seek_offset = None;
-                // Build waveform data on first load
                 if app.waveform_data.is_empty() {
                     build_waveform(app);
                 }
@@ -209,7 +202,7 @@ pub(crate) async fn service_audio(app: &mut AppState) {
         app.status = format!("Audio source loaded: {src} @ {:.1}x", app.current_speed());
     } else {
         app.status =
-            "Audio disabled: put demo.wav or demo.mp3 in assets and ensure packaging includes assets/".to_string();
+            "Audio disabled: put demo.wav or demo.mp3 in assets/".to_string();
     }
 }
 
@@ -217,13 +210,11 @@ fn speed_cache_key(speed: f32) -> i32 {
     (speed.clamp(SPEED_MIN, SPEED_MAX) * 10.0).round() as i32
 }
 
-/// Pre-cache audio buffers for commonly used playback speeds so that
-/// pressing Play doesn't block the main thread with a heavy resample.
+/// Pre-cache audio buffers for commonly used playback speeds.
 pub(crate) async fn warm_audio_cache(app: &mut AppState, _primary_speed: f32) {
     if app.audio_wav_pcm.is_none() {
         return;
     }
-    // Pre-cache 0.5x – 1.5x in 0.1 steps (the most frequently used range).
     let speeds: &[f32] = &[0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
     for &spd in speeds {
         app.status = format!("预缓存音频 {:.1}x ...", spd);
@@ -235,15 +226,9 @@ pub(crate) async fn warm_audio_cache(app: &mut AppState, _primary_speed: f32) {
 async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<Sound, String> {
     let key = speed_cache_key(speed);
     let chart_seek = app.audio_seek_offset.unwrap_or(0.0);
-    // The actual position in the audio file = chart_seek + audio_offset.
-    // `audio_offset` is the Simai `&first` value: seconds from audio start to
-    // the first beat (chart time 0).
     let audio_offset = app.chart.audio_offset;
     let effective_seek = (chart_seek + audio_offset).max(0.0);
 
-    // Only the "chart-start" variant (chart_seek=0) is cacheable per speed:
-    // macroquad's `Sound` has no playhead control, so a sound built starting
-    // at a mid-song offset is a fundamentally different buffer.
     if chart_seek <= 0.0 {
         if let Some(sound) = app.audio_cache.get(&key) {
             return Ok(sound.clone());
@@ -253,7 +238,8 @@ async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<S
         .audio_wav_pcm
         .as_ref()
         .ok_or_else(|| "pcm source missing".to_string())?;
-    let bytes = build_speed_wav_bytes_impl(wav, speed, effective_seek);
+    let (samples, channels) = build_speed_pcm(wav, speed, effective_seek);
+    let bytes = pcm_to_wav_bytes(&samples, channels, 44_100);
     let sound = load_sound_from_bytes(&bytes)
         .await
         .map_err(|e| format!("{e}"))?;
@@ -261,6 +247,37 @@ async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<S
         app.audio_cache.insert(key, sound.clone());
     }
     Ok(sound)
+}
+
+/// Construct a WAV file from raw i16 PCM samples by writing a minimal 44-byte
+/// header followed by the raw sample bytes.  This is much faster than using
+/// hound’s per-sample `write_sample` calls (pure memcpy for the data portion).
+fn pcm_to_wav_bytes(samples: &[i16], channels: u16, sample_rate: u32) -> Vec<u8> {
+    let data_size = (samples.len() * 2) as u32;
+    let file_size = 36 + data_size;
+    let byte_rate = sample_rate * channels as u32 * 2;
+    let block_align = channels * 2;
+
+    let mut buf = Vec::with_capacity(44 + data_size as usize);
+    buf.extend_from_slice(b"RIFF");
+    buf.extend_from_slice(&file_size.to_le_bytes());
+    buf.extend_from_slice(b"WAVE");
+    buf.extend_from_slice(b"fmt ");
+    buf.extend_from_slice(&16u32.to_le_bytes());
+    buf.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    buf.extend_from_slice(&channels.to_le_bytes());
+    buf.extend_from_slice(&sample_rate.to_le_bytes());
+    buf.extend_from_slice(&byte_rate.to_le_bytes());
+    buf.extend_from_slice(&block_align.to_le_bytes());
+    buf.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+    buf.extend_from_slice(b"data");
+    buf.extend_from_slice(&data_size.to_le_bytes());
+    // Safety: i16 slice → u8 slice (same alignment, known layout)
+    let sample_bytes = unsafe {
+        std::slice::from_raw_parts(samples.as_ptr() as *const u8, data_size as usize)
+    };
+    buf.extend_from_slice(sample_bytes);
+    buf
 }
 
 pub(crate) fn build_waveform(app: &mut super::state::AppState) {
@@ -305,7 +322,10 @@ pub(crate) fn build_waveform(app: &mut super::state::AppState) {
     app.waveform_time_res = hop as f32 / sr as f32;
 }
 
-fn build_speed_wav_bytes_impl(wav: &WavPcm, speed: f32, seek_offset: f32) -> Vec<u8> {
+/// Build speed-adjusted raw PCM i16 samples.  Returns (samples, channels).
+/// The caller wraps the result with `pcm_to_wav_bytes` before handing it to
+/// macroquad’s `load_sound_from_bytes`.
+fn build_speed_pcm(wav: &WavPcm, speed: f32, seek_offset: f32) -> (Vec<i16>, u16) {
     let speed = speed.clamp(SPEED_MIN, SPEED_MAX);
     let channels = wav.channels.max(1);
     let ch = channels as usize;
@@ -314,60 +334,32 @@ fn build_speed_wav_bytes_impl(wav: &WavPcm, speed: f32, seek_offset: f32) -> Vec
     let total_frames = wav.samples.len() / ch;
     let in_frames = total_frames.saturating_sub(skip_frames);
 
-    let spec = hound::WavSpec {
-        channels,
-        sample_rate: 44_100,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
     if in_frames == 0 {
-        let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
-        let mut writer = hound::WavWriter::new(&mut cursor, spec).expect("wav writer");
-        for _ in 0..ch {
-            writer.write_sample(0_i16).expect("wav sample write");
-        }
-        writer.finalize().expect("wav finalize");
-        return cursor.into_inner();
+        return (vec![0; ch], channels);
     }
 
-    // Fast path: 1.0x speed — just copy samples from the skip point, no
-    // interpolation needed.  This avoids the per-sample lerp overhead for
-    // the most common case.
-    let is_unity = (speed - 1.0).abs() < 0.001;
-    let start_sample = skip_frames * ch;
-    let out_samples_count = if is_unity { in_frames * ch } else {
-        let out_frames = ((in_frames as f32) / speed).max(1.0).round() as usize;
-        out_frames * ch
-    };
+    // Fast path: 1.0x speed — plain copy
+    if (speed - 1.0).abs() < 0.001 {
+        let start = skip_frames * ch;
+        return (wav.samples[start..].to_vec(), channels);
+    }
 
-    // Pre-allocate WAV buffer: 44-byte header + 2 bytes per sample
-    let estimated_size = 44 + out_samples_count * 2;
-    let mut cursor = std::io::Cursor::new(Vec::<u8>::with_capacity(estimated_size));
-    let mut writer = hound::WavWriter::new(&mut cursor, spec).expect("wav writer");
+    let out_frames = ((in_frames as f32) / speed).max(1.0).round() as usize;
+    let mut out = vec![0_i16; out_frames * ch];
+    let max_src_i = total_frames.saturating_sub(1);
 
-    if is_unity {
-        for &s in &wav.samples[start_sample..] {
-            writer.write_sample(s).expect("wav sample write");
-        }
-    } else {
-        let out_frames = ((in_frames as f32) / speed).max(1.0).round() as usize;
-        let max_src_i = total_frames.saturating_sub(1);
-        for out_i in 0..out_frames {
-            let src_pos = skip_frames as f32 + (out_i as f32 * speed).min(in_frames as f32);
-            let src_i0 = (src_pos.floor() as usize).min(max_src_i);
-            let src_i1 = (src_i0 + 1).min(max_src_i);
-            let frac = src_pos - src_i0 as f32;
-            for c in 0..ch {
-                let a = wav.samples[src_i0 * ch + c] as f32;
-                let b = wav.samples[src_i1 * ch + c] as f32;
-                let v = a + (b - a) * frac;
-                writer.write_sample(v.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16)
-                    .expect("wav sample write");
-            }
+    for out_i in 0..out_frames {
+        let src_pos = skip_frames as f32 + (out_i as f32 * speed).min(in_frames as f32);
+        let src_i0 = (src_pos.floor() as usize).min(max_src_i);
+        let src_i1 = (src_i0 + 1).min(max_src_i);
+        let frac = src_pos - src_i0 as f32;
+        for c in 0..ch {
+            let a = wav.samples[src_i0 * ch + c] as f32;
+            let b = wav.samples[src_i1 * ch + c] as f32;
+            let v = a + (b - a) * frac;
+            out[out_i * ch + c] = v.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16;
         }
     }
 
-    writer.finalize().expect("wav finalize");
-    cursor.into_inner()
+    (out, channels)
 }
