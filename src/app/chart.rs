@@ -26,6 +26,7 @@ fn fallback_chart() -> ChartDoc {
         version: "0.1.0".to_string(),
         title: "Fallback Demo Chart".to_string(),
         bpm: 180.0,
+        audio_offset: 0.0,
         notes: vec![
             Note {
                 time: 0.60,

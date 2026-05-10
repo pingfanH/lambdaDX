@@ -97,6 +97,7 @@ pub(crate) struct AppState {
 
     pub(crate) hit_sound: Option<Sound>,
     pub(crate) touch_sound: Option<Sound>,
+    pub(crate) slide_sound: Option<Sound>,
     pub(crate) touch_riser_sound: Option<Sound>,
     pub(crate) touch_riser_playing: bool,
     pub(crate) hit_sounds_played: HashSet<usize>,
@@ -189,6 +190,7 @@ impl AppState {
             pad_svg: None,
             hit_sound: None,
             touch_sound: None,
+            slide_sound: None,
             touch_riser_sound: None,
             touch_riser_playing: false,
             hit_sounds_played: HashSet::new(),
@@ -374,20 +376,20 @@ impl AppState {
 
     /// Play hit sound for notes that just reached their hit point or tail end.
     ///
-    /// To avoid overwhelming macroquad's audio mixer when many notes hit in
-    /// the same frame (e.g. dense "each" clusters), we cap the number of
-    /// actual `play_sound` calls per frame and scale volume down when several
-    /// sounds fire simultaneously.
+    /// Instead of issuing one `play_sound` per note (which overwhelms the
+    /// audio mixer on dense clusters), we count how many tap-type and
+    /// touch-type events fire this frame and play each sound type **once**
+    /// with volume scaled by the cluster size (capped at 1.0).
     pub(crate) fn service_hit_sounds(&mut self) {
-        const MAX_HIT_SOUNDS_PER_FRAME: usize = 3;
-
         if self.mode != Mode::Playing {
             return;
         }
         let t = self.song_time();
 
-        // --- collect pending hit-sound events (key, is_touch) ---
-        let mut pending: Vec<(usize, bool)> = Vec::new();
+        // --- count pending hit-sound events per type ---
+        let mut tap_count: u32 = 0;
+        let mut touch_count: u32 = 0;
+        let mut slide_count: u32 = 0;
 
         for (i, note) in self.chart.notes.iter().enumerate() {
             // Head hit — touch uses TOUCH_DISAPPEAR_TIME to align with visual
@@ -397,9 +399,21 @@ impl AppState {
                 note.time
             };
             if !self.hit_sounds_played.contains(&i) && hit_time <= t {
-                let is_touch = matches!(note.note_type, NoteType::Touch);
-                pending.push((i, is_touch));
+                if matches!(note.note_type, NoteType::Touch) {
+                    touch_count += 1;
+                } else {
+                    tap_count += 1;
+                }
                 self.hit_sounds_played.insert(i);
+            }
+            // Slide start (when the star begins moving)
+            if matches!(note.note_type, NoteType::Slide) {
+                let slide_key = i + self.chart.notes.len() * 3;
+                let slide_move_time = note.time + note.slide_start_delay;
+                if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
+                    slide_count += 1;
+                    self.hit_sounds_played.insert(slide_key);
+                }
             }
             // Hold tail
             let tail_key = i + self.chart.notes.len();
@@ -407,22 +421,28 @@ impl AppState {
                 && !self.hit_sounds_played.contains(&tail_key)
                 && hold_tail_time(note) <= t
             {
-                pending.push((tail_key, false));
+                tap_count += 1;
                 self.hit_sounds_played.insert(tail_key);
             }
         }
 
-        // --- play at most MAX, with volume scaled by count ---
-        let count = pending.len().min(MAX_HIT_SOUNDS_PER_FRAME);
-        let vol = if count <= 1 { 1.0 } else { 1.0 / (count as f32).sqrt() };
-        for &(_key, is_touch) in pending.iter().take(MAX_HIT_SOUNDS_PER_FRAME) {
-            let s = if is_touch {
-                self.touch_sound.as_ref()
-            } else {
-                self.hit_sound.as_ref()
-            };
-            if let Some(sound) = s {
-                play_sound(sound, PlaySoundParams { looped: false, volume: vol });
+        // --- play one sound per type, volume scales with cluster size ---
+        if tap_count > 0 {
+            if let Some(s) = &self.hit_sound {
+                let vol = (0.6 + 0.1 * tap_count as f32).min(1.0);
+                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+            }
+        }
+        if touch_count > 0 {
+            if let Some(s) = &self.touch_sound {
+                let vol = (0.6 + 0.1 * touch_count as f32).min(1.0);
+                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+            }
+        }
+        if slide_count > 0 {
+            if let Some(s) = &self.slide_sound {
+                let vol = (0.6 + 0.1 * slide_count as f32).min(1.0);
+                play_sound(s, PlaySoundParams { looped: false, volume: vol });
             }
         }
 

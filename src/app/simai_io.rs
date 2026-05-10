@@ -51,6 +51,10 @@ pub(crate) fn simai_file_to_chart_doc(
     };
     let _ = num;
     let mut doc = simai_chart_to_chart_doc(&chart);
+    // Apply the `&first` offset: it specifies how many seconds into the
+    // audio the first beat occurs. We store it in `audio_offset` so that
+    // audio playback is shifted accordingly.
+    doc.audio_offset = file.first;
     if doc.title.is_empty() {
         doc.title = if file.title.is_empty() {
             "Imported Simai".to_string()
@@ -179,6 +183,7 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
         version: "0.2.0-simai".to_string(),
         title: String::new(),
         bpm: bpm0,
+        audio_offset: 0.0,
         notes,
     }
 }
@@ -194,6 +199,16 @@ fn ensure_initial_bpm(bpms: &[Bpm], fallback: f32) -> Vec<Bpm> {
 
 fn quantize(measure: f32) -> i64 {
     (measure * 100_000.0).round() as i64
+}
+
+/// Snap a measure value to the nearest 1/384 grid position.  384 is the
+/// standard internal tick resolution for maimai charts (LCM of common
+/// divisors 4, 8, 12, 16, 24, 32, 48, 64, …).  This eliminates tiny
+/// floating-point drift from the seconds→measure round-trip that would
+/// otherwise cause the exporter to pick absurdly large divisors.
+fn snap_measure(m: f32) -> f32 {
+    const GRID: f32 = 384.0;
+    (m * GRID).round() / GRID
 }
 
 /// Map a Simai slide pattern into our discrete `SlideShape` enum.
@@ -274,7 +289,7 @@ pub(crate) fn chart_doc_to_simai_file(doc: &ChartDoc) -> SimaiFile {
     SimaiFile {
         title: doc.title.clone(),
         artist: String::new(),
-        first: 0.0,
+        first: doc.audio_offset,
         levels: vec![(6, "?".to_string())],
         charts: vec![(6, chart)],
         wholebpm: Some(doc.bpm),
@@ -287,7 +302,7 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
 
     let mut notes: Vec<SimaiNote> = Vec::with_capacity(doc.notes.len());
     for n in &doc.notes {
-        let measure = ms::seconds_to_measure(n.time, &bpms);
+        let measure = snap_measure(ms::seconds_to_measure(n.time, &bpms));
         match n.note_type {
             NoteType::Tap => {
                 if n.lane >= 1 && n.lane <= 8 {
@@ -308,7 +323,7 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                 notes.push(SimaiNote::TouchTap { measure, region, position, is_firework: false });
             }
             NoteType::Hold => {
-                let dur_meas = ms::seconds_to_measure(n.time + n.hold_duration.max(0.0), &bpms) - measure;
+                let dur_meas = snap_measure(ms::seconds_to_measure(n.time + n.hold_duration.max(0.0), &bpms) - measure);
                 if n.lane >= 1 && n.lane <= 8 {
                     notes.push(SimaiNote::Hold {
                         measure,
@@ -337,8 +352,8 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                     (_, [.., last]) => (None, last.zone.saturating_sub(1)),
                     _ => (None, 0),
                 };
-                let total_meas = ms::seconds_to_measure(n.time + n.slide_duration.max(0.0), &bpms) - measure;
-                let delay_meas = ms::seconds_to_measure(n.time + n.slide_start_delay.max(0.0), &bpms) - measure;
+                let total_meas = snap_measure(ms::seconds_to_measure(n.time + n.slide_duration.max(0.0), &bpms) - measure);
+                let delay_meas = snap_measure(ms::seconds_to_measure(n.time + n.slide_start_delay.max(0.0), &bpms) - measure);
                 let travel_meas = (total_meas - delay_meas).max(0.05);
                 notes.push(SimaiNote::Slide {
                     measure,

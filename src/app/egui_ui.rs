@@ -71,6 +71,21 @@ pub(crate) fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
             ui.label(format!("{:.1}x", app.play_speed));
             if ui.button("+ ").clicked() { app.set_play_speed((app.play_speed + 0.1).min(3.0)); }
             ui.separator();
+            ui.label("Offset:");
+            if ui.button("−").on_hover_text("Shift audio earlier (−50ms)").clicked() {
+                app.chart.audio_offset = (app.chart.audio_offset - 0.05).max(-5.0);
+                app.audio_cache.clear();
+                if matches!(app.mode, Mode::Playing) { app.request_audio_start(); }
+                app.status = format!("Audio offset: {:.3}s", app.chart.audio_offset);
+            }
+            ui.label(format!("{:.2}s", app.chart.audio_offset));
+            if ui.button("+").on_hover_text("Shift audio later (+50ms)").clicked() {
+                app.chart.audio_offset = (app.chart.audio_offset + 0.05).min(30.0);
+                app.audio_cache.clear();
+                if matches!(app.mode, Mode::Playing) { app.request_audio_start(); }
+                app.status = format!("Audio offset: {:.3}s", app.chart.audio_offset);
+            }
+            ui.separator();
             if ui.button(if app.audio_enabled { "🔊" } else { "🔇" }).clicked() { app.audio_enabled = !app.audio_enabled; }
             if ui.button("📱").clicked() { app.mobile_ui = !app.mobile_ui; }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

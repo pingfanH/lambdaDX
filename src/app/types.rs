@@ -143,6 +143,11 @@ pub(crate) struct ChartDoc {
     pub(crate) version: String,
     pub(crate) title: String,
     pub(crate) bpm: f32,
+    /// Seconds from audio start to the first beat (Simai `&first`).  When
+    /// non-zero the audio playback position is shifted by this amount so that
+    /// `song_time == 0` aligns with this point in the audio file.
+    #[serde(default)]
+    pub(crate) audio_offset: f32,
     pub(crate) notes: Vec<Note>,
 }
 
