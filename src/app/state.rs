@@ -199,6 +199,41 @@ impl AppState {
         }
     }
 
+    // ── Setters with logging ──────────────────────────────────────────
+
+    pub(crate) fn set_chart(&mut self, chart: ChartDoc) {
+        let n = chart.notes.len();
+        let slides: Vec<_> = chart.notes.iter().enumerate()
+            .filter(|(_, n)| matches!(n.note_type, NoteType::Slide))
+            .collect();
+        println!("[AppState] set_chart: {n} notes, {} slides", slides.len());
+        for (i, note) in &slides {
+            println!("  slide #{i}: lane={} shape={:?} pts={:?} dur={:.3} delay={:.3} break={} ex={} tapless={} star={}",
+                note.lane, note.slide_shape, note.slide_points, note.slide_duration, note.slide_start_delay,
+                note.is_break, note.is_ex, note.is_tapless, note.is_star);
+        }
+        self.chart = chart;
+    }
+
+    pub(crate) fn set_selected_note(&mut self, sel: Option<usize>) {
+        if self.selected_note != sel {
+            println!("[AppState] selected_note: {:?} -> {:?}", self.selected_note, sel);
+        }
+        self.selected_note = sel;
+    }
+
+    pub(crate) fn set_editing_slide_path(&mut self, v: Option<usize>) {
+        if self.editing_slide_path != v {
+            println!("[AppState] editing_slide_path: {:?} -> {:?}", self.editing_slide_path, v);
+        }
+        self.editing_slide_path = v;
+    }
+
+    pub(crate) fn set_status(&mut self, msg: String) {
+        println!("[AppState] status: {}", msg);
+        self.status = msg;
+    }
+
     pub(crate) fn current_speed(&self) -> f32 {
         match self.mode {
             Mode::Recording => self.record_speed,
@@ -285,9 +320,9 @@ impl AppState {
 
     pub(crate) fn undo(&mut self) {
         if let Some(prev) = self.undo_stack.pop() {
-            self.chart = prev;
+            self.set_chart(prev);
             self.recompute_each();
-            self.status = "Undo".to_string();
+            self.set_status("Undo".to_string());
         }
     }
 
@@ -310,7 +345,7 @@ impl AppState {
             if let Some(s) = &self.touch_riser_sound { stop_sound(s); }
             self.touch_riser_playing = false;
             self.timeline_view_time = self.mode_song_offset;
-            self.status = format!("Paused at {:.2}s", self.mode_song_offset);
+            self.set_status(format!("Paused at {:.2}s", self.mode_song_offset));
         } else {
             // Resume with audio seek
             self.audio_seek_offset = Some(self.mode_song_offset);
@@ -319,7 +354,7 @@ impl AppState {
             self.hit_sounds_played.clear();
             self.playback_cursor = 0;
             self.request_audio_start();
-            self.status = format!("Resumed @ {:.1}x from {:.2}s", self.play_speed, self.mode_song_offset);
+            self.set_status(format!("Resumed @ {:.1}x from {:.2}s", self.play_speed, self.mode_song_offset));
         }
     }
 
@@ -330,11 +365,11 @@ impl AppState {
             self.stop_audio_if_any();
             self.recording_notes.sort_by(|a, b| a.time.total_cmp(&b.time));
             self.chart.notes = self.recording_notes.clone();
-            self.status = format!(
+            self.set_status(format!(
                 "Record stopped: {} notes @ {:.1}x",
                 self.chart.notes.len(),
                 self.record_speed
-            );
+            ));
         } else {
             self.recording_hits.clear();
             self.recording_notes.clear();
@@ -342,7 +377,7 @@ impl AppState {
             self.active_pointer_zones.clear();
             self.prev_pointer_pos.clear();
             self.set_mode(Mode::Recording);
-            self.status = format!("Recording started @ {:.1}x", self.record_speed);
+            self.set_status(format!("Recording started @ {:.1}x", self.record_speed));
             self.request_audio_start();
         }
     }
@@ -366,7 +401,7 @@ impl AppState {
             if t > note_secs(last, bpm) + 1.2 {
                 self.set_mode(Mode::Idle);
                 self.stop_audio_if_any();
-                self.status = "Playback finished".to_string();
+                self.set_status("Playback finished".to_string());
             }
         }
     }
@@ -559,7 +594,8 @@ impl AppState {
         self.chart.notes.push(Note {
             time: start_measure, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
-            is_each: false, is_break: false, is_ex: false, slide_points: slide_points.clone(),
+            is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false,
+            slide_points: slide_points.clone(),
             slide_duration: slide_dur, slide_start_delay: default_delay, slide_shape,
         });
         self.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
@@ -568,7 +604,8 @@ impl AppState {
         self.recording_notes.push(Note {
             time: start_measure, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
-            is_each: false, is_break: false, is_ex: false, slide_points,
+            is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false,
+            slide_points,
             slide_duration: slide_dur, slide_start_delay: default_delay, slide_shape,
         });
         self.recording_hits.push(HitEvent {

@@ -188,21 +188,21 @@ pub(crate) async fn service_audio(app: &mut AppState) {
                 if app.waveform_data.is_empty() {
                     build_waveform(app);
                 }
-                app.status = format!("Audio speed applied: {:.1}x", speed);
+                app.set_status(format!("Audio speed applied: {:.1}x", speed));
             }
             Err(err) => {
                 app.audio_seek_offset = None;
-                app.status = format!("Audio load failed @ {:.1}x: {err}", speed);
+                app.set_status(format!("Audio load failed @ {:.1}x: {err}", speed));
             }
         }
         return;
     }
 
     if let Some(src) = &app.audio_source_name {
-        app.status = format!("Audio source loaded: {src} @ {:.1}x", app.current_speed());
+        app.set_status(format!("Audio source loaded: {src} @ {:.1}x", app.current_speed()));
     } else {
-        app.status =
-            "Audio disabled: put demo.wav or demo.mp3 in assets/".to_string();
+        app.set_status(
+            "Audio disabled: put demo.wav or demo.mp3 in assets/".to_string());
     }
 }
 
@@ -217,10 +217,10 @@ pub(crate) async fn warm_audio_cache(app: &mut AppState, _primary_speed: f32) {
     }
     let speeds: &[f32] = &[0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
     for &spd in speeds {
-        app.status = format!("预缓存音频 {:.1}x ...", spd);
+        app.set_status(format!("预缓存音频 {:.1}x ...", spd));
         let _ = load_cached_audio_for_speed(app, spd).await;
     }
-    app.status = "音频缓存就绪".to_string();
+    app.set_status("音频缓存就绪".to_string());
 }
 
 async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<Sound, String> {

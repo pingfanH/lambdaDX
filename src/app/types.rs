@@ -139,6 +139,10 @@ pub(crate) struct Note {
     pub(crate) is_break: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) is_ex: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) is_star: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) is_tapless: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) slide_points: Vec<SlidePoint>,
     /// Total slide span in measures (head → tail).

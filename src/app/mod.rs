@@ -35,32 +35,32 @@ pub async fn run_app() {
             app.pad_svg = Some(def);
         }
         Err(e) => {
-            app.status = format!("Failed to parse pad.svg: {e}");
+            app.set_status(format!("Failed to parse pad.svg: {e}"));
         }
     }
 
     // Load hit sounds from embedded bytes
     match load_sound_from_bytes(include_bytes!("../../assets/Sfx/tap_perfect.wav")).await {
         Ok(s) => { app.hit_sound = Some(s); }
-        Err(e) => app.status = format!("Failed to load tap_perfect.wav: {e:?}"),
+        Err(e) => app.set_status(format!("Failed to load tap_perfect.wav: {e:?}")),
     }
     match load_sound_from_bytes(include_bytes!("../../assets/Sfx/touch.wav")).await {
         Ok(s) => { app.touch_sound = Some(s); }
-        Err(e) => app.status = format!("Failed to load touch.wav: {e:?}"),
+        Err(e) => app.set_status(format!("Failed to load touch.wav: {e:?}")),
     }
     match load_sound_from_bytes(include_bytes!("../../assets/Sfx/slide.wav")).await {
         Ok(s) => { app.slide_sound = Some(s); }
-        Err(e) => app.status = format!("Failed to load slide.wav: {e:?}"),
+        Err(e) => app.set_status(format!("Failed to load slide.wav: {e:?}")),
     }
     match load_sound_from_bytes(include_bytes!("../../assets/Sfx/touch_Hold_riser.wav")).await {
         Ok(s) => { app.touch_riser_sound = Some(s); }
-        Err(e) => app.status = format!("Failed to load touch_Hold_riser.wav: {e:?}"),
+        Err(e) => app.set_status(format!("Failed to load touch_Hold_riser.wav: {e:?}")),
     }
 
     // Load mask shader material
     match load_mask_material() {
         Ok(m) => app.mask_material = Some(m),
-        Err(e) => app.status = format!("Shader: {e}"),
+        Err(e) => app.set_status(format!("Shader: {e}")),
     }
 
     ui::load_note_textures(&mut app).await;

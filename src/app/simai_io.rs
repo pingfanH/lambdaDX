@@ -106,6 +106,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     is_each,
                     is_break: *is_break,
                     is_ex: *is_ex,
+                    is_star: *is_star,
+                    is_tapless: false,
                     slide_points: Vec::new(),
                     slide_duration: 0.0,
                     slide_start_delay: 0.0,
@@ -121,14 +123,28 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     is_each,
                     is_break: false,
                     is_ex: *is_ex,
+                    is_star: false,
+                    is_tapless: false,
                     slide_points: Vec::new(),
                     slide_duration: 0.0,
                     slide_start_delay: 0.0,
                     slide_shape: None,
                 });
             }
-            SimaiNote::Slide { measure, start, end, pattern, reflect, duration, delay, is_break, is_ex, .. } => {
-                let slide_points = simai_pattern_to_points(*start, *end, *pattern, *reflect);
+            SimaiNote::Slide { measure, start, end, pattern, reflect, duration, delay, is_break, is_ex, is_tapless, chain, .. } => {
+                // Build combined slide_points: first arc + chain arcs.
+                let mut slide_points = simai_pattern_to_points(*start, *end, *pattern, *reflect);
+                let mut prev_end = *end;
+                for (cp, ce, cr) in chain {
+                    let chain_pts = simai_pattern_to_points(prev_end, *ce, *cp, *cr);
+                    // Skip first point of chain arc (it's the same as previous end).
+                    if chain_pts.len() > 1 {
+                        slide_points.extend_from_slice(&chain_pts[1..]);
+                    } else {
+                        slide_points.extend_from_slice(&chain_pts);
+                    }
+                    prev_end = *ce;
+                }
                 notes.push(Note {
                     time: *measure,
                     lane: start + 1,
@@ -137,6 +153,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     is_each,
                     is_break: *is_break,
                     is_ex: *is_ex,
+                    is_star: false,
+                    is_tapless: *is_tapless,
                     slide_points,
                     slide_duration: (*delay + *duration).max(0.0),
                     slide_start_delay: delay.max(0.0),
@@ -153,6 +171,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                         is_each,
                         is_break: false,
                         is_ex: false,
+                        is_star: false,
+                        is_tapless: false,
                         slide_points: Vec::new(),
                         slide_duration: 0.0,
                         slide_start_delay: 0.0,
@@ -170,6 +190,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                         is_each,
                         is_break: false,
                         is_ex: false,
+                        is_star: false,
+                        is_tapless: false,
                         slide_points: Vec::new(),
                         slide_duration: 0.0,
                         slide_start_delay: 0.0,
@@ -245,13 +267,169 @@ fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern {
 /// Convert a Simai slide arc to a list of waypoint zones (excluding the
 /// start). Lane numbers are 1-indexed A-buttons (1..=8). For `BigV`, the
 /// reflect button comes first followed by the end.
-fn simai_pattern_to_points(_start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
-    let mut pts = Vec::new();
-    if let (SlidePattern::BigV, Some(r)) = (pattern, reflect) {
-        pts.push(SlidePoint { zone: r + 1, beat_offset: 0.0 });
+///
+/// Zone numbering: A1-A8 = 1-8 (outer ring), B1-B8 = 9-16 (inner ring),
+/// C = 17 (center).
+fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
+    let s = start + 1; // 1-indexed zone
+    let e = end + 1;
+    let sp = |z: u8| SlidePoint { zone: z, beat_offset: 0.0 };
+
+    match pattern {
+        SlidePattern::Line => {
+            // Straight line through center; endpoint only.
+            vec![sp(e)]
+        }
+        SlidePattern::BigV => {
+            let mut pts = Vec::new();
+            if let Some(r) = reflect {
+                pts.push(sp(r + 1));
+            }
+            pts.push(sp(e));
+            pts
+        }
+        SlidePattern::Caret => {
+            // Shorter arc around the outer ring.
+            let cw = ring_cw(s, e);
+            let ccw = ring_ccw(s, e);
+            let route = if cw.len() <= ccw.len() { cw } else { ccw };
+            route.into_iter().map(sp).collect()
+        }
+        SlidePattern::Right => {
+            // > = CCW arc around the outer ring.
+            ring_ccw(s, e).into_iter().map(sp).collect()
+        }
+        SlidePattern::Left => {
+            // < = CW arc around the outer ring.
+            ring_cw(s, e).into_iter().map(sp).collect()
+        }
+        SlidePattern::LowerV => {
+            // V-shape through center.
+            vec![sp(17), sp(e)]
+        }
+        SlidePattern::P => {
+            // CW half-circle through inner ring.
+            let mid = ring_cw(s, e);
+            let mut pts: Vec<SlidePoint> = mid.iter()
+                .take(mid.len().saturating_sub(1))
+                .map(|&z| sp(a_to_b(z)))
+                .collect();
+            pts.push(sp(e));
+            pts
+        }
+        SlidePattern::Q => {
+            // CCW half-circle through inner ring.
+            let mid = ring_ccw(s, e);
+            let mut pts: Vec<SlidePoint> = mid.iter()
+                .take(mid.len().saturating_sub(1))
+                .map(|&z| sp(a_to_b(z)))
+                .collect();
+            pts.push(sp(e));
+            pts
+        }
+        SlidePattern::PP => {
+            // Full CW circle (inner ring) then to end.
+            let full = ring_cw_full(s);
+            let mut pts: Vec<SlidePoint> = full.iter().map(|&z| sp(a_to_b(z))).collect();
+            // After the full loop, go from last inner zone outward to end.
+            pts.push(sp(e));
+            pts
+        }
+        SlidePattern::QQ => {
+            // Full CCW circle (inner ring) then to end.
+            let full = ring_ccw_full(s);
+            let mut pts: Vec<SlidePoint> = full.iter().map(|&z| sp(a_to_b(z))).collect();
+            pts.push(sp(e));
+            pts
+        }
+        SlidePattern::S => {
+            // S-curve: CW first half → center → CCW second half.
+            s_curve_waypoints(s, e, false).into_iter().map(sp).collect()
+        }
+        SlidePattern::Z => {
+            // Z-curve: CCW first half → center → CW second half.
+            s_curve_waypoints(s, e, true).into_iter().map(sp).collect()
+        }
+        SlidePattern::Wifi => {
+            // Fan shape — just the endpoint (wifi is visually 3 lanes but
+            // stored as individual slides).
+            vec![sp(e)]
+        }
     }
-    pts.push(SlidePoint { zone: end + 1, beat_offset: 0.0 });
+}
+
+/// A-zone (1-8) → corresponding B-zone (9-16).
+fn a_to_b(a: u8) -> u8 { a + 8 }
+
+/// CW traversal around the outer ring from `start` to `end` (both 1-indexed),
+/// excluding start, including end.
+fn ring_cw(start: u8, end: u8) -> Vec<u8> {
+    let mut pts = Vec::new();
+    let mut cur = start;
+    for _ in 0..8 {
+        cur = if cur == 8 { 1 } else { cur + 1 };
+        pts.push(cur);
+        if cur == end { break; }
+    }
     pts
+}
+
+/// CCW traversal around the outer ring.
+fn ring_ccw(start: u8, end: u8) -> Vec<u8> {
+    let mut pts = Vec::new();
+    let mut cur = start;
+    for _ in 0..8 {
+        cur = if cur == 1 { 8 } else { cur - 1 };
+        pts.push(cur);
+        if cur == end { break; }
+    }
+    pts
+}
+
+/// Full CW circle (8 positions starting from start+1, wrapping around).
+fn ring_cw_full(start: u8) -> Vec<u8> {
+    let mut pts = Vec::new();
+    let mut cur = start;
+    for _ in 0..8 {
+        cur = if cur == 8 { 1 } else { cur + 1 };
+        pts.push(cur);
+    }
+    pts
+}
+
+/// Full CCW circle.
+fn ring_ccw_full(start: u8) -> Vec<u8> {
+    let mut pts = Vec::new();
+    let mut cur = start;
+    for _ in 0..8 {
+        cur = if cur == 1 { 8 } else { cur - 1 };
+        pts.push(cur);
+    }
+    pts
+}
+
+/// Generate waypoint zones for an S or Z curve.
+/// `reverse` = false → S (CW first half), true → Z (CCW first half).
+fn s_curve_waypoints(s: u8, e: u8, reverse: bool) -> Vec<u8> {
+    // S-curve: from start, curve one direction on the inner ring,
+    // pass through center, then curve the opposite direction to end.
+    let cw_dist = ring_cw(s, e).len() as i32;
+    let half = (cw_dist + 1) / 2;
+    let si = s as i32;
+    let ei = e as i32;
+    let (mid1, mid2) = if !reverse {
+        // S: CW offset from start, CCW offset from end
+        (wrap8(si + half), wrap8(ei - half.min(cw_dist - half)))
+    } else {
+        // Z: CCW offset from start, CW offset from end
+        (wrap8(si - half), wrap8(ei + half.min(cw_dist - half)))
+    };
+    vec![a_to_b(mid1), 17, a_to_b(mid2), e]
+}
+
+/// Wrap a signed integer into the 1..=8 range (A-zone ring).
+fn wrap8(v: i32) -> u8 {
+    (((v - 1).rem_euclid(8)) + 1) as u8
 }
 
 fn touch_to_lane(region: char, position: u8) -> Option<u8> {
@@ -305,7 +483,7 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         button: n.lane - 1,
                         is_break: n.is_break,
                         is_ex: n.is_ex,
-                        is_star: false,
+                        is_star: n.is_star,
                     });
                 } else {
                     let (region, position) = lane_to_touch(n.lane);
@@ -359,21 +537,14 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                     delay: delay_meas,
                     is_break: n.is_break,
                     is_ex: n.is_ex,
-                    is_tapless: has_companion_tap(doc, n),
+                    is_tapless: n.is_tapless,
+                    chain: vec![],
                 });
             }
         }
     }
 
     SimaiChart { notes, bpms }
-}
-
-fn has_companion_tap(doc: &ChartDoc, slide: &Note) -> bool {
-    doc.notes.iter().any(|m| {
-        matches!(m.note_type, NoteType::Tap)
-            && m.lane == slide.lane
-            && (m.time - slide.time).abs() < 0.002
-    })
 }
 
 // ──────────────────────────────── I/O helpers ─────────────────────────────

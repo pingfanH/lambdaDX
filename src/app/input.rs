@@ -19,19 +19,19 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
         app.active_record_holds.clear();
         app.active_pointer_zones.clear();
         app.prev_pointer_pos.clear();
-        app.status = "Cleared recording hits".to_string();
+        app.set_status("Cleared recording hits".to_string());
     }
     if is_key_pressed(KeyCode::P) {
         app.show_pad_only = !app.show_pad_only;
-        app.status = format!("Pad only: {}", app.show_pad_only);
+        app.set_status(format!("Pad only: {}", app.show_pad_only));
     }
     if is_key_pressed(KeyCode::M) {
         app.mobile_ui = !app.mobile_ui;
-        app.status = format!("Mobile UI mode: {}", app.mobile_ui);
+        app.set_status(format!("Mobile UI mode: {}", app.mobile_ui));
     }
     if is_key_pressed(KeyCode::A) {
         app.audio_enabled = !app.audio_enabled;
-        app.status = format!("Audio enabled: {}", app.audio_enabled);
+        app.set_status(format!("Audio enabled: {}", app.audio_enabled));
         if !app.audio_enabled {
             app.stop_audio_if_any();
         }
@@ -40,40 +40,40 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     // Record speed: [ and ]
     if is_key_pressed(KeyCode::LeftBracket) {
         app.set_record_speed((app.record_speed - SPEED_STEP).max(SPEED_MIN));
-        app.status = format!("Record speed: {:.1}x", app.record_speed);
+        app.set_status(format!("Record speed: {:.1}x", app.record_speed));
     }
     if is_key_pressed(KeyCode::RightBracket) {
         app.set_record_speed((app.record_speed + SPEED_STEP).min(SPEED_MAX));
-        app.status = format!("Record speed: {:.1}x", app.record_speed);
+        app.set_status(format!("Record speed: {:.1}x", app.record_speed));
     }
 
     // Playback speed: - and =
     if is_key_pressed(KeyCode::Minus) {
         app.set_play_speed((app.play_speed - SPEED_STEP).max(SPEED_MIN));
-        app.status = format!("Playback speed: {:.1}x", app.play_speed);
+        app.set_status(format!("Playback speed: {:.1}x", app.play_speed));
     }
     if is_key_pressed(KeyCode::Equal) {
         app.set_play_speed((app.play_speed + SPEED_STEP).min(SPEED_MAX));
-        app.status = format!("Playback speed: {:.1}x", app.play_speed);
+        app.set_status(format!("Playback speed: {:.1}x", app.play_speed));
     }
 
     if is_key_pressed(KeyCode::L) {
         match chart::load_latest_saved_chart() {
             Ok(chart) => {
                 let n = chart.notes.len();
-                app.chart = chart;
-                app.status = format!("Loaded {n} notes");
+                app.set_chart(chart);
+                app.set_status(format!("Loaded {n} notes"));
             }
             Err(err) => {
-                app.status = format!("Load latest failed: {err}");
+                app.set_status(format!("Load latest failed: {err}"));
             }
         }
     }
 
     if is_key_pressed(KeyCode::S) {
         match chart::save_recording_doc(app) {
-            Ok(path) => app.status = format!("Saved recording: {}", path.display()),
-            Err(err) => app.status = format!("Save failed: {err}"),
+            Ok(path) => app.set_status(format!("Saved recording: {}", path.display())),
+            Err(err) => app.set_status(format!("Save failed: {err}")),
         }
     }
 
@@ -85,8 +85,8 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
         if let Some(i) = app.selected_note {
             if i < app.chart.notes.len() {
                 app.chart.notes.remove(i);
-                app.selected_note = None;
-                app.status = format!("Deleted note #{i}");
+                app.set_selected_note(None);
+                app.set_status(format!("Deleted note #{i}"));
             }
         }
     }
@@ -117,14 +117,14 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             }
         }
         eprintln!("[hotkey] copied {} notes", app.clipboard.len());
-        if !app.clipboard.is_empty() { app.status = format!("Copied {} notes", app.clipboard.len()); }
+        if !app.clipboard.is_empty() { app.set_status(format!("Copied {} notes", app.clipboard.len())); }
     }
     // Ctrl/Cmd+V paste
     if is_key_pressed(KeyCode::V) && mod_down {
         eprintln!("[hotkey] paste clipboard_len={}", app.clipboard.len());
         if !app.clipboard.is_empty() {
             app.pasting = true;
-            app.status = format!("Pasting {} notes — click to place", app.clipboard.len());
+            app.set_status(format!("Pasting {} notes — click to place", app.clipboard.len()));
         }
     }
     if app.pasting && is_key_pressed(KeyCode::Escape) { eprintln!("[hotkey] cancel paste"); app.pasting = false; }
@@ -133,27 +133,27 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     // While active, clicking pad zones appends to the note's slide_points.
     if is_key_pressed(KeyCode::E) && !mod_down {
         if app.editing_slide_path.is_some() {
-            app.editing_slide_path = None;
-            app.status = "Trajectory edit: off".to_string();
+            app.set_editing_slide_path(None);
+            app.set_status("Trajectory edit: off".to_string());
         } else if let Some(i) = app.selected_note {
             if let Some(n) = app.chart.notes.get(i) {
                 if matches!(n.note_type, super::types::NoteType::Slide) {
-                    app.editing_slide_path = Some(i);
-                    app.status = format!(
+                    app.set_editing_slide_path(Some(i));
+                    app.set_status(format!(
                         "Trajectory edit: click pad zones to append (Backspace=undo, Esc=exit). #{i}"
-                    );
+                    ));
                 } else {
-                    app.status = "Trajectory edit: select a Slide note first".to_string();
+                    app.set_status("Trajectory edit: select a Slide note first".to_string());
                 }
             }
         } else {
-            app.status = "Trajectory edit: no note selected".to_string();
+            app.set_status("Trajectory edit: no note selected".to_string());
         }
     }
     // Esc exits trajectory edit mode.
     if is_key_pressed(KeyCode::Escape) && app.editing_slide_path.is_some() {
-        app.editing_slide_path = None;
-        app.status = "Trajectory edit: off".to_string();
+        app.set_editing_slide_path(None);
+        app.set_status("Trajectory edit: off".to_string());
     }
     // Backspace removes last point of the slide being edited (when not deleting note).
     if app.editing_slide_path.is_some() && is_key_pressed(KeyCode::Backspace) {
@@ -161,7 +161,7 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             if let Some(n) = app.chart.notes.get_mut(i) {
                 if let Some(removed) = n.slide_points.pop() {
                     n.slide_shape = super::slide_match::match_slide_shape(n.lane, &n.slide_points);
-                    app.status = format!("Removed zone {}", removed.zone);
+                    app.set_status(format!("Removed zone {}", removed.zone));
                 }
             }
         }
@@ -169,16 +169,16 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     // Toggle grid snap for recording
     if is_key_pressed(KeyCode::G) {
         app.record_snap_grid = !app.record_snap_grid;
-        app.status = format!("Record snap to grid: {}", app.record_snap_grid);
+        app.set_status(format!("Record snap to grid: {}", app.record_snap_grid));
     }
     // Waveform threshold
     if is_key_pressed(KeyCode::LeftBracket) {
         app.waveform_threshold = (app.waveform_threshold - 0.05).max(0.0);
-        app.status = format!("Wave threshold: {:.2}", app.waveform_threshold);
+        app.set_status(format!("Wave threshold: {:.2}", app.waveform_threshold));
     }
     if is_key_pressed(KeyCode::RightBracket) {
         app.waveform_threshold = (app.waveform_threshold + 0.05).min(1.0);
-        app.status = format!("Wave threshold: {:.2}", app.waveform_threshold);
+        app.set_status(format!("Wave threshold: {:.2}", app.waveform_threshold));
     }
 }
 
@@ -296,7 +296,7 @@ pub(crate) fn handle_touch_controls(
                         if handled {
                             if new_count > 0 {
                                 app.push_feedback(z, 0.18);
-                                app.status = format!("Added zone {} (#{} points)", z, new_count);
+                                app.set_status(format!("Added zone {} (#{} points)", z, new_count));
                             }
                             continue;
                         }
@@ -440,7 +440,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 if app.place_tool != tool {
                     app.place_tool = tool;
                     app.placement = super::types::PlacementState::Idle;
-                    app.status = format!("Tool: {:?}", tool);
+                    app.set_status(format!("Tool: {:?}", tool));
                 }
                 return;
             }
@@ -450,7 +450,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     if is_key_pressed(KeyCode::Escape) {
         if !matches!(app.placement, super::types::PlacementState::Idle) {
             app.placement = super::types::PlacementState::Idle;
-            app.status = "Placement cancelled".to_string();
+            app.set_status("Placement cancelled".to_string());
         }
     }
 
@@ -461,7 +461,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         if matches!(app.mode, super::types::Mode::Playing) {
             app.mode_song_offset = new_t; app.mode_wall_anchor = get_time(); app.seek_audio_to(new_t);
         } else { app.timeline_view_time = new_t; }
-        app.selected_note = None; app.dragging_note = None; app.drag_part = None;
+        app.set_selected_note(None); app.dragging_note = None; app.drag_part = None;
         return;
     }
 
@@ -477,8 +477,8 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             app.push_undo();
             app.chart.notes.remove(i);
             app.recompute_each();
-            app.selected_note = None; app.dragging_note = None;
-            app.status = format!("Deleted note #{i}");
+            app.set_selected_note(None); app.dragging_note = None;
+            app.set_status(format!("Deleted note #{i}"));
         }
         return;
     }
@@ -518,7 +518,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         let cursor_t_at_click = (now + (judge_y - pos.y) / SCROLL_SPEED).max(0.0);
         app.drag_cursor_anchor_t = cursor_t_at_click;
         if let Some(i) = best {
-            app.selected_note = Some(i);
+            app.set_selected_note(Some(i));
             app.drag_start_pos = Some(pos);
             // For tail drags, anchor to the tail's time so dragging preserves
             // the original duration on click (rather than collapsing to 0).
@@ -537,7 +537,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             app.drag_orig_note = Some(app.chart.notes[i].clone());
         } else {
             // Start box selection
-            app.selected_note = None;
+            app.set_selected_note(None);
             app.box_start = Some(pos);
             app.box_end = Some(pos);
             app.box_anchor_t = Some(cursor_t_at_click);
@@ -592,7 +592,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                         note.lane = (orig_l as i32 + l_delta).clamp(1, PAD_ZONE_MAX as i32) as u8;
                     }
                 }
-                app.status = format!("Moving {} notes", app.selected_notes.len());
+                app.set_status(format!("Moving {} notes", app.selected_notes.len()));
             } else {
                 // Single note drag
                 let Some(note) = app.chart.notes.get_mut(i) else { app.dragging_note = None; return; };
@@ -644,7 +644,8 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 }
                 note.lane = new_lane;
                 let dur = if is_slide { note.slide_duration } else { note.hold_duration };
-                app.status = format!("#{i}: t={:.2} dur={:.2}", note.time, dur);
+                let t_val = note.time;
+                app.set_status(format!("#{i}: t={:.2} dur={:.2}", t_val, dur));
             }
         }
     }
@@ -670,8 +671,8 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm);
                     if cx >= x1 && cx <= x2 && ny >= y1 && ny <= y2 { app.selected_notes.push(i); }
                 }
-                if !app.selected_notes.is_empty() { app.selected_note = Some(app.selected_notes[0]); }
-                app.status = format!("Selected {} notes", app.selected_notes.len());
+                if !app.selected_notes.is_empty() { app.set_selected_note(Some(app.selected_notes[0])); }
+                app.set_status(format!("Selected {} notes", app.selected_notes.len()));
             } else {
                 // Click empty → tool-aware placement.
                 let dt = (judge_y - pos.y) / SCROLL_SPEED;
@@ -710,7 +711,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
         app.recompute_each();
         app.pasting = false;
-        app.status = format!("Placed {} notes", app.clipboard.len());
+        app.set_status(format!("Placed {} notes", app.clipboard.len()));
     }
 }
 
@@ -726,20 +727,20 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
             let nt = if touch { NoteType::Touch } else { NoteType::Tap };
             app.chart.notes.push(Note {
                 time: t, lane, note_type: nt, hold_duration: 0.0, is_each: false,
-                is_break: false, is_ex: false,
+                is_break: false, is_ex: false, is_star: false, is_tapless: false,
                 slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0,
                 slide_shape: None,
             });
             app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
             app.recompute_each();
-            app.status = format!("Placed {} at m{:.3}",
-                if matches!(nt, NoteType::Tap) { "Tap" } else { "Touch" }, t);
+            app.set_status(format!("Placed {} at m{:.3}",
+                if matches!(nt, NoteType::Tap) { "Tap" } else { "Touch" }, t));
         }
         PlaceTool::Hold => {
             match app.placement {
                 PlacementState::Idle => {
                     app.placement = PlacementState::HoldPending { anchor_t: t, lane };
-                    app.status = format!("Hold #1 set at m{:.3}; click again to set the other end", t);
+                    app.set_status(format!("Hold #1 set at m{:.3}; click again to set the other end", t));
                 }
                 PlacementState::HoldPending { anchor_t, lane: lane0 } => {
                     // Head = earlier time, tail = later time (regardless of click order).
@@ -750,14 +751,14 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                     app.chart.notes.push(Note {
                         time: head_t, lane: lane0, note_type: NoteType::Hold,
                         hold_duration: dur, is_each: false,
-                        is_break: false, is_ex: false,
+                        is_break: false, is_ex: false, is_star: false, is_tapless: false,
                         slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0,
                         slide_shape: None,
                     });
                     app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
                     app.recompute_each();
                     app.placement = PlacementState::Idle;
-                    app.status = format!("Placed Hold m{:.3} + {:.3}", head_t, dur);
+                    app.set_status(format!("Placed Hold m{:.3} + {:.3}", head_t, dur));
                 }
                 _ => {
                     // Tool changed mid-flow; reset and start over.
@@ -769,22 +770,22 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
             match app.placement {
                 PlacementState::Idle => {
                     app.placement = PlacementState::StarHead { head_t: t, lane };
-                    app.status = format!("Star head at m{:.3}; click later to set delay end", t);
+                    app.set_status(format!("Star head at m{:.3}; click later to set delay end", t));
                 }
                 PlacementState::StarHead { head_t, lane: lane0 } => {
                     // Second click must be later in time than the head.
                     if t <= head_t {
-                        app.status = "Star: 第二次点击必须在星星头上方（更晚）".to_string();
+                        app.set_status("Star: 第二次点击必须在星星头上方（更晚）".to_string());
                         return;
                     }
                     app.placement = PlacementState::StarDelay {
                         head_t, lane: lane0, delay_end_t: t,
                     };
-                    app.status = format!("Star delay end at m{:.3}; click later to set tail", t);
+                    app.set_status(format!("Star delay end at m{:.3}; click later to set tail", t));
                 }
                 PlacementState::StarDelay { head_t, lane: lane0, delay_end_t } => {
                     if t <= delay_end_t {
-                        app.status = "Star: 第三次点击必须在 delay handle 上方（更晚）".to_string();
+                        app.set_status("Star: 第三次点击必须在 delay handle 上方（更晚）".to_string());
                         return;
                     }
                     let slide_duration = t - head_t;
@@ -793,15 +794,15 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                     app.chart.notes.push(Note {
                         time: head_t, lane: lane0, note_type: NoteType::Slide,
                         hold_duration: 0.0, is_each: false,
-                        is_break: false, is_ex: false,
+                        is_break: false, is_ex: false, is_star: false, is_tapless: false,
                         slide_points: vec![], slide_duration, slide_start_delay,
                         slide_shape: None,
                     });
                     app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
                     app.recompute_each();
                     app.placement = PlacementState::Idle;
-                    app.status = format!("Placed Star m{:.3}, delay {:.3}, dur {:.3}",
-                        head_t, slide_start_delay, slide_duration);
+                    app.set_status(format!("Placed Star m{:.3}, delay {:.3}, dur {:.3}",
+                        head_t, slide_start_delay, slide_duration));
                 }
                 _ => {
                     app.placement = PlacementState::StarHead { head_t: t, lane };

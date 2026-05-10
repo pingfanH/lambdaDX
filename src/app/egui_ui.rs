@@ -21,14 +21,14 @@ pub(crate) fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
             ui.separator();
             if ui.button("💾 Save").clicked() {
                 match chart::save_recording_doc(app) {
-                    Ok(p) => app.status = format!("Saved {}", p.display()),
-                    Err(e) => app.status = format!("Save: {e}"),
+                    Ok(p) => app.set_status(format!("Saved {}", p.display())),
+                    Err(e) => app.set_status(format!("Save: {e}")),
                 }
             }
             if ui.button("📂 Load").clicked() {
                 match chart::load_latest_saved_chart() {
-                    Ok(c) => { let n = c.notes.len(); app.chart = c; app.status = format!("{n} notes"); }
-                    Err(e) => app.status = format!("Load: {e}"),
+                    Ok(c) => { let n = c.notes.len(); app.set_chart(c); app.set_status(format!("{n} notes")); }
+                    Err(e) => app.set_status(format!("Load: {e}")),
                 }
             }
             if ui.button("⬇ Simai")
@@ -38,12 +38,12 @@ pub(crate) fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                 match simai_io::import_from_simai_path("import.simai") {
                     Ok(c) => {
                         let n = c.notes.len();
-                        app.chart = c;
-                        app.selected_note = None;
-                        app.editing_slide_path = None;
-                        app.status = format!("Imported Simai: {n} notes");
+                        app.set_chart(c);
+                        app.set_selected_note(None);
+                        app.set_editing_slide_path(None);
+                        app.set_status(format!("Imported Simai: {n} notes"));
                     }
-                    Err(e) => app.status = format!("Import Simai: {e}"),
+                    Err(e) => app.set_status(format!("Import Simai: {e}")),
                 }
             }
             if ui.button("⬆ Simai")
@@ -51,14 +51,14 @@ pub(crate) fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                 .clicked()
             {
                 match simai_io::export_to_simai_path(&app.chart, "export.simai") {
-                    Ok(p) => app.status = format!("Exported Simai: {}", p.display()),
-                    Err(e) => app.status = format!("Export Simai: {e}"),
+                    Ok(p) => app.set_status(format!("Exported Simai: {}", p.display())),
+                    Err(e) => app.set_status(format!("Export Simai: {e}")),
                 }
             }
             if ui.button("🗑 Clear").clicked() {
                 app.recording_hits.clear(); app.recording_notes.clear();
                 app.active_record_holds.clear(); app.active_pointer_zones.clear();
-                app.prev_pointer_pos.clear(); app.status = "Cleared".to_string();
+                app.prev_pointer_pos.clear(); app.set_status("Cleared".to_string());
             }
             ui.separator();
             if ui.button(if app.record_snap_grid { "Grid ON" } else { "Grid OFF" }).clicked() { app.record_snap_grid = !app.record_snap_grid; }
@@ -76,14 +76,14 @@ pub(crate) fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                 app.chart.audio_offset = (app.chart.audio_offset - 0.05).max(-5.0);
                 app.audio_cache.clear();
                 if matches!(app.mode, Mode::Playing) { app.request_audio_start(); }
-                app.status = format!("Audio offset: {:.3}s", app.chart.audio_offset);
+                app.set_status(format!("Audio offset: {:.3}s", app.chart.audio_offset));
             }
             ui.label(format!("{:.2}s", app.chart.audio_offset));
             if ui.button("+").on_hover_text("Shift audio later (+50ms)").clicked() {
                 app.chart.audio_offset = (app.chart.audio_offset + 0.05).min(30.0);
                 app.audio_cache.clear();
                 if matches!(app.mode, Mode::Playing) { app.request_audio_start(); }
-                app.status = format!("Audio offset: {:.3}s", app.chart.audio_offset);
+                app.set_status(format!("Audio offset: {:.3}s", app.chart.audio_offset));
             }
             ui.separator();
             if ui.button(if app.audio_enabled { "🔊" } else { "🔇" }).clicked() { app.audio_enabled = !app.audio_enabled; }

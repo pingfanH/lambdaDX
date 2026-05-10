@@ -183,9 +183,9 @@ pub(crate) async fn load_note_textures(app: &mut AppState) {
     }
 
     if app.tap_texture.is_none() {
-        app.status = "tap texture not found (tried tap.png / Skins/classic/tap.png)".to_string();
+        app.set_status("tap texture not found (tried tap.png / Skins/classic/tap.png)".to_string());
     } else if app.hold_texture.is_none() {
-        app.status = "hold texture not found (tried hold.png / Skins/classic/hold.png)".to_string();
+        app.set_status("hold texture not found (tried hold.png / Skins/classic/hold.png)".to_string());
     }
 }
 
@@ -392,26 +392,26 @@ pub(crate) fn trigger_ui_action(app: &mut AppState, action: UiAction) {
         UiAction::TogglePlay => app.toggle_play(),
         UiAction::ToggleRecord => app.toggle_record(),
         UiAction::Save => match chart::save_recording_doc(app) {
-            Ok(path) => app.status = format!("Saved recording: {}", path.display()),
-            Err(err) => app.status = format!("Save failed: {err}"),
+            Ok(path) => app.set_status(format!("Saved recording: {}", path.display())),
+            Err(err) => app.set_status(format!("Save failed: {err}")),
         },
         UiAction::Load => match chart::load_latest_saved_chart() {
             Ok(chart) => {
-                app.chart = chart;
-                app.status = "Loaded latest saved chart".to_string();
+                app.set_chart(chart);
+                app.set_status("Loaded latest saved chart".to_string());
             }
-            Err(err) => app.status = format!("Load latest failed: {err}"),
+            Err(err) => app.set_status(format!("Load latest failed: {err}")),
         },
         UiAction::Clear => {
             app.recording_hits.clear();
             app.recording_notes.clear();
             app.active_record_holds.clear();
             app.active_pointer_zones.clear();
-            app.status = "Cleared recording hits".to_string();
+            app.set_status("Cleared recording hits".to_string());
         }
         UiAction::ToggleAudio => {
             app.audio_enabled = !app.audio_enabled;
-            app.status = format!("Audio enabled: {}", app.audio_enabled);
+            app.set_status(format!("Audio enabled: {}", app.audio_enabled));
             if !app.audio_enabled {
                 app.stop_audio_if_any();
             } else if matches!(app.mode, Mode::Playing | Mode::Recording) {
@@ -420,19 +420,19 @@ pub(crate) fn trigger_ui_action(app: &mut AppState, action: UiAction) {
         }
         UiAction::RecSpeedDown => {
             app.set_record_speed((app.record_speed - SPEED_STEP).max(SPEED_MIN));
-            app.status = format!("Record speed: {:.1}x", app.record_speed);
+            app.set_status(format!("Record speed: {:.1}x", app.record_speed));
         }
         UiAction::RecSpeedUp => {
             app.set_record_speed((app.record_speed + SPEED_STEP).min(SPEED_MAX));
-            app.status = format!("Record speed: {:.1}x", app.record_speed);
+            app.set_status(format!("Record speed: {:.1}x", app.record_speed));
         }
         UiAction::PlaySpeedDown => {
             app.set_play_speed((app.play_speed - SPEED_STEP).max(SPEED_MIN));
-            app.status = format!("Playback speed: {:.1}x", app.play_speed);
+            app.set_status(format!("Playback speed: {:.1}x", app.play_speed));
         }
         UiAction::PlaySpeedUp => {
             app.set_play_speed((app.play_speed + SPEED_STEP).min(SPEED_MAX));
-            app.status = format!("Playback speed: {:.1}x", app.play_speed);
+            app.set_status(format!("Playback speed: {:.1}x", app.play_speed));
         }
         // UiAction::TouchSpeedDown => {
         //     app.set_touch_speed((app.touch_speed - TOUCH_SPEED_STEP).max(TOUCH_SPEED_MIN));
@@ -444,11 +444,11 @@ pub(crate) fn trigger_ui_action(app: &mut AppState, action: UiAction) {
         // }
         UiAction::TogglePadOnly => {
             app.show_pad_only = !app.show_pad_only;
-            app.status = format!("Pad only: {}", app.show_pad_only);
+            app.set_status(format!("Pad only: {}", app.show_pad_only));
         }
         UiAction::ToggleMobileUi => {
             app.mobile_ui = !app.mobile_ui;
-            app.status = format!("Mobile UI mode: {}", app.mobile_ui);
+            app.set_status(format!("Mobile UI mode: {}", app.mobile_ui));
         }
     }
 }
