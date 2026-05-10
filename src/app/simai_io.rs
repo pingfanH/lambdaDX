@@ -21,7 +21,7 @@ use maisimai::{
 };
 
 use super::platform;
-use super::types::{ChartDoc, Note, NoteType, SlidePoint, SlideShape};
+use super::types::{ChartDoc, Note, NoteType, SlidePoint, SlideShape, snap_measure};
 
 /// Pick a chart from a Simai file (highest difficulty by default) and convert
 /// it to a `ChartDoc`. Returns `Err` if the file has no charts.
@@ -85,7 +85,7 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
             .unwrap_or(false);
 
         match sn {
-            SimaiNote::Tap { measure, button, is_star, .. } => {
+            SimaiNote::Tap { measure, button, is_star, is_break, is_ex, .. } => {
                 // Skip star-Taps emitted by the parser as the head of a
                 // Slide on the same (button, measure): the Slide note
                 // already renders its own star head.
@@ -99,57 +99,60 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     }
                 }
                 notes.push(Note {
-                    time: ms::measure_to_seconds(*measure, &bpms),
+                    time: *measure,
                     lane: button + 1,
                     note_type: NoteType::Tap,
                     hold_duration: 0.0,
                     is_each,
+                    is_break: *is_break,
+                    is_ex: *is_ex,
                     slide_points: Vec::new(),
                     slide_duration: 0.0,
                     slide_start_delay: 0.0,
                     slide_shape: None,
                 });
             }
-            SimaiNote::Hold { measure, button, duration, .. } => {
-                let t0 = ms::measure_to_seconds(*measure, &bpms);
-                let t1 = ms::measure_to_seconds(*measure + *duration, &bpms);
+            SimaiNote::Hold { measure, button, duration, is_ex, .. } => {
                 notes.push(Note {
-                    time: t0,
+                    time: *measure,
                     lane: button + 1,
                     note_type: NoteType::Hold,
-                    hold_duration: (t1 - t0).max(0.0),
+                    hold_duration: duration.max(0.0),
                     is_each,
+                    is_break: false,
+                    is_ex: *is_ex,
                     slide_points: Vec::new(),
                     slide_duration: 0.0,
                     slide_start_delay: 0.0,
                     slide_shape: None,
                 });
             }
-            SimaiNote::Slide { measure, start, end, pattern, reflect, duration, delay, .. } => {
-                let t_head = ms::measure_to_seconds(*measure, &bpms);
-                let t_motion_start = ms::measure_to_seconds(*measure + *delay, &bpms);
-                let t_tail = ms::measure_to_seconds(*measure + *delay + *duration, &bpms);
+            SimaiNote::Slide { measure, start, end, pattern, reflect, duration, delay, is_break, is_ex, .. } => {
                 let slide_points = simai_pattern_to_points(*start, *end, *pattern, *reflect);
                 notes.push(Note {
-                    time: t_head,
+                    time: *measure,
                     lane: start + 1,
                     note_type: NoteType::Slide,
                     hold_duration: 0.0,
                     is_each,
+                    is_break: *is_break,
+                    is_ex: *is_ex,
                     slide_points,
-                    slide_duration: (t_tail - t_head).max(0.05),
-                    slide_start_delay: (t_motion_start - t_head).max(0.0),
+                    slide_duration: (*delay + *duration).max(0.0),
+                    slide_start_delay: delay.max(0.0),
                     slide_shape: Some(simai_pattern_to_shape(*pattern)),
                 });
             }
             SimaiNote::TouchTap { measure, region, position, .. } => {
                 if let Some(lane) = touch_to_lane(*region, *position) {
                     notes.push(Note {
-                        time: ms::measure_to_seconds(*measure, &bpms),
+                        time: *measure,
                         lane,
                         note_type: NoteType::Touch,
                         hold_duration: 0.0,
                         is_each,
+                        is_break: false,
+                        is_ex: false,
                         slide_points: Vec::new(),
                         slide_duration: 0.0,
                         slide_start_delay: 0.0,
@@ -159,14 +162,14 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
             }
             SimaiNote::TouchHold { measure, region, position, duration, .. } => {
                 if let Some(lane) = touch_to_lane(*region, *position) {
-                    let t0 = ms::measure_to_seconds(*measure, &bpms);
-                    let t1 = ms::measure_to_seconds(*measure + *duration, &bpms);
                     notes.push(Note {
-                        time: t0,
+                        time: *measure,
                         lane,
                         note_type: NoteType::Hold,
-                        hold_duration: (t1 - t0).max(0.0),
+                        hold_duration: duration.max(0.0),
                         is_each,
+                        is_break: false,
+                        is_ex: false,
                         slide_points: Vec::new(),
                         slide_duration: 0.0,
                         slide_start_delay: 0.0,
@@ -180,7 +183,7 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
     notes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
 
     ChartDoc {
-        version: "0.2.0-simai".to_string(),
+        version: "0.3.0-measure".to_string(),
         title: String::new(),
         bpm: bpm0,
         audio_offset: 0.0,
@@ -201,15 +204,6 @@ fn quantize(measure: f32) -> i64 {
     (measure * 100_000.0).round() as i64
 }
 
-/// Snap a measure value to the nearest 1/384 grid position.  384 is the
-/// standard internal tick resolution for maimai charts (LCM of common
-/// divisors 4, 8, 12, 16, 24, 32, 48, 64, …).  This eliminates tiny
-/// floating-point drift from the seconds→measure round-trip that would
-/// otherwise cause the exporter to pick absurdly large divisors.
-fn snap_measure(m: f32) -> f32 {
-    const GRID: f32 = 384.0;
-    (m * GRID).round() / GRID
-}
 
 /// Map a Simai slide pattern into our discrete `SlideShape` enum.
 fn simai_pattern_to_shape(p: SlidePattern) -> SlideShape {
@@ -302,15 +296,15 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
 
     let mut notes: Vec<SimaiNote> = Vec::with_capacity(doc.notes.len());
     for n in &doc.notes {
-        let measure = snap_measure(ms::seconds_to_measure(n.time, &bpms));
+        let measure = snap_measure(n.time);
         match n.note_type {
             NoteType::Tap => {
                 if n.lane >= 1 && n.lane <= 8 {
                     notes.push(SimaiNote::Tap {
                         measure,
                         button: n.lane - 1,
-                        is_break: false,
-                        is_ex: false,
+                        is_break: n.is_break,
+                        is_ex: n.is_ex,
                         is_star: false,
                     });
                 } else {
@@ -323,13 +317,13 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                 notes.push(SimaiNote::TouchTap { measure, region, position, is_firework: false });
             }
             NoteType::Hold => {
-                let dur_meas = snap_measure(ms::seconds_to_measure(n.time + n.hold_duration.max(0.0), &bpms) - measure);
+                let dur_meas = snap_measure(n.hold_duration.max(0.0));
                 if n.lane >= 1 && n.lane <= 8 {
                     notes.push(SimaiNote::Hold {
                         measure,
                         button: n.lane - 1,
-                        duration: dur_meas.max(0.0),
-                        is_ex: false,
+                        duration: dur_meas,
+                        is_ex: n.is_ex,
                     });
                 } else {
                     let (region, position) = lane_to_touch(n.lane);
@@ -337,7 +331,7 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         measure,
                         region,
                         position,
-                        duration: dur_meas.max(0.0),
+                        duration: dur_meas,
                         is_firework: false,
                     });
                 }
@@ -352,8 +346,8 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                     (_, [.., last]) => (None, last.zone.saturating_sub(1)),
                     _ => (None, 0),
                 };
-                let total_meas = snap_measure(ms::seconds_to_measure(n.time + n.slide_duration.max(0.0), &bpms) - measure);
-                let delay_meas = snap_measure(ms::seconds_to_measure(n.time + n.slide_start_delay.max(0.0), &bpms) - measure);
+                let delay_meas = snap_measure(n.slide_start_delay.max(0.0));
+                let total_meas = snap_measure(n.slide_duration.max(0.0));
                 let travel_meas = (total_meas - delay_meas).max(0.05);
                 notes.push(SimaiNote::Slide {
                     measure,
@@ -362,10 +356,10 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                     pattern,
                     reflect,
                     duration: travel_meas,
-                    delay: delay_meas.max(0.0),
-                    is_break: false,
-                    is_ex: false,
-                    is_tapless: !has_companion_tap(doc, n),
+                    delay: delay_meas,
+                    is_break: n.is_break,
+                    is_ex: n.is_ex,
+                    is_tapless: has_companion_tap(doc, n),
                 });
             }
         }
@@ -378,7 +372,7 @@ fn has_companion_tap(doc: &ChartDoc, slide: &Note) -> bool {
     doc.notes.iter().any(|m| {
         matches!(m.note_type, NoteType::Tap)
             && m.lane == slide.lane
-            && (m.time - slide.time).abs() < 0.005
+            && (m.time - slide.time).abs() < 0.002
     })
 }
 

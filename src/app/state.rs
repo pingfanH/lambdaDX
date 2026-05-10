@@ -6,8 +6,9 @@ use std::collections::{HashMap, HashSet};
 
 use super::types::{
     ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm, DragPart,
-    HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, EACH_WINDOW,
-    TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone, sanitize_note_zone, slide_end_time,
+    HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN,
+    TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone, sanitize_note_zone,
+    note_secs, secs_to_measure, mdur_to_secs, sdur_to_mdur, snap_measure,
 };
 
 /// Runtime mutable state for the editor/simulator.
@@ -293,8 +294,8 @@ impl AppState {
     pub(crate) fn recompute_each(&mut self) {
         let len = self.chart.notes.len();
         for i in 0..len {
-            let t = self.chart.notes[i].time;
-            let has_sibling = self.chart.notes.iter().enumerate().any(|(j, n)| i != j && (n.time - t).abs() < 0.001);
+            let m = self.chart.notes[i].time;
+            let has_sibling = self.chart.notes.iter().enumerate().any(|(j, n)| i != j && (n.time - m).abs() < 0.002);
             self.chart.notes[i].is_each = has_sibling;
         }
     }
@@ -351,9 +352,10 @@ impl AppState {
             return;
         }
         let t = self.song_time();
+        let bpm = self.chart.bpm;
 
         while self.playback_cursor < self.chart.notes.len() {
-            if self.chart.notes[self.playback_cursor].time + HIT_WINDOW < t {
+            if note_secs(&self.chart.notes[self.playback_cursor], bpm) + HIT_WINDOW < t {
                 self.playback_cursor += 1;
             } else {
                 break;
@@ -361,7 +363,7 @@ impl AppState {
         }
 
         if let Some(last) = self.chart.notes.last() {
-            if t > last.time + 1.2 {
+            if t > note_secs(last, bpm) + 1.2 {
                 self.set_mode(Mode::Idle);
                 self.stop_audio_if_any();
                 self.status = "Playback finished".to_string();
@@ -385,6 +387,7 @@ impl AppState {
             return;
         }
         let t = self.song_time();
+        let bpm = self.chart.bpm;
 
         // --- count pending hit-sound events per type ---
         let mut tap_count: u32 = 0;
@@ -392,11 +395,12 @@ impl AppState {
         let mut slide_count: u32 = 0;
 
         for (i, note) in self.chart.notes.iter().enumerate() {
+            let ns = note_secs(note, bpm);
             // Head hit — touch uses TOUCH_DISAPPEAR_TIME to align with visual
             let hit_time = if matches!(note.note_type, NoteType::Touch) {
-                note.time + TOUCH_DISAPPEAR_TIME
+                ns + TOUCH_DISAPPEAR_TIME
             } else {
-                note.time
+                ns
             };
             if !self.hit_sounds_played.contains(&i) && hit_time <= t {
                 if matches!(note.note_type, NoteType::Touch) {
@@ -409,7 +413,7 @@ impl AppState {
             // Slide start (when the star begins moving)
             if matches!(note.note_type, NoteType::Slide) {
                 let slide_key = i + self.chart.notes.len() * 3;
-                let slide_move_time = note.time + note.slide_start_delay;
+                let slide_move_time = ns + mdur_to_secs(note.slide_start_delay, bpm);
                 if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
                     slide_count += 1;
                     self.hit_sounds_played.insert(slide_key);
@@ -419,7 +423,7 @@ impl AppState {
             let tail_key = i + self.chart.notes.len();
             if matches!(note.note_type, NoteType::Hold)
                 && !self.hit_sounds_played.contains(&tail_key)
-                && hold_tail_time(note) <= t
+                && hold_tail_time(note, bpm) <= t
             {
                 tap_count += 1;
                 self.hit_sounds_played.insert(tail_key);
@@ -450,7 +454,7 @@ impl AppState {
         let active_th = self.chart.notes.iter()
             .filter(|n| matches!(n.note_type, NoteType::Hold)
                 && is_touch_zone(sanitize_note_zone(n.note_type, n.lane))
-                && n.time <= t && hold_tail_time(n) > t)
+                && note_secs(n, bpm) <= t && hold_tail_time(n, bpm) > t)
             .count();
         if active_th > 0 && !self.touch_riser_playing {
             if let Some(s) = &self.touch_riser_sound {
@@ -508,12 +512,15 @@ impl AppState {
     }
 
     fn push_recorded_note(&mut self, active: ActiveRecordHold, end_time: f32) {
-        let duration = (end_time - active.start_time).max(0.0);
-        let start_time = if self.record_snap_grid {
-            let beat = 60.0 / self.chart.bpm;
-            let grid = beat / (super::types::GRID_DIVISION as f32 / 4.0);
-            (active.start_time / grid).round() * grid
-        } else { active.start_time };
+        let bpm = self.chart.bpm;
+        let duration_secs = (end_time - active.start_time).max(0.0);
+        // Snap start time: convert seconds → measure, snap to 1/384 grid
+        let start_measure = if self.record_snap_grid {
+            snap_measure(secs_to_measure(active.start_time, bpm))
+        } else {
+            secs_to_measure(active.start_time, bpm)
+        };
+        let dur_measure = sdur_to_mdur(duration_secs, bpm);
         // Unique zones visited
         let mut visited: Vec<u8> = Vec::new();
         for (z, _) in &active.slide_zones {
@@ -524,12 +531,12 @@ impl AppState {
         let note_type = if visited.len() >= SLIDE_MIN_POINTS && is_touch_zone(active.lane) {
             NoteType::Slide
         } else if is_touch_zone(active.lane) {
-            if duration >= HOLD_RECORD_MIN_DURATION {
+            if duration_secs >= HOLD_RECORD_MIN_DURATION {
                 NoteType::Hold
             } else {
                 NoteType::Touch
             }
-        } else if duration >= HOLD_RECORD_MIN_DURATION {
+        } else if duration_secs >= HOLD_RECORD_MIN_DURATION {
             NoteType::Hold
         } else {
             NoteType::Tap
@@ -539,7 +546,8 @@ impl AppState {
             .map(|(z, off)| super::types::SlidePoint { zone: *z, beat_offset: *off })
             .collect();
 
-        let slide_dur = if matches!(note_type, NoteType::Slide) { duration } else { 0.0 };
+        let slide_dur = if matches!(note_type, NoteType::Slide) { dur_measure } else { 0.0 };
+        let default_delay = sdur_to_mdur(0.12, bpm);
 
         // Phase 4: classify the recorded trajectory against known shape templates.
         let slide_shape = if matches!(note_type, NoteType::Slide) {
@@ -549,19 +557,19 @@ impl AppState {
         };
 
         self.chart.notes.push(Note {
-            time: start_time, lane: active.lane, note_type,
-            hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
-            is_each: false, slide_points: slide_points.clone(),
-            slide_duration: slide_dur, slide_start_delay: 0.12, slide_shape,
+            time: start_measure, lane: active.lane, note_type,
+            hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
+            is_each: false, is_break: false, is_ex: false, slide_points: slide_points.clone(),
+            slide_duration: slide_dur, slide_start_delay: default_delay, slide_shape,
         });
         self.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
         self.recompute_each();
 
         self.recording_notes.push(Note {
-            time: start_time, lane: active.lane, note_type,
-            hold_duration: if matches!(note_type, NoteType::Hold) { duration } else { 0.0 },
-            is_each: false, slide_points,
-            slide_duration: slide_dur, slide_start_delay: 0.12, slide_shape,
+            time: start_measure, lane: active.lane, note_type,
+            hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
+            is_each: false, is_break: false, is_ex: false, slide_points,
+            slide_duration: slide_dur, slide_start_delay: default_delay, slide_shape,
         });
         self.recording_hits.push(HitEvent {
             time: active.start_time,

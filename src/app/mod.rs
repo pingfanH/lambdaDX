@@ -1,4 +1,5 @@
 mod audio;
+mod beat_format;
 mod chart;
 mod egui_ui;
 mod input;

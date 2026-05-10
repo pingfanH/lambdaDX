@@ -117,26 +117,72 @@ pub(crate) struct SlidePoint {
     pub(crate) beat_offset: f32,
 }
 
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+
+/// Note times and durations are stored in **measures** (where measure 1.0 =
+/// the first beat of the song).  Use `measure_to_secs` / `mdur_to_secs` to
+/// convert to wall-clock seconds for playback and rendering.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Note {
+    /// Measure position (1.0 = first beat).
     pub(crate) time: f32,
     pub(crate) lane: u8,
     pub(crate) note_type: NoteType,
-    #[serde(default)]
+    /// Duration in measures.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
     pub(crate) hold_duration: f32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) is_each: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) is_break: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) is_ex: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) slide_points: Vec<SlidePoint>,
-    #[serde(default)]
+    /// Total slide span in measures (head → tail).
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
     pub(crate) slide_duration: f32,
-    #[serde(default = "default_slide_start_delay")]
+    /// Delay before slide motion starts, in measures.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
     pub(crate) slide_start_delay: f32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) slide_shape: Option<SlideShape>,
 }
 
-fn default_slide_start_delay() -> f32 { SLIDE_STAR_FADE_IN }
+// ─── Measure ↔ Seconds conversion ─────────────────────────────────
+
+/// Measure position → seconds.  `m = 1.0` ⇒ `t = 0`.
+pub(crate) fn measure_to_secs(m: f32, bpm: f32) -> f32 {
+    (m - 1.0) * 240.0 / bpm
+}
+
+/// Seconds → measure position.
+pub(crate) fn secs_to_measure(t: f32, bpm: f32) -> f32 {
+    t * bpm / 240.0 + 1.0
+}
+
+/// Duration in measures → duration in seconds.
+pub(crate) fn mdur_to_secs(d: f32, bpm: f32) -> f32 {
+    d * 240.0 / bpm
+}
+
+/// Duration in seconds → duration in measures.
+pub(crate) fn sdur_to_mdur(d: f32, bpm: f32) -> f32 {
+    d * bpm / 240.0
+}
+
+/// Snap a measure value to the nearest 1/384 grid position.
+pub(crate) fn snap_measure(m: f32) -> f32 {
+    const GRID: f32 = 384.0;
+    (m * GRID).round() / GRID
+}
+
+/// Note head time in seconds.
+pub(crate) fn note_secs(note: &Note, bpm: f32) -> f32 {
+    measure_to_secs(note.time, bpm)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ChartDoc {
@@ -294,8 +340,10 @@ pub(crate) struct PadFeedback {
     pub(crate) until: f64,
 }
 
-pub(crate) fn hold_tail_time(note: &Note) -> f32 {
-    note.time + note.hold_duration.max(0.15)
+/// Hold tail time in seconds (note fields are in measures).
+pub(crate) fn hold_tail_time(note: &Note, bpm: f32) -> f32 {
+    let dur_s = mdur_to_secs(note.hold_duration, bpm).max(0.15);
+    note_secs(note, bpm) + dur_s
 }
 
 pub(crate) fn sanitize_note_zone(_note_type: NoteType, lane: u8) -> u8 {
@@ -306,6 +354,8 @@ pub(crate) fn is_touch_zone(zone: u8) -> bool {
     zone >= PAD_B_START
 }
 
-pub(crate) fn slide_end_time(note: &Note) -> f32 {
-    note.time + note.slide_duration.max(0.3)
+/// Slide end time in seconds (note fields are in measures).
+pub(crate) fn slide_end_time(note: &Note, bpm: f32) -> f32 {
+    let dur_s = mdur_to_secs(note.slide_duration, bpm).max(0.3);
+    note_secs(note, bpm) + dur_s
 }
