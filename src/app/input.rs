@@ -3,8 +3,19 @@ use macroquad::prelude::get_time;
 
 use super::chart;
 use super::state::AppState;
-use super::types::{PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs, snap_measure};
+use super::types::{Note, NoteType, PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs, snap_measure};
 use super::ui::{rect_contains, trigger_ui_action};
+
+/// Collect indices of selected notes (multi-select or single).
+fn gather_selected(app: &AppState) -> Vec<usize> {
+    if !app.selected_notes.is_empty() {
+        app.selected_notes.clone()
+    } else if let Some(i) = app.selected_note {
+        vec![i]
+    } else {
+        vec![]
+    }
+}
 
 pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     if is_key_pressed(KeyCode::Space) {
@@ -166,6 +177,101 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             }
         }
     }
+    // B: toggle Break on selected note(s)
+    // In star-edit mode, toggles star_is_break on Slide notes only.
+    if is_key_pressed(KeyCode::B) && !mod_down {
+        let indices = gather_selected(app);
+        if !indices.is_empty() {
+            app.push_undo();
+            let star_mode = app.editing_star;
+            let mut count = 0;
+            for &i in &indices {
+                if let Some(n) = app.chart.notes.get_mut(i) {
+                    match n.note_type {
+                        NoteType::Slide if star_mode => {
+                            n.star_is_break = !n.star_is_break;
+                            count += 1;
+                        }
+                        NoteType::Tap | NoteType::Hold | NoteType::Slide => {
+                            n.is_break = !n.is_break;
+                            count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let label = if star_mode { "Star Break" } else { "Break" };
+            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| {
+                if star_mode { n.star_is_break } else { n.is_break }
+            }).unwrap_or(false);
+            app.set_status(format!("{} {}: {} notes", label, if on { "ON" } else { "OFF" }, count));
+        }
+    }
+    // X: toggle Ex on selected note(s)
+    // In star-edit mode, toggles star_is_ex on Slide notes only.
+    if is_key_pressed(KeyCode::X) && !mod_down {
+        let indices = gather_selected(app);
+        if !indices.is_empty() {
+            app.push_undo();
+            let star_mode = app.editing_star;
+            let mut count = 0;
+            for &i in &indices {
+                if let Some(n) = app.chart.notes.get_mut(i) {
+                    match n.note_type {
+                        NoteType::Slide if star_mode => {
+                            n.star_is_ex = !n.star_is_ex;
+                            count += 1;
+                        }
+                        NoteType::Tap | NoteType::Hold | NoteType::Slide => {
+                            n.is_ex = !n.is_ex;
+                            count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let label = if star_mode { "Star Ex" } else { "Ex" };
+            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| {
+                if star_mode { n.star_is_ex } else { n.is_ex }
+            }).unwrap_or(false);
+            app.set_status(format!("{} {}: {} notes", label, if on { "ON" } else { "OFF" }, count));
+        }
+    }
+    // N: toggle ExBreak on selected note(s) (both break + ex)
+    // In star-edit mode, toggles star_is_break + star_is_ex.
+    if is_key_pressed(KeyCode::N) && !mod_down {
+        let indices = gather_selected(app);
+        if !indices.is_empty() {
+            app.push_undo();
+            let star_mode = app.editing_star;
+            let mut count = 0;
+            for &i in &indices {
+                if let Some(n) = app.chart.notes.get_mut(i) {
+                    match n.note_type {
+                        NoteType::Slide if star_mode => {
+                            let target = !(n.star_is_break && n.star_is_ex);
+                            n.star_is_break = target;
+                            n.star_is_ex = target;
+                            count += 1;
+                        }
+                        NoteType::Tap | NoteType::Hold | NoteType::Slide => {
+                            let target = !(n.is_break && n.is_ex);
+                            n.is_break = target;
+                            n.is_ex = target;
+                            count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let label = if star_mode { "Star ExBreak" } else { "ExBreak" };
+            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| {
+                if star_mode { n.star_is_break && n.star_is_ex } else { n.is_break && n.is_ex }
+            }).unwrap_or(false);
+            app.set_status(format!("{} {}: {} notes", label, if on { "ON" } else { "OFF" }, count));
+        }
+    }
+
     // Toggle grid snap for recording
     if is_key_pressed(KeyCode::G) {
         app.record_snap_grid = !app.record_snap_grid;
@@ -483,23 +589,41 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         return;
     }
 
-    // ── Mouse press: select or start box-drag ──
+    // ── Middle-click: enter star-edit mode (selects the slide, toggles editing_star) ──
+    if is_mouse_button_pressed(MouseButton::Middle) && pos.x >= lanes_x {
+        let mut best: Option<usize> = None; let mut best_d = 30.0_f32;
+        for (i, note) in app.chart.notes.iter().enumerate() {
+            if !matches!(note.note_type, NoteType::Slide) { continue; }
+            let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm);
+            let d = pos.distance(vec2(cx, ny));
+            if d < best_d { best = Some(i); best_d = d; }
+        }
+        if let Some(i) = best {
+            app.set_selected_note(Some(i));
+            app.editing_star = true;
+            app.set_status(format!("Star edit mode: #{i} (B=star break, X=star ex)"));
+        } else {
+            app.editing_star = false;
+        }
+    }
+
+    // ── Mouse press: record candidate, do NOT select yet ──
     let drag_threshold = 8.0;
     if is_mouse_button_pressed(MouseButton::Left) && pos.x >= lanes_x {
-        // Try to find a note near the click
+        // Exit star-edit mode on left-click
+        app.editing_star = false;
+        // Hit-test: find nearest note (potential drag target)
         let mut best: Option<usize> = None; let mut best_d = 30.0;
         let mut best_part = DragPart::Body;
         for (i, note) in app.chart.notes.iter().enumerate() {
             let (cx, ny, tail_ny, has_tail) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm);
             let d = pos.distance(vec2(cx, ny));
-            // Slide-specific delay-end handle (between head and tail).
             if matches!(note.note_type, super::types::NoteType::Slide) && note.slide_duration > 0.0 {
                 let ns = note_secs(note, app.chart.bpm);
                 let delay_secs = ns + mdur_to_secs(note.slide_start_delay, app.chart.bpm);
                 let delay_y = judge_y - (delay_secs - now) * SCROLL_SPEED;
                 let delay_d = pos.distance(vec2(cx, delay_y));
                 let tail_d = pos.distance(vec2(cx, tail_ny));
-                // Compare delay handle first; it sits between head and tail.
                 if delay_d < best_d && delay_d < d && delay_d < tail_d {
                     best = Some(i); best_d = delay_d; best_part = DragPart::SlideDelayEnd;
                     continue;
@@ -514,14 +638,43 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 else if mid_d < best_d && mid_d < d && mid_d < tail_d { best = Some(i); best_d = mid_d; best_part = DragPart::Body; }
             } else if d < best_d { best = Some(i); best_d = d; best_part = DragPart::Body; }
         }
-        // Cursor's chart time at click moment (used as anchor for drag tracking).
         let cursor_t_at_click = (now + (judge_y - pos.y) / SCROLL_SPEED).max(0.0);
         app.drag_cursor_anchor_t = cursor_t_at_click;
+
         if let Some(i) = best {
-            app.set_selected_note(Some(i));
+            // Double-click on a Slide head → fork a new slide from same star
+            let click_now = get_time();
+            let is_dbl = app.last_click_note == Some(i)
+                && (click_now - app.last_click_time) < 0.4
+                && matches!(best_part, DragPart::Body | DragPart::Head);
+            app.last_click_time = click_now;
+            app.last_click_note = Some(i);
+            if is_dbl && matches!(app.chart.notes.get(i).map(|n| n.note_type), Some(NoteType::Slide)) {
+                let src = app.chart.notes[i].clone();
+                app.push_undo();
+                let new_note = Note {
+                    time: src.time, lane: src.lane, note_type: NoteType::Slide,
+                    hold_duration: 0.0, is_each: src.is_each,
+                    is_break: false, is_ex: false, is_star: false, is_tapless: false,
+                    star_is_break: src.star_is_break, star_is_ex: src.star_is_ex,
+                    slide_points: vec![], slide_duration: src.slide_duration,
+                    slide_start_delay: src.slide_start_delay, slide_shape: None,
+                };
+                app.chart.notes.push(new_note);
+                app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+                let new_i = app.chart.notes.iter().position(|n| {
+                    n.time == src.time && n.lane == src.lane
+                        && matches!(n.note_type, NoteType::Slide)
+                        && n.slide_points.is_empty()
+                }).unwrap_or(app.chart.notes.len() - 1);
+                app.set_selected_note(Some(new_i));
+                app.set_editing_slide_path(Some(new_i));
+                app.set_status(format!("Forked new slide from star #{i} — click pad zones to build path"));
+                return;
+            }
+            // Record candidate for potential drag — do NOT select yet
+            app.press_note_candidate = Some(i);
             app.drag_start_pos = Some(pos);
-            // For tail drags, anchor to the tail's time so dragging preserves
-            // the original duration on click (rather than collapsing to 0).
             let n = &app.chart.notes[i];
             let bpm = app.chart.bpm;
             app.drag_start_time = match best_part {
@@ -536,12 +689,10 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             app.drag_part = Some(best_part);
             app.drag_orig_note = Some(app.chart.notes[i].clone());
         } else {
-            // Start box selection
-            app.set_selected_note(None);
-            app.box_start = Some(pos);
-            app.box_end = Some(pos);
-            app.box_anchor_t = Some(cursor_t_at_click);
+            // No note under cursor — prepare for potential box-select
+            app.press_note_candidate = None;
             app.drag_start_pos = Some(pos);
+            app.box_anchor_t = Some(cursor_t_at_click);
             app.drag_part = None;
             app.drag_orig_note = None;
         }
@@ -550,16 +701,15 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     // ── Dragging: note move or box selection ──
     if is_mouse_button_down(MouseButton::Left) {
         let moved = app.drag_start_pos.map(|s| pos.distance(s) >= drag_threshold).unwrap_or(false);
-        if !moved { } // just selecting
-        // Update box end during box drag
-        else if app.drag_part.is_none() { app.box_end = Some(pos); }
-        else if let Some(i) = app.dragging_note.or(app.selected_note).filter(|&i| i < app.chart.notes.len()) {
-            // Note dragging (only after threshold)
-            if app.dragging_note.is_none() && app.selected_note.is_some() {
+        if !moved { /* waiting for threshold */ }
+        // Promote candidate → dragging (on first frame beyond threshold)
+        else if app.press_note_candidate.is_some() && app.dragging_note.is_none() {
+            let i = app.press_note_candidate.take().unwrap();
+            if i < app.chart.notes.len() {
                 app.push_undo();
+                app.set_selected_note(Some(i));
                 app.dragging_note = Some(i);
                 app.drag_orig_note = app.chart.notes.get(i).cloned();
-                // Save all selected notes' original state for multi-move
                 app.drag_multi_orig.clear();
                 for &si in &app.selected_notes {
                     if let Some(n) = app.chart.notes.get(si) {
@@ -567,6 +717,16 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     }
                 }
             }
+        }
+        // No candidate → box selection
+        else if app.drag_part.is_none() && app.dragging_note.is_none() {
+            if app.box_start.is_none() {
+                app.box_start = app.drag_start_pos;
+            }
+            app.box_end = Some(pos);
+        }
+        // Active note drag
+        else if let Some(i) = app.dragging_note.filter(|&i| i < app.chart.notes.len()) {
             // Absolute cursor tracking: compute chart time under the current
             // cursor each frame, then add the offset captured at click time.
             // This lets drags follow the mouse even if the user scrolls the
@@ -650,41 +810,37 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         }
     }
     if is_mouse_button_released(MouseButton::Left) {
-        // Box selection: select all notes within drag rectangle
-        if let (Some(click_start), None) = (app.drag_start_pos, app.drag_part) {
-            // Use the live box_start (already synced from box_anchor_t) so the
-            // selection rectangle correctly reflects scroll-during-drag.
-            let start = app.box_start.unwrap_or(click_start);
-            // "Moved" considers either screen-distance from click OR any
-            // chart-time scroll that happened (anchor_t != cursor's release t).
-            let moved_screen = pos.distance(click_start) >= drag_threshold;
-            let moved_anchor = app.box_anchor_t.map(|a_t| {
-                let cursor_release_t = (now + (judge_y - pos.y) / SCROLL_SPEED).max(0.0);
-                (a_t - cursor_release_t).abs() > 0.01
-            }).unwrap_or(false);
-            let moved = moved_screen || moved_anchor;
-            if moved {
-                let x1 = start.x.min(pos.x); let x2 = start.x.max(pos.x);
-                let y1 = start.y.min(pos.y); let y2 = start.y.max(pos.y);
-                app.selected_notes.clear();
-                for (i, note) in app.chart.notes.iter().enumerate() {
-                    let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm);
-                    if cx >= x1 && cx <= x2 && ny >= y1 && ny <= y2 { app.selected_notes.push(i); }
-                }
-                if !app.selected_notes.is_empty() { app.set_selected_note(Some(app.selected_notes[0])); }
-                app.set_status(format!("Selected {} notes", app.selected_notes.len()));
-            } else {
-                // Click empty → tool-aware placement.
-                let dt = (judge_y - pos.y) / SCROLL_SPEED;
-                let t = snap_secs_to_measure((now + dt).max(0.0), app.chart.bpm);
-                let lx = pos.x - lanes_x;
-                let lane = if lx >= 0.0 {
-                    let l = (lx / lane_w) as i32; let l = l.clamp(0, LANE_COUNT as i32 - 1) as u8;
-                    if l == LANE_COUNT as u8 - 1 { 9 } else { l + 1 }
-                } else { 1 };
-                handle_tool_click(app, t, lane);
+        let was_dragging_note = app.dragging_note.is_some();
+        let click_start = app.drag_start_pos;
+        let moved = click_start.map(|s| pos.distance(s) >= drag_threshold).unwrap_or(false);
+
+        if was_dragging_note {
+            // Note drag finished — nothing extra to do
+        } else if moved && app.box_start.is_some() {
+            // Box selection: select all notes within drag rectangle
+            let start = app.box_start.unwrap_or(pos);
+            let x1 = start.x.min(pos.x); let x2 = start.x.max(pos.x);
+            let y1 = start.y.min(pos.y); let y2 = start.y.max(pos.y);
+            app.selected_notes.clear();
+            for (i, note) in app.chart.notes.iter().enumerate() {
+                let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm);
+                if cx >= x1 && cx <= x2 && ny >= y1 && ny <= y2 { app.selected_notes.push(i); }
             }
+            if !app.selected_notes.is_empty() { app.set_selected_note(Some(app.selected_notes[0])); }
+            app.set_status(format!("Selected {} notes", app.selected_notes.len()));
+        } else if !moved {
+            // Simple click (no drag) → always place note via tool
+            let dt = (judge_y - pos.y) / SCROLL_SPEED;
+            let t = snap_secs_to_measure((now + dt).max(0.0), app.chart.bpm);
+            let lx = pos.x - lanes_x;
+            let lane = if lx >= 0.0 {
+                let l = (lx / lane_w) as i32; let l = l.clamp(0, LANE_COUNT as i32 - 1) as u8;
+                if l == LANE_COUNT as u8 - 1 { 9 } else { l + 1 }
+            } else { 1 };
+            handle_tool_click(app, t, lane);
         }
+        // Clean up
+        app.press_note_candidate = None;
         app.dragging_note = None; app.drag_start_pos = None; app.drag_orig_note = None;
         app.box_start = None; app.box_end = None; app.box_anchor_t = None;
         app.recompute_each();
@@ -728,6 +884,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
             app.chart.notes.push(Note {
                 time: t, lane, note_type: nt, hold_duration: 0.0, is_each: false,
                 is_break: false, is_ex: false, is_star: false, is_tapless: false,
+                star_is_break: false, star_is_ex: false,
                 slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0,
                 slide_shape: None,
             });
@@ -752,6 +909,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                         time: head_t, lane: lane0, note_type: NoteType::Hold,
                         hold_duration: dur, is_each: false,
                         is_break: false, is_ex: false, is_star: false, is_tapless: false,
+                        star_is_break: false, star_is_ex: false,
                         slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0,
                         slide_shape: None,
                     });
@@ -795,6 +953,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                         time: head_t, lane: lane0, note_type: NoteType::Slide,
                         hold_duration: 0.0, is_each: false,
                         is_break: false, is_ex: false, is_star: false, is_tapless: false,
+                        star_is_break: false, star_is_ex: false,
                         slide_points: vec![], slide_duration, slide_start_delay,
                         slide_shape: None,
                     });

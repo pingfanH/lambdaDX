@@ -95,6 +95,7 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                         SimaiNote::Slide { measure: ms, start, .. }
                             if quantize(*ms) == q && start == button));
                     if has_slide {
+                        // Star Tap's break/ex will be applied to Slide notes below.
                         continue;
                     }
                 }
@@ -108,6 +109,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     is_ex: *is_ex,
                     is_star: *is_star,
                     is_tapless: false,
+                    star_is_break: false,
+                    star_is_ex: false,
                     slide_points: Vec::new(),
                     slide_duration: 0.0,
                     slide_start_delay: 0.0,
@@ -125,6 +128,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     is_ex: *is_ex,
                     is_star: false,
                     is_tapless: false,
+                    star_is_break: false,
+                    star_is_ex: false,
                     slide_points: Vec::new(),
                     slide_duration: 0.0,
                     slide_start_delay: 0.0,
@@ -145,6 +150,14 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     }
                     prev_end = *ce;
                 }
+                // Look for a star Tap at the same measure+button to get
+                // the star head's break/ex flags.
+                let q = quantize(*measure);
+                let (sb, se) = chart.notes.iter().find_map(|m| match m {
+                    SimaiNote::Tap { measure: tm, button: tb, is_star: true, is_break: tb_brk, is_ex: tb_ex, .. }
+                        if quantize(*tm) == q && *tb == *start => Some((*tb_brk, *tb_ex)),
+                    _ => None,
+                }).unwrap_or((false, false));
                 notes.push(Note {
                     time: *measure,
                     lane: start + 1,
@@ -155,6 +168,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     is_ex: *is_ex,
                     is_star: false,
                     is_tapless: *is_tapless,
+                    star_is_break: sb,
+                    star_is_ex: se,
                     slide_points,
                     slide_duration: (*delay + *duration).max(0.0),
                     slide_start_delay: delay.max(0.0),
@@ -173,6 +188,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                         is_ex: false,
                         is_star: false,
                         is_tapless: false,
+                        star_is_break: false,
+                        star_is_ex: false,
                         slide_points: Vec::new(),
                         slide_duration: 0.0,
                         slide_start_delay: 0.0,
@@ -192,6 +209,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                         is_ex: false,
                         is_star: false,
                         is_tapless: false,
+                        star_is_break: false,
+                        star_is_ex: false,
                         slide_points: Vec::new(),
                         slide_duration: 0.0,
                         slide_start_delay: 0.0,
@@ -517,6 +536,20 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
             NoteType::Slide => {
                 if !(n.lane >= 1 && n.lane <= 8) {
                     continue;
+                }
+                // Emit a star Tap for the slide head (carries star break/ex).
+                // Only emit once per (measure, lane) group.
+                let already_emitted = notes.iter().any(|sn| matches!(sn,
+                    SimaiNote::Tap { measure: m, button: b, is_star: true, .. }
+                        if (*m - measure).abs() < 0.0001 && *b == n.lane - 1));
+                if !already_emitted {
+                    notes.push(SimaiNote::Tap {
+                        measure,
+                        button: n.lane - 1,
+                        is_break: n.star_is_break,
+                        is_ex: n.star_is_ex,
+                        is_star: true,
+                    });
                 }
                 let pattern = shape_to_simai_pattern(n.slide_shape);
                 let (reflect, end) = match (pattern, n.slide_points.as_slice()) {

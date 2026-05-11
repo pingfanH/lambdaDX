@@ -3,6 +3,7 @@ use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 
+use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
 use super::types::{
@@ -28,6 +29,9 @@ pub(crate) struct AppState {
     pub(crate) playback_cursor: usize,
     pub(crate) selected_note: Option<usize>,
     pub(crate) dragging_note: Option<usize>,
+    /// Note index detected under the mouse on press; selection is deferred
+    /// until a drag threshold is exceeded.
+    pub(crate) press_note_candidate: Option<usize>,
     pub(crate) drag_part: Option<DragPart>,
     pub(crate) drag_start_pos: Option<Vec2>,
     pub(crate) drag_start_time: f32,
@@ -59,6 +63,11 @@ pub(crate) struct AppState {
     pub(crate) undo_stack: Vec<super::types::ChartDoc>,
     pub(crate) clipboard: Vec<super::types::Note>,
     pub(crate) pasting: bool,
+    /// When true, B/X hotkeys modify star head flags instead of slide trail.
+    pub(crate) editing_star: bool,
+    /// Timestamp of last left-click for double-click detection.
+    pub(crate) last_click_time: f64,
+    pub(crate) last_click_note: Option<usize>,
 
     pub(crate) record_speed: f32,
     pub(crate) play_speed: f32,
@@ -99,7 +108,7 @@ pub(crate) struct AppState {
     pub(crate) star_double_ex_tex: Option<Texture2D>,
     pub(crate) mask_material: Option<Material>,
     pub(crate) pad_rect: Option<egui_macroquad::egui::Rect>,
-    pub(crate) audio_cache: HashMap<i32, Vec<u8>>,
+    pub(crate) audio_cache: HashMap<i32, BgmPcm>,
     pub(crate) audio_seek_offset: Option<f32>,
     pub(crate) pending_audio_start: bool,
     pub(crate) audio_enabled: bool,
@@ -151,6 +160,7 @@ impl AppState {
             playback_cursor: 0,
             selected_note: None,
             dragging_note: None,
+            press_note_candidate: None,
             drag_part: None,
             drag_start_pos: None,
             drag_start_time: 0.0,
@@ -173,6 +183,9 @@ impl AppState {
             undo_stack: Vec::new(),
             clipboard: Vec::new(),
             pasting: false,
+            editing_star: false,
+            last_click_time: 0.0,
+            last_click_note: None,
             record_speed: 1.0,
             play_speed: 1.0,
             touch_speed: 0.3,
@@ -684,6 +697,7 @@ impl AppState {
             time: start_measure, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
             is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false,
+            star_is_break: false, star_is_ex: false,
             slide_points: slide_points.clone(),
             slide_duration: slide_dur, slide_start_delay: default_delay, slide_shape,
         });
@@ -694,6 +708,7 @@ impl AppState {
             time: start_measure, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
             is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false,
+            star_is_break: false, star_is_ex: false,
             slide_points,
             slide_duration: slide_dur, slide_start_delay: default_delay, slide_shape,
         });

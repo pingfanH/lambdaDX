@@ -63,8 +63,6 @@ pub async fn run_app() {
     }
 
     ui::load_note_textures(&mut app).await;
-    audio::warm_audio_cache(&mut app, 1.0).await;
-
     loop {
         clear_background(Color::from_rgba(10, 17, 30, 255));
 

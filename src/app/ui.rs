@@ -1560,12 +1560,12 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         let head_progress = ((SLIDE_TRAVEL_TIME - dt) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
                         let size_scale = if head_progress < TAP_GROW_FRAC { head_progress / TAP_GROW_FRAC } else { 1.0 };
                         let ss = STAR_SIZE * scale * size_scale;
-                        let star_tex = if note.is_break { app.star_break_tex.as_ref() } else if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+                        let star_tex = if note.star_is_break { app.star_break_tex.as_ref() } else if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
                         let head_rot = head_progress * std::f32::consts::TAU;
                         if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
                             draw_texture_ex(tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
                                 DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
-                            if note.is_ex {
+                            if note.star_is_ex {
                                 if let Some(ex_tex) = app.star_ex_tex.as_ref() {
                                     draw_texture_ex(ex_tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
                                         DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
@@ -1578,11 +1578,11 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     if current_t >= ns && current_t <= slide_end_s {
                         let (star_pos, angle) = point_at(star_dist_along);
                         let ss = STAR_SIZE * scale;
-                        let star_tex = if note.is_break { app.star_break_tex.as_ref() } else if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+                        let star_tex = if note.star_is_break { app.star_break_tex.as_ref() } else if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
                         if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
                             draw_texture_ex(tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
                                 DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: angle, ..Default::default() });
-                            if note.is_ex {
+                            if note.star_is_ex {
                                 if let Some(ex_tex) = app.star_ex_tex.as_ref() {
                                     draw_texture_ex(ex_tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
                                         DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: angle, ..Default::default() });
@@ -1684,7 +1684,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 // dedicated slide section takes over (at/after note.time).
                 if dt > 0.0 {
                     let ss = STAR_SIZE * scale * size_scale;
-                    let star_tex = if note.is_break {
+                    let star_tex = if note.star_is_break {
                         app.star_break_tex.as_ref()
                     } else if note.is_each {
                         app.star_each_tex.as_ref()
@@ -1698,7 +1698,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             rotation: star_rot,
                             ..Default::default()
                         });
-                        if note.is_ex {
+                        if note.star_is_ex {
                             if let Some(ex_tex) = app.star_ex_tex.as_ref() {
                                 draw_texture_ex(ex_tex, px - ss * 0.5, py - ss * 0.5, WHITE, DrawTextureParams {
                                     dest_size: Some(vec2(ss, ss)),

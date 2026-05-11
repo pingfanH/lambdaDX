@@ -186,10 +186,10 @@ pub(crate) async fn service_audio(app: &mut AppState) {
 
     if app.audio_wav_pcm.is_some() {
         match load_cached_audio_for_speed(app, speed) {
-            Ok(wav_bytes) => {
+            Ok(bgm) => {
                 if let Some(player) = &mut app.sfx_player {
                     app.mode_wall_anchor = macroquad::prelude::get_time();
-                    player.play_bgm(&wav_bytes);
+                    player.play_bgm(&bgm.samples, bgm.channels, bgm.sample_rate);
                 }
                 app.audio_seek_offset = None;
                 if app.waveform_data.is_empty() {
@@ -230,7 +230,15 @@ pub(crate) async fn warm_audio_cache(app: &mut AppState, _primary_speed: f32) {
     app.set_status("音频缓存就绪".to_string());
 }
 
-fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<Vec<u8>, String> {
+/// Pre-decoded f32 BGM samples ready for instant playback.
+#[derive(Clone)]
+pub(crate) struct BgmPcm {
+    pub samples: Vec<f32>,
+    pub channels: u16,
+    pub sample_rate: u32,
+}
+
+fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<BgmPcm, String> {
     let key = speed_cache_key(speed);
     let chart_seek = app.audio_seek_offset.unwrap_or(0.0);
     let audio_offset = app.chart.audio_offset;
@@ -245,12 +253,18 @@ fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<Vec<u8>
         .audio_wav_pcm
         .as_ref()
         .ok_or_else(|| "pcm source missing".to_string())?;
-    let (samples, channels) = build_speed_pcm(wav, speed, effective_seek);
-    let bytes = pcm_to_wav_bytes(&samples, channels, wav.sample_rate);
+    let (samples_i16, channels) = build_speed_pcm(wav, speed, effective_seek);
+    // Convert i16 → f32 once; no WAV encode/decode roundtrip.
+    let samples_f32: Vec<f32> = samples_i16.iter().map(|&s| s as f32 / 32768.0).collect();
+    let bgm = BgmPcm {
+        samples: samples_f32,
+        channels,
+        sample_rate: wav.sample_rate,
+    };
     if chart_seek <= 0.0 {
-        app.audio_cache.insert(key, bytes.clone());
+        app.audio_cache.insert(key, bgm.clone());
     }
-    Ok(bytes)
+    Ok(bgm)
 }
 
 /// Construct a WAV file from raw i16 PCM samples by writing a minimal 44-byte

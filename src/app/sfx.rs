@@ -74,16 +74,14 @@ impl SfxPlayer {
         }
     }
 
-    /// Play a BGM from WAV bytes (stoppable).
-    pub fn play_bgm(&mut self, wav_bytes: &[u8]) {
+    /// Play BGM from pre-decoded f32 samples (zero-copy, no WAV roundtrip).
+    pub fn play_bgm(&mut self, samples: &[f32], channels: u16, sample_rate: u32) {
         self.stop_bgm();
-        let cursor = Cursor::new(wav_bytes.to_vec());
-        if let Ok(source) = rodio::Decoder::new(cursor) {
-            let sink = Sink::try_new(&self.handle).unwrap();
-            sink.set_volume(1.0);
-            sink.append(source);
-            self.bgm_sink = Some(sink);
-        }
+        let source = SamplesBuffer::new(channels, sample_rate, samples.to_vec());
+        let sink = Sink::try_new(&self.handle).unwrap();
+        sink.set_volume(1.0);
+        sink.append(source);
+        self.bgm_sink = Some(sink);
     }
 
     /// Stop BGM.

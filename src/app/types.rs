@@ -143,6 +143,12 @@ pub(crate) struct Note {
     pub(crate) is_star: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) is_tapless: bool,
+    /// Star-head break (independent from slide trail `is_break`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) star_is_break: bool,
+    /// Star-head ex (independent from slide trail `is_ex`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) star_is_ex: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) slide_points: Vec<SlidePoint>,
     /// Total slide span in measures (head → tail).

@@ -187,6 +187,8 @@ pub(crate) fn ser_to_note(s: &SerNote) -> Note {
         is_ex: s.is_ex,
         is_star: s.is_star,
         is_tapless: s.is_tapless,
+        star_is_break: false,
+        star_is_ex: false,
         slide_points: s.slide_points.clone(),
         slide_duration,
         slide_start_delay,
