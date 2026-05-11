@@ -969,40 +969,71 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     }
                 }
 
-                // Travel region: tile slide.png vertically (same texture as the pad).
+                // Travel region: folded path across A-zone lanes based on slide_points.
                 let slide_tex = if note.is_break { app.slide_break_tex.as_ref() } else if note.is_each { app.slide_each_tex.as_ref() } else { app.slide_tex.as_ref() };
                 let travel_h = (delay_y - tail_y).abs();
                 if travel_h > 0.5 {
-                    let top = delay_y.min(tail_y);
-                    if let Some(tex) = slide_tex {
-                        let tw_nat = tex.width() * scale * SLIDE_TILE_SCALE;
-                        let th_nat = tex.height() * scale * SLIDE_TILE_SCALE;
-                        // Width fits a typical timeline lane; height keeps aspect ratio.
-                        let bar_w = 18.0 * scale;
-                        let tile_h = th_nat * (bar_w / tw_nat).max(0.001);
-                        let spacing = SLIDE_TILE_SPACING * scale;
-                        let mut yy = top + travel_h;
-                        // Rotation angle 0 means texture's "up" points to +Y; we want
-                        // the tile pointing toward the head (downward on timeline).
-                        let angle = -std::f32::consts::FRAC_PI_2;
-                        while yy > top - spacing * 0.5 {
-                            let py = yy - tile_h * 0.5;
-                            draw_texture_ex(tex, cx - bar_w * 0.5, py - tile_h * 0.5,
-                                Color::from_rgba(255, 255, 255, 230),
-                                DrawTextureParams {
-                                    dest_size: Some(vec2(bar_w, tile_h)),
-                                    rotation: angle,
-                                    ..Default::default()
-                                });
-                            yy -= spacing;
+                    // Build waypoint list: head lane, then each A-zone slide_point.
+                    let zone_to_cx_a = |z: u8| -> f32 {
+                        let li = (z.saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+                    };
+                    // Filter to A-zone points only (zone 1-8).
+                    let a_points: Vec<&super::types::SlidePoint> = note.slide_points.iter()
+                        .filter(|sp| sp.zone >= 1 && sp.zone <= 8)
+                        .collect();
+                    let mut waypoints: Vec<(f32, f32)> = Vec::new(); // (x, y)
+                    waypoints.push((cx, delay_y)); // start at delay-end position
+                    let n_pts = a_points.len();
+                    if n_pts > 0 {
+                        for (pi, sp) in a_points.iter().enumerate() {
+                            let frac = (pi + 1) as f32 / (n_pts) as f32;
+                            let wy = delay_y + (tail_y - delay_y) * frac;
+                            let wx = zone_to_cx_a(sp.zone);
+                            waypoints.push((wx, wy));
                         }
                     } else {
-                        // Fallback: solid bar.
-                        let bar_w = 6.0 * scale;
-                        draw_rectangle(cx - bar_w * 0.5, top, bar_w, travel_h,
-                            Color::from_rgba(250, 204, 21, 140));
-                        draw_rectangle_lines(cx - bar_w * 0.5, top, bar_w, travel_h, 1.0 * scale,
-                            Color::from_rgba(253, 224, 71, 220));
+                        waypoints.push((cx, tail_y));
+                    }
+
+                    // Draw segments between waypoints.
+                    let line_w = 3.0 * scale;
+                    let col = Color::from_rgba(250, 204, 21, 200);
+                    let tile_col = Color::from_rgba(255, 255, 255, 230);
+                    for seg in 0..waypoints.len() - 1 {
+                        let (x0, y0) = waypoints[seg];
+                        let (x1, y1) = waypoints[seg + 1];
+                        if let Some(tex) = slide_tex {
+                            // Tile textures along the segment, rotated to face travel direction.
+                            let dx = x1 - x0;
+                            let dy = y1 - y0;
+                            let seg_len = (dx * dx + dy * dy).sqrt();
+                            let bar_w = 14.0 * scale;
+                            let tw_nat = tex.width() * scale * SLIDE_TILE_SCALE;
+                            let th_nat = tex.height() * scale * SLIDE_TILE_SCALE;
+                            let tile_h = th_nat * (bar_w / tw_nat).max(0.001);
+                            let spacing = SLIDE_TILE_SPACING * scale;
+                            let angle = dy.atan2(dx) + std::f32::consts::PI;
+                            let steps = (seg_len / spacing).ceil().max(1.0) as i32;
+                            for k in 0..=steps {
+                                let t = k as f32 / steps as f32;
+                                let px = x0 + dx * t;
+                                let py = y0 + dy * t;
+                                draw_texture_ex(tex, px - bar_w * 0.5, py - tile_h * 0.5,
+                                    tile_col,
+                                    DrawTextureParams {
+                                        dest_size: Some(vec2(bar_w, tile_h)),
+                                        rotation: angle,
+                                        ..Default::default()
+                                    });
+                            }
+                        } else {
+                            draw_line(x0, y0, x1, y1, line_w, col);
+                        }
+                    }
+                    // Draw dots at each waypoint (except first which is delay-end handle).
+                    for &(wx, wy) in &waypoints[1..] {
+                        draw_circle(wx, wy, 3.0 * scale, Color::from_rgba(253, 224, 71, 200));
                     }
                 }
 
@@ -1042,10 +1073,14 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     draw_circle(cx, delay_y, 4.5 * scale, Color::from_rgba(56, 189, 248, 230));
                     draw_circle_lines(cx, delay_y, 4.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
                 }
-                // Tail handle (drag adjusts slide_duration).
+                // Tail handle (drag adjusts slide_duration) — at the last A-zone waypoint's lane.
                 if dur_s > 0.0 {
-                    draw_circle(cx, tail_y, 5.5 * scale, Color::from_rgba(250, 204, 21, 230));
-                    draw_circle_lines(cx, tail_y, 5.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
+                    let tail_cx = if let Some(last) = note.slide_points.iter().rev().find(|sp| sp.zone >= 1 && sp.zone <= 8) {
+                        let li = (last.zone.saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+                    } else { cx };
+                    draw_circle(tail_cx, tail_y, 5.5 * scale, Color::from_rgba(250, 204, 21, 230));
+                    draw_circle_lines(tail_cx, tail_y, 5.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
                 }
             }
             NoteType::Hold => {
@@ -1389,7 +1424,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
     let cx = pad.cx;
     let cy = pad.cy;
     let outer_r = pad.outer_r;
-    // Tap spawn center: midpoint of C1 and C2 centroids for alignment
+    // Tap spawn center: C zone centroid for alignment
     let spawn_cx = app.pad_svg.as_ref()
         .and_then(|svg| svg.pad_visual_center(&pad))
         .unwrap_or(vec2(cx, cy));
@@ -1571,7 +1606,15 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     if let Some(c) = start_pt { path.push(c); }
                     for sp in &note.slide_points {
                         if sp.zone == note.lane && path.len() == 1 { continue; }
-                        if let Some(c) = svg.zone_screen_centroid(sp.zone, &pad) {
+                        let c = if sp.zone >= 1 && sp.zone <= 8 {
+                            let idx = (sp.zone - 1) as f32;
+                            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                            let target_r = outer_r + TAP_TARGET_OFFSET;
+                            Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
+                        } else {
+                            svg.zone_screen_centroid(sp.zone, &pad)
+                        };
+                        if let Some(c) = c {
                             if path.last().map(|p| (*p - c).length() > 1.0).unwrap_or(true) {
                                 path.push(c);
                             }

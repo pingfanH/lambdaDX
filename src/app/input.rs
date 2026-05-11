@@ -604,12 +604,14 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             if !matches!(note.note_type, NoteType::Slide) { continue; }
             if note.slide_duration <= 0.0 { continue; }
             let (cx, _ny, tail_ny, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm);
+            let tcx = slide_tail_cx(note, track_x, ruler_w, lane_w);
             // Check distance to tail
-            let tail_d = pos.distance(vec2(cx, tail_ny));
+            let tail_d = pos.distance(vec2(tcx, tail_ny));
             if tail_d < best_d { best = Some(i); best_d = tail_d; }
             // Check distance to midpoint of the slide body
             let mid_y = (_ny + tail_ny) * 0.5;
-            let mid_d = pos.distance(vec2(cx, mid_y));
+            let mid_x = (cx + tcx) * 0.5;
+            let mid_d = pos.distance(vec2(mid_x, mid_y));
             if mid_d < best_d { best = Some(i); best_d = mid_d; }
         }
         if let Some(i) = best {
@@ -1007,6 +1009,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
 
 /// Get screen position of a note. Returns (cx, head_y, tail_y, has_tail).
 /// `has_tail` is true for Hold (hold_duration) and Slide (slide_duration) notes.
+/// For slides with waypoints, tail_cx is at the last slide_point's lane.
 pub(crate) fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32, ruler_w: f32, lane_w: f32, judge_y: f32, bpm: f32) -> (f32, f32, f32, bool) {
     let zone = sanitize_note_zone(note.note_type, note.lane);
     let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
@@ -1023,4 +1026,16 @@ pub(crate) fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32,
     };
     let tail_ny = if has_tail { judge_y - (tail_t - now) * SCROLL_SPEED } else { ny };
     (cx, ny, tail_ny, has_tail)
+}
+
+/// Get the x position of a slide note's tail (last A-zone waypoint lane).
+pub(crate) fn slide_tail_cx(note: &super::types::Note, track_x: f32, ruler_w: f32, lane_w: f32) -> f32 {
+    if let Some(last) = note.slide_points.iter().rev().find(|sp| sp.zone >= 1 && sp.zone <= 8) {
+        let li = (last.zone.saturating_sub(1) as usize).min(LANE_COUNT - 2);
+        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+    } else {
+        let zone = sanitize_note_zone(note.note_type, note.lane);
+        let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
+        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+    }
 }
