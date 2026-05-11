@@ -528,10 +528,6 @@ fn draw_tap_sprite(tex: &Texture2D, cx: f32, cy: f32, size: f32) {
 /// Draw hold texture with vertical 9-slice behavior:
 /// top cap fixed + middle stretched + bottom cap fixed.
 fn draw_hold_9slice_vertical(tex: &Texture2D, cx: f32, y0: f32, y1: f32, width: f32) {
-    let top = y0.min(y1);
-    let bottom = y0.max(y1);
-    let total_h = (bottom - top).max(1.0);
-
     let tex_w = tex.width().max(1.0);
     let tex_h = tex.height().max(3.0);
     let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
@@ -539,6 +535,12 @@ fn draw_hold_9slice_vertical(tex: &Texture2D, cx: f32, y0: f32, y1: f32, width: 
 
     // Keep cap aspect by converting source-pixel cap height into screen height using width ratio.
     let cap_dest_h = (cap_h * (width / tex_w)).max(1.0);
+
+    // Extend draw range so y0/y1 sit at the CENTER of caps (not the edge).
+    let top = y0.min(y1) - cap_dest_h * 0.5;
+    let bottom = y0.max(y1) + cap_dest_h * 0.5;
+    let total_h = (bottom - top).max(1.0);
+
     let mut top_h = cap_dest_h.min(total_h * 0.5);
     let mut bottom_h = cap_dest_h.min(total_h * 0.5);
     if top_h + bottom_h > total_h {
@@ -612,16 +614,20 @@ fn draw_hold_9slice_segment(
     width: f32,
     tint: Color,
 ) {
-    let delta = to - from;
-    let total_len = delta.length().max(1.0);
-    let dir = delta / total_len;
-    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
-
     let tex_w = tex.width().max(1.0);
     let tex_h = tex.height().max(3.0);
     let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
     let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
     let cap_len = (cap_h * (width / tex_w)).max(1.0);
+
+    // Extend so from/to sit at cap centers (not edges).
+    let raw_delta = to - from;
+    let raw_len = raw_delta.length().max(0.001);
+    let dir = raw_delta / raw_len;
+    let ext_from = from - dir * cap_len * 0.5;
+    let ext_to = to + dir * cap_len * 0.5;
+    let total_len = (ext_to - ext_from).length().max(1.0);
+    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
 
     // Minimum visible cap size in screen pixels
     let min_cap = 4.0;
@@ -638,7 +644,7 @@ fn draw_hold_9slice_segment(
         if part_len <= 0.0 {
             return;
         }
-        let center = from + dir * (start_offset + part_len * 0.5);
+        let center = ext_from + dir * (start_offset + part_len * 0.5);
         draw_texture_ex(
             tex,
             center.x - width * 0.5,
@@ -893,16 +899,29 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
 
         match note.note_type {
             NoteType::Tap => {
-                let tap_tex = if note.is_each { app.tap_each_tex.as_ref() } else { app.tap_texture.as_ref() }
-                    .or(app.tap_texture.as_ref());
+                let tap_tex = if note.is_break {
+                    app.tap_break_tex.as_ref()
+                } else if note.is_each {
+                    app.tap_each_tex.as_ref()
+                } else {
+                    app.tap_texture.as_ref()
+                }.or(app.tap_texture.as_ref());
+                let ts = TAP_SIZE * scale;
                 if let Some(tex) = tap_tex {
-                    draw_tap_sprite(tex, cx, ny, TAP_SIZE * scale);
+                    draw_tap_sprite(tex, cx, ny, ts);
+                    if note.is_ex {
+                        if let Some(ex) = app.tap_ex_tex.as_ref() {
+                            draw_tap_sprite(ex, cx, ny, ts);
+                        }
+                    }
                 } else {
                     let tr = TAP_SIZE * 0.3125 * scale;
                     draw_circle(cx, ny, tr, Color::from_rgba(17, 24, 39, 255));
                     draw_circle_lines(cx, ny, tr, tr * 0.3, Color::from_rgba(244, 114, 182, 255));
                     draw_circle(cx, ny, tr * 0.3, Color::from_rgba(249, 168, 212, 255));
                 }
+                // Judgment center dot
+                draw_circle(cx, ny, 2.5 * scale, Color::from_rgba(255, 255, 255, 200));
             }
             NoteType::Touch => {
                 let tri_tex = if note.is_each { app.touch_tri_each_tex.as_ref() } else { app.touch_tri_tex.as_ref() }
@@ -987,15 +1006,35 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     }
                 }
 
-                // Star head at note.time
-                let star_tex = if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
-                let ss = 18.0 * scale;
-                if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
-                    draw_texture_ex(tex, cx - ss * 0.5, ny - ss * 0.5,
-                        Color::from_rgba(255, 255, 255, 230),
-                        DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
-                } else {
-                    draw_poly(cx, ny, 5, ss * 0.4, 0.0, Color::from_rgba(250, 204, 21, 230));
+                // Star head at note.time (same size as Tap)
+                // Skip for tapless slides (they share the parent star's head)
+                if !note.is_tapless {
+                    // Use double-star textures when is_star is set (multiple slides)
+                    let is_double = note.is_star;
+                    let star_tex = if note.star_is_break {
+                        if is_double { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
+                    } else if note.is_each {
+                        if is_double { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
+                    } else {
+                        if is_double { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() }
+                    };
+                    let fallback = if is_double { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() };
+                    let ss = TAP_SIZE * scale;
+                    if let Some(tex) = star_tex.or(fallback).or(app.star_tex.as_ref()) {
+                        draw_texture_ex(tex, cx - ss * 0.5, ny - ss * 0.5,
+                            Color::from_rgba(255, 255, 255, 230),
+                            DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
+                        if note.star_is_ex {
+                            let ex_tex = if is_double { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
+                            if let Some(ex) = ex_tex.or(app.star_ex_tex.as_ref()) {
+                                draw_texture_ex(ex, cx - ss * 0.5, ny - ss * 0.5,
+                                    Color::from_rgba(255, 255, 255, 230),
+                                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
+                            }
+                        }
+                    } else {
+                        draw_poly(cx, ny, 5, ss * 0.4, 0.0, Color::from_rgba(250, 204, 21, 230));
+                    }
                 }
 
                 // Delay-end handle (smaller, white-bordered, drag adjusts slide_start_delay).
@@ -1018,10 +1057,21 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     SCROLL_SPEED
                 };
                 let tail_y = judge_y - tail_dt * scroll;
-                let hold_tex = if note.is_each { app.hold_each_tex.as_ref() } else { app.hold_texture.as_ref() }
-                    .or(app.hold_texture.as_ref());
+                let hold_tex = if note.is_break {
+                    app.hold_break_tex.as_ref()
+                } else if note.is_each {
+                    app.hold_each_tex.as_ref()
+                } else {
+                    app.hold_texture.as_ref()
+                }.or(app.hold_texture.as_ref());
+                let hw = HOLD_WIDTH * scale;
                 if let Some(tex) = hold_tex {
-                    draw_hold_9slice_vertical(tex, cx, ny, tail_y, HOLD_WIDTH * scale);
+                    draw_hold_9slice_vertical(tex, cx, ny, tail_y, hw);
+                    if note.is_ex {
+                        if let Some(ex) = app.hold_ex_tex.as_ref() {
+                            draw_hold_9slice_vertical(ex, cx, ny, tail_y, hw);
+                        }
+                    }
                 } else {
                     let hw = HOLD_WIDTH * scale;
                     let top = ny.min(tail_y);
@@ -1034,6 +1084,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     draw_circle(cx, ny, hw * 0.107, Color::from_rgba(253, 164, 175, 255));
                     draw_circle(cx, tail_y, hw * 0.133, Color::from_rgba(251, 113, 133, 220));
                 }
+                // Judgment center dots (head & tail)
+                draw_circle(cx, ny, 2.5 * scale, Color::from_rgba(255, 255, 255, 200));
+                draw_circle(cx, tail_y, 2.5 * scale, Color::from_rgba(255, 255, 255, 180));
             }
         }
     }
@@ -1069,8 +1122,40 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     }
                     if let Some(pt) = &app.touch_point_tex { draw_texture_ex(pt, gcx - 6.0*scale, gy - 6.0*scale, Color::from_rgba(255,255,255,120), DrawTextureParams { dest_size: Some(vec2(12.0*scale, 12.0*scale)), ..Default::default() }); }
                 } else {
-                    if let Some(tex) = &app.tap_texture { draw_texture_ex(tex, gcx - TAP_SIZE*0.5*scale, gy - TAP_SIZE*0.5*scale, Color::from_rgba(255,255,255,120), DrawTextureParams { dest_size: Some(vec2(TAP_SIZE*scale, TAP_SIZE*scale)), ..Default::default() }); }
-                    else { draw_circle(gcx, gy, 11.0*scale, Color::from_rgba(244,114,182,100)); draw_circle_lines(gcx, gy, 11.0*scale, 2.5*scale, Color::from_rgba(244,114,182,180)); }
+                    let ghost_alpha = Color::from_rgba(255, 255, 255, 120);
+                    match app.place_tool {
+                        super::types::PlaceTool::Hold => {
+                            // Show hold texture ghost
+                            let hold_tex = app.hold_texture.as_ref();
+                            if let Some(tex) = hold_tex {
+                                let hw = HOLD_WIDTH * scale;
+                                let tail_y = gy - 60.0 * scale; // short preview bar
+                                draw_hold_9slice_vertical(tex, gcx, gy, tail_y, hw);
+                            } else {
+                                let hw = 6.0 * scale;
+                                draw_rectangle(gcx - hw * 0.5, gy - 60.0 * scale, hw, 60.0 * scale, Color::from_rgba(244, 114, 182, 80));
+                            }
+                        }
+                        super::types::PlaceTool::Star => {
+                            // Show star texture ghost (same size as tap)
+                            if let Some(tex) = app.star_tex.as_ref() {
+                                let ss = TAP_SIZE * scale;
+                                draw_texture_ex(tex, gcx - ss * 0.5, gy - ss * 0.5, ghost_alpha,
+                                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
+                            } else {
+                                draw_poly(gcx, gy, 5, 11.0 * scale, 0.0, Color::from_rgba(250, 204, 21, 100));
+                            }
+                        }
+                        super::types::PlaceTool::Tap => {
+                            if let Some(tex) = &app.tap_texture {
+                                draw_texture_ex(tex, gcx - TAP_SIZE*0.5*scale, gy - TAP_SIZE*0.5*scale, ghost_alpha,
+                                    DrawTextureParams { dest_size: Some(vec2(TAP_SIZE*scale, TAP_SIZE*scale)), ..Default::default() });
+                            } else {
+                                draw_circle(gcx, gy, 11.0*scale, Color::from_rgba(244,114,182,100));
+                                draw_circle_lines(gcx, gy, 11.0*scale, 2.5*scale, Color::from_rgba(244,114,182,180));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1231,7 +1316,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             let (mx, my) = mouse_position();
             let dt = (judge_y - my) / SCROLL_SPEED;
             let raw_secs = (now + dt).max(0.0);
-            let target_m = snap_measure(secs_to_measure(raw_secs, bpm));
+            let grid_step = 1.0 / super::types::GRID_DIVISION as f32;
+            let raw_m = secs_to_measure(raw_secs, bpm);
+            let target_m = (raw_m / grid_step).round() * grid_step;
             let min_t = app.clipboard.iter().map(|n| n.time).fold(f32::MAX, f32::min);
             let t_off = target_m - min_t;
             let lx = mx - (track_x + ruler_w);
@@ -1556,17 +1643,27 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     }
 
                     // Touch-zone slide pre-judge head star (A-zone heads are drawn below in the main branch)
-                    if note.lane > 8 && dt > 0.0 && dt < SLIDE_TRAVEL_TIME {
+                    // Skip for tapless slides (they share the parent star's head).
+                    if note.lane > 8 && dt > 0.0 && dt < SLIDE_TRAVEL_TIME && !note.is_tapless {
                         let head_progress = ((SLIDE_TRAVEL_TIME - dt) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
                         let size_scale = if head_progress < TAP_GROW_FRAC { head_progress / TAP_GROW_FRAC } else { 1.0 };
                         let ss = STAR_SIZE * scale * size_scale;
-                        let star_tex = if note.star_is_break { app.star_break_tex.as_ref() } else if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
+                        let dbl = note.is_star;
+                        let star_tex = if note.star_is_break {
+                            if dbl { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
+                        } else if note.is_each {
+                            if dbl { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
+                        } else {
+                            if dbl { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() }
+                        };
+                        let fb = if dbl { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() };
                         let head_rot = head_progress * std::f32::consts::TAU;
-                        if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                        if let Some(tex) = star_tex.or(fb).or(app.star_tex.as_ref()) {
                             draw_texture_ex(tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
                                 DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
                             if note.star_is_ex {
-                                if let Some(ex_tex) = app.star_ex_tex.as_ref() {
+                                let ex = if dbl { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
+                                if let Some(ex_tex) = ex.or(app.star_ex_tex.as_ref()) {
                                     draw_texture_ex(ex_tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
                                         DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
                                 }
@@ -1578,12 +1675,21 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     if current_t >= ns && current_t <= slide_end_s {
                         let (star_pos, angle) = point_at(star_dist_along);
                         let ss = STAR_SIZE * scale;
-                        let star_tex = if note.star_is_break { app.star_break_tex.as_ref() } else if note.is_each { app.star_each_tex.as_ref() } else { app.star_tex.as_ref() };
-                        if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                        let dbl = note.is_star;
+                        let star_tex = if note.star_is_break {
+                            if dbl { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
+                        } else if note.is_each {
+                            if dbl { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
+                        } else {
+                            if dbl { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() }
+                        };
+                        let fb = if dbl { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() };
+                        if let Some(tex) = star_tex.or(fb).or(app.star_tex.as_ref()) {
                             draw_texture_ex(tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
                                 DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: angle, ..Default::default() });
                             if note.star_is_ex {
-                                if let Some(ex_tex) = app.star_ex_tex.as_ref() {
+                                let ex = if dbl { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
+                                if let Some(ex_tex) = ex.or(app.star_ex_tex.as_ref()) {
                                     draw_texture_ex(ex_tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
                                         DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: angle, ..Default::default() });
                                 }
@@ -1682,24 +1788,28 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             if matches!(note.note_type, NoteType::Slide) {
                 // Star head flies in like a tap before judge time. Hide once the
                 // dedicated slide section takes over (at/after note.time).
-                if dt > 0.0 {
+                // Skip for tapless slides (they share the parent star's head).
+                if dt > 0.0 && !note.is_tapless {
                     let ss = STAR_SIZE * scale * size_scale;
+                    let dbl = note.is_star;
                     let star_tex = if note.star_is_break {
-                        app.star_break_tex.as_ref()
+                        if dbl { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
                     } else if note.is_each {
-                        app.star_each_tex.as_ref()
+                        if dbl { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
                     } else {
-                        app.star_tex.as_ref()
+                        if dbl { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() }
                     };
+                    let fb = if dbl { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() };
                     let star_rot = fly_progress * std::f32::consts::TAU;
-                    if let Some(tex) = star_tex.or(app.star_tex.as_ref()) {
+                    if let Some(tex) = star_tex.or(fb).or(app.star_tex.as_ref()) {
                         draw_texture_ex(tex, px - ss * 0.5, py - ss * 0.5, WHITE, DrawTextureParams {
                             dest_size: Some(vec2(ss, ss)),
                             rotation: star_rot,
                             ..Default::default()
                         });
                         if note.star_is_ex {
-                            if let Some(ex_tex) = app.star_ex_tex.as_ref() {
+                            let ex = if dbl { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
+                            if let Some(ex_tex) = ex.or(app.star_ex_tex.as_ref()) {
                                 draw_texture_ex(ex_tex, px - ss * 0.5, py - ss * 0.5, WHITE, DrawTextureParams {
                                     dest_size: Some(vec2(ss, ss)),
                                     rotation: star_rot,
