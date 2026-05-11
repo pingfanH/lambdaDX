@@ -17,7 +17,7 @@ use super::types::{
     TOUCH_DISAPPEAR_TIME, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE,
     HIT_WINDOW,
     PAD_ROTATION_RAD, TAP_RING_OFFSET, GRID_DIVISION, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
-    note_secs, measure_to_secs, secs_to_measure, mdur_to_secs, snap_measure,
+    note_secs, measure_to_secs, secs_to_measure, mdur_to_secs, snap_measure, bpm_at,
 };
 use super::pad_svg;
 
@@ -766,7 +766,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         Mode::Playing | Mode::Recording => app.song_time(),
         Mode::Idle => app.timeline_view_time,
     };
-    let bpm = app.chart.bpm;
+    let bpms = &app.chart.bpms;
     let scroll_speed = SCROLL_SPEED * app.timeline_zoom;
 
     // BPM-based grid lines (cover full track height)
@@ -876,11 +876,11 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
 
     for (idx, note) in app.chart.notes.iter().enumerate() {
         let zone = sanitize_note_zone(note.note_type, note.lane);
-        let ns = note_secs(note, bpm);
+        let ns = note_secs(note, bpms);
         let dt = ns - now;
         let tail_dt = match note.note_type {
-            NoteType::Hold => hold_tail_time(note, bpm) - now,
-            NoteType::Slide => ns + mdur_to_secs(note.slide_duration, bpm) - now,
+            NoteType::Hold => hold_tail_time(note, bpms) - now,
+            NoteType::Slide => ns + mdur_to_secs(note.slide_duration, note.time, bpms) - now,
             _ => dt,
         };
         // Keep the note visible while either its head OR its tail is on-screen.
@@ -953,8 +953,8 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 // Slide is split into two editable regions on the timeline:
                 //   [note.time, note.time + slide_start_delay]  → dashed (start delay)
                 //   [note.time + slide_start_delay, note.time + slide_duration] → slide.png tiles
-                let dur_s = mdur_to_secs(note.slide_duration, bpm).max(0.0);
-                let delay_s = mdur_to_secs(note.slide_start_delay, bpm).max(0.0).min(dur_s);
+                let dur_s = mdur_to_secs(note.slide_duration, note.time, bpms).max(0.0);
+                let delay_s = mdur_to_secs(note.slide_start_delay, note.time, bpms).max(0.0).min(dur_s);
                 let delay_y = judge_y - (dt + delay_s) * scroll;
                 let tail_y = judge_y - (dt + dur_s) * scroll;
 
@@ -1089,7 +1089,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 }
             }
             NoteType::Hold => {
-                let tail_time = hold_tail_time(note, bpm);
+                let tail_time = hold_tail_time(note, bpms);
                 let tail_dt = tail_time - now;
                 let scroll = if is_touch_zone(zone) {
                     scroll_speed * app.touch_speed
@@ -1136,7 +1136,8 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         if mx >= track_x + ruler_w && mx <= track_x + track_w && my >= track_y && my <= track_y + track_h {
             let dt = (judge_y - my) / scroll_speed;
             let gt = (now + dt).max(0.0);
-            let beat_s = 60.0 / app.chart.bpm;
+            let cur_bpm = bpm_at(secs_to_measure(gt, bpms), bpms);
+            let beat_s = 60.0 / cur_bpm;
             let grid_s = beat_s / (GRID_DIVISION as f32 / 4.0);
             let gt = (gt / grid_s).round() * grid_s;
             let gy = judge_y - (gt - now) * scroll_speed;
@@ -1210,7 +1211,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             // Cursor's snapped chart time and lane (best-effort; only used when inside).
             let cursor_t = if inside {
                 let raw = (now + (judge_y - my) / scroll_speed).max(0.0);
-                Some(snap_measure(secs_to_measure(raw, bpm)))
+                Some(snap_measure(secs_to_measure(raw, bpms)))
             } else { None };
             // Helper to compute lane center x.
             let lane_cx = |lane: u8| -> f32 {
@@ -1219,7 +1220,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     else { (lane.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
                 track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
             };
-            let t_to_y = |t: f32| -> f32 { judge_y - (measure_to_secs(t, bpm) - now) * scroll_speed };
+            let t_to_y = |t: f32| -> f32 { judge_y - (measure_to_secs(t, bpms) - now) * scroll_speed };
             // Dashed-line helper.
             let dashed = |cx: f32, y0: f32, y1: f32, col: Color| {
                 let h = (y1 - y0).abs();
@@ -1349,7 +1350,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         for &i in &app.selected_notes {
             if let Some(note) = app.chart.notes.get(i) {
                 let zone = sanitize_note_zone(note.note_type, note.lane);
-                let dt = note_secs(note, bpm) - now;
+                let dt = note_secs(note, bpms) - now;
                 if dt < -margin_s || dt > margin_s { continue; }
                 let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
                 let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
@@ -1364,7 +1365,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             let dt = (judge_y - my) / scroll_speed;
             let raw_secs = (now + dt).max(0.0);
             let grid_step = 1.0 / super::types::GRID_DIVISION as f32;
-            let raw_m = secs_to_measure(raw_secs, bpm);
+            let raw_m = secs_to_measure(raw_secs, bpms);
             let target_m = (raw_m / grid_step).round() * grid_step;
             let min_t = app.clipboard.iter().map(|n| n.time).fold(f32::MAX, f32::min);
             let t_off = target_m - min_t;
@@ -1379,7 +1380,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 let t_m = n.time + t_off;
                 let lane = (n.lane as i32 + l_off).clamp(1, super::types::PAD_ZONE_MAX as i32) as u8;
                 let zone = sanitize_note_zone(n.note_type, lane);
-                let dt2 = measure_to_secs(t_m, bpm) - now;
+                let dt2 = measure_to_secs(t_m, bpms) - now;
                 if dt2 < -margin_s || dt2 > margin_s { continue; }
                 let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
                 let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
@@ -1420,10 +1421,10 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
 
         // Total song duration: max of last note end or audio length
         let last_note_end = app.chart.notes.iter().map(|n| {
-            let ns = note_secs(n, bpm);
+            let ns = note_secs(n, bpms);
             match n.note_type {
-                NoteType::Hold => hold_tail_time(n, bpm),
-                NoteType::Slide => ns + mdur_to_secs(n.slide_duration, bpm),
+                NoteType::Hold => hold_tail_time(n, bpms),
+                NoteType::Slide => ns + mdur_to_secs(n.slide_duration, n.time, bpms),
                 _ => ns,
             }
         }).fold(0.0_f32, f32::max);
@@ -1595,13 +1596,13 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         }
     }
 
-    let bpm = app.chart.bpm;
+    let bpms = &app.chart.bpms;
     for note in &app.chart.notes {
         let zone = sanitize_note_zone(note.note_type, note.lane);
-        let ns = note_secs(note, bpm);
+        let ns = note_secs(note, bpms);
         let dt = ns - current_t;
         let tail_dt = if matches!(note.note_type, NoteType::Hold) {
-            hold_tail_time(note, bpm) - current_t
+            hold_tail_time(note, bpms) - current_t
         } else {
             dt
         };
@@ -1618,7 +1619,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             }
         };
         let slide_tail_dt = if matches!(note.note_type, NoteType::Slide) {
-            slide_end_time(note, bpm) - current_t
+            slide_end_time(note, bpms) - current_t
         } else {
             tail_dt
         };
@@ -1632,7 +1633,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         // ── Inline Slide rendering (path tiles + flying star + touch-zone fade-in head) ──
         // Drawn here so layering follows chart order: later notes cover earlier ones.
         if matches!(note.note_type, NoteType::Slide) && !note.slide_points.is_empty() {
-            let slide_dur_s = mdur_to_secs(note.slide_duration, bpm).max(0.3);
+            let slide_dur_s = mdur_to_secs(note.slide_duration, note.time, bpms).max(0.3);
             let slide_end_s = ns + slide_dur_s;
             if dt <= SLIDE_TRAVEL_TIME && current_t <= slide_end_s + 0.2 {
                 let slide_tex = if note.is_break { app.slide_break_tex.as_ref() } else if note.is_each { app.slide_each_tex.as_ref() } else { app.slide_tex.as_ref() };
@@ -1678,7 +1679,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
                     // Honor the full configured delay; clamp only to the total
                     // slide duration so travel_dur stays positive.
-                    let fade_in_s = mdur_to_secs(note.slide_start_delay, bpm)
+                    let fade_in_s = mdur_to_secs(note.slide_start_delay, note.time, bpms)
                         .max(0.0)
                         .min(slide_dur_s - 0.001)
                         .max(0.001);
@@ -1799,7 +1800,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         // A-zone tap disappears at dt fraction; hold disappears at tail fraction
         if zone <= 8 {
             if matches!(note.note_type, NoteType::Hold) {
-                if tail_dt <= (hold_tail_time(note, bpm) - ns) * HOLD_DISAPPEAR_FRAC {
+                if tail_dt <= (hold_tail_time(note, bpms) - ns) * HOLD_DISAPPEAR_FRAC {
                     continue;
                 }
             } else if !matches!(note.note_type, NoteType::Slide) && dt <= TAP_TRAVEL_TIME * TAP_DISAPPEAR_FRAC {
@@ -1844,7 +1845,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 let head_fly_r = h_spawn_r + (h_target_r - h_spawn_r) * h_fly_progress;
                 let head_r = (head_fly_r + hold_half).min(h_target_r);
                 // Tail lags at spawn, flies to target in last HOLD_TAIL_FLY_TIME seconds
-                let tail_dt = hold_tail_time(note, bpm) - current_t;
+                let tail_dt = hold_tail_time(note, bpms) - current_t;
                 let tail_fly = if tail_dt <= HOLD_TAIL_FLY_TIME {
                     (1.0 - tail_dt / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
                 } else {
@@ -2013,7 +2014,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
             if matches!(note.note_type, NoteType::Hold) {
                 // Touch hold: 4-texture cross rotated 45°, with progress border
-                let hold_progress = ((current_t - ns) / (hold_tail_time(note, bpm) - ns).max(0.01)).clamp(0.0, 1.0);
+                let hold_progress = ((current_t - ns) / (hold_tail_time(note, bpms) - ns).max(0.01)).clamp(0.0, 1.0);
                 let hold_dist = (TOUCHHOLD_START_DIST + (TOUCHHOLD_END_DIST - TOUCHHOLD_START_DIST) * move_progress) * TOUCHHOLD_SCALE * scale;
                 let d = hold_dist * 0.707; // √2/2 for diagonal
                 // Cross rotated 45° CW from regular touch, starting top-right

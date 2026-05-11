@@ -3,7 +3,7 @@ use macroquad::prelude::get_time;
 
 use super::chart;
 use super::state::AppState;
-use super::types::{Note, NoteType, PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, SlideShape, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs, snap_measure};
+use super::types::{Note, NoteType, PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, SlideShape, BpmChange, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs, snap_measure};
 use super::ui::{rect_contains, trigger_ui_action};
 
 /// Collect indices of selected notes (multi-select or single).
@@ -570,8 +570,8 @@ fn snap_grid(m: f32) -> f32 {
 
 /// Snap a screen-seconds value to the nearest visible grid position.
 /// Returns the snapped value in **measures**.
-fn snap_secs_to_measure(secs: f32, bpm: f32) -> f32 {
-    snap_grid(secs_to_measure(secs, bpm))
+fn snap_secs_to_measure(secs: f32, bpms: &[BpmChange]) -> f32 {
+    snap_grid(secs_to_measure(secs, bpms))
 }
 
 pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>) {
@@ -666,12 +666,12 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         }
         // While dragging, seek based on mouse x (even if cursor leaves the bar)
         if app.dragging_progress_bar && is_mouse_button_down(MouseButton::Left) {
-            let bpm = app.chart.bpm;
+            let bpms = &app.chart.bpms;
             let last_note_end = app.chart.notes.iter().map(|n| {
-                let ns = note_secs(n, bpm);
+                let ns = note_secs(n, bpms);
                 match n.note_type {
-                    super::types::NoteType::Hold => hold_tail_time(n, bpm),
-                    super::types::NoteType::Slide => ns + mdur_to_secs(n.slide_duration, bpm),
+                    super::types::NoteType::Hold => hold_tail_time(n, bpms),
+                    super::types::NoteType::Slide => ns + mdur_to_secs(n.slide_duration, n.time, bpms),
                     _ => ns,
                 }
             }).fold(0.0_f32, f32::max);
@@ -735,7 +735,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     if is_mouse_button_pressed(MouseButton::Right) && pos.x >= lanes_x {
         let mut best: Option<usize> = None; let mut best_d = 30.0;
         for (i, note) in app.chart.notes.iter().enumerate() {
-            let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm, scroll_speed);
+            let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             let d = pos.distance(vec2(cx, ny));
             if d < best_d { best = Some(i); best_d = d; }
         }
@@ -755,7 +755,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         for (i, note) in app.chart.notes.iter().enumerate() {
             if !matches!(note.note_type, NoteType::Slide) { continue; }
             if note.slide_duration <= 0.0 { continue; }
-            let (cx, _ny, tail_ny, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm, scroll_speed);
+            let (cx, _ny, tail_ny, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             let tcx = slide_tail_cx(note, track_x, ruler_w, lane_w);
             // Check distance to tail
             let tail_d = pos.distance(vec2(tcx, tail_ny));
@@ -780,11 +780,11 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         let mut best: Option<usize> = None; let mut best_d = 30.0;
         let mut best_part = DragPart::Body;
         for (i, note) in app.chart.notes.iter().enumerate() {
-            let (cx, ny, tail_ny, has_tail) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm, scroll_speed);
+            let (cx, ny, tail_ny, has_tail) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             let d = pos.distance(vec2(cx, ny));
             if matches!(note.note_type, super::types::NoteType::Slide) && note.slide_duration > 0.0 {
-                let ns = note_secs(note, app.chart.bpm);
-                let delay_secs = ns + mdur_to_secs(note.slide_start_delay, app.chart.bpm);
+                let ns = note_secs(note, &app.chart.bpms);
+                let delay_secs = ns + mdur_to_secs(note.slide_start_delay, note.time, &app.chart.bpms);
                 let delay_y = judge_y - (delay_secs - now) * scroll_speed;
                 let delay_d = pos.distance(vec2(cx, delay_y));
                 let tail_d = pos.distance(vec2(cx, tail_ny));
@@ -842,15 +842,15 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             app.press_note_candidate = Some(i);
             app.drag_start_pos = Some(pos);
             let n = &app.chart.notes[i];
-            let bpm = app.chart.bpm;
+            let bpms = &app.chart.bpms;
             app.drag_start_time = match best_part {
                 DragPart::Tail => match n.note_type {
-                    super::types::NoteType::Hold => hold_tail_time(n, bpm),
-                    super::types::NoteType::Slide => note_secs(n, bpm) + mdur_to_secs(n.slide_duration, bpm),
-                    _ => note_secs(n, bpm),
+                    super::types::NoteType::Hold => hold_tail_time(n, bpms),
+                    super::types::NoteType::Slide => note_secs(n, bpms) + mdur_to_secs(n.slide_duration, n.time, bpms),
+                    _ => note_secs(n, bpms),
                 },
-                DragPart::SlideDelayEnd => note_secs(n, bpm) + mdur_to_secs(n.slide_start_delay, bpm),
-                _ => note_secs(n, bpm),
+                DragPart::SlideDelayEnd => note_secs(n, bpms) + mdur_to_secs(n.slide_start_delay, n.time, bpms),
+                _ => note_secs(n, bpms),
             };
             app.drag_part = Some(best_part);
             app.drag_orig_note = Some(app.chart.notes[i].clone());
@@ -896,9 +896,9 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             // Compute cursor position directly in measures, apply the
             // offset (also in measures), then snap to the visible grid.
             let cursor_secs = (now + (judge_y - pos.y) / scroll_speed).max(0.0);
-            let cursor_m = secs_to_measure(cursor_secs, app.chart.bpm);
-            let anchor_m = secs_to_measure(app.drag_cursor_anchor_t, app.chart.bpm);
-            let start_m = secs_to_measure(app.drag_start_time, app.chart.bpm);
+            let cursor_m = secs_to_measure(cursor_secs, &app.chart.bpms);
+            let anchor_m = secs_to_measure(app.drag_cursor_anchor_t, &app.chart.bpms);
+            let start_m = secs_to_measure(app.drag_start_time, &app.chart.bpms);
             let raw_m = (cursor_m + (start_m - anchor_m)).max(1.0);
             let new_t = snap_grid(raw_m);
             let lx = pos.x - lanes_x;
@@ -1003,7 +1003,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             let y1 = start.y.min(pos.y); let y2 = start.y.max(pos.y);
             app.selected_notes.clear();
             for (i, note) in app.chart.notes.iter().enumerate() {
-                let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, app.chart.bpm, scroll_speed);
+                let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
                 if cx >= x1 && cx <= x2 && ny >= y1 && ny <= y2 { app.selected_notes.push(i); }
             }
             if !app.selected_notes.is_empty() { app.set_selected_note(Some(app.selected_notes[0])); }
@@ -1018,7 +1018,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             } else {
                 // Clicked on empty space → place note via tool
                 let dt = (judge_y - pos.y) / scroll_speed;
-                let t = snap_secs_to_measure((now + dt).max(0.0), app.chart.bpm);
+                let t = snap_secs_to_measure((now + dt).max(0.0), &app.chart.bpms);
                 let lx = pos.x - lanes_x;
                 let lane = if lx >= 0.0 {
                     let l = (lx / lane_w) as i32; let l = l.clamp(0, LANE_COUNT as i32 - 1) as u8;
@@ -1038,7 +1038,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         app.push_undo();
         let min_t = app.clipboard.iter().map(|n| n.time).fold(f32::MAX, f32::min);
         let dt = (judge_y - pos.y) / scroll_speed;
-        let target = snap_secs_to_measure((now + dt).max(0.0), app.chart.bpm);
+        let target = snap_secs_to_measure((now + dt).max(0.0), &app.chart.bpms);
         let offset = target - min_t;
         let lx = pos.x - lanes_x;
         let tgt_lane = if lx >= 0.0 {
@@ -1162,17 +1162,17 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
 /// Get screen position of a note. Returns (cx, head_y, tail_y, has_tail).
 /// `has_tail` is true for Hold (hold_duration) and Slide (slide_duration) notes.
 /// For slides with waypoints, tail_cx is at the last slide_point's lane.
-pub(crate) fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32, ruler_w: f32, lane_w: f32, judge_y: f32, bpm: f32, scroll_speed: f32) -> (f32, f32, f32, bool) {
+pub(crate) fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32, ruler_w: f32, lane_w: f32, judge_y: f32, bpms: &[BpmChange], scroll_speed: f32) -> (f32, f32, f32, bool) {
     let zone = sanitize_note_zone(note.note_type, note.lane);
     let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
     let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
-    let ns = note_secs(note, bpm);
+    let ns = note_secs(note, bpms);
     let dt = ns - now;
     let ny = judge_y - dt * scroll_speed;
     let (tail_t, has_tail) = match note.note_type {
-        super::types::NoteType::Hold => (hold_tail_time(note, bpm), true),
+        super::types::NoteType::Hold => (hold_tail_time(note, bpms), true),
         super::types::NoteType::Slide if note.slide_duration > 0.0 => {
-            (ns + mdur_to_secs(note.slide_duration, bpm), true)
+            (ns + mdur_to_secs(note.slide_duration, note.time, bpms), true)
         }
         _ => (ns, false),
     };

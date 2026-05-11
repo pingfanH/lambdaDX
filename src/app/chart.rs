@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::beat_format;
 use super::platform;
 use super::state::AppState;
-use super::types::{ChartDoc, Note, NoteType, RecordingDoc, secs_to_measure, sdur_to_mdur};
+use super::types::{ChartDoc, Note, NoteType, RecordingDoc, BpmChange, secs_to_measure, sdur_to_mdur};
 
 pub(crate) async fn load_generated_chart() -> ChartDoc {
     // Try latest saved chart first, then generated_chart, then fallback
@@ -49,12 +49,17 @@ fn migrate_to_measures(chart: &mut ChartDoc) {
     if chart.version.contains("measure") {
         return;
     }
-    let bpm = if chart.bpm > 0.0 { chart.bpm } else { 120.0 };
+    // Ensure bpms is populated for old charts
+    if chart.bpms.is_empty() && chart.bpm > 0.0 {
+        chart.bpms = vec![BpmChange { measure: 1.0, bpm: chart.bpm }];
+    }
+    let bpms = &chart.bpms;
     for note in &mut chart.notes {
-        note.time = secs_to_measure(note.time, bpm);
-        note.hold_duration = sdur_to_mdur(note.hold_duration, bpm);
-        note.slide_duration = sdur_to_mdur(note.slide_duration, bpm);
-        note.slide_start_delay = sdur_to_mdur(note.slide_start_delay, bpm);
+        let t = note.time; // original seconds
+        note.time = secs_to_measure(t, bpms);
+        note.hold_duration = sdur_to_mdur(note.hold_duration, t, bpms);
+        note.slide_duration = sdur_to_mdur(note.slide_duration, t, bpms);
+        note.slide_start_delay = sdur_to_mdur(note.slide_start_delay, t, bpms);
     }
     if !chart.version.is_empty() {
         chart.version = format!("{}-measure", chart.version);
@@ -69,6 +74,7 @@ fn fallback_chart() -> ChartDoc {
         version: "0.3.0-measure".to_string(),
         title: "Fallback Demo Chart".to_string(),
         bpm: 180.0,
+        bpms: vec![BpmChange { measure: 1.0, bpm: 180.0 }],
         audio_offset: 0.0,
         notes: vec![
             Note { time: 2.0,  lane: 1, note_type: NoteType::Tap,   hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false, slide_points: Vec::new(), slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None },

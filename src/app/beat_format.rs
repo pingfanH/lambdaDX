@@ -4,7 +4,7 @@
 //! conversion to/from the beat-based JSON format for save/load.
 
 use serde::{Deserialize, Serialize};
-use super::types::{ChartDoc, HitEvent, Note, NoteType, RecordingDoc, SlidePoint, SlideShape};
+use super::types::{ChartDoc, HitEvent, Note, NoteType, RecordingDoc, SlidePoint, SlideShape, BpmChange};
 
 const TICKS_PER_MEASURE: i32 = 384;
 const TICKS_PER_BEAT: i32 = 96; // 4/4 time: 384/4
@@ -16,6 +16,8 @@ pub(crate) struct SerChartDoc {
     pub version: String,
     pub title: String,
     pub bpm: f32,
+    #[serde(default)]
+    pub bpms: Vec<BpmChange>,
     #[serde(default)]
     pub audio_offset: f32,
     pub notes: Vec<SerNote>,
@@ -201,16 +203,23 @@ pub(crate) fn chart_to_ser(chart: &ChartDoc) -> SerChartDoc {
         version: "0.4.0-beat".to_string(),
         title: chart.title.clone(),
         bpm: chart.bpm,
+        bpms: chart.bpms.clone(),
         audio_offset: chart.audio_offset,
         notes: chart.notes.iter().map(note_to_ser).collect(),
     }
 }
 
 pub(crate) fn ser_to_chart(s: &SerChartDoc) -> ChartDoc {
+    let bpms = if s.bpms.is_empty() && s.bpm > 0.0 {
+        vec![BpmChange { measure: 1.0, bpm: s.bpm }]
+    } else {
+        s.bpms.clone()
+    };
     ChartDoc {
         version: s.version.clone(),
         title: s.title.clone(),
         bpm: s.bpm,
+        bpms,
         audio_offset: s.audio_offset,
         notes: s.notes.iter().map(ser_to_note).collect(),
     }

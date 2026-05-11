@@ -21,7 +21,7 @@ use maisimai::{
 };
 
 use super::platform;
-use super::types::{ChartDoc, Note, NoteType, SlidePoint, SlideShape, snap_measure};
+use super::types::{ChartDoc, Note, NoteType, SlidePoint, SlideShape, BpmChange, snap_measure};
 
 /// Pick a chart from a Simai file (highest difficulty by default) and convert
 /// it to a `ChartDoc`. Returns `Err` if the file has no charts.
@@ -223,10 +223,15 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
 
     notes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
 
+    let bpm_changes: Vec<BpmChange> = bpms.iter()
+        .map(|b| BpmChange { measure: b.measure, bpm: b.bpm })
+        .collect();
+
     ChartDoc {
         version: "0.3.0-measure".to_string(),
         title: String::new(),
         bpm: bpm0,
+        bpms: bpm_changes,
         audio_offset: 0.0,
         notes,
     }
@@ -488,8 +493,12 @@ pub(crate) fn chart_doc_to_simai_file(doc: &ChartDoc) -> SimaiFile {
 }
 
 pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
-    let bpm0 = if doc.bpm > 0.0 { doc.bpm } else { 120.0 };
-    let bpms = vec![Bpm { measure: 1.0, bpm: bpm0 }];
+    let bpms: Vec<Bpm> = if doc.bpms.is_empty() {
+        let bpm0 = if doc.bpm > 0.0 { doc.bpm } else { 120.0 };
+        vec![Bpm { measure: 1.0, bpm: bpm0 }]
+    } else {
+        doc.bpms.iter().map(|b| Bpm { measure: b.measure, bpm: b.bpm }).collect()
+    };
 
     let mut notes: Vec<SimaiNote> = Vec::with_capacity(doc.notes.len());
     for n in &doc.notes {

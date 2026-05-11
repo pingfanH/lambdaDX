@@ -161,26 +161,75 @@ pub(crate) struct Note {
     pub(crate) slide_shape: Option<SlideShape>,
 }
 
-// ─── Measure ↔ Seconds conversion ─────────────────────────────────
+// ─── BPM change list ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct BpmChange {
+    pub(crate) measure: f32,
+    pub(crate) bpm: f32,
+}
+
+// ─── Measure ↔ Seconds conversion (multi-BPM) ────────────────────
 
 /// Measure position → seconds.  `m = 1.0` ⇒ `t = 0`.
-pub(crate) fn measure_to_secs(m: f32, bpm: f32) -> f32 {
-    (m - 1.0) * 240.0 / bpm
+/// Accounts for BPM changes in the list.
+pub(crate) fn measure_to_secs(m: f32, bpms: &[BpmChange]) -> f32 {
+    if bpms.is_empty() {
+        return (m - 1.0) * 2.0; // fallback 120 BPM
+    }
+    let mut t = 0.0_f32;
+    let mut prev_m = bpms[0].measure;
+    let mut cur_bpm = bpms[0].bpm;
+    for b in bpms.iter().skip(1) {
+        if b.measure >= m {
+            break;
+        }
+        t += (b.measure - prev_m) * 240.0 / cur_bpm;
+        prev_m = b.measure;
+        cur_bpm = b.bpm;
+    }
+    t += (m - prev_m) * 240.0 / cur_bpm;
+    t
 }
 
-/// Seconds → measure position.
-pub(crate) fn secs_to_measure(t: f32, bpm: f32) -> f32 {
-    t * bpm / 240.0 + 1.0
+/// Seconds → measure position (inverse of `measure_to_secs`).
+pub(crate) fn secs_to_measure(t: f32, bpms: &[BpmChange]) -> f32 {
+    if bpms.is_empty() {
+        return t * 0.5 + 1.0; // fallback 120 BPM
+    }
+    let mut remaining = t;
+    let mut prev_m = bpms[0].measure;
+    let mut cur_bpm = bpms[0].bpm;
+    for b in bpms.iter().skip(1) {
+        let section_dur = (b.measure - prev_m) * 240.0 / cur_bpm;
+        if remaining <= section_dur {
+            return prev_m + remaining * cur_bpm / 240.0;
+        }
+        remaining -= section_dur;
+        prev_m = b.measure;
+        cur_bpm = b.bpm;
+    }
+    prev_m + remaining * cur_bpm / 240.0
 }
 
-/// Duration in measures → duration in seconds.
-pub(crate) fn mdur_to_secs(d: f32, bpm: f32) -> f32 {
-    d * 240.0 / bpm
+/// Duration in measures → duration in seconds, starting at measure `start_m`.
+pub(crate) fn mdur_to_secs(d: f32, start_m: f32, bpms: &[BpmChange]) -> f32 {
+    measure_to_secs(start_m + d, bpms) - measure_to_secs(start_m, bpms)
 }
 
-/// Duration in seconds → duration in measures.
-pub(crate) fn sdur_to_mdur(d: f32, bpm: f32) -> f32 {
-    d * bpm / 240.0
+/// Duration in seconds → duration in measures, starting at `start_secs`.
+pub(crate) fn sdur_to_mdur(d: f32, start_secs: f32, bpms: &[BpmChange]) -> f32 {
+    secs_to_measure(start_secs + d, bpms) - secs_to_measure(start_secs, bpms)
+}
+
+/// BPM in effect at the given measure position.
+pub(crate) fn bpm_at(m: f32, bpms: &[BpmChange]) -> f32 {
+    let mut bpm = bpms.first().map(|b| b.bpm).unwrap_or(120.0);
+    for b in bpms {
+        if b.measure > m + 0.0001 { break; }
+        bpm = b.bpm;
+    }
+    bpm
 }
 
 /// Snap a measure value to the nearest 1/384 grid position.
@@ -190,8 +239,8 @@ pub(crate) fn snap_measure(m: f32) -> f32 {
 }
 
 /// Note head time in seconds.
-pub(crate) fn note_secs(note: &Note, bpm: f32) -> f32 {
-    measure_to_secs(note.time, bpm)
+pub(crate) fn note_secs(note: &Note, bpms: &[BpmChange]) -> f32 {
+    measure_to_secs(note.time, bpms)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,6 +248,9 @@ pub(crate) struct ChartDoc {
     pub(crate) version: String,
     pub(crate) title: String,
     pub(crate) bpm: f32,
+    /// Sorted list of BPM changes. First entry starts at measure 1.0.
+    #[serde(default)]
+    pub(crate) bpms: Vec<BpmChange>,
     /// Seconds from audio start to the first beat (Simai `&first`).  When
     /// non-zero the audio playback position is shifted by this amount so that
     /// `song_time == 0` aligns with this point in the audio file.
@@ -351,9 +403,9 @@ pub(crate) struct PadFeedback {
 }
 
 /// Hold tail time in seconds (note fields are in measures).
-pub(crate) fn hold_tail_time(note: &Note, bpm: f32) -> f32 {
-    let dur_s = mdur_to_secs(note.hold_duration, bpm).max(0.15);
-    note_secs(note, bpm) + dur_s
+pub(crate) fn hold_tail_time(note: &Note, bpms: &[BpmChange]) -> f32 {
+    let dur_s = mdur_to_secs(note.hold_duration, note.time, bpms).max(0.15);
+    note_secs(note, bpms) + dur_s
 }
 
 pub(crate) fn sanitize_note_zone(_note_type: NoteType, lane: u8) -> u8 {
@@ -365,7 +417,7 @@ pub(crate) fn is_touch_zone(zone: u8) -> bool {
 }
 
 /// Slide end time in seconds (note fields are in measures).
-pub(crate) fn slide_end_time(note: &Note, bpm: f32) -> f32 {
-    let dur_s = mdur_to_secs(note.slide_duration, bpm).max(0.3);
-    note_secs(note, bpm) + dur_s
+pub(crate) fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
+    let dur_s = mdur_to_secs(note.slide_duration, note.time, bpms).max(0.3);
+    note_secs(note, bpms) + dur_s
 }

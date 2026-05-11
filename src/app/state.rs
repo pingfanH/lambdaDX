@@ -439,10 +439,10 @@ impl AppState {
             return;
         }
         let t = self.song_time();
-        let bpm = self.chart.bpm;
+        let bpms = &self.chart.bpms;
 
         while self.playback_cursor < self.chart.notes.len() {
-            if note_secs(&self.chart.notes[self.playback_cursor], bpm) + HIT_WINDOW < t {
+            if note_secs(&self.chart.notes[self.playback_cursor], bpms) + HIT_WINDOW < t {
                 self.playback_cursor += 1;
             } else {
                 break;
@@ -450,7 +450,7 @@ impl AppState {
         }
 
         if let Some(last) = self.chart.notes.last() {
-            if t > note_secs(last, bpm) + 1.2 {
+            if t > note_secs(last, bpms) + 1.2 {
                 self.set_mode(Mode::Idle);
                 self.stop_audio_if_any();
                 self.set_status("Playback finished".to_string());
@@ -474,7 +474,7 @@ impl AppState {
             return;
         }
         let t = self.song_time();
-        let bpm = self.chart.bpm;
+        let bpms = &self.chart.bpms;
 
         // --- count pending hit-sound events per type ---
         let mut tap_count: u32 = 0;
@@ -486,7 +486,7 @@ impl AppState {
         let mut slide_break_end_count: u32 = 0;
 
         for (i, note) in self.chart.notes.iter().enumerate() {
-            let ns = note_secs(note, bpm);
+            let ns = note_secs(note, bpms);
             // Head hit — touch uses TOUCH_DISAPPEAR_TIME to align with visual
             let hit_time = if matches!(note.note_type, NoteType::Touch) {
                 ns + TOUCH_DISAPPEAR_TIME
@@ -514,7 +514,7 @@ impl AppState {
             // Slide start (when the star begins moving)
             if matches!(note.note_type, NoteType::Slide) {
                 let slide_key = i + self.chart.notes.len() * 3;
-                let slide_move_time = ns + mdur_to_secs(note.slide_start_delay, bpm);
+                let slide_move_time = ns + mdur_to_secs(note.slide_start_delay, note.time, bpms);
                 if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
                     if note.is_break {
                         slide_break_start_count += 1;
@@ -525,7 +525,7 @@ impl AppState {
                 }
                 // Slide end sound (break slides only)
                 let slide_end_key = i + self.chart.notes.len() * 4;
-                let slide_end_t = ns + mdur_to_secs(note.slide_duration, bpm);
+                let slide_end_t = ns + mdur_to_secs(note.slide_duration, note.time, bpms);
                 if note.is_break
                     && !self.hit_sounds_played.contains(&slide_end_key)
                     && slide_end_t <= t
@@ -538,7 +538,7 @@ impl AppState {
             let tail_key = i + self.chart.notes.len();
             if matches!(note.note_type, NoteType::Hold)
                 && !self.hit_sounds_played.contains(&tail_key)
-                && hold_tail_time(note, bpm) <= t
+                && hold_tail_time(note, bpms) <= t
             {
                 tap_count += 1;
                 self.hit_sounds_played.insert(tail_key);
@@ -602,7 +602,7 @@ impl AppState {
         let active_th = self.chart.notes.iter()
             .filter(|n| matches!(n.note_type, NoteType::Hold)
                 && is_touch_zone(sanitize_note_zone(n.note_type, n.lane))
-                && note_secs(n, bpm) <= t && hold_tail_time(n, bpm) > t)
+                && note_secs(n, bpms) <= t && hold_tail_time(n, bpms) > t)
             .count();
         if active_th > 0 && !self.touch_riser_playing {
             if let Some(buf) = &self.sfx_touch_riser {
@@ -658,15 +658,15 @@ impl AppState {
     }
 
     fn push_recorded_note(&mut self, active: ActiveRecordHold, end_time: f32) {
-        let bpm = self.chart.bpm;
+        let bpms = &self.chart.bpms;
         let duration_secs = (end_time - active.start_time).max(0.0);
         // Snap start time: convert seconds → measure, snap to 1/384 grid
         let start_measure = if self.record_snap_grid {
-            snap_measure(secs_to_measure(active.start_time, bpm))
+            snap_measure(secs_to_measure(active.start_time, bpms))
         } else {
-            secs_to_measure(active.start_time, bpm)
+            secs_to_measure(active.start_time, bpms)
         };
-        let dur_measure = sdur_to_mdur(duration_secs, bpm);
+        let dur_measure = sdur_to_mdur(duration_secs, active.start_time, bpms);
         // Unique zones visited
         let mut visited: Vec<u8> = Vec::new();
         for (z, _) in &active.slide_zones {
@@ -693,7 +693,7 @@ impl AppState {
             .collect();
 
         let slide_dur = if matches!(note_type, NoteType::Slide) { dur_measure } else { 0.0 };
-        let default_delay = sdur_to_mdur(0.12, bpm);
+        let default_delay = sdur_to_mdur(0.12, active.start_time, bpms);
 
         // Phase 4: classify the recorded trajectory against known shape templates.
         let slide_shape = if matches!(note_type, NoteType::Slide) {
