@@ -537,9 +537,10 @@ fn draw_hold_9slice_vertical(tex: &Texture2D, cx: f32, y0: f32, y1: f32, width: 
     let cap_dest_h = (cap_h * (width / tex_w)).max(1.0);
 
     // y0/y1 mark the visual center of each cap (endpoint).
-    let top = y0.min(y1) - cap_dest_h;
-    let bottom = y0.max(y1) + cap_dest_h;
+       let top = y0.min(y1);
+    let bottom = y0.max(y1);
     let total_h = (bottom - top).max(1.0);
+
 
     let mut top_h = cap_dest_h.min(total_h * 0.5);
     let mut bottom_h = cap_dest_h.min(total_h * 0.5);
@@ -614,20 +615,16 @@ fn draw_hold_9slice_segment(
     width: f32,
     tint: Color,
 ) {
+       let delta = to - from;
+    let total_len = delta.length().max(1.0);
+    let dir = delta / total_len;
+    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
+
     let tex_w = tex.width().max(1.0);
     let tex_h = tex.height().max(3.0);
     let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
     let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
     let cap_len = (cap_h * (width / tex_w)).max(1.0);
-
-    // Extend so from/to sit at cap centers (not edges).
-    let raw_delta = to - from;
-    let raw_len = raw_delta.length().max(0.001);
-    let dir = raw_delta / raw_len;
-    let ext_from = from - dir * cap_len * 0.5;
-    let ext_to = to + dir * cap_len * 0.5;
-    let total_len = (ext_to - ext_from).length().max(1.0);
-    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
 
     // Minimum visible cap size in screen pixels
     let min_cap = 4.0;
@@ -644,7 +641,7 @@ fn draw_hold_9slice_segment(
         if part_len <= 0.0 {
             return;
         }
-        let center = ext_from + dir * (start_offset + part_len * 0.5);
+       let center = from + dir * (start_offset + part_len * 0.5);
         draw_texture_ex(
             tex,
             center.x - width * 0.5,
