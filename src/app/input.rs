@@ -1091,7 +1091,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                     // Head = earlier time, tail = later time (regardless of click order).
                     // Lane is locked to the first click.
                     let (head_t, tail_t) = if t >= anchor_t { (anchor_t, t) } else { (t, anchor_t) };
-                    let dur = (tail_t - head_t).max(0.01);
+                    let dur = (tail_t - head_t).max(0.05);
                     app.push_undo();
                     app.chart.notes.push(Note {
                         time: head_t, lane: lane0, note_type: NoteType::Hold,

@@ -338,6 +338,7 @@ pub(crate) fn build_waveform(app: &mut super::state::AppState) {
     // Store metadata for rendering
     app.waveform_freq_bins = freq_bins as u32;
     app.waveform_time_res = hop as f32 / sr as f32;
+    app.waveform_max_val = app.waveform_data.iter().cloned().fold(0.0_f32, f32::max).max(0.1);
 }
 
 /// Build speed-adjusted raw PCM i16 samples.  Returns (samples, channels).

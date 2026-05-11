@@ -809,7 +809,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let fb = app.waveform_freq_bins as usize;
         let num_tb = app.waveform_data.len() / fb;
         let dt = app.waveform_time_res;
-        let max_val = app.waveform_data.iter().cloned().fold(0.0_f32, f32::max).max(0.1);
+        let max_val = app.waveform_max_val;
         // Only use low frequencies (0-500Hz for kick/snare/beat detection)
         let sr = app.audio_wav_pcm.as_ref().map(|p| p.sample_rate as f32).unwrap_or(44100.0);
         let max_hz = 600.0;
@@ -817,10 +817,16 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let bin_step = (beat_bins as f32 / 40.0).max(1.0) as usize;
         let disp_bins = beat_bins / bin_step;
         let half_w = lanes_w * 0.45;
-        for ti in 0..num_tb {
+        // Only iterate visible time range
+        let t_top = now + (judge_y - track_y) / scroll_speed;
+        let t_bot = now + (judge_y - (track_y + track_h)) / scroll_speed;
+        let t_min = t_bot.min(t_top);
+        let t_max = t_bot.max(t_top);
+        let ti_start = ((t_min / dt) as usize).saturating_sub(1).min(num_tb);
+        let ti_end = ((t_max / dt) as usize + 2).min(num_tb);
+        for ti in ti_start..ti_end {
             let t = ti as f32 * dt;
             let cy = judge_y - (t - now) * scroll_speed;
-            if cy < track_y || cy > track_y + track_h { continue; }
             // Compute total low-freq energy for this time bin
             let mut total = 0.0;
             let mut peak = 0.0;
