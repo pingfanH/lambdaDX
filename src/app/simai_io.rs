@@ -265,7 +265,7 @@ fn simai_pattern_to_shape(p: SlidePattern) -> SlideShape {
     }
 }
 
-fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern {
+pub(crate) fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern {
     match shape {
         Some(SlideShape::Caret) => SlidePattern::Caret,
         Some(SlideShape::Left) => SlidePattern::Left,
@@ -289,7 +289,7 @@ fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern {
 ///
 /// Zone numbering: A1-A8 = 1-8 (outer ring), B1-B8 = 9-16 (inner ring),
 /// C = 17 (center).
-fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
+pub(crate) fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
     let s = start + 1; // 1-indexed zone
     let e = end + 1;
     let sp = |z: u8| SlidePoint { zone: z, beat_offset: 0.0 };

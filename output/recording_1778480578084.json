@@ -1,0 +1,611 @@
+{
+  "created_at_epoch_ms": 1778480578084,
+  "source": "macroquad_sim",
+  "chart": {
+    "version": "0.4.0-beat",
+    "title": "Jack-the-Ripper◆[SD]",
+    "bpm": 210.0,
+    "audio_offset": 0.0,
+    "notes": [
+      {
+        "measure": 1,
+        "beat": 4,
+        "division": 16,
+        "offset": 5,
+        "lane": 5,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 1,
+            "beat_offset": 0.3984375
+          }
+        ],
+        "slide_duration": [
+          51,
+          16
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "line"
+      },
+      {
+        "measure": 2,
+        "beat": 3,
+        "division": 8,
+        "offset": 7,
+        "lane": 3,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 12,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 13,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 14,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 15,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 16,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 9,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 10,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 3,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          53,
+          16
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "p"
+      },
+      {
+        "measure": 3,
+        "beat": 4,
+        "division": 1,
+        "offset": 0,
+        "lane": 4,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 11,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 10,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 9,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 16,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 15,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 14,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 13,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 4,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          47,
+          16
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "q"
+      },
+      {
+        "measure": 4,
+        "beat": 4,
+        "division": 8,
+        "offset": 1,
+        "lane": 4,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 13,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 14,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 15,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 16,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 9,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 10,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 11,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 12,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 4,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          39,
+          16
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "p_p"
+      },
+      {
+        "measure": 5,
+        "beat": 3,
+        "division": 2,
+        "offset": 1,
+        "lane": 4,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 13,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 14,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 15,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 16,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 9,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 10,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 11,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 12,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 4,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          39,
+          16
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "p_p"
+      },
+      {
+        "measure": 6,
+        "beat": 3,
+        "division": 4,
+        "offset": 1,
+        "lane": 3,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 10,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 9,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 16,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 15,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 14,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 13,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 12,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 11,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 3,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          9,
+          4
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "q_q"
+      },
+      {
+        "measure": 7,
+        "beat": 2,
+        "division": 2,
+        "offset": 1,
+        "lane": 3,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 4,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 5,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 6,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 7,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 8,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 1,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 2,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 3,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          2,
+          1
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "left"
+      },
+      {
+        "measure": 8,
+        "beat": 1,
+        "division": 16,
+        "offset": 7,
+        "lane": 4,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 3,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 2,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 1,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 8,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 7,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 6,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 5,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 4,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          21,
+          8
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "right"
+      },
+      {
+        "measure": 9,
+        "beat": 1,
+        "division": 8,
+        "offset": 1,
+        "lane": 3,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 7,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          11,
+          4
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "wifi"
+      },
+      {
+        "measure": 9,
+        "beat": 4,
+        "division": 4,
+        "offset": 3,
+        "lane": 8,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 4,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          5,
+          2
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "wifi"
+      },
+      {
+        "measure": 10,
+        "beat": 4,
+        "division": 8,
+        "offset": 1,
+        "lane": 4,
+        "note_type": "slide",
+        "is_each": true,
+        "is_break": true,
+        "slide_points": [
+          {
+            "zone": 17,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 7,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          45,
+          16
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "v_shape"
+      },
+      {
+        "measure": 11,
+        "beat": 3,
+        "division": 4,
+        "offset": 3,
+        "lane": 7,
+        "note_type": "tap",
+        "is_break": true
+      },
+      {
+        "measure": 11,
+        "beat": 4,
+        "division": 16,
+        "offset": 11,
+        "lane": 4,
+        "note_type": "tap",
+        "is_break": true
+      },
+      {
+        "measure": 12,
+        "beat": 1,
+        "division": 16,
+        "offset": 5,
+        "lane": 3,
+        "note_type": "tap",
+        "is_ex": true
+      },
+      {
+        "measure": 12,
+        "beat": 2,
+        "division": 16,
+        "offset": 7,
+        "lane": 3,
+        "note_type": "tap",
+        "is_ex": true
+      },
+      {
+        "measure": 12,
+        "beat": 3,
+        "division": 16,
+        "offset": 3,
+        "lane": 6,
+        "note_type": "tap",
+        "is_break": true,
+        "is_ex": true
+      },
+      {
+        "measure": 12,
+        "beat": 3,
+        "division": 2,
+        "offset": 1,
+        "lane": 3,
+        "note_type": "hold",
+        "is_ex": true,
+        "hold_duration": [
+          11,
+          8
+        ]
+      },
+      {
+        "measure": 12,
+        "beat": 4,
+        "division": 8,
+        "offset": 1,
+        "lane": 1,
+        "note_type": "tap"
+      },
+      {
+        "measure": 12,
+        "beat": 4,
+        "division": 8,
+        "offset": 3,
+        "lane": 7,
+        "note_type": "hold",
+        "hold_duration": [
+          25,
+          16
+        ]
+      },
+      {
+        "measure": 13,
+        "beat": 1,
+        "division": 16,
+        "offset": 3,
+        "lane": 5,
+        "note_type": "tap"
+      },
+      {
+        "measure": 13,
+        "beat": 2,
+        "division": 8,
+        "offset": 1,
+        "lane": 4,
+        "note_type": "slide",
+        "is_each": true,
+        "slide_points": [
+          {
+            "zone": 5,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 6,
+            "beat_offset": 0.0
+          },
+          {
+            "zone": 2,
+            "beat_offset": 0.0
+          }
+        ],
+        "slide_duration": [
+          47,
+          16
+        ],
+        "slide_start_delay": [
+          1,
+          1
+        ],
+        "slide_shape": "left"
+      }
+    ]
+  },
+  "hits": [],
+  "record_speed": 1.0,
+  "play_speed": 1.0
+}

@@ -52,6 +52,8 @@ pub(crate) struct AppState {
     /// chart.notes[i] by clicking zones on the Pad. Only meaningful when the
     /// note is a Slide and the app is in Idle mode.
     pub(crate) editing_slide_path: Option<usize>,
+    /// Pending slide shape key (e.g. Q, P, S, Z) waiting for a lane number to complete.
+    pub(crate) pending_slide_shape: Option<super::types::SlideShape>,
     pub(crate) waveform_data: Vec<f32>,
     pub(crate) waveform_freq_bins: u32,
     pub(crate) waveform_time_res: f32,
@@ -60,6 +62,8 @@ pub(crate) struct AppState {
     pub(crate) selected_notes: Vec<usize>,
     pub(crate) drag_orig_note: Option<super::types::Note>,
     pub(crate) timeline_view_time: f32,
+    pub(crate) timeline_zoom: f32,
+    pub(crate) dragging_progress_bar: bool,
     pub(crate) undo_stack: Vec<super::types::ChartDoc>,
     pub(crate) clipboard: Vec<super::types::Note>,
     pub(crate) pasting: bool,
@@ -172,6 +176,7 @@ impl AppState {
             place_tool: super::types::PlaceTool::Tap,
             placement: super::types::PlacementState::Idle,
             editing_slide_path: None,
+            pending_slide_shape: None,
             waveform_data: Vec::new(),
             waveform_freq_bins: 0,
             waveform_time_res: 0.0,
@@ -180,6 +185,8 @@ impl AppState {
             selected_notes: Vec::new(),
             drag_orig_note: None,
             timeline_view_time: 0.0,
+            timeline_zoom: 1.0,
+            dragging_progress_bar: false,
             undo_stack: Vec::new(),
             clipboard: Vec::new(),
             pasting: false,

@@ -14,12 +14,8 @@
       "is_each": true,
       "slide_points": [
         {
-          "zone": 17,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 8,
-          "beat_offset": 0.0
+          "zone": 1,
+          "beat_offset": 0.3984375
         }
       ],
       "slide_duration": [
@@ -30,7 +26,7 @@
         1,
         1
       ],
-      "slide_shape": "v_shape"
+      "slide_shape": "line"
     },
     {
       "measure": 2,

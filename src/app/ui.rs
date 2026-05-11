@@ -536,9 +536,9 @@ fn draw_hold_9slice_vertical(tex: &Texture2D, cx: f32, y0: f32, y1: f32, width: 
     // Keep cap aspect by converting source-pixel cap height into screen height using width ratio.
     let cap_dest_h = (cap_h * (width / tex_w)).max(1.0);
 
-    // Extend draw range so y0/y1 sit at the CENTER of caps (not the edge).
-    let top = y0.min(y1) - cap_dest_h * 0.5;
-    let bottom = y0.max(y1) + cap_dest_h * 0.5;
+    // y0/y1 mark the visual center of each cap (endpoint).
+    let top = y0.min(y1) - cap_dest_h;
+    let bottom = y0.max(y1) + cap_dest_h;
     let total_h = (bottom - top).max(1.0);
 
     let mut top_h = cap_dest_h.min(total_h * 0.5);
@@ -684,7 +684,8 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     let track_x = rect.x + 14.0 * scale + sidebar_w;
     let track_y = rect.y + 40.0 * scale;
     let track_w = rect.w - 28.0 * scale - sidebar_w;
-    let track_h = rect.h - 54.0 * scale;
+    let progress_bar_h = 20.0 * scale;
+    let track_h = rect.h - 54.0 * scale - progress_bar_h;
 
     // ── Tool sidebar (Tap / Hold / Star) ──
     for (btn, tool, label) in super::types::timeline_sidebar_buttons(&rect) {
@@ -769,17 +770,18 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         Mode::Idle => app.timeline_view_time,
     };
     let bpm = app.chart.bpm;
+    let scroll_speed = SCROLL_SPEED * app.timeline_zoom;
 
     // BPM-based grid lines (cover full track height)
     let beat_s = 60.0 / app.chart.bpm;
     let grid_s = beat_s / (GRID_DIVISION as f32 / 4.0);
-    let margin_s = track_h / SCROLL_SPEED;
+    let margin_s = track_h / scroll_speed;
     let view_start = now - margin_s;
     let view_end = now + margin_s;
 
     let mut t = (view_start / grid_s).floor() * grid_s;
     while t <= view_end {
-        let yy = judge_y - (t - now) * SCROLL_SPEED;
+        let yy = judge_y - (t - now) * scroll_speed;
         let bar_s = beat_s * 4.0;
         let dist_to_bar = ((t % bar_s) + bar_s) % bar_s;
         let is_bar = dist_to_bar < grid_s * 0.5 || (bar_s - dist_to_bar) < grid_s * 0.5;
@@ -817,7 +819,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let half_w = lanes_w * 0.45;
         for ti in 0..num_tb {
             let t = ti as f32 * dt;
-            let cy = judge_y - (t - now) * SCROLL_SPEED;
+            let cy = judge_y - (t - now) * scroll_speed;
             if cy < track_y || cy > track_y + track_h { continue; }
             // Compute total low-freq energy for this time bin
             let mut total = 0.0;
@@ -880,7 +882,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         };
         // Keep the note visible while either its head OR its tail is on-screen.
         // (For Tap/Touch tail_dt == dt, so the check collapses to the original.)
-        if tail_dt < -0.4 || dt.min(tail_dt) > PREVIEW_LEAD_TIME {
+        if tail_dt < -margin_s || dt.min(tail_dt) > margin_s {
             continue;
         }
         let lane_index = if is_touch_zone(zone) {
@@ -889,7 +891,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1)
         };
         let cx = track_x + ruler_w + lane_w * lane_index as f32 + lane_w * 0.5;
-        let scroll =  SCROLL_SPEED;
+        let scroll = scroll_speed;
         let ny = judge_y - dt * scroll;
 
         // Selection highlight
@@ -1087,9 +1089,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 let tail_time = hold_tail_time(note, bpm);
                 let tail_dt = tail_time - now;
                 let scroll = if is_touch_zone(zone) {
-                    SCROLL_SPEED * app.touch_speed
+                    scroll_speed * app.touch_speed
                 } else {
-                    SCROLL_SPEED
+                    scroll_speed
                 };
                 let tail_y = judge_y - tail_dt * scroll;
                 let hold_tex = if note.is_break {
@@ -1129,12 +1131,12 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let (mx, my) = mouse_position();
         //println!("mouse_position {} {}",mx,my);
         if mx >= track_x + ruler_w && mx <= track_x + track_w && my >= track_y && my <= track_y + track_h {
-            let dt = (judge_y - my) / SCROLL_SPEED;
+            let dt = (judge_y - my) / scroll_speed;
             let gt = (now + dt).max(0.0);
             let beat_s = 60.0 / app.chart.bpm;
             let grid_s = beat_s / (GRID_DIVISION as f32 / 4.0);
             let gt = (gt / grid_s).round() * grid_s;
-            let gy = judge_y - (gt - now) * SCROLL_SPEED;
+            let gy = judge_y - (gt - now) * scroll_speed;
             let glx = mx - (track_x + ruler_w);
             if glx >= 0.0 {
                 let glane_i = ((glx / lane_w) as i32).clamp(0, LANE_COUNT as i32 - 1);
@@ -1164,11 +1166,11 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                             let hold_tex = app.hold_texture.as_ref();
                             if let Some(tex) = hold_tex {
                                 let hw = HOLD_WIDTH * scale;
-                                let tail_y = gy - 60.0 * scale; // short preview bar
+                                let tail_y = gy - 10.0 * scale; // ← hold hover ghost length
                                 draw_hold_9slice_vertical(tex, gcx, gy, tail_y, hw);
                             } else {
                                 let hw = 6.0 * scale;
-                                draw_rectangle(gcx - hw * 0.5, gy - 60.0 * scale, hw, 60.0 * scale, Color::from_rgba(244, 114, 182, 80));
+                                draw_rectangle(gcx - hw * 0.5, gy - 25.0 * scale, hw, 25.0 * scale, Color::from_rgba(244, 114, 182, 80));
                             }
                         }
                         super::types::PlaceTool::Star => {
@@ -1204,7 +1206,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 && my >= track_y && my <= track_y + track_h;
             // Cursor's snapped chart time and lane (best-effort; only used when inside).
             let cursor_t = if inside {
-                let raw = (now + (judge_y - my) / SCROLL_SPEED).max(0.0);
+                let raw = (now + (judge_y - my) / scroll_speed).max(0.0);
                 Some(snap_measure(secs_to_measure(raw, bpm)))
             } else { None };
             // Helper to compute lane center x.
@@ -1214,7 +1216,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     else { (lane.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
                 track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
             };
-            let t_to_y = |t: f32| -> f32 { judge_y - (measure_to_secs(t, bpm) - now) * SCROLL_SPEED };
+            let t_to_y = |t: f32| -> f32 { judge_y - (measure_to_secs(t, bpm) - now) * scroll_speed };
             // Dashed-line helper.
             let dashed = |cx: f32, y0: f32, y1: f32, col: Color| {
                 let h = (y1 - y0).abs();
@@ -1239,13 +1241,20 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     draw_circle_lines(cx, ay, 6.0 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
                     if let Some(t2) = cursor_t {
                         let by = t_to_y(t2);
-                        let bar_w = HOLD_WIDTH * 0.4 * scale;
-                        let top = ay.min(by); let h = (ay - by).abs();
-                        if h > 0.5 {
-                            draw_rectangle(cx - bar_w * 0.5, top, bar_w, h,
-                                Color::from_rgba(244, 114, 182, 90));
-                            draw_rectangle_lines(cx - bar_w * 0.5, top, bar_w, h, 1.0 * scale,
-                                Color::from_rgba(244, 114, 182, 180));
+                        let hw = HOLD_WIDTH * scale;
+                        let min_hold_h = 10.0 * scale; // ← HoldPending minimum height
+                        let (head_y, tail_y) = if ay > by { (ay, by.min(ay - min_hold_h)) } else { (by.max(ay + min_hold_h), ay) };
+                        if let Some(tex) = app.hold_texture.as_ref() {
+                            draw_hold_9slice_vertical(tex, cx, head_y, tail_y, hw);
+                        } else {
+                            let bar_w = HOLD_WIDTH * 0.4 * scale;
+                            let h = (head_y - tail_y).abs();
+                            if h > 0.5 {
+                                draw_rectangle(cx - bar_w * 0.5, tail_y, bar_w, h,
+                                    Color::from_rgba(244, 114, 182, 90));
+                                draw_rectangle_lines(cx - bar_w * 0.5, tail_y, bar_w, h, 1.0 * scale,
+                                    Color::from_rgba(244, 114, 182, 180));
+                            }
                         }
                         draw_circle(cx, by, 4.0 * scale, Color::from_rgba(244, 114, 182, 180));
                     }
@@ -1312,7 +1321,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     for hit in &app.recording_hits {
             let zone = if hit.lane == 9 { PAD_C_ZONE } else { hit.lane };
             let dt = hit.time - now;
-            if dt < -0.3 || dt > 1.5 {
+            if dt < -margin_s || dt > margin_s {
                 continue;
             }
             let lane_index = if is_touch_zone(zone) {
@@ -1321,7 +1330,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1)
             };
             let cx = track_x + ruler_w + lane_w * lane_index as f32 + lane_w * 0.5;
-            let ny = judge_y - dt * SCROLL_SPEED;
+            let ny = judge_y - dt * scroll_speed;
             draw_circle(cx, ny, 4.0 * scale, Color::from_rgba(56, 189, 248, 220));
         }
         // Box selection preview
@@ -1338,10 +1347,10 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             if let Some(note) = app.chart.notes.get(i) {
                 let zone = sanitize_note_zone(note.note_type, note.lane);
                 let dt = note_secs(note, bpm) - now;
-                if dt < -0.3 || dt > PREVIEW_LEAD_TIME { continue; }
+                if dt < -margin_s || dt > margin_s { continue; }
                 let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
                 let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
-                let ny = judge_y - dt * SCROLL_SPEED;
+                let ny = judge_y - dt * scroll_speed;
                 draw_circle(cx, ny, 15.0, Color::from_rgba(250, 204, 21, 80));
             }
         }
@@ -1349,7 +1358,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         // Paste ghost
         if app.pasting && !app.clipboard.is_empty() {
             let (mx, my) = mouse_position();
-            let dt = (judge_y - my) / SCROLL_SPEED;
+            let dt = (judge_y - my) / scroll_speed;
             let raw_secs = (now + dt).max(0.0);
             let grid_step = 1.0 / super::types::GRID_DIVISION as f32;
             let raw_m = secs_to_measure(raw_secs, bpm);
@@ -1368,10 +1377,10 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 let lane = (n.lane as i32 + l_off).clamp(1, super::types::PAD_ZONE_MAX as i32) as u8;
                 let zone = sanitize_note_zone(n.note_type, lane);
                 let dt2 = measure_to_secs(t_m, bpm) - now;
-                if dt2 < -0.3 || dt2 > PREVIEW_LEAD_TIME { continue; }
+                if dt2 < -margin_s || dt2 > margin_s { continue; }
                 let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
                 let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
-                let ny = judge_y - dt2 * SCROLL_SPEED;
+                let ny = judge_y - dt2 * scroll_speed;
                 if is_touch_zone(zone) || matches!(n.note_type, super::types::NoteType::Touch) {
                     if let Some(tex) = &app.touch_tri_tex {
                         let ratio = tex.width() / tex.height();
@@ -1398,6 +1407,44 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
 
         // Judge line on top
         draw_line(track_x + ruler_w, judge_y, track_x + track_w, judge_y, 2.0 * scale, Color::from_rgba(239, 68, 68, 255));
+
+    // ── Progress bar at bottom of timeline ──
+    {
+        let bar_x = track_x;
+        let bar_y = track_y + track_h + 4.0 * scale;
+        let bar_w = track_w;
+        let bar_h = progress_bar_h - 4.0 * scale;
+
+        // Total song duration: max of last note end or audio length
+        let last_note_end = app.chart.notes.iter().map(|n| {
+            let ns = note_secs(n, bpm);
+            match n.note_type {
+                NoteType::Hold => hold_tail_time(n, bpm),
+                NoteType::Slide => ns + mdur_to_secs(n.slide_duration, bpm),
+                _ => ns,
+            }
+        }).fold(0.0_f32, f32::max);
+        let total_dur = last_note_end.max(1.0);
+
+        // Background
+        draw_rectangle(bar_x, bar_y, bar_w, bar_h, Color::from_rgba(30, 41, 59, 255));
+        draw_rectangle_lines(bar_x, bar_y, bar_w, bar_h, 1.0, Color::from_rgba(71, 85, 105, 255));
+
+        // Filled portion
+        let frac = (now / total_dur).clamp(0.0, 1.0);
+        let fill_w = bar_w * frac;
+        draw_rectangle(bar_x, bar_y, fill_w, bar_h, Color::from_rgba(56, 189, 248, 160));
+
+        // Cursor indicator
+        let cursor_x = bar_x + fill_w;
+        draw_rectangle(cursor_x - 1.5 * scale, bar_y, 3.0 * scale, bar_h, Color::from_rgba(239, 68, 68, 255));
+
+        // Time label
+        let time_str = format!("{:.1}s / {:.1}s  (x{:.1})", now, total_dur, app.timeline_zoom);
+        let tw = measure_text(&time_str, None, (12.0 * scale) as u16, 1.0).width;
+        draw_text(&time_str, bar_x + bar_w - tw - 4.0 * scale, bar_y + bar_h - 3.0 * scale,
+            12.0 * scale, Color::from_rgba(148, 163, 184, 255));
+    }
 }
 
 pub(crate) fn draw_pad_only(app: &AppState, pad: PadGeom, rect: RectF) {
