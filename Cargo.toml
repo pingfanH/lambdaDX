@@ -15,15 +15,20 @@ path = "src/main.rs"
 name = "mask_test"
 path = "src/test.rs"
 
+[[bin]]
+name = "sfx_test"
+path = "src/sfx_test.rs"
+
 [dependencies]
-macroquad = { version = "0.4", features = ["audio"] }
+macroquad = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hound = "3"
 minimp3 = "0.5"
 roxmltree = "0.20"
 rustfft = "6"
-egui-macroquad = "0.17"
+egui-macroquad = { version = "0.17", default-features = false }
+rodio = { version = "0.19", default-features = false, features = ["wav"] }
 maisimai = { path = "../maisimai" }
 
 [package.metadata.android]

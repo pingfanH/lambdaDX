@@ -1,4 +1,3 @@
-use macroquad::audio::{load_sound_from_bytes, play_sound_once, Sound};
 use minimp3::{Decoder as Mp3Decoder, Frame as Mp3Frame};
 use std::io::Cursor;
 
@@ -93,6 +92,15 @@ fn load_mp3_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
         return Err("mp3 decode produced empty pcm".to_string());
     }
 
+    // MP3 encoder delay: LAME and similar encoders insert priming samples
+    // (typically 576–2304 per channel) at the start of the bitstream.
+    // minimp3 doesn't strip them automatically.  ~1764 stereo samples
+    // (≈ 40 ms @ 44100 Hz) is a good default for LAME-encoded files.
+    let encoder_delay_samples = 1764 * 2; // stereo → 2 i16 per frame
+    if all_samples.len() > encoder_delay_samples {
+        all_samples.drain(..encoder_delay_samples);
+    }
+
     Ok(WavPcm {
         sample_rate: sample_rate.unwrap_or(44100),
         channels: 2,
@@ -177,12 +185,11 @@ pub(crate) async fn service_audio(app: &mut AppState) {
     }
 
     if app.audio_wav_pcm.is_some() {
-        match load_cached_audio_for_speed(app, speed).await {
-            Ok(sound) => {
-                app.audio = Some(sound);
-                if let Some(s) = &app.audio {
+        match load_cached_audio_for_speed(app, speed) {
+            Ok(wav_bytes) => {
+                if let Some(player) = &mut app.sfx_player {
                     app.mode_wall_anchor = macroquad::prelude::get_time();
-                    play_sound_once(s);
+                    player.play_bgm(&wav_bytes);
                 }
                 app.audio_seek_offset = None;
                 if app.waveform_data.is_empty() {
@@ -218,20 +225,20 @@ pub(crate) async fn warm_audio_cache(app: &mut AppState, _primary_speed: f32) {
     let speeds: &[f32] = &[0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
     for &spd in speeds {
         app.set_status(format!("预缓存音频 {:.1}x ...", spd));
-        let _ = load_cached_audio_for_speed(app, spd).await;
+        let _ = load_cached_audio_for_speed(app, spd);
     }
     app.set_status("音频缓存就绪".to_string());
 }
 
-async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<Sound, String> {
+fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<Vec<u8>, String> {
     let key = speed_cache_key(speed);
     let chart_seek = app.audio_seek_offset.unwrap_or(0.0);
     let audio_offset = app.chart.audio_offset;
     let effective_seek = (chart_seek + audio_offset).max(0.0);
 
     if chart_seek <= 0.0 {
-        if let Some(sound) = app.audio_cache.get(&key) {
-            return Ok(sound.clone());
+        if let Some(cached) = app.audio_cache.get(&key) {
+            return Ok(cached.clone());
         }
     }
     let wav = app
@@ -239,14 +246,11 @@ async fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<S
         .as_ref()
         .ok_or_else(|| "pcm source missing".to_string())?;
     let (samples, channels) = build_speed_pcm(wav, speed, effective_seek);
-    let bytes = pcm_to_wav_bytes(&samples, channels, 44_100);
-    let sound = load_sound_from_bytes(&bytes)
-        .await
-        .map_err(|e| format!("{e}"))?;
+    let bytes = pcm_to_wav_bytes(&samples, channels, wav.sample_rate);
     if chart_seek <= 0.0 {
-        app.audio_cache.insert(key, sound.clone());
+        app.audio_cache.insert(key, bytes.clone());
     }
-    Ok(sound)
+    Ok(bytes)
 }
 
 /// Construct a WAV file from raw i16 PCM samples by writing a minimal 44-byte

@@ -1,8 +1,9 @@
-use macroquad::audio::{play_sound, stop_sound, PlaySoundParams, Sound};
 use macroquad::material::Material;
 use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
+
+use super::sfx::{SfxBuffer, SfxPlayer};
 
 use super::types::{
     ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm, DragPart,
@@ -69,7 +70,6 @@ pub(crate) struct AppState {
 
     pub(crate) audio_source_name: Option<String>,
     pub(crate) audio_wav_pcm: Option<WavPcm>,
-    pub(crate) audio: Option<Sound>,
     pub(crate) tap_texture: Option<Texture2D>,
     pub(crate) hold_texture: Option<Texture2D>,
     pub(crate) touch_tri_tex: Option<Texture2D>,
@@ -99,23 +99,24 @@ pub(crate) struct AppState {
     pub(crate) star_double_ex_tex: Option<Texture2D>,
     pub(crate) mask_material: Option<Material>,
     pub(crate) pad_rect: Option<egui_macroquad::egui::Rect>,
-    pub(crate) audio_cache: HashMap<i32, Sound>,
+    pub(crate) audio_cache: HashMap<i32, Vec<u8>>,
     pub(crate) audio_seek_offset: Option<f32>,
     pub(crate) pending_audio_start: bool,
     pub(crate) audio_enabled: bool,
 
     pub(crate) pad_svg: Option<super::pad_svg::PadSvgDef>,
 
-    pub(crate) hit_sound: Option<Sound>,
-    pub(crate) touch_sound: Option<Sound>,
-    pub(crate) slide_sound: Option<Sound>,
-    pub(crate) touch_riser_sound: Option<Sound>,
-    // Break/Ex sounds
-    pub(crate) break_sound: Option<Sound>,
-    pub(crate) break_tap_sound: Option<Sound>,
-    pub(crate) tap_ex_sound: Option<Sound>,
-    pub(crate) slide_break_start_sound: Option<Sound>,
-    pub(crate) slide_break_slide_sound: Option<Sound>,
+    // Low-latency SFX via rodio
+    pub(crate) sfx_player: Option<SfxPlayer>,
+    pub(crate) sfx_tap: Option<SfxBuffer>,
+    pub(crate) sfx_touch: Option<SfxBuffer>,
+    pub(crate) sfx_slide: Option<SfxBuffer>,
+    pub(crate) sfx_touch_riser: Option<SfxBuffer>,
+    pub(crate) sfx_break: Option<SfxBuffer>,
+    pub(crate) sfx_break_tap: Option<SfxBuffer>,
+    pub(crate) sfx_tap_ex: Option<SfxBuffer>,
+    pub(crate) sfx_slide_break_start: Option<SfxBuffer>,
+    pub(crate) sfx_break_slide: Option<SfxBuffer>,
     pub(crate) touch_riser_playing: bool,
     pub(crate) hit_sounds_played: HashSet<usize>,
 
@@ -180,7 +181,6 @@ impl AppState {
             ui_scale_override,
             audio_source_name,
             audio_wav_pcm,
-            audio: None,
             tap_texture: None,
             hold_texture: None,
             touch_tri_tex: None,
@@ -213,15 +213,16 @@ impl AppState {
             pending_audio_start: false,
             audio_enabled: true,
             pad_svg: None,
-            hit_sound: None,
-            touch_sound: None,
-            slide_sound: None,
-            touch_riser_sound: None,
-            break_sound: None,
-            break_tap_sound: None,
-            tap_ex_sound: None,
-            slide_break_start_sound: None,
-            slide_break_slide_sound: None,
+            sfx_player: None,
+            sfx_tap: None,
+            sfx_touch: None,
+            sfx_slide: None,
+            sfx_touch_riser: None,
+            sfx_break: None,
+            sfx_break_tap: None,
+            sfx_tap_ex: None,
+            sfx_slide_break_start: None,
+            sfx_break_slide: None,
             touch_riser_playing: false,
             hit_sounds_played: HashSet::new(),
             status: "Ready".to_string(),
@@ -316,9 +317,9 @@ impl AppState {
     //     self.touch_speed = new_speed.clamp(TOUCH_SPEED_MIN, TOUCH_SPEED_MAX);
     // }
 
-    pub(crate) fn stop_audio_if_any(&self) {
-        if let Some(sound) = &self.audio {
-            stop_sound(sound);
+    pub(crate) fn stop_audio_if_any(&mut self) {
+        if let Some(player) = &mut self.sfx_player {
+            player.stop_bgm();
         }
     }
 
@@ -371,7 +372,7 @@ impl AppState {
             self.mode = Mode::Idle;
             self.mode_wall_anchor = get_time();
             self.stop_audio_if_any();
-            if let Some(s) = &self.touch_riser_sound { stop_sound(s); }
+            if let Some(player) = &mut self.sfx_player { player.stop_looped(); }
             self.touch_riser_playing = false;
             self.timeline_view_time = self.mode_song_offset;
             self.set_status(format!("Paused at {:.2}s", self.mode_song_offset));
@@ -522,51 +523,56 @@ impl AppState {
             }
         }
 
-        // --- play one sound per type, volume scales with cluster size ---
+        // --- play one sound per type via rodio, volume scales with cluster size ---
+        let player = match &mut self.sfx_player {
+            Some(p) => p,
+            None => return,
+        };
+
         if tap_count > 0 {
-            if let Some(s) = &self.hit_sound {
+            if let Some(buf) = &self.sfx_tap {
                 let vol = (0.6 + 0.1 * tap_count as f32).min(1.0);
-                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+                player.play(buf, vol);
             }
         }
         if break_tap_count > 0 {
-            if let Some(s) = &self.break_tap_sound {
+            if let Some(buf) = &self.sfx_break_tap {
                 let vol = (0.6 + 0.1 * break_tap_count as f32).min(1.0);
-                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+                player.play(buf, vol);
             }
-            if let Some(s) = &self.break_sound {
+            if let Some(buf) = &self.sfx_break {
                 let vol = (0.6 + 0.1 * break_tap_count as f32).min(1.0);
-                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+                player.play(buf, vol);
             }
         }
         if ex_tap_count > 0 {
-            if let Some(s) = &self.tap_ex_sound {
+            if let Some(buf) = &self.sfx_tap_ex {
                 let vol = (0.6 + 0.1 * ex_tap_count as f32).min(1.0);
-                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+                player.play(buf, vol);
             }
         }
         if touch_count > 0 {
-            if let Some(s) = &self.touch_sound {
+            if let Some(buf) = &self.sfx_touch {
                 let vol = (0.6 + 0.1 * touch_count as f32).min(1.0);
-                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+                player.play(buf, vol);
             }
         }
         if slide_count > 0 {
-            if let Some(s) = &self.slide_sound {
+            if let Some(buf) = &self.sfx_slide {
                 let vol = (0.6 + 0.1 * slide_count as f32).min(1.0);
-                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+                player.play(buf, vol);
             }
         }
         if slide_break_start_count > 0 {
-            if let Some(s) = &self.slide_break_start_sound {
+            if let Some(buf) = &self.sfx_slide_break_start {
                 let vol = (0.6 + 0.1 * slide_break_start_count as f32).min(1.0);
-                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+                player.play(buf, vol);
             }
         }
         if slide_break_end_count > 0 {
-            if let Some(s) = &self.slide_break_slide_sound {
+            if let Some(buf) = &self.sfx_break_slide {
                 let vol = (0.6 + 0.1 * slide_break_end_count as f32).min(1.0);
-                play_sound(s, PlaySoundParams { looped: false, volume: vol });
+                player.play(buf, vol);
             }
         }
 
@@ -577,15 +583,13 @@ impl AppState {
                 && note_secs(n, bpm) <= t && hold_tail_time(n, bpm) > t)
             .count();
         if active_th > 0 && !self.touch_riser_playing {
-            if let Some(s) = &self.touch_riser_sound {
-                play_sound(s, PlaySoundParams { looped: true, volume: 0.5 });
+            if let Some(buf) = &self.sfx_touch_riser {
+                player.play_looped(buf, 0.5);
                 self.touch_riser_playing = true;
             }
         } else if active_th == 0 && self.touch_riser_playing {
-            if let Some(s) = &self.touch_riser_sound {
-                stop_sound(s);
-                self.touch_riser_playing = false;
-            }
+            player.stop_looped();
+            self.touch_riser_playing = false;
         }
     }
 

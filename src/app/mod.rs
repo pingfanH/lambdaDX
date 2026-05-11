@@ -5,13 +5,13 @@ mod egui_ui;
 mod input;
 mod pad_svg;
 mod platform;
+pub(crate) mod sfx;
 mod simai_io;
 mod slide_match;
 mod state;
 mod types;
 mod ui;
 
-use macroquad::audio::load_sound_from_bytes;
 use macroquad::file::set_pc_assets_folder;
 use macroquad::prelude::{clear_background, next_frame, Color};
 
@@ -39,42 +39,21 @@ pub async fn run_app() {
         }
     }
 
-    // Load hit sounds from embedded bytes
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/tap_perfect.wav")).await {
-        Ok(s) => { app.hit_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load tap_perfect.wav: {e:?}")),
-    }
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/touch.wav")).await {
-        Ok(s) => { app.touch_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load touch.wav: {e:?}")),
-    }
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/slide.wav")).await {
-        Ok(s) => { app.slide_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load slide.wav: {e:?}")),
-    }
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/touch_Hold_riser.wav")).await {
-        Ok(s) => { app.touch_riser_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load touch_Hold_riser.wav: {e:?}")),
-    }
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/break.wav")).await {
-        Ok(s) => { app.break_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load break.wav: {e:?}")),
-    }
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/break_tap.wav")).await {
-        Ok(s) => { app.break_tap_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load break_tap.wav: {e:?}")),
-    }
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/tap_ex.wav")).await {
-        Ok(s) => { app.tap_ex_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load tap_ex.wav: {e:?}")),
-    }
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/slide_break_start.wav")).await {
-        Ok(s) => { app.slide_break_start_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load slide_break_start.wav: {e:?}")),
-    }
-    match load_sound_from_bytes(include_bytes!("../../assets/Sfx/break_slide.wav")).await {
-        Ok(s) => { app.slide_break_slide_sound = Some(s); }
-        Err(e) => app.set_status(format!("Failed to load break_slide.wav: {e:?}")),
+    // Initialize low-latency SFX player (rodio/cpal)
+    match sfx::SfxPlayer::new() {
+        Ok(player) => {
+            app.sfx_player = Some(player);
+            app.sfx_tap = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/tap_perfect.wav"));
+            app.sfx_touch = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/touch.wav"));
+            app.sfx_slide = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/slide.wav"));
+            app.sfx_touch_riser = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/touch_Hold_riser.wav"));
+            app.sfx_break = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break.wav"));
+            app.sfx_break_tap = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break_tap.wav"));
+            app.sfx_tap_ex = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/tap_ex.wav"));
+            app.sfx_slide_break_start = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/slide_break_start.wav"));
+            app.sfx_break_slide = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break_slide.wav"));
+        }
+        Err(e) => app.set_status(format!("SFX init failed: {e}")),
     }
 
     // Load mask shader material
