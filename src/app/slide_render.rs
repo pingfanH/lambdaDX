@@ -1,0 +1,234 @@
+use macroquad::prelude::*;
+use macroquad::texture::{DrawTextureParams, Texture2D};
+
+use super::pad_svg::PadSvgDef;
+use super::types::{
+    Note, PadGeom, Slide,
+    SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE,
+    TAP_TARGET_OFFSET, PAD_ROTATION_RAD, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
+};
+
+/// Resolved textures for a single draw_slide call.
+/// The caller picks the appropriate variant; the function just uses what's given.
+pub struct SlideTextures<'a> {
+    pub trail: Option<&'a Texture2D>,
+    pub star: Option<&'a Texture2D>,
+    pub star_fallback: Option<&'a Texture2D>,
+    pub star_ex: Option<&'a Texture2D>,
+    pub star_ex_fallback: Option<&'a Texture2D>,
+}
+
+/// Draw a single slide on the pad surface: path tiles + head star + flying star.
+///
+/// `note` — parent note (provides lane, flags)
+/// `slide` — the sub-slide to render
+/// `current_t` — current playback time, in seconds
+/// `ns` — note head time, in seconds
+/// `slide_dur_s` — slide motion duration, in seconds
+/// `fade_in_s` — slide start delay, in seconds
+/// `pad` — pad geometry
+/// `svg` — parsed SVG zone definitions
+/// `spawn_cx` — screen-space tap spawn center (C-zone centroid)
+/// `outer_r` — pad outer radius in screen space
+/// `show_full` — true to render the entire trail at full alpha (static view)
+pub fn draw_slide(
+    note: &Note,
+    slide: &Slide,
+    current_t: f32,
+    ns: f32,
+    slide_dur_s: f32,
+    fade_in_s: f32,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+    spawn_cx: Vec2,
+    outer_r: f32,
+    tex: &SlideTextures,
+    show_full: bool,
+) {
+    let slide_end_s = ns + slide_dur_s;
+    let dt = ns - current_t;
+
+    // ── Time culling (skip when not show_full) ──
+    if !show_full {
+        if !(dt <= SLIDE_TRAVEL_TIME && current_t <= slide_end_s + 0.2) {
+            return;
+        }
+    }
+
+    // ── Build path: start lane → each segment point zone centroid ──
+    let mut path: Vec<Vec2> = Vec::new();
+
+    let start_pt = if note.lane <= 8 {
+        let idx = (note.lane - 1) as f32;
+        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+        let target_r = outer_r + TAP_TARGET_OFFSET;
+        Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
+    } else {
+        svg.zone_screen_centroid(note.lane, pad)
+    };
+    if let Some(c) = start_pt { path.push(c); }
+
+    for seg in &slide.segments {
+        for sp in &seg.points {
+            if sp.zone == note.lane && path.len() == 1 { continue; }
+            let c = if sp.zone >= 1 && sp.zone <= 8 {
+                let idx = (sp.zone - 1) as f32;
+                let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                let target_r = outer_r + TAP_TARGET_OFFSET;
+                Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
+            } else {
+                svg.zone_screen_centroid(sp.zone, pad)
+            };
+            if let Some(c) = c {
+                if path.last().map(|p| (*p - c).length() > 1.0).unwrap_or(true) {
+                    path.push(c);
+                }
+            }
+        }
+    }
+
+    if path.len() < 2 {
+        return;
+    }
+
+    // ── Segment lengths ──
+    let seg_lens: Vec<f32> = path.windows(2).map(|w| (w[1] - w[0]).length().max(0.001)).collect();
+    let total_len: f32 = seg_lens.iter().sum();
+
+    // ── Alpha & star position ──
+    let (path_alpha, star_dist_along) = if show_full {
+        (220u8, -1.0_f32) // all tiles visible, star at start
+    } else {
+        let alpha = if dt > 0.0 {
+            0
+        } else {
+            ((220.0 * (current_t - ns) / fade_in_s).clamp(0.0, 220.0)) as u8
+        };
+        let travel_dur_s = (slide_dur_s - fade_in_s).max(0.001);
+        let star_t = if current_t < ns + fade_in_s {
+            0.0
+        } else {
+            ((current_t - ns - fade_in_s) / travel_dur_s).clamp(0.0, 1.0)
+        };
+        (alpha, star_t * total_len)
+    };
+
+    // ── point_at helper ──
+    let point_at = |d: f32| -> (Vec2, f32) {
+        let mut acc = 0.0;
+        for (i, w) in path.windows(2).enumerate() {
+            let len = seg_lens[i];
+            if d <= acc + len {
+                let local = (d - acc) / len;
+                let p = w[0] + (w[1] - w[0]) * local;
+                let dir = (w[1] - w[0]).normalize_or_zero();
+                return (p, dir.y.atan2(dir.x));
+            }
+            acc += len;
+        }
+        let last = path.windows(2).last().unwrap();
+        let dir = (last[1] - last[0]).normalize_or_zero();
+        (*path.last().unwrap(), dir.y.atan2(dir.x))
+    };
+
+    // ── Path tiles ──
+    let (tw, th) = if let Some(t) = tex.trail {
+        (t.width() * scale * SLIDE_TILE_SCALE, t.height() * scale * SLIDE_TILE_SCALE)
+    } else {
+        (SLIDE_TILE_SIZE * scale, SLIDE_TILE_SIZE * scale)
+    };
+    let spacing = SLIDE_TILE_SPACING * scale;
+
+    for (si, w) in path.windows(2).enumerate() {
+        let a = w[0]; let b = w[1];
+        let seg_len = seg_lens[si];
+        let dir = (b - a) / seg_len;
+        let angle = dir.y.atan2(dir.x) + std::f32::consts::PI;
+        let seg_start_d: f32 = seg_lens.iter().take(si).sum();
+        let mut pos = 0.0;
+        while pos < seg_len {
+            let abs_d = seg_start_d + pos;
+            if abs_d < star_dist_along { pos += spacing; continue; }
+            let pt = a + dir * pos;
+            if let Some(t) = tex.trail {
+                draw_texture_ex(t, pt.x - tw * 0.5, pt.y - th * 0.5,
+                    Color::from_rgba(255, 255, 255, path_alpha),
+                    DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: angle, ..Default::default() });
+            }
+            pos += spacing;
+        }
+    }
+
+    // ── Head star ──
+    if show_full {
+        // Static star at start position
+        let head_pt = path[0];
+        let ss = STAR_SIZE * scale;
+        let star_used = tex.star.or(tex.star_fallback);
+        if let Some(st) = star_used {
+            draw_texture_ex(st, head_pt.x - ss * 0.5, head_pt.y - ss * 0.5, WHITE,
+                DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
+        }
+    } else if dt > 0.0 && dt < SLIDE_TRAVEL_TIME && !note.is_tapless {
+        // Pre-judge flying-in head star (A-zone and touch-zone)
+        let head_progress = ((SLIDE_TRAVEL_TIME - dt) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
+        let size_scale = if head_progress < TAP_GROW_FRAC { head_progress / TAP_GROW_FRAC } else { 1.0 };
+        let fly_progress = if head_progress < TAP_GROW_FRAC {
+            0.0
+        } else {
+            (head_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
+        };
+
+        if note.lane <= 8 {
+            // A-zone: fly from spawn center to target
+            let idx = (note.lane - 1) as f32;
+            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+            let spawn_r = outer_r * TAP_SPAWN_FRAC;
+            let target_r = outer_r + TAP_TARGET_OFFSET;
+            let r = spawn_r + (target_r - spawn_r) * fly_progress;
+            let px = spawn_cx.x + ang.cos() * r;
+            let py = spawn_cx.y + ang.sin() * r;
+
+            let ss = STAR_SIZE * scale * size_scale;
+            let star_rot = fly_progress * std::f32::consts::TAU;
+            let star_used = tex.star.or(tex.star_fallback);
+            if let Some(st) = star_used {
+                draw_texture_ex(st, px - ss * 0.5, py - ss * 0.5, WHITE,
+                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: star_rot, ..Default::default() });
+                if let Some(ex_tex) = tex.star_ex.or(tex.star_ex_fallback) {
+                    draw_texture_ex(ex_tex, px - ss * 0.5, py - ss * 0.5, WHITE,
+                        DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: star_rot, ..Default::default() });
+                }
+            }
+        } else {
+            // Touch zone: fade in at centroid
+            let head_rot = head_progress * std::f32::consts::TAU;
+            let ss = STAR_SIZE * scale * size_scale;
+            let star_used = tex.star.or(tex.star_fallback);
+            if let Some(st) = star_used {
+                draw_texture_ex(st, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
+                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
+                if let Some(ex_tex) = tex.star_ex.or(tex.star_ex_fallback) {
+                    draw_texture_ex(ex_tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
+                        DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
+                }
+            }
+        }
+    }
+
+    // ── Flying star (post-judge, moves along path) ──
+    if !show_full && current_t >= ns && current_t <= slide_end_s {
+        let (star_pos, angle) = point_at(star_dist_along);
+        let ss = STAR_SIZE * scale;
+        let star_used = tex.star.or(tex.star_fallback);
+        if let Some(st) = star_used {
+            draw_texture_ex(st, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
+                DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: angle, ..Default::default() });
+            if let Some(ex_tex) = tex.star_ex.or(tex.star_ex_fallback) {
+                draw_texture_ex(ex_tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
+                    DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: angle, ..Default::default() });
+            }
+        }
+    }
+}

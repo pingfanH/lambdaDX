@@ -1,16 +1,17 @@
 mod audio;
 mod beat_format;
 mod chart;
-mod egui_ui;
+pub mod egui_ui;
 mod input;
-mod pad_svg;
+pub mod pad_svg;
 mod platform;
 pub(crate) mod sfx;
+pub mod slide_render;
 mod simai_io;
 mod slide_match;
-mod state;
-mod types;
-mod ui;
+pub mod state;
+pub mod types;
+pub mod ui;
 
 use macroquad::file::set_pc_assets_folder;
 use macroquad::prelude::{clear_background, next_frame, Color};
@@ -63,6 +64,9 @@ pub async fn run_app() {
     }
 
     ui::load_note_textures(&mut app).await;
+    // Prime egui state on first frame to avoid mouse event issues on macOS
+    egui_macroquad::ui(|egui_ctx| { egui_ctx.set_pixels_per_point(2.0); });
+    egui_macroquad::draw();
     loop {
         clear_background(Color::from_rgba(10, 17, 30, 255));
 

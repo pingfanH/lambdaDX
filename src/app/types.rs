@@ -9,8 +9,8 @@ pub(crate) const HIT_WINDOW: f32 = 0.00;
 pub(crate) const TAP_TRAVEL_TIME: f32 = 0.55;
 pub(crate) const TOUCH_TRAVEL_TIME: f32 = 0.5;
 pub(crate) const HOLD_TRAVEL_TIME: f32 = 0.55;
-pub(crate) const TAP_GROW_FRAC: f32 = 0.35;
-pub(crate) const TAP_SPAWN_FRAC: f32 = 0.3;
+pub const TAP_GROW_FRAC: f32 = 0.35;
+pub const TAP_SPAWN_FRAC: f32 = 0.3;
 pub(crate) const TAP_DISAPPEAR_FRAC: f32 = 0.0;
 pub(crate) const HOLD_DISAPPEAR_FRAC: f32 = 0.1;
 pub(crate) const HOLD_FLY_TIME: f32 = 0.6;
@@ -23,7 +23,7 @@ pub(crate) const HOLD_LENGTH_FRAC: f32 = 0.6;
 
 pub(crate) const HOLD_SPAWN_FRAC: f32 = 0.5;
 pub(crate) const HOLD_TARGET_OFFSET: f32 = 40.0;
-pub(crate) const TAP_TARGET_OFFSET: f32 = 15.;
+pub const TAP_TARGET_OFFSET: f32 = 15.;
 // touch: base values (multiplied by TOUCH_SCALE in code)
 pub(crate) const TOUCH_CROSS_SIZE: f32 = 50.0;
 pub(crate) const TOUCH_START_DIST: f32 = 30.0;
@@ -59,19 +59,19 @@ pub(crate) const TOUCH_SCALE: f32 = 1.5;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub(crate) const TOUCHHOLD_SCALE: f32 = 1.0;
 
-pub(crate) const PAD_ROTATION_RAD: f32 = std::f32::consts::FRAC_PI_8;
-pub(crate) const TAP_RING_OFFSET: f32 = 14.;
-pub(crate) const GRID_DIVISION: u32 = 64;
+pub const PAD_ROTATION_RAD: f32 = std::f32::consts::FRAC_PI_8;
+pub const TAP_RING_OFFSET: f32 = 14.;
+pub const GRID_DIVISION: u32 = 64;
 pub(crate) const SCROLL_SPEED_FACTOR: f32 = 0.01;
 pub(crate) const SCROLL_INVERT: bool = true;
 
-pub(crate) const SLIDE_TILE_SPACING: f32 = 20.0;
-pub(crate) const SLIDE_TILE_SIZE: f32 = 40.0;
-pub(crate) const SLIDE_TILE_SCALE: f32 = 0.4;
-pub(crate) const SLIDE_MIN_POINTS: usize = 2;
-pub(crate) const STAR_SIZE: f32 = 45.0;
-pub(crate) const SLIDE_TRAVEL_TIME: f32 = 0.55;
-pub(crate) const SLIDE_STAR_FADE_IN: f32 = 0.12;
+pub const SLIDE_TILE_SPACING: f32 = 20.0;
+pub const SLIDE_TILE_SIZE: f32 = 40.0;
+pub const SLIDE_TILE_SCALE: f32 = 0.4;
+pub const SLIDE_MIN_POINTS: usize = 2;
+pub const STAR_SIZE: f32 = 45.0;
+pub const SLIDE_TRAVEL_TIME: f32 = 0.55;
+pub const SLIDE_STAR_FADE_IN: f32 = 0.12;
 pub(crate) const SPEED_MIN: f32 = 0.1;
 pub(crate) const SPEED_MAX: f32 = 3.0;
 pub(crate) const SPEED_STEP: f32 = 0.1;
@@ -80,13 +80,13 @@ pub(crate) const TOUCH_SPEED_MIN: f32 = 0.5;
 pub(crate) const TOUCH_SPEED_MAX: f32 = 3.0;
 pub(crate) const TOUCH_SPEED_STEP: f32 = 0.1;
 pub(crate) const MOUSE_POINTER_ID: u64 = u64::MAX;
-pub(crate) const PAD_B_START: u8 = 9;
-pub(crate) const PAD_C_ZONE: u8 = 17;
-pub(crate) const PAD_ZONE_MAX: u8 = 33;
+pub const PAD_B_START: u8 = 9;
+pub const PAD_C_ZONE: u8 = 17;
+pub const PAD_ZONE_MAX: u8 = 33;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum NoteType {
+pub enum NoteType {
     Tap,
     Touch,
     Hold,
@@ -100,7 +100,7 @@ impl Default for NoteType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SlideShape {
+pub enum SlideShape {
     Line,
     Caret,
     Left,
@@ -117,28 +117,28 @@ pub(crate) enum SlideShape {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SlidePoint {
-    pub(crate) zone: u8,
-    pub(crate) beat_offset: f32,
+pub struct SlidePoint {
+    pub zone: u8,
+    pub beat_offset: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct Slide {
-    pub(crate) segments: Vec<SlideSegment>,
+pub struct Slide {
+    pub segments: Vec<SlideSegment>,
     /// Total slide span in measures (head → tail) for this individual slide.
-    pub(crate) slide_duration: f32,
+    pub slide_duration: f32,
     /// Delay before slide motion starts, in measures.
     #[serde(default, skip_serializing_if = "is_zero_f32")]
-    pub(crate) slide_start_delay: f32,
+    pub slide_start_delay: f32,
     /// Whether this slide trail is a break slide.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) slide_is_break: bool,
+    pub slide_is_break: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SlideSegment {
-    pub(crate) points: Vec<SlidePoint>,
-    pub(crate) shape: SlideShape,
+pub struct SlideSegment {
+    pub points: Vec<SlidePoint>,
+    pub shape: SlideShape,
 }
 
 
@@ -150,40 +150,40 @@ fn is_zero_f32(v: &f32) -> bool {
 /// the first beat of the song).  Use `measure_to_secs` / `mdur_to_secs` to
 /// convert to wall-clock seconds for playback and rendering.
 #[derive(Debug, Clone, Serialize, Deserialize,Default)]
-pub(crate) struct Note {
+pub struct Note {
     /// Measure position (1.0 = first beat).
-    pub(crate) time: f32,
-    pub(crate) lane: u8,
-    pub(crate) note_type: NoteType,
+    pub time: f32,
+    pub lane: u8,
+    pub note_type: NoteType,
     /// Duration in measures.
     #[serde(default, skip_serializing_if = "is_zero_f32")]
-    pub(crate) hold_duration: f32,
+    pub hold_duration: f32,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) is_each: bool,
+    pub is_each: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) is_break: bool,
+    pub is_break: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) is_ex: bool,
+    pub is_ex: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) is_star: bool,
+    pub is_star: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) is_tapless: bool,
-    pub(crate) slide: Vec<Slide>
+    pub is_tapless: bool,
+    pub slide: Vec<Slide>
 }
 
 // ─── BPM change list ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct BpmChange {
-    pub(crate) measure: f32,
-    pub(crate) bpm: f32,
+pub struct BpmChange {
+    pub measure: f32,
+    pub bpm: f32,
 }
 
 // ─── Measure ↔ Seconds conversion (multi-BPM) ────────────────────
 
 /// Measure position → seconds.  `m = 1.0` ⇒ `t = 0`.
 /// Accounts for BPM changes in the list.
-pub(crate) fn measure_to_secs(m: f32, bpms: &[BpmChange]) -> f32 {
+pub fn measure_to_secs(m: f32, bpms: &[BpmChange]) -> f32 {
     if bpms.is_empty() {
         return (m - 1.0) * 2.0; // fallback 120 BPM
     }
@@ -203,7 +203,7 @@ pub(crate) fn measure_to_secs(m: f32, bpms: &[BpmChange]) -> f32 {
 }
 
 /// Seconds → measure position (inverse of `measure_to_secs`).
-pub(crate) fn secs_to_measure(t: f32, bpms: &[BpmChange]) -> f32 {
+pub fn secs_to_measure(t: f32, bpms: &[BpmChange]) -> f32 {
     if bpms.is_empty() {
         return t * 0.5 + 1.0; // fallback 120 BPM
     }
@@ -223,7 +223,7 @@ pub(crate) fn secs_to_measure(t: f32, bpms: &[BpmChange]) -> f32 {
 }
 
 /// Duration in measures → duration in seconds, starting at measure `start_m`.
-pub(crate) fn mdur_to_secs(d: f32, start_m: f32, bpms: &[BpmChange]) -> f32 {
+pub fn mdur_to_secs(d: f32, start_m: f32, bpms: &[BpmChange]) -> f32 {
     measure_to_secs(start_m + d, bpms) - measure_to_secs(start_m, bpms)
 }
 
@@ -249,7 +249,7 @@ pub(crate) fn snap_measure(m: f32) -> f32 {
 }
 
 /// Note head time in seconds.
-pub(crate) fn note_secs(note: &Note, bpms: &[BpmChange]) -> f32 {
+pub fn note_secs(note: &Note, bpms: &[BpmChange]) -> f32 {
     measure_to_secs(note.time, bpms)
 }
 
@@ -308,10 +308,10 @@ pub(crate) struct Layout {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PadGeom {
-    pub(crate) cx: f32,
-    pub(crate) cy: f32,
-    pub(crate) outer_r: f32,
+pub struct PadGeom {
+    pub cx: f32,
+    pub cy: f32,
+    pub outer_r: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -418,16 +418,16 @@ pub(crate) fn hold_tail_time(note: &Note, bpms: &[BpmChange]) -> f32 {
     note_secs(note, bpms) + dur_s
 }
 
-pub(crate) fn sanitize_note_zone(_note_type: NoteType, lane: u8) -> u8 {
+pub fn sanitize_note_zone(_note_type: NoteType, lane: u8) -> u8 {
     lane.clamp(1, PAD_ZONE_MAX)
 }
 
-pub(crate) fn is_touch_zone(zone: u8) -> bool {
+pub fn is_touch_zone(zone: u8) -> bool {
     zone >= PAD_B_START
 }
 
 /// Slide end time in seconds — takes the longest slide's duration.
-pub(crate) fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
+pub fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
     let max_dur = note.slide.iter()
         .map(|s| s.slide_duration)
         .fold(0.0_f32, f32::max);

@@ -19,6 +19,10 @@ path = "src/test.rs"
 name = "sfx_test"
 path = "src/sfx_test.rs"
 
+[[bin]]
+name = "slide_test"
+path = "src/bin/slide_test.rs"
+
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }

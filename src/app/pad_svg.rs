@@ -7,23 +7,23 @@ const SVG_BG_R: f32 = 326.57;
 
 /// A single parsed touch zone from the SVG.
 #[derive(Debug, Clone)]
-pub(crate) struct ZoneDef {
-    pub(crate) zone: u8,
-    pub(crate) label: String,
+pub struct ZoneDef {
+    pub zone: u8,
+    pub label: String,
     /// Polygon vertices in SVG viewBox coordinates.
-    pub(crate) svg_verts: Vec<Vec2>,
+    pub svg_verts: Vec<Vec2>,
     /// Precomputed polygon centroid in SVG coordinates.
-    pub(crate) centroid: Vec2,
+    pub centroid: Vec2,
 }
 
 /// Parsed SVG definition for the entire touch pad.
 #[derive(Debug, Clone)]
-pub(crate) struct PadSvgDef {
-    pub(crate) zones: Vec<ZoneDef>,
+pub struct PadSvgDef {
+    pub zones: Vec<ZoneDef>,
 }
 
 impl PadSvgDef {
-    pub(crate) fn from_svg_str(svg_xml: &str) -> Result<Self, String> {
+    pub fn from_svg_str(svg_xml: &str) -> Result<Self, String> {
         let doc = roxmltree::Document::parse(svg_xml)
             .map_err(|e| format!("XML parse error: {e}"))?;
 
@@ -49,37 +49,37 @@ impl PadSvgDef {
         Ok(PadSvgDef { zones })
     }
 
-    pub(crate) fn zone_def(&self, zone: u8) -> Option<&ZoneDef> {
+    pub fn zone_def(&self, zone: u8) -> Option<&ZoneDef> {
         self.zones.iter().find(|z| z.zone == zone)
     }
 
-    pub(crate) fn zone_screen_verts(&self, zone: u8, pad: &super::types::PadGeom) -> Option<Vec<Vec2>> {
+    pub fn zone_screen_verts(&self, zone: u8, pad: &super::types::PadGeom) -> Option<Vec<Vec2>> {
         let def = self.zone_def(zone)?;
         Some(def.svg_verts.iter().map(|&v| svg_to_screen(v, pad)).collect())
     }
 
-    pub(crate) fn zone_screen_centroid(&self, zone: u8, pad: &super::types::PadGeom) -> Option<Vec2> {
+    pub fn zone_screen_centroid(&self, zone: u8, pad: &super::types::PadGeom) -> Option<Vec2> {
         let def = self.zone_def(zone)?;
         Some(svg_to_screen(def.centroid, pad))
     }
 
     /// The visual center of the pad (C zone centroid).
-    pub(crate) fn pad_visual_center(&self, pad: &super::types::PadGeom) -> Option<Vec2> {
+    pub fn pad_visual_center(&self, pad: &super::types::PadGeom) -> Option<Vec2> {
         self.zone_screen_centroid(17, pad)
     }
 
     /// Transform a single ZoneDef's vertices and centroid to screen coordinates.
-    pub(crate) fn def_screen_verts(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec<Vec2> {
+    pub fn def_screen_verts(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec<Vec2> {
         def.svg_verts.iter().map(|&v| svg_to_screen(v, pad)).collect()
     }
 
-    pub(crate) fn def_screen_centroid(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec2 {
+    pub fn def_screen_centroid(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec2 {
         svg_to_screen(def.centroid, pad)
     }
 
     /// Hit-test a screen-space point against all zones using ray-casting.
     /// Returns the zone number if the point is inside a zone polygon.
-    pub(crate) fn hit_test(&self, screen_point: Vec2, pad: &super::types::PadGeom) -> Option<u8> {
+    pub fn hit_test(&self, screen_point: Vec2, pad: &super::types::PadGeom) -> Option<u8> {
         let svg_pt = screen_to_svg(screen_point, pad);
 
         for def in &self.zones {
@@ -365,7 +365,7 @@ fn point_in_polygon(point: Vec2, polygon: &[Vec2]) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Draw a filled polygon using ear-clipping triangulation (works for concave polys).
-pub(crate) fn draw_polygon_fill(verts: &[Vec2], color: Color) {
+pub fn draw_polygon_fill(verts: &[Vec2], color: Color) {
     if verts.len() < 3 {
         return;
     }
@@ -519,7 +519,7 @@ fn point_in_triangle(p: Vec2, a: Vec2, b: Vec2, c: Vec2) -> bool {
 }
 
 /// Draw the outline of a polygon as a closed line loop.
-pub(crate) fn draw_polygon_lines(verts: &[Vec2], thickness: f32, color: Color) {
+pub fn draw_polygon_lines(verts: &[Vec2], thickness: f32, color: Color) {
     if verts.len() < 2 {
         return;
     }
