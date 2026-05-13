@@ -58,8 +58,10 @@ fn migrate_to_measures(chart: &mut ChartDoc) {
         let t = note.time; // original seconds
         note.time = secs_to_measure(t, bpms);
         note.hold_duration = sdur_to_mdur(note.hold_duration, t, bpms);
-        note.slide_duration = sdur_to_mdur(note.slide_duration, t, bpms);
-        note.slide_start_delay = sdur_to_mdur(note.slide_start_delay, t, bpms);
+        for sl in &mut note.slide {
+            sl.slide_duration = sdur_to_mdur(sl.slide_duration, t, bpms);
+            sl.slide_start_delay = sdur_to_mdur(sl.slide_start_delay, t, bpms);
+        }
     }
     if !chart.version.is_empty() {
         chart.version = format!("{}-measure", chart.version);
@@ -69,7 +71,15 @@ fn migrate_to_measures(chart: &mut ChartDoc) {
 }
 
 fn fallback_chart() -> ChartDoc {
+    use super::types::{Slide, SlideSegment, SlidePoint, SlideShape};
     // All times/durations in measures (1.0 = first beat, 0.25 = one beat at 4/4).
+    let mk_slide = |pts: Vec<SlidePoint>, dur: f32, delay: f32| -> Vec<Slide> {
+        vec![Slide {
+            segments: vec![SlideSegment { points: pts, shape: SlideShape::Line }],
+            slide_duration: dur, slide_start_delay: delay, slide_is_break: false,
+        }]
+    };
+    let sp = |z: u8| SlidePoint { zone: z, beat_offset: 0.0 };
     ChartDoc {
         version: "0.3.0-measure".to_string(),
         title: "Fallback Demo Chart".to_string(),
@@ -77,43 +87,23 @@ fn fallback_chart() -> ChartDoc {
         bpms: vec![BpmChange { measure: 1.0, bpm: 180.0 }],
         audio_offset: 0.0,
         notes: vec![
-            Note { time: 2.0,  lane: 1, note_type: NoteType::Tap,   hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false, slide_points: Vec::new(), slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None },
-            Note { time: 2.25, lane: 3, note_type: NoteType::Tap,   hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false, slide_points: Vec::new(), slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None },
-            Note { time: 2.5,  lane: 5, note_type: NoteType::Tap,   hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false, slide_points: Vec::new(), slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None },
-            Note { time: 2.75, lane: 8, note_type: NoteType::Tap,   hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false, slide_points: Vec::new(), slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None },
-            Note { time: 3.0,  lane: 9, note_type: NoteType::Touch, hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false, slide_points: Vec::new(), slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None },
-            // Hold: 2 beats = 0.5 measures
-            Note { time: 3.5,  lane: 6, note_type: NoteType::Hold,  hold_duration: 0.5, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false, slide_points: Vec::new(), slide_duration: 0.0, slide_start_delay: 0.0, slide_shape: None },
+            Note { time: 2.0,  lane: 1, ..Default::default() },
+            Note { time: 2.25, lane: 3, ..Default::default() },
+            Note { time: 2.5,  lane: 5, ..Default::default() },
+            Note { time: 2.75, lane: 8, ..Default::default() },
+            Note { time: 3.0,  lane: 9, note_type: NoteType::Touch, ..Default::default() },
+            Note { time: 3.5,  lane: 6, note_type: NoteType::Hold, hold_duration: 0.5, ..Default::default() },
             // Slide 1: A1 -> A5
-            Note { time: 5.0,  lane: 1, note_type: NoteType::Slide, hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false,
-                slide_points: vec![super::types::SlidePoint { zone: 5, beat_offset: 0.0 }],
-                slide_duration: 0.5, slide_start_delay: 0.0625, slide_shape: None },
+            Note { time: 5.0, lane: 1, note_type: NoteType::Slide, slide: mk_slide(vec![sp(5)], 0.5, 0.0625), ..Default::default() },
             // Slide 2: A3 -> A7
-            Note { time: 6.0,  lane: 3, note_type: NoteType::Slide, hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false,
-                slide_points: vec![super::types::SlidePoint { zone: 7, beat_offset: 0.0 }],
-                slide_duration: 0.5, slide_start_delay: 0.125, slide_shape: None },
+            Note { time: 6.0, lane: 3, note_type: NoteType::Slide, slide: mk_slide(vec![sp(7)], 0.5, 0.125), ..Default::default() },
             // Slide 3: A1 -> A3 -> A5
-            Note { time: 7.0,  lane: 1, note_type: NoteType::Slide, hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false,
-                slide_points: vec![
-                    super::types::SlidePoint { zone: 3, beat_offset: 0.0 },
-                    super::types::SlidePoint { zone: 5, beat_offset: 0.0 },
-                ],
-                slide_duration: 0.75, slide_start_delay: 0.0625, slide_shape: None },
+            Note { time: 7.0, lane: 1, note_type: NoteType::Slide, slide: mk_slide(vec![sp(3), sp(5)], 0.75, 0.0625), ..Default::default() },
             // Slide 4: A2 -> A4 -> A6 -> A8
-            Note { time: 8.5,  lane: 2, note_type: NoteType::Slide, hold_duration: 0.0, is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false,
-                slide_points: vec![
-                    super::types::SlidePoint { zone: 4, beat_offset: 0.0 },
-                    super::types::SlidePoint { zone: 6, beat_offset: 0.0 },
-                    super::types::SlidePoint { zone: 8, beat_offset: 0.0 },
-                ],
-                slide_duration: 1.0, slide_start_delay: 0.25, slide_shape: None },
+            Note { time: 8.5, lane: 2, note_type: NoteType::Slide, slide: mk_slide(vec![sp(4), sp(6), sp(8)], 1.0, 0.25), ..Default::default() },
             // Each pair: two simultaneous slides
-            Note { time: 10.0, lane: 1, note_type: NoteType::Slide, hold_duration: 0.0, is_each: true, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false,
-                slide_points: vec![super::types::SlidePoint { zone: 5, beat_offset: 0.0 }],
-                slide_duration: 0.5, slide_start_delay: 0.125, slide_shape: None },
-            Note { time: 10.0, lane: 5, note_type: NoteType::Slide, hold_duration: 0.0, is_each: true, is_break: false, is_ex: false, is_star: false, is_tapless: false, star_is_break: false, star_is_ex: false,
-                slide_points: vec![super::types::SlidePoint { zone: 1, beat_offset: 0.0 }],
-                slide_duration: 0.5, slide_start_delay: 0.125, slide_shape: None },
+            Note { time: 10.0, lane: 1, note_type: NoteType::Slide, is_each: true, slide: mk_slide(vec![sp(5)], 0.5, 0.125), ..Default::default() },
+            Note { time: 10.0, lane: 5, note_type: NoteType::Slide, is_each: true, slide: mk_slide(vec![sp(1)], 0.5, 0.125), ..Default::default() },
         ],
     }
 }

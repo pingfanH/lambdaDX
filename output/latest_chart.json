@@ -2,31 +2,66 @@
   "version": "0.4.0-beat",
   "title": "Jack-the-Ripper◆[SD]",
   "bpm": 210.0,
+  "bpms": [
+    {
+      "measure": 1.0,
+      "bpm": 210.0
+    }
+  ],
   "audio_offset": 0.0,
   "notes": [
     {
       "measure": 1,
       "beat": 4,
-      "division": 16,
-      "offset": 5,
-      "lane": 5,
+      "division": 4,
+      "offset": 1,
+      "lane": 7,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "is_star": true,
+      "slide": [
         {
-          "zone": 1,
-          "beat_offset": 0.3984375
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 3,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 8,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "big_v"
+            }
+          ],
+          "slide_duration": 1.25,
+          "slide_start_delay": 0.421875
+        },
+        {
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 1,
+                  "beat_offset": 0.39844
+                },
+                {
+                  "zone": 2,
+                  "beat_offset": 0.53125334
+                },
+                {
+                  "zone": 3,
+                  "beat_offset": 0.59766
+                }
+              ],
+              "shape": "line"
+            }
+          ],
+          "slide_duration": 0.812505,
+          "slide_start_delay": 0.421875
         }
-      ],
-      "slide_duration": [
-        51,
-        16
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "line"
+      ]
     },
     {
       "measure": 2,
@@ -35,50 +70,51 @@
       "offset": 7,
       "lane": 3,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 12,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 13,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 14,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 15,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 16,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 9,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 10,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 3,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 12,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 13,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 14,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 15,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 16,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 9,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 10,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 3,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "p"
+            }
+          ],
+          "slide_duration": 0.828125,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        53,
-        16
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "p"
+      ]
     },
     {
       "measure": 3,
@@ -87,50 +123,51 @@
       "offset": 0,
       "lane": 4,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 11,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 10,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 9,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 16,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 15,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 14,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 13,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 4,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 11,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 10,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 9,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 16,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 15,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 14,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 13,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 4,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q"
+            }
+          ],
+          "slide_duration": 0.734375,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        47,
-        16
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "q"
+      ]
     },
     {
       "measure": 4,
@@ -139,54 +176,55 @@
       "offset": 1,
       "lane": 4,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 13,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 14,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 15,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 16,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 9,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 10,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 11,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 12,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 4,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 13,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 14,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 15,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 16,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 9,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 10,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 11,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 12,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 4,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "p_p"
+            }
+          ],
+          "slide_duration": 0.609375,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        39,
-        16
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "p_p"
+      ]
     },
     {
       "measure": 5,
@@ -195,54 +233,55 @@
       "offset": 1,
       "lane": 4,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 13,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 14,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 15,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 16,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 9,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 10,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 11,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 12,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 4,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 13,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 14,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 15,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 16,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 9,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 10,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 11,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 12,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 4,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "p_p"
+            }
+          ],
+          "slide_duration": 0.609375,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        39,
-        16
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "p_p"
+      ]
     },
     {
       "measure": 6,
@@ -251,54 +290,55 @@
       "offset": 1,
       "lane": 3,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 10,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 9,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 16,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 15,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 14,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 13,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 12,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 11,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 3,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 10,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 9,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 16,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 15,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 14,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 13,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 12,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 11,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 3,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q_q"
+            }
+          ],
+          "slide_duration": 0.5625,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        9,
-        4
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "q_q"
+      ]
     },
     {
       "measure": 7,
@@ -307,50 +347,51 @@
       "offset": 1,
       "lane": 3,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 4,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 5,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 6,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 7,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 8,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 1,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 2,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 3,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 4,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 5,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 6,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 7,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 8,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 1,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 2,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 3,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "left"
+            }
+          ],
+          "slide_duration": 0.5,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        2,
-        1
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "left"
+      ]
     },
     {
       "measure": 8,
@@ -359,50 +400,51 @@
       "offset": 7,
       "lane": 4,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 3,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 2,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 1,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 8,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 7,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 6,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 5,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 4,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 3,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 2,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 1,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 8,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 7,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 6,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 5,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 4,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "right"
+            }
+          ],
+          "slide_duration": 0.65625,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        21,
-        8
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "right"
+      ]
     },
     {
       "measure": 9,
@@ -411,22 +453,23 @@
       "offset": 1,
       "lane": 3,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 7,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 7,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "wifi"
+            }
+          ],
+          "slide_duration": 0.6875,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        11,
-        4
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "wifi"
+      ]
     },
     {
       "measure": 9,
@@ -435,22 +478,23 @@
       "offset": 3,
       "lane": 8,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 4,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 4,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "wifi"
+            }
+          ],
+          "slide_duration": 0.625,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        5,
-        2
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "wifi"
+      ]
     },
     {
       "measure": 10,
@@ -459,27 +503,29 @@
       "offset": 1,
       "lane": 4,
       "note_type": "slide",
-      "is_each": true,
       "is_break": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 17,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 7,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 17,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 7,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "v_shape"
+            }
+          ],
+          "slide_duration": 0.703125,
+          "slide_start_delay": 0.25,
+          "slide_is_break": true
         }
-      ],
-      "slide_duration": [
-        45,
-        16
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "v_shape"
+      ]
     },
     {
       "measure": 11,
@@ -534,7 +580,6 @@
       "offset": 1,
       "lane": 3,
       "note_type": "hold",
-      "is_ex": true,
       "hold_duration": [
         11,
         8
@@ -575,30 +620,43 @@
       "offset": 1,
       "lane": 4,
       "note_type": "slide",
-      "is_each": true,
-      "slide_points": [
+      "slide": [
         {
-          "zone": 5,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 6,
-          "beat_offset": 0.0
-        },
-        {
-          "zone": 2,
-          "beat_offset": 0.0
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": 5,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 6,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 7,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 8,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 1,
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": 2,
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "left"
+            }
+          ],
+          "slide_duration": 0.734375,
+          "slide_start_delay": 0.25
         }
-      ],
-      "slide_duration": [
-        47,
-        16
-      ],
-      "slide_start_delay": [
-        1,
-        1
-      ],
-      "slide_shape": "left"
+      ]
     }
   ]
 }

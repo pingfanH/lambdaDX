@@ -880,7 +880,10 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let dt = ns - now;
         let tail_dt = match note.note_type {
             NoteType::Hold => hold_tail_time(note, bpms) - now,
-            NoteType::Slide => ns + mdur_to_secs(note.slide_duration, note.time, bpms) - now,
+            NoteType::Slide => {
+                let max_d = note.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
+                ns + mdur_to_secs(max_d, note.time, bpms) - now
+            },
             _ => dt,
         };
         // Keep the note visible while either its head OR its tail is on-screen.
@@ -950,95 +953,108 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 }
             }
             NoteType::Slide => {
-                // Slide is split into two editable regions on the timeline:
-                //   [note.time, note.time + slide_start_delay]  → dashed (start delay)
-                //   [note.time + slide_start_delay, note.time + slide_duration] → slide.png tiles
-                let dur_s = mdur_to_secs(note.slide_duration, note.time, bpms).max(0.0);
-                let delay_s = mdur_to_secs(note.slide_start_delay, note.time, bpms).max(0.0).min(dur_s);
-                let delay_y = judge_y - (dt + delay_s) * scroll;
-                let tail_y = judge_y - (dt + dur_s) * scroll;
+                for (si, sl) in note.slide.iter().enumerate() {
+                    let dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.0);
+                    let delay_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms).max(0.0).min(dur_s);
+                    let delay_y = judge_y - (dt + delay_s) * scroll;
+                    let tail_y = judge_y - (dt + dur_s) * scroll;
 
-                // Dashed line for the start-delay region (between head and delay_y).
-                let delay_h = (ny - delay_y).abs();
-                if delay_s > 0.0 && delay_h > 0.5 {
-                    let dash_len = 6.0 * scale;
-                    let gap = 4.0 * scale;
-                    let period = dash_len + gap;
-                    let top = ny.min(delay_y);
-                    let n_dashes = (delay_h / period).ceil() as i32;
-                    let col = Color::from_rgba(253, 224, 71, 220);
-                    for k in 0..n_dashes {
-                        let y0 = top + (k as f32) * period;
-                        let y1 = (y0 + dash_len).min(top + delay_h);
-                        draw_line(cx, y0, cx, y1, 2.0 * scale, col);
-                    }
-                }
-
-                // Travel region: folded path across A-zone lanes based on slide_points.
-                let slide_tex = if note.is_break { app.slide_break_tex.as_ref() } else if note.is_each { app.slide_each_tex.as_ref() } else { app.slide_tex.as_ref() };
-                let travel_h = (delay_y - tail_y).abs();
-                if travel_h > 0.5 {
-                    // Build waypoint list: head lane, then each A-zone slide_point.
-                    let zone_to_cx_a = |z: u8| -> f32 {
-                        let li = (z.saturating_sub(1) as usize).min(LANE_COUNT - 2);
-                        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
-                    };
-                    // Filter to A-zone points only (zone 1-8).
-                    let a_points: Vec<&super::types::SlidePoint> = note.slide_points.iter()
-                        .filter(|sp| sp.zone >= 1 && sp.zone <= 8)
-                        .collect();
-                    let mut waypoints: Vec<(f32, f32)> = Vec::new(); // (x, y)
-                    waypoints.push((cx, delay_y)); // start at delay-end position
-                    let n_pts = a_points.len();
-                    if n_pts > 0 {
-                        for (pi, sp) in a_points.iter().enumerate() {
-                            let frac = (pi + 1) as f32 / (n_pts) as f32;
-                            let wy = delay_y + (tail_y - delay_y) * frac;
-                            let wx = zone_to_cx_a(sp.zone);
-                            waypoints.push((wx, wy));
+                    let delay_h = (ny - delay_y).abs();
+                    if delay_s > 0.0 && delay_h > 0.5 {
+                        let dash_len = 6.0 * scale;
+                        let gap = 4.0 * scale;
+                        let period = dash_len + gap;
+                        let top = ny.min(delay_y);
+                        let n_dashes = (delay_h / period).ceil() as i32;
+                        let col = Color::from_rgba(253, 224, 71, 220);
+                        for k in 0..n_dashes {
+                            let y0 = top + (k as f32) * period;
+                            let y1 = (y0 + dash_len).min(top + delay_h);
+                            draw_line(cx, y0, cx, y1, 2.0 * scale, col);
                         }
-                    } else {
-                        waypoints.push((cx, tail_y));
                     }
 
-                    // Draw segments between waypoints.
-                    let line_w = 3.0 * scale;
-                    let col = Color::from_rgba(250, 204, 21, 200);
-                    let tile_col = Color::from_rgba(255, 255, 255, 230);
-                    for seg in 0..waypoints.len() - 1 {
-                        let (x0, y0) = waypoints[seg];
-                        let (x1, y1) = waypoints[seg + 1];
-                        if let Some(tex) = slide_tex {
-                            // Tile textures along the segment, rotated to face travel direction.
-                            let dx = x1 - x0;
-                            let dy = y1 - y0;
-                            let seg_len = (dx * dx + dy * dy).sqrt();
-                            let bar_w = 14.0 * scale;
-                            let tw_nat = tex.width() * scale * SLIDE_TILE_SCALE;
-                            let th_nat = tex.height() * scale * SLIDE_TILE_SCALE;
-                            let tile_h = th_nat * (bar_w / tw_nat).max(0.001);
-                            let spacing = SLIDE_TILE_SPACING * scale;
-                            let angle = dy.atan2(dx) + std::f32::consts::PI;
-                            let steps = (seg_len / spacing).ceil().max(1.0) as i32;
-                            for k in 0..=steps {
-                                let t = k as f32 / steps as f32;
-                                let px = x0 + dx * t;
-                                let py = y0 + dy * t;
-                                draw_texture_ex(tex, px - bar_w * 0.5, py - tile_h * 0.5,
-                                    tile_col,
-                                    DrawTextureParams {
-                                        dest_size: Some(vec2(bar_w, tile_h)),
-                                        rotation: angle,
-                                        ..Default::default()
-                                    });
+                    let slide_tex = if sl.slide_is_break {
+                        app.slide_break_tex.as_ref()
+                    } else if note.is_each {
+                        app.slide_each_tex.as_ref()
+                    } else {
+                        app.slide_tex.as_ref()
+                    };
+                    let travel_h = (delay_y - tail_y).abs();
+                    if travel_h > 0.5 {
+                        let zone_to_cx_a = |z: u8| -> f32 {
+                            let li = (z.saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                            track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+                        };
+                        let mut a_points: Vec<&super::types::SlidePoint> = Vec::new();
+                        for seg in &sl.segments {
+                            for sp in &seg.points {
+                                if sp.zone >= 1 && sp.zone <= 8 {
+                                    a_points.push(sp);
+                                }
+                            }
+                        }
+                        let mut waypoints: Vec<(f32, f32)> = Vec::new();
+                        waypoints.push((cx, delay_y));
+                        let n_pts = a_points.len();
+                        if n_pts > 0 {
+                            for (pi, sp) in a_points.iter().enumerate() {
+                                let frac = (pi + 1) as f32 / (n_pts) as f32;
+                                let wy = delay_y + (tail_y - delay_y) * frac;
+                                let wx = zone_to_cx_a(sp.zone);
+                                waypoints.push((wx, wy));
                             }
                         } else {
-                            draw_line(x0, y0, x1, y1, line_w, col);
+                            waypoints.push((cx, tail_y));
+                        }
+
+                        let line_w = 3.0 * scale;
+                        let col = Color::from_rgba(250, 204, 21, 200);
+                        let tile_col = Color::from_rgba(255, 255, 255, 230);
+                        for seg in 0..waypoints.len() - 1 {
+                            let (x0, y0) = waypoints[seg];
+                            let (x1, y1) = waypoints[seg + 1];
+                            if let Some(tex) = slide_tex {
+                                let dx = x1 - x0;
+                                let dy = y1 - y0;
+                                let seg_len = (dx * dx + dy * dy).sqrt();
+                                let bar_w = 14.0 * scale;
+                                let tw_nat = tex.width() * scale * SLIDE_TILE_SCALE;
+                                let th_nat = tex.height() * scale * SLIDE_TILE_SCALE;
+                                let tile_h = th_nat * (bar_w / tw_nat).max(0.001);
+                                let spacing = SLIDE_TILE_SPACING * scale;
+                                let angle = dy.atan2(dx) + std::f32::consts::PI;
+                                let steps = (seg_len / spacing).ceil().max(1.0) as i32;
+                                for k in 0..=steps {
+                                    let t = k as f32 / steps as f32;
+                                    let px = x0 + dx * t;
+                                    let py = y0 + dy * t;
+                                    draw_texture_ex(tex, px - bar_w * 0.5, py - tile_h * 0.5,
+                                        tile_col,
+                                        DrawTextureParams {
+                                            dest_size: Some(vec2(bar_w, tile_h)),
+                                            rotation: angle,
+                                            ..Default::default()
+                                        });
+                                }
+                            } else {
+                                draw_line(x0, y0, x1, y1, line_w, col);
+                            }
+                        }
+                        for &(wx, wy) in &waypoints[1..] {
+                            draw_circle(wx, wy, 3.0 * scale, Color::from_rgba(253, 224, 71, 200));
                         }
                     }
-                    // Draw dots at each waypoint (except first which is delay-end handle).
-                    for &(wx, wy) in &waypoints[1..] {
-                        draw_circle(wx, wy, 3.0 * scale, Color::from_rgba(253, 224, 71, 200));
+
+                    if delay_s > 0.0 || dur_s > 0.0 {
+                        draw_circle(cx, delay_y, 4.5 * scale, Color::from_rgba(56, 189, 248, 230));
+                        draw_circle_lines(cx, delay_y, 4.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
+                    }
+                    if dur_s > 0.0 {
+                        let tail_cx = super::input::slide_tail_cx_for(note, si, track_x, ruler_w, lane_w);
+                        draw_circle(tail_cx, tail_y, 5.5 * scale, Color::from_rgba(250, 204, 21, 230));
+                        draw_circle_lines(tail_cx, tail_y, 5.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
                     }
                 }
 
@@ -1047,7 +1063,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 if !note.is_tapless {
                     // Use double-star textures when is_star is set (multiple slides)
                     let is_double = note.is_star;
-                    let star_tex = if note.star_is_break {
+                    let star_tex = if note.is_break {
                         if is_double { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
                     } else if note.is_each {
                         if is_double { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
@@ -1060,7 +1076,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                         draw_texture_ex(tex, cx - ss * 0.5, ny - ss * 0.5,
                             Color::from_rgba(255, 255, 255, 230),
                             DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
-                        if note.star_is_ex {
+                        if note.is_ex {
                             let ex_tex = if is_double { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
                             if let Some(ex) = ex_tex.or(app.star_ex_tex.as_ref()) {
                                 draw_texture_ex(ex, cx - ss * 0.5, ny - ss * 0.5,
@@ -1073,20 +1089,6 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     }
                 }
 
-                // Delay-end handle (smaller, white-bordered, drag adjusts slide_start_delay).
-                if delay_s > 0.0 || dur_s > 0.0 {
-                    draw_circle(cx, delay_y, 4.5 * scale, Color::from_rgba(56, 189, 248, 230));
-                    draw_circle_lines(cx, delay_y, 4.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
-                }
-                // Tail handle (drag adjusts slide_duration) — at the last A-zone waypoint's lane.
-                if dur_s > 0.0 {
-                    let tail_cx = if let Some(last) = note.slide_points.iter().rev().find(|sp| sp.zone >= 1 && sp.zone <= 8) {
-                        let li = (last.zone.saturating_sub(1) as usize).min(LANE_COUNT - 2);
-                        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
-                    } else { cx };
-                    draw_circle(tail_cx, tail_y, 5.5 * scale, Color::from_rgba(250, 204, 21, 230));
-                    draw_circle_lines(tail_cx, tail_y, 5.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
-                }
             }
             NoteType::Hold => {
                 let tail_time = hold_tail_time(note, bpms);
@@ -1424,7 +1426,10 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             let ns = note_secs(n, bpms);
             match n.note_type {
                 NoteType::Hold => hold_tail_time(n, bpms),
-                NoteType::Slide => ns + mdur_to_secs(n.slide_duration, n.time, bpms),
+                NoteType::Slide => {
+                    let max_d = n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
+                    ns + mdur_to_secs(max_d, n.time, bpms)
+                },
                 _ => ns,
             }
         }).fold(0.0_f32, f32::max);
@@ -1556,7 +1561,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
     // ── Trajectory edit overlay ──
     // When the user is editing a slide note's path, highlight its current
-    // start + slide_points with numbered markers and connecting polyline so
+    // start + current segment points with numbered markers and connecting polyline so
     // they can see what will be appended next.
     if let (Some(i), Some(svg)) = (app.editing_slide_path, app.pad_svg.as_ref()) {
         if let Some(note) = app.chart.notes.get(i) {
@@ -1565,9 +1570,16 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 if let Some(c) = svg.zone_screen_centroid(note.lane, &pad) {
                     pts.push((c, format!("S{}", note.lane)));
                 }
-                for (k, sp) in note.slide_points.iter().enumerate() {
-                    if let Some(c) = svg.zone_screen_centroid(sp.zone, &pad) {
-                        pts.push((c, format!("{}", k + 1)));
+                let mut shape_label = "none".to_string();
+                let edit_idx = app.editing_slide_idx.unwrap_or(0);
+                if let Some(sl) = note.slide.get(edit_idx) {
+                    if let Some(seg) = sl.segments.first() {
+                        for (k, sp) in seg.points.iter().enumerate() {
+                            if let Some(c) = svg.zone_screen_centroid(sp.zone, &pad) {
+                                pts.push((c, format!("{}", k + 1)));
+                            }
+                        }
+                        shape_label = format!("{:?}", seg.shape);
                     }
                 }
                 let line_col = Color::from_rgba(250, 204, 21, 220);
@@ -1582,8 +1594,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     draw_text(lbl, p.x - dims.width * 0.5, p.y + dims.height * 0.35, sz, BLACK);
                 }
                 let banner = format!(
-                    "Trajectory edit  #{}  pts={}  shape={:?}  [click=add  Bksp=undo  Esc/E=exit]",
-                    i, note.slide_points.len(), note.slide_shape
+                    "Trajectory edit  #{}:{}  pts={}  shape={:?}  [click=add  Bksp=undo  Esc/E=exit]",
+                    i, edit_idx, pts.len().saturating_sub(1), shape_label
                 );
                 draw_rectangle(
                     rect.x + 8.0 * scale, rect.y + 36.0 * scale,
@@ -1632,18 +1644,20 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
         // ── Inline Slide rendering (path tiles + flying star + touch-zone fade-in head) ──
         // Drawn here so layering follows chart order: later notes cover earlier ones.
-        if matches!(note.note_type, NoteType::Slide) && !note.slide_points.is_empty() {
-            let slide_dur_s = mdur_to_secs(note.slide_duration, note.time, bpms).max(0.3);
-            let slide_end_s = ns + slide_dur_s;
-            if dt <= SLIDE_TRAVEL_TIME && current_t <= slide_end_s + 0.2 {
-                let slide_tex = if note.is_break { app.slide_break_tex.as_ref() } else if note.is_each { app.slide_each_tex.as_ref() } else { app.slide_tex.as_ref() };
+        if matches!(note.note_type, NoteType::Slide) && !note.slide.is_empty() {
+            for sl in &note.slide {
+                let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
+                let slide_end_s = ns + slide_dur_s;
+                if !(dt <= SLIDE_TRAVEL_TIME && current_t <= slide_end_s + 0.2) {
+                    continue;
+                }
+                let slide_tex = if sl.slide_is_break { app.slide_break_tex.as_ref() } else if note.is_each { app.slide_each_tex.as_ref() } else { app.slide_tex.as_ref() };
                 let (tw, th) = if let Some(t) = slide_tex {
                     (t.width() * scale * SLIDE_TILE_SCALE, t.height() * scale * SLIDE_TILE_SCALE)
                 } else {
                     (SLIDE_TILE_SIZE * scale, SLIDE_TILE_SIZE * scale)
                 };
 
-                // Build path of centroids
                 let mut path: Vec<Vec2> = Vec::new();
                 if let Some(ref svg) = app.pad_svg {
                     let start_pt = if note.lane <= 8 {
@@ -1655,19 +1669,21 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         svg.zone_screen_centroid(note.lane, &pad)
                     };
                     if let Some(c) = start_pt { path.push(c); }
-                    for sp in &note.slide_points {
-                        if sp.zone == note.lane && path.len() == 1 { continue; }
-                        let c = if sp.zone >= 1 && sp.zone <= 8 {
-                            let idx = (sp.zone - 1) as f32;
-                            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-                            let target_r = outer_r + TAP_TARGET_OFFSET;
-                            Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
-                        } else {
-                            svg.zone_screen_centroid(sp.zone, &pad)
-                        };
-                        if let Some(c) = c {
-                            if path.last().map(|p| (*p - c).length() > 1.0).unwrap_or(true) {
-                                path.push(c);
+                    for seg in &sl.segments {
+                        for sp in &seg.points {
+                            if sp.zone == note.lane && path.len() == 1 { continue; }
+                            let c = if sp.zone >= 1 && sp.zone <= 8 {
+                                let idx = (sp.zone - 1) as f32;
+                                let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                let target_r = outer_r + TAP_TARGET_OFFSET;
+                                Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
+                            } else {
+                                svg.zone_screen_centroid(sp.zone, &pad)
+                            };
+                            if let Some(c) = c {
+                                if path.last().map(|p| (*p - c).length() > 1.0).unwrap_or(true) {
+                                    path.push(c);
+                                }
                             }
                         }
                     }
@@ -1676,10 +1692,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 if path.len() >= 2 {
                     let seg_lens: Vec<f32> = path.windows(2).map(|w| (w[1] - w[0]).length().max(0.001)).collect();
                     let total_len: f32 = seg_lens.iter().sum();
-
-                    // Honor the full configured delay; clamp only to the total
-                    // slide duration so travel_dur stays positive.
-                    let fade_in_s = mdur_to_secs(note.slide_start_delay, note.time, bpms)
+                    let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
                         .max(0.0)
                         .min(slide_dur_s - 0.001)
                         .max(0.001);
@@ -1743,7 +1756,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         let size_scale = if head_progress < TAP_GROW_FRAC { head_progress / TAP_GROW_FRAC } else { 1.0 };
                         let ss = STAR_SIZE * scale * size_scale;
                         let dbl = note.is_star;
-                        let star_tex = if note.star_is_break {
+                        let star_tex = if note.is_break {
                             if dbl { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
                         } else if note.is_each {
                             if dbl { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
@@ -1755,7 +1768,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         if let Some(tex) = star_tex.or(fb).or(app.star_tex.as_ref()) {
                             draw_texture_ex(tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
                                 DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: head_rot, ..Default::default() });
-                            if note.star_is_ex {
+                            if note.is_ex {
                                 let ex = if dbl { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
                                 if let Some(ex_tex) = ex.or(app.star_ex_tex.as_ref()) {
                                     draw_texture_ex(ex_tex, path[0].x - ss * 0.5, path[0].y - ss * 0.5, WHITE,
@@ -1770,7 +1783,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         let (star_pos, angle) = point_at(star_dist_along);
                         let ss = STAR_SIZE * scale;
                         let dbl = note.is_star;
-                        let star_tex = if note.star_is_break {
+                        let star_tex = if note.is_break {
                             if dbl { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
                         } else if note.is_each {
                             if dbl { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
@@ -1781,7 +1794,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         if let Some(tex) = star_tex.or(fb).or(app.star_tex.as_ref()) {
                             draw_texture_ex(tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
                                 DrawTextureParams { dest_size: Some(vec2(ss, ss)), rotation: angle, ..Default::default() });
-                            if note.star_is_ex {
+                            if note.is_ex {
                                 let ex = if dbl { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
                                 if let Some(ex_tex) = ex.or(app.star_ex_tex.as_ref()) {
                                     draw_texture_ex(ex_tex, star_pos.x - ss * 0.5, star_pos.y - ss * 0.5, WHITE,
@@ -1886,7 +1899,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 if dt > 0.0 && !note.is_tapless {
                     let ss = STAR_SIZE * scale * size_scale;
                     let dbl = note.is_star;
-                    let star_tex = if note.star_is_break {
+                    let star_tex = if note.is_break {
                         if dbl { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
                     } else if note.is_each {
                         if dbl { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
@@ -1901,7 +1914,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             rotation: star_rot,
                             ..Default::default()
                         });
-                        if note.star_is_ex {
+                        if note.is_ex {
                             let ex = if dbl { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
                             if let Some(ex_tex) = ex.or(app.star_ex_tex.as_ref()) {
                                 draw_texture_ex(ex_tex, px - ss * 0.5, py - ss * 0.5, WHITE, DrawTextureParams {

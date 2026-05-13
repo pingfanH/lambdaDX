@@ -3,7 +3,7 @@ use macroquad::prelude::get_time;
 
 use super::chart;
 use super::state::AppState;
-use super::types::{Note, NoteType, PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, SlideShape, BpmChange, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs, snap_measure};
+use super::types::{Note, NoteType, PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, SlideShape, BpmChange, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs};
 use super::ui::{rect_contains, trigger_ui_action};
 
 /// Collect indices of selected notes (multi-select or single).
@@ -150,6 +150,7 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             if let Some(n) = app.chart.notes.get(i) {
                 if matches!(n.note_type, super::types::NoteType::Slide) {
                     app.set_editing_slide_path(Some(i));
+                    app.editing_slide_idx = Some(0);
                     app.set_status(format!(
                         "Trajectory edit: click pad zones to append (Backspace=undo, Esc=exit). #{i}"
                     ));
@@ -170,9 +171,15 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     if app.editing_slide_path.is_some() && is_key_pressed(KeyCode::Backspace) {
         if let Some(i) = app.editing_slide_path {
             if let Some(n) = app.chart.notes.get_mut(i) {
-                if let Some(removed) = n.slide_points.pop() {
-                    n.slide_shape = super::slide_match::match_slide_shape(n.lane, &n.slide_points);
-                    app.set_status(format!("Removed zone {}", removed.zone));
+                let edit_idx = app.editing_slide_idx.unwrap_or(0);
+                if let Some(sl) = n.slide.get_mut(edit_idx) {
+                    if let Some(seg) = sl.segments.first_mut() {
+                        if let Some(removed) = seg.points.pop() {
+                            seg.shape = super::slide_match::match_slide_shape(n.lane, &seg.points)
+                                .unwrap_or(super::types::SlideShape::Line);
+                            app.set_status(format!("Removed zone {}", removed.zone));
+                        }
+                    }
                 }
             }
         }
@@ -207,7 +214,7 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             else if is_key_pressed(KeyCode::Key8) { Some(8) }
             else { None };
         if let (Some(end_lane), Some(shape)) = (lane_key, app.pending_slide_shape) {
-            // Shape key + lane: apply predefined shape
+            // Shape key + lane: apply predefined shape to first slide's first segment
             if let Some(i) = app.editing_slide_path {
                 if let Some(n) = app.chart.notes.get_mut(i) {
                     if matches!(n.note_type, NoteType::Slide) && n.lane >= 1 && n.lane <= 8 {
@@ -215,32 +222,67 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
                         let points = super::simai_io::simai_pattern_to_points(
                             n.lane - 1, end_lane - 1, pattern, None,
                         );
-                        n.slide_points = points;
-                        n.slide_shape = Some(shape);
+                        // Ensure at least one Slide with one segment exists
+                        if n.slide.is_empty() {
+                            n.slide.push(super::types::Slide {
+                                segments: vec![super::types::SlideSegment { points, shape }],
+                                slide_duration: 0.5, slide_start_delay: 0.0625,
+                                slide_is_break: false,
+                            });
+                            app.editing_slide_idx = Some(0);
+                        } else {
+                            let edit_idx = app.editing_slide_idx.unwrap_or(0).min(n.slide.len().saturating_sub(1));
+                            let sl = &mut n.slide[edit_idx];
+                            if sl.segments.is_empty() {
+                                sl.segments.push(super::types::SlideSegment { points, shape });
+                            } else {
+                                sl.segments[0].points = points;
+                                sl.segments[0].shape = shape;
+                            }
+                        }
                         app.set_status(format!("Set shape {:?} → lane {}", shape, end_lane));
                     }
                 }
             }
             app.pending_slide_shape = None;
         } else if let (Some(z), None) = (lane_key, app.pending_slide_shape) {
-            // No shape pending: lane key appends a waypoint (same as pad click)
+            // No shape pending: lane key appends a waypoint to first slide's first segment
             let mut msg: Option<String> = None;
             if let Some(i) = app.editing_slide_path {
                 if let Some(n) = app.chart.notes.get_mut(i) {
                     if matches!(n.note_type, NoteType::Slide) {
-                        let beat_offset = (n.slide_points.len() as f32 + 1.0)
-                            * (n.slide_duration.max(0.3)
-                                / (n.slide_points.len() as f32 + 2.0));
-                        let last_zone = n.slide_points.last().map(|p| p.zone)
+                        // Ensure at least one Slide with one segment exists
+                        if n.slide.is_empty() {
+                            n.slide.push(super::types::Slide {
+                                segments: vec![super::types::SlideSegment {
+                                    points: vec![], shape: super::types::SlideShape::Line,
+                                }],
+                                slide_duration: 0.5, slide_start_delay: 0.0625,
+                                slide_is_break: false,
+                            });
+                            app.editing_slide_idx = Some(0);
+                        }
+                        let edit_idx = app.editing_slide_idx.unwrap_or(0).min(n.slide.len().saturating_sub(1));
+                        let sl = &mut n.slide[edit_idx];
+                        if sl.segments.is_empty() {
+                            sl.segments.push(super::types::SlideSegment {
+                                points: vec![], shape: super::types::SlideShape::Line,
+                            });
+                        }
+                        let seg = &mut sl.segments[0];
+                        let dur = sl.slide_duration;
+                        let beat_offset = (seg.points.len() as f32 + 1.0)
+                            * (dur.max(0.3) / (seg.points.len() as f32 + 2.0));
+                        let last_zone = seg.points.last().map(|p| p.zone)
                             .unwrap_or(n.lane);
                         if z != last_zone {
-                            n.slide_points.push(super::types::SlidePoint {
+                            seg.points.push(super::types::SlidePoint {
                                 zone: z, beat_offset,
                             });
-                            n.slide_shape = super::slide_match::match_slide_shape(
-                                n.lane, &n.slide_points,
-                            );
-                            msg = Some(format!("Added zone {} (#{} points)", z, n.slide_points.len()));
+                            seg.shape = super::slide_match::match_slide_shape(
+                                n.lane, &seg.points,
+                            ).unwrap_or(super::types::SlideShape::Line);
+                            msg = Some(format!("Added zone {} (#{} points)", z, seg.points.len()));
                         }
                     }
                 }
@@ -252,7 +294,7 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     }
 
     // B: toggle Break on selected note(s)
-    // For Slide notes, toggles star_is_break (star head).
+    // For Slide notes, toggles is_break (star head break).
     if is_key_pressed(KeyCode::B) && !mod_down {
         let indices = gather_selected(app);
         if !indices.is_empty() {
@@ -260,29 +302,15 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             let mut count = 0;
             for &i in &indices {
                 if let Some(n) = app.chart.notes.get_mut(i) {
-                    match n.note_type {
-                        NoteType::Slide => {
-                            n.star_is_break = !n.star_is_break;
-                            count += 1;
-                        }
-                        NoteType::Tap | NoteType::Hold => {
-                            n.is_break = !n.is_break;
-                            count += 1;
-                        }
-                        _ => {}
-                    }
+                    n.is_break = !n.is_break;
+                    count += 1;
                 }
             }
-            let first = app.chart.notes.get(*indices.first().unwrap());
-            let on = first.map(|n| match n.note_type {
-                NoteType::Slide => n.star_is_break,
-                _ => n.is_break,
-            }).unwrap_or(false);
+            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| n.is_break).unwrap_or(false);
             app.set_status(format!("Break {}: {} notes", if on { "ON" } else { "OFF" }, count));
         }
     }
     // X: toggle Ex on selected note(s)
-    // For Slide notes, toggles star_is_ex (star head).
     if is_key_pressed(KeyCode::X) && !mod_down {
         let indices = gather_selected(app);
         if !indices.is_empty() {
@@ -290,29 +318,15 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             let mut count = 0;
             for &i in &indices {
                 if let Some(n) = app.chart.notes.get_mut(i) {
-                    match n.note_type {
-                        NoteType::Slide => {
-                            n.star_is_ex = !n.star_is_ex;
-                            count += 1;
-                        }
-                        NoteType::Tap | NoteType::Hold => {
-                            n.is_ex = !n.is_ex;
-                            count += 1;
-                        }
-                        _ => {}
-                    }
+                    n.is_ex = !n.is_ex;
+                    count += 1;
                 }
             }
-            let first = app.chart.notes.get(*indices.first().unwrap());
-            let on = first.map(|n| match n.note_type {
-                NoteType::Slide => n.star_is_ex,
-                _ => n.is_ex,
-            }).unwrap_or(false);
+            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| n.is_ex).unwrap_or(false);
             app.set_status(format!("Ex {}: {} notes", if on { "ON" } else { "OFF" }, count));
         }
     }
     // N: toggle ExBreak on selected note(s) (both break + ex)
-    // For Slide notes, toggles star_is_break + star_is_ex (star head).
     if is_key_pressed(KeyCode::N) && !mod_down {
         let indices = gather_selected(app);
         if !indices.is_empty() {
@@ -320,28 +334,13 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             let mut count = 0;
             for &i in &indices {
                 if let Some(n) = app.chart.notes.get_mut(i) {
-                    match n.note_type {
-                        NoteType::Slide => {
-                            let target = !(n.star_is_break && n.star_is_ex);
-                            n.star_is_break = target;
-                            n.star_is_ex = target;
-                            count += 1;
-                        }
-                        NoteType::Tap | NoteType::Hold => {
-                            let target = !(n.is_break && n.is_ex);
-                            n.is_break = target;
-                            n.is_ex = target;
-                            count += 1;
-                        }
-                        _ => {}
-                    }
+                    let target = !(n.is_break && n.is_ex);
+                    n.is_break = target;
+                    n.is_ex = target;
+                    count += 1;
                 }
             }
-            let first = app.chart.notes.get(*indices.first().unwrap());
-            let on = first.map(|n| match n.note_type {
-                NoteType::Slide => n.star_is_break && n.star_is_ex,
-                _ => n.is_break && n.is_ex,
-            }).unwrap_or(false);
+            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| n.is_break && n.is_ex).unwrap_or(false);
             app.set_status(format!("ExBreak {}: {} notes", if on { "ON" } else { "OFF" }, count));
         }
     }
@@ -465,8 +464,23 @@ pub(crate) fn handle_touch_controls(
                                         let points = super::simai_io::simai_pattern_to_points(
                                             n.lane - 1, z - 1, pattern, None,
                                         );
-                                        n.slide_points = points;
-                                        n.slide_shape = Some(shape);
+                                        if n.slide.is_empty() {
+                                            n.slide.push(super::types::Slide {
+                                                segments: vec![super::types::SlideSegment { points, shape }],
+                                                slide_duration: 0.5, slide_start_delay: 0.0625,
+                                                slide_is_break: false,
+                                            });
+                                            app.editing_slide_idx = Some(0);
+                                        } else {
+                                            let edit_idx = app.editing_slide_idx.unwrap_or(0).min(n.slide.len().saturating_sub(1));
+                                            let sl = &mut n.slide[edit_idx];
+                                            if sl.segments.is_empty() {
+                                                sl.segments.push(super::types::SlideSegment { points, shape });
+                                            } else {
+                                                sl.segments[0].points = points;
+                                                sl.segments[0].shape = shape;
+                                            }
+                                        }
                                         app.set_status(format!("Set shape {:?} → lane {}", shape, z));
                                     }
                                 }
@@ -480,19 +494,38 @@ pub(crate) fn handle_touch_controls(
                         let mut new_count = 0usize;
                         if let Some(n) = app.chart.notes.get_mut(i) {
                             if matches!(n.note_type, super::types::NoteType::Slide) {
-                                let beat_offset = (n.slide_points.len() as f32 + 1.0)
-                                    * (n.slide_duration.max(0.3)
-                                        / (n.slide_points.len() as f32 + 2.0));
-                                let last_zone = n.slide_points.last().map(|p| p.zone)
+                                // Ensure at least one Slide with one segment
+                                if n.slide.is_empty() {
+                                    n.slide.push(super::types::Slide {
+                                        segments: vec![super::types::SlideSegment {
+                                            points: vec![], shape: super::types::SlideShape::Line,
+                                        }],
+                                        slide_duration: 0.5, slide_start_delay: 0.0625,
+                                        slide_is_break: false,
+                                    });
+                                    app.editing_slide_idx = Some(0);
+                                }
+                                let edit_idx = app.editing_slide_idx.unwrap_or(0).min(n.slide.len().saturating_sub(1));
+                                let sl = &mut n.slide[edit_idx];
+                                if sl.segments.is_empty() {
+                                    sl.segments.push(super::types::SlideSegment {
+                                        points: vec![], shape: super::types::SlideShape::Line,
+                                    });
+                                }
+                                let seg = &mut sl.segments[0];
+                                let dur = sl.slide_duration;
+                                let beat_offset = (seg.points.len() as f32 + 1.0)
+                                    * (dur.max(0.3) / (seg.points.len() as f32 + 2.0));
+                                let last_zone = seg.points.last().map(|p| p.zone)
                                     .unwrap_or(n.lane);
                                 if z != last_zone {
-                                    n.slide_points.push(super::types::SlidePoint {
+                                    seg.points.push(super::types::SlidePoint {
                                         zone: z, beat_offset,
                                     });
-                                    n.slide_shape = super::slide_match::match_slide_shape(
-                                        n.lane, &n.slide_points,
-                                    );
-                                    new_count = n.slide_points.len();
+                                    seg.shape = super::slide_match::match_slide_shape(
+                                        n.lane, &seg.points,
+                                    ).unwrap_or(super::types::SlideShape::Line);
+                                    new_count = seg.points.len();
                                 }
                                 handled = true;
                             }
@@ -671,7 +704,10 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 let ns = note_secs(n, bpms);
                 match n.note_type {
                     super::types::NoteType::Hold => hold_tail_time(n, bpms),
-                    super::types::NoteType::Slide => ns + mdur_to_secs(n.slide_duration, n.time, bpms),
+                    super::types::NoteType::Slide => {
+                        let max_dur = n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
+                        ns + mdur_to_secs(max_dur, n.time, bpms)
+                    }
                     _ => ns,
                 }
             }).fold(0.0_f32, f32::max);
@@ -743,7 +779,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             app.push_undo();
             app.chart.notes.remove(i);
             app.recompute_each();
-            app.set_selected_note(None); app.dragging_note = None;
+            app.set_selected_note(None); app.dragging_note = None; app.drag_slide_idx = None;
             app.set_status(format!("Deleted note #{i}"));
         }
         return;
@@ -754,17 +790,19 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         let mut best: Option<usize> = None; let mut best_d = 30.0_f32;
         for (i, note) in app.chart.notes.iter().enumerate() {
             if !matches!(note.note_type, NoteType::Slide) { continue; }
-            if note.slide_duration <= 0.0 { continue; }
-            let (cx, _ny, tail_ny, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
-            let tcx = slide_tail_cx(note, track_x, ruler_w, lane_w);
-            // Check distance to tail
-            let tail_d = pos.distance(vec2(tcx, tail_ny));
-            if tail_d < best_d { best = Some(i); best_d = tail_d; }
-            // Check distance to midpoint of the slide body
-            let mid_y = (_ny + tail_ny) * 0.5;
-            let mid_x = (cx + tcx) * 0.5;
-            let mid_d = pos.distance(vec2(mid_x, mid_y));
-            if mid_d < best_d { best = Some(i); best_d = mid_d; }
+            let (cx, _ny, _tail_ny, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
+            for (si, sl) in note.slide.iter().enumerate() {
+                if sl.slide_duration <= 0.0 { continue; }
+                let tail_t = note_secs(note, &app.chart.bpms) + mdur_to_secs(sl.slide_duration, note.time, &app.chart.bpms);
+                let tail_ny = judge_y - (tail_t - now) * scroll_speed;
+                let tcx = slide_tail_cx_for(note, si, track_x, ruler_w, lane_w);
+                let tail_d = pos.distance(vec2(tcx, tail_ny));
+                if tail_d < best_d { best = Some(i); best_d = tail_d; app.drag_slide_idx = Some(si); }
+                let mid_y = (_ny + tail_ny) * 0.5;
+                let mid_x = (cx + tcx) * 0.5;
+                let mid_d = pos.distance(vec2(mid_x, mid_y));
+                if mid_d < best_d { best = Some(i); best_d = mid_d; app.drag_slide_idx = Some(si); }
+            }
         }
         if let Some(i) = best {
             app.set_selected_note(Some(i));
@@ -779,18 +817,29 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         // Hit-test: find nearest note (potential drag target)
         let mut best: Option<usize> = None; let mut best_d = 30.0;
         let mut best_part = DragPart::Body;
+        let mut best_slide_idx: Option<usize> = None;
         for (i, note) in app.chart.notes.iter().enumerate() {
             let (cx, ny, tail_ny, has_tail) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             let d = pos.distance(vec2(cx, ny));
-            if matches!(note.note_type, super::types::NoteType::Slide) && note.slide_duration > 0.0 {
+            if matches!(note.note_type, super::types::NoteType::Slide) && !note.slide.is_empty() {
                 let ns = note_secs(note, &app.chart.bpms);
-                let delay_secs = ns + mdur_to_secs(note.slide_start_delay, note.time, &app.chart.bpms);
-                let delay_y = judge_y - (delay_secs - now) * scroll_speed;
-                let delay_d = pos.distance(vec2(cx, delay_y));
-                let tail_d = pos.distance(vec2(cx, tail_ny));
-                if delay_d < best_d && delay_d < d && delay_d < tail_d {
-                    best = Some(i); best_d = delay_d; best_part = DragPart::SlideDelayEnd;
-                    continue;
+                for (si, sl) in note.slide.iter().enumerate() {
+                    if sl.slide_duration <= 0.0 { continue; }
+                    let delay_secs = ns + mdur_to_secs(sl.slide_start_delay, note.time, &app.chart.bpms);
+                    let delay_y = judge_y - (delay_secs - now) * scroll_speed;
+                    let tail_secs = ns + mdur_to_secs(sl.slide_duration, note.time, &app.chart.bpms);
+                    let tail_y = judge_y - (tail_secs - now) * scroll_speed;
+                    let tail_x = slide_tail_cx_for(note, si, track_x, ruler_w, lane_w);
+                    let delay_d = pos.distance(vec2(cx, delay_y));
+                    let tail_d = pos.distance(vec2(tail_x, tail_y));
+                    if delay_d < best_d && delay_d < d && delay_d < tail_d {
+                        best = Some(i); best_d = delay_d; best_part = DragPart::SlideDelayEnd; best_slide_idx = Some(si);
+                        continue;
+                    }
+                    if tail_d < best_d && tail_d < d {
+                        best = Some(i); best_d = tail_d; best_part = DragPart::Tail; best_slide_idx = Some(si);
+                        continue;
+                    }
                 }
             }
             if has_tail {
@@ -806,7 +855,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         app.drag_cursor_anchor_t = cursor_t_at_click;
 
         if let Some(i) = best {
-            // Double-click on a Slide head → fork a new slide from same star
+            // Double-click on a Slide head → append a new sub-slide to same star note
             let click_now = get_time();
             let is_dbl = app.last_click_note == Some(i)
                 && (click_now - app.last_click_time) < 0.4
@@ -818,24 +867,21 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 app.push_undo();
                 // Mark the original star as double-star
                 app.chart.notes[i].is_star = true;
-                let new_note = Note {
-                    time: src.time, lane: src.lane, note_type: NoteType::Slide,
-                    hold_duration: 0.0, is_each: src.is_each,
-                    is_break: false, is_ex: false, is_star: false, is_tapless: true,
-                    star_is_break: src.star_is_break, star_is_ex: src.star_is_ex,
-                    slide_points: vec![], slide_duration: src.slide_duration,
-                    slide_start_delay: src.slide_start_delay, slide_shape: None,
+                let default_dur = src.slide.first().map(|s| s.slide_duration).unwrap_or(0.5);
+                let default_delay = src.slide.first().map(|s| s.slide_start_delay).unwrap_or(0.0625);
+                let new_slide = super::types::Slide {
+                        segments: vec![],
+                        slide_duration: default_dur,
+                        slide_start_delay: default_delay,
+                        slide_is_break: false,
                 };
-                app.chart.notes.push(new_note);
-                app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
-                let new_i = app.chart.notes.iter().position(|n| {
-                    n.time == src.time && n.lane == src.lane
-                        && matches!(n.note_type, NoteType::Slide)
-                        && n.slide_points.is_empty()
-                }).unwrap_or(app.chart.notes.len() - 1);
-                app.set_selected_note(Some(new_i));
-                app.set_editing_slide_path(Some(new_i));
-                app.set_status(format!("Forked new slide from star #{i} — click pad zones to build path"));
+                app.chart.notes[i].slide.push(new_slide);
+                let new_si = app.chart.notes[i].slide.len().saturating_sub(1);
+                app.chart.notes[i].is_tapless = false;
+                app.set_selected_note(Some(i));
+                app.set_editing_slide_path(Some(i));
+                app.editing_slide_idx = Some(new_si);
+                app.set_status(format!("Appended slide #{new_si} on star #{i} — click pad zones to build path"));
                 return;
             }
             // Record candidate for potential drag — do NOT select yet
@@ -846,13 +892,22 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             app.drag_start_time = match best_part {
                 DragPart::Tail => match n.note_type {
                     super::types::NoteType::Hold => hold_tail_time(n, bpms),
-                    super::types::NoteType::Slide => note_secs(n, bpms) + mdur_to_secs(n.slide_duration, n.time, bpms),
+                    super::types::NoteType::Slide => {
+                        let si = app.drag_slide_idx.unwrap_or(0);
+                        let d = n.slide.get(si).map(|s| s.slide_duration).unwrap_or(0.0);
+                        note_secs(n, bpms) + mdur_to_secs(d, n.time, bpms)
+                    }
                     _ => note_secs(n, bpms),
                 },
-                DragPart::SlideDelayEnd => note_secs(n, bpms) + mdur_to_secs(n.slide_start_delay, n.time, bpms),
+                DragPart::SlideDelayEnd => {
+                    let si = app.drag_slide_idx.unwrap_or(0);
+                    let d = n.slide.get(si).map(|s| s.slide_start_delay).unwrap_or(0.0);
+                    note_secs(n, bpms) + mdur_to_secs(d, n.time, bpms)
+                }
                 _ => note_secs(n, bpms),
             };
             app.drag_part = Some(best_part);
+            app.drag_slide_idx = best_slide_idx;
             app.drag_orig_note = Some(app.chart.notes[i].clone());
         } else {
             // No note under cursor — prepare for potential box-select
@@ -860,6 +915,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             app.drag_start_pos = Some(pos);
             app.box_anchor_t = Some(cursor_t_at_click);
             app.drag_part = None;
+            app.drag_slide_idx = None;
             app.drag_orig_note = None;
         }
     }
@@ -930,9 +986,11 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     DragPart::Head => {
                         if let Some(o) = orig {
                             if is_slide {
-                                let tail_m = o.time + o.slide_duration;
                                 note.time = new_t;
-                                note.slide_duration = (tail_m - new_t).max(0.0);
+                                for (si, sl) in note.slide.iter_mut().enumerate() {
+                                    let old_tail_m = o.time + o.slide.get(si).map(|x| x.slide_duration).unwrap_or(sl.slide_duration);
+                                    sl.slide_duration = (old_tail_m - new_t).max(0.0);
+                                }
                             } else {
                                 let tail_m = o.time + o.hold_duration;
                                 note.time = new_t;
@@ -943,7 +1001,10 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     DragPart::Tail => {
                         if let Some(o) = orig {
                             if is_slide {
-                                note.slide_duration = (new_t - o.time).max(0.0);
+                                let si = app.drag_slide_idx.unwrap_or(0);
+                                if let Some(sl) = note.slide.get_mut(si) {
+                                    sl.slide_duration = (new_t - o.time).max(0.0);
+                                }
                             } else {
                                 note.hold_duration = (new_t - o.time).max(0.0);
                             }
@@ -951,16 +1012,24 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     }
                     DragPart::SlideDelayEnd => {
                         if let Some(o) = orig {
-                            // Adjust the start-delay; clamp to [0, slide_duration].
-                            let delay = (new_t - o.time).max(0.0).min(o.slide_duration);
-                            note.slide_start_delay = delay;
+                            let si = app.drag_slide_idx.unwrap_or(0);
+                            if let Some(sl) = note.slide.get_mut(si) {
+                                let max_dur = o.slide.get(si).map(|x| x.slide_duration).unwrap_or(sl.slide_duration);
+                                let delay = (new_t - o.time).max(0.0).min(max_dur);
+                                sl.slide_start_delay = delay;
+                            }
                         }
                     }
                     DragPart::Body => {
                         if let Some(o) = orig {
                             note.time = new_t;
                             if is_slide {
-                                note.slide_duration = o.slide_duration;
+                                for (si, sl) in note.slide.iter_mut().enumerate() {
+                                    if let Some(old) = o.slide.get(si) {
+                                        sl.slide_duration = old.slide_duration;
+                                        sl.slide_start_delay = old.slide_start_delay;
+                                    }
+                                }
                             } else {
                                 note.hold_duration = o.hold_duration;
                             }
@@ -970,7 +1039,11 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                     }
                 }
                 note.lane = new_lane;
-                let dur = if is_slide { note.slide_duration } else { note.hold_duration };
+                let dur = if is_slide {
+                    note.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max)
+                } else {
+                    note.hold_duration
+                };
                 let t_val = note.time;
                 app.set_status(format!("#{i}: t={:.2} dur={:.2}", t_val, dur));
                 // Move sibling slides (same star group) together
@@ -1029,7 +1102,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         }
         // Clean up
         app.press_note_candidate = None;
-        app.dragging_note = None; app.drag_start_pos = None; app.drag_orig_note = None;
+        app.dragging_note = None; app.drag_start_pos = None; app.drag_orig_note = None; app.drag_slide_idx = None;
         app.box_start = None; app.box_end = None; app.box_anchor_t = None;
         app.recompute_each();
     }
@@ -1072,9 +1145,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
             app.chart.notes.push(Note {
                 time: t, lane, note_type: nt, hold_duration: 0.0, is_each: false,
                 is_break: false, is_ex: false, is_star: false, is_tapless: false,
-                star_is_break: false, star_is_ex: false,
-                slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0,
-                slide_shape: None,
+                slide: vec![],
             });
             app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
             app.recompute_each();
@@ -1097,9 +1168,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                         time: head_t, lane: lane0, note_type: NoteType::Hold,
                         hold_duration: dur, is_each: false,
                         is_break: false, is_ex: false, is_star: false, is_tapless: false,
-                        star_is_break: false, star_is_ex: false,
-                        slide_points: vec![], slide_duration: 0.0, slide_start_delay: 0.0,
-                        slide_shape: None,
+                        slide: vec![],
                     });
                     app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
                     app.recompute_each();
@@ -1141,9 +1210,12 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                         time: head_t, lane: lane0, note_type: NoteType::Slide,
                         hold_duration: 0.0, is_each: false,
                         is_break: false, is_ex: false, is_star: false, is_tapless: false,
-                        star_is_break: false, star_is_ex: false,
-                        slide_points: vec![], slide_duration, slide_start_delay,
-                        slide_shape: None,
+                        slide: vec![super::types::Slide {
+                            segments: vec![],
+                            slide_duration,
+                            slide_start_delay,
+                            slide_is_break: false,
+                        }],
                     });
                     app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
                     app.recompute_each();
@@ -1171,8 +1243,9 @@ pub(crate) fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32,
     let ny = judge_y - dt * scroll_speed;
     let (tail_t, has_tail) = match note.note_type {
         super::types::NoteType::Hold => (hold_tail_time(note, bpms), true),
-        super::types::NoteType::Slide if note.slide_duration > 0.0 => {
-            (ns + mdur_to_secs(note.slide_duration, note.time, bpms), true)
+        super::types::NoteType::Slide if !note.slide.is_empty() => {
+            let max_d = note.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
+            (ns + mdur_to_secs(max_d, note.time, bpms), max_d > 0.0)
         }
         _ => (ns, false),
     };
@@ -1182,12 +1255,23 @@ pub(crate) fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32,
 
 /// Get the x position of a slide note's tail (last A-zone waypoint lane).
 pub(crate) fn slide_tail_cx(note: &super::types::Note, track_x: f32, ruler_w: f32, lane_w: f32) -> f32 {
-    if let Some(last) = note.slide_points.iter().rev().find(|sp| sp.zone >= 1 && sp.zone <= 8) {
-        let li = (last.zone.saturating_sub(1) as usize).min(LANE_COUNT - 2);
-        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
-    } else {
-        let zone = sanitize_note_zone(note.note_type, note.lane);
-        let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
-        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+    let idx = note.slide.iter().enumerate()
+        .max_by(|a, b| a.1.slide_duration.partial_cmp(&b.1.slide_duration).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    slide_tail_cx_for(note, idx, track_x, ruler_w, lane_w)
+}
+
+pub(crate) fn slide_tail_cx_for(note: &super::types::Note, slide_idx: usize, track_x: f32, ruler_w: f32, lane_w: f32) -> f32 {
+    if let Some(sl) = note.slide.get(slide_idx) {
+        for seg in sl.segments.iter().rev() {
+            if let Some(last) = seg.points.iter().rev().find(|sp| sp.zone >= 1 && sp.zone <= 8) {
+                let li = (last.zone.saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                return track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
+            }
+        }
     }
+    let zone = sanitize_note_zone(note.note_type, note.lane);
+    let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
+    track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
 }

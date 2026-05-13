@@ -19,9 +19,10 @@ use maisimai::{
     self as ms,
     Bpm, SimaiChart, SimaiFile, SimaiNote, SlidePattern,
 };
+use serde::de;
 
 use super::platform;
-use super::types::{ChartDoc, Note, NoteType, SlidePoint, SlideShape, BpmChange, snap_measure};
+use super::types::{ChartDoc, Note, NoteType, Slide, SlideSegment, SlidePoint, SlideShape, BpmChange, snap_measure};
 
 /// Pick a chart from a Simai file (highest difficulty by default) and convert
 /// it to a `ChartDoc`. Returns `Err` if the file has no charts.
@@ -102,19 +103,11 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                 notes.push(Note {
                     time: *measure,
                     lane: button + 1,
-                    note_type: NoteType::Tap,
-                    hold_duration: 0.0,
                     is_each,
                     is_break: *is_break,
                     is_ex: *is_ex,
                     is_star: *is_star,
-                    is_tapless: false,
-                    star_is_break: false,
-                    star_is_ex: false,
-                    slide_points: Vec::new(),
-                    slide_duration: 0.0,
-                    slide_start_delay: 0.0,
-                    slide_shape: None,
+                    ..Default::default()
                 });
             }
             SimaiNote::Hold { measure, button, duration, is_ex, .. } => {
@@ -124,32 +117,32 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     note_type: NoteType::Hold,
                     hold_duration: duration.max(0.0),
                     is_each,
-                    is_break: false,
-                    is_ex: *is_ex,
-                    is_star: false,
-                    is_tapless: false,
-                    star_is_break: false,
-                    star_is_ex: false,
-                    slide_points: Vec::new(),
-                    slide_duration: 0.0,
-                    slide_start_delay: 0.0,
-                    slide_shape: None,
+                    ..Default::default()
                 });
             }
             SimaiNote::Slide { measure, start, end, pattern, reflect, duration, delay, is_break, is_ex, is_tapless, chain, .. } => {
-                // Build combined slide_points: first arc + chain arcs.
-                let mut slide_points = simai_pattern_to_points(*start, *end, *pattern, *reflect);
+                // Build chain segments: first arc + chain arcs, each as a SlideSegment.
+                let mut segments = Vec::new();
+                let first_pts = simai_pattern_to_points(*start, *end, *pattern, *reflect);
+                segments.push(SlideSegment {
+                    points: first_pts,
+                    shape: simai_pattern_to_shape(*pattern),
+                });
                 let mut prev_end = *end;
                 for (cp, ce, cr) in chain {
                     let chain_pts = simai_pattern_to_points(prev_end, *ce, *cp, *cr);
-                    // Skip first point of chain arc (it's the same as previous end).
-                    if chain_pts.len() > 1 {
-                        slide_points.extend_from_slice(&chain_pts[1..]);
-                    } else {
-                        slide_points.extend_from_slice(&chain_pts);
-                    }
+                    segments.push(SlideSegment {
+                        points: chain_pts,
+                        shape: simai_pattern_to_shape(*cp),
+                    });
                     prev_end = *ce;
                 }
+                let slide_obj = Slide {
+                    segments,
+                    slide_duration: (*delay + *duration).max(0.0),
+                    slide_start_delay: delay.max(0.0),
+                    slide_is_break: *is_break,
+                };
                 // Look for a star Tap at the same measure+button to get
                 // the star head's break/ex flags.
                 let q = quantize(*measure);
@@ -162,18 +155,12 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     time: *measure,
                     lane: start + 1,
                     note_type: NoteType::Slide,
-                    hold_duration: 0.0,
                     is_each,
-                    is_break: *is_break,
-                    is_ex: *is_ex,
-                    is_star: false,
+                    is_break: sb,
+                    is_ex: se,
                     is_tapless: *is_tapless,
-                    star_is_break: sb,
-                    star_is_ex: se,
-                    slide_points,
-                    slide_duration: (*delay + *duration).max(0.0),
-                    slide_start_delay: delay.max(0.0),
-                    slide_shape: Some(simai_pattern_to_shape(*pattern)),
+                    slide: vec![slide_obj],
+                    ..Default::default()
                 });
             }
             SimaiNote::TouchTap { measure, region, position, .. } => {
@@ -182,18 +169,8 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                         time: *measure,
                         lane,
                         note_type: NoteType::Touch,
-                        hold_duration: 0.0,
                         is_each,
-                        is_break: false,
-                        is_ex: false,
-                        is_star: false,
-                        is_tapless: false,
-                        star_is_break: false,
-                        star_is_ex: false,
-                        slide_points: Vec::new(),
-                        slide_duration: 0.0,
-                        slide_start_delay: 0.0,
-                        slide_shape: None,
+                        ..Default::default()
                     });
                 }
             }
@@ -205,16 +182,7 @@ pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                         note_type: NoteType::Hold,
                         hold_duration: duration.max(0.0),
                         is_each,
-                        is_break: false,
-                        is_ex: false,
-                        is_star: false,
-                        is_tapless: false,
-                        star_is_break: false,
-                        star_is_ex: false,
-                        slide_points: Vec::new(),
-                        slide_duration: 0.0,
-                        slide_start_delay: 0.0,
-                        slide_shape: None,
+                        ..Default::default()
                     });
                 }
             }
@@ -555,33 +523,52 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                     notes.push(SimaiNote::Tap {
                         measure,
                         button: n.lane - 1,
-                        is_break: n.star_is_break,
-                        is_ex: n.star_is_ex,
+                        is_break: n.is_break,
+                        is_ex: n.is_ex,
                         is_star: true,
                     });
                 }
-                let pattern = shape_to_simai_pattern(n.slide_shape);
-                let (reflect, end) = match (pattern, n.slide_points.as_slice()) {
-                    (SlidePattern::BigV, [r, e, ..]) => (Some(r.zone.saturating_sub(1)), e.zone.saturating_sub(1)),
-                    (_, [.., last]) => (None, last.zone.saturating_sub(1)),
-                    _ => (None, 0),
-                };
-                let delay_meas = snap_measure(n.slide_start_delay.max(0.0));
-                let total_meas = snap_measure(n.slide_duration.max(0.0));
-                let travel_meas = (total_meas - delay_meas).max(0.05);
-                notes.push(SimaiNote::Slide {
-                    measure,
-                    start: n.lane - 1,
-                    end,
-                    pattern,
-                    reflect,
-                    duration: travel_meas,
-                    delay: delay_meas,
-                    is_break: n.is_break,
-                    is_ex: n.is_ex,
-                    is_tapless: n.is_tapless,
-                    chain: vec![],
-                });
+                // Emit one SimaiNote::Slide per Slide in note.slide.
+                for sl in &n.slide {
+                    // Collect all points across segments for this slide.
+                    let all_points: Vec<&SlidePoint> = sl.segments.iter()
+                        .flat_map(|seg| seg.points.iter())
+                        .collect();
+                    // First segment determines the primary pattern.
+                    let first_shape = sl.segments.first()
+                        .map(|seg| seg.shape)
+                        .unwrap_or(SlideShape::Line);
+                    let pattern = shape_to_simai_pattern(Some(first_shape));
+                    let (reflect, end) = match (pattern, all_points.as_slice()) {
+                        (SlidePattern::BigV, [r, e, ..]) => (Some(r.zone.saturating_sub(1)), e.zone.saturating_sub(1)),
+                        (_, [.., last]) => (None, last.zone.saturating_sub(1)),
+                        _ => (None, 0),
+                    };
+                    // Build chain from additional segments.
+                    let chain: Vec<(SlidePattern, u8, Option<u8>)> = sl.segments.iter().skip(1)
+                        .map(|seg| {
+                            let cp = shape_to_simai_pattern(Some(seg.shape));
+                            let ce = seg.points.last().map(|p| p.zone.saturating_sub(1)).unwrap_or(0);
+                            (cp, ce, None)
+                        })
+                        .collect();
+                    let delay_meas = snap_measure(sl.slide_start_delay.max(0.0));
+                    let total_meas = snap_measure(sl.slide_duration.max(0.0));
+                    let travel_meas = (total_meas - delay_meas).max(0.05);
+                    notes.push(SimaiNote::Slide {
+                        measure,
+                        start: n.lane - 1,
+                        end,
+                        pattern,
+                        reflect,
+                        duration: travel_meas,
+                        delay: delay_meas,
+                        is_break: sl.slide_is_break,
+                        is_ex: false,
+                        is_tapless: n.is_tapless,
+                        chain,
+                    });
+                }
             }
         }
     }

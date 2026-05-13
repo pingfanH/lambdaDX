@@ -4,7 +4,7 @@
 //! conversion to/from the beat-based JSON format for save/load.
 
 use serde::{Deserialize, Serialize};
-use super::types::{ChartDoc, HitEvent, Note, NoteType, RecordingDoc, SlidePoint, SlideShape, BpmChange};
+use super::types::{ChartDoc, HitEvent, Note, NoteType, RecordingDoc, Slide, BpmChange};
 
 const TICKS_PER_MEASURE: i32 = 384;
 const TICKS_PER_BEAT: i32 = 96; // 4/4 time: 384/4
@@ -47,15 +47,7 @@ pub(crate) struct SerNote {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold_duration: Option<[i32; 2]>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub slide_points: Vec<SlidePoint>,
-    /// Slide total duration as [numerator, denominator] in beats.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slide_duration: Option<[i32; 2]>,
-    /// Slide start delay as [numerator, denominator] in beats.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slide_start_delay: Option<[i32; 2]>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slide_shape: Option<SlideShape>,
+    pub slide: Vec<Slide>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,16 +134,6 @@ pub(crate) fn note_to_ser(note: &Note) -> SerNote {
     } else {
         None
     };
-    let slide_duration = if note.slide_duration != 0.0 {
-        Some(duration_to_fraction(note.slide_duration))
-    } else {
-        None
-    };
-    let slide_start_delay = if note.slide_start_delay != 0.0 {
-        Some(duration_to_fraction(note.slide_start_delay))
-    } else {
-        None
-    };
 
     SerNote {
         measure,
@@ -166,18 +148,13 @@ pub(crate) fn note_to_ser(note: &Note) -> SerNote {
         is_star: note.is_star,
         is_tapless: note.is_tapless,
         hold_duration,
-        slide_points: note.slide_points.clone(),
-        slide_duration,
-        slide_start_delay,
-        slide_shape: note.slide_shape,
+        slide: note.slide.clone(),
     }
 }
 
 pub(crate) fn ser_to_note(s: &SerNote) -> Note {
     let time = beat_pos_to_measure(s.measure, s.beat, s.division, s.offset);
     let hold_duration = s.hold_duration.map_or(0.0, fraction_to_duration);
-    let slide_duration = s.slide_duration.map_or(0.0, fraction_to_duration);
-    let slide_start_delay = s.slide_start_delay.map_or(0.0, fraction_to_duration);
 
     Note {
         time,
@@ -189,12 +166,7 @@ pub(crate) fn ser_to_note(s: &SerNote) -> Note {
         is_ex: s.is_ex,
         is_star: s.is_star,
         is_tapless: s.is_tapless,
-        star_is_break: false,
-        star_is_ex: false,
-        slide_points: s.slide_points.clone(),
-        slide_duration,
-        slide_start_delay,
-        slide_shape: s.slide_shape,
+        slide: s.slide.clone(),
     }
 }
 

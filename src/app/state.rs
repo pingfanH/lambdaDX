@@ -39,6 +39,8 @@ pub(crate) struct AppState {
     /// mouse's absolute position even if the user scrolls the timeline mid-drag.
     pub(crate) drag_cursor_anchor_t: f32,
     pub(crate) drag_multi_orig: Vec<(usize, f32, u8)>,
+    /// For slide tail/delay dragging, which sub-slide in `note.slide` is active.
+    pub(crate) drag_slide_idx: Option<usize>,
     pub(crate) box_start: Option<Vec2>,
     pub(crate) box_end: Option<Vec2>,
     /// Chart time anchored for the box-select start, so the start point sticks
@@ -48,10 +50,12 @@ pub(crate) struct AppState {
     pub(crate) place_tool: super::types::PlaceTool,
     /// Multi-step placement state machine (for Hold and Star tools).
     pub(crate) placement: super::types::PlacementState,
-    /// When `Some(i)`, the user is editing the trajectory (slide_points) of
+    /// When `Some(i)`, the user is editing the trajectory of
     /// chart.notes[i] by clicking zones on the Pad. Only meaningful when the
     /// note is a Slide and the app is in Idle mode.
     pub(crate) editing_slide_path: Option<usize>,
+    /// Which sub-slide in `chart.notes[editing_slide_path].slide` is being edited.
+    pub(crate) editing_slide_idx: Option<usize>,
     /// Pending slide shape key (e.g. Q, P, S, Z) waiting for a lane number to complete.
     pub(crate) pending_slide_shape: Option<super::types::SlideShape>,
     pub(crate) waveform_data: Vec<f32>,
@@ -171,12 +175,14 @@ impl AppState {
             drag_start_time: 0.0,
             drag_cursor_anchor_t: 0.0,
             drag_multi_orig: Vec::new(),
+            drag_slide_idx: None,
             box_start: None,
             box_end: None,
             box_anchor_t: None,
             place_tool: super::types::PlaceTool::Tap,
             placement: super::types::PlacementState::Idle,
             editing_slide_path: None,
+            editing_slide_idx: None,
             pending_slide_shape: None,
             waveform_data: Vec::new(),
             waveform_freq_bins: 0,
@@ -260,9 +266,14 @@ impl AppState {
             .collect();
         println!("[AppState] set_chart: {n} notes, {} slides", slides.len());
         for (i, note) in &slides {
-            println!("  slide #{i}: lane={} shape={:?} pts={:?} dur={:.3} delay={:.3} break={} ex={} tapless={} star={}",
-                note.lane, note.slide_shape, note.slide_points, note.slide_duration, note.slide_start_delay,
-                note.is_break, note.is_ex, note.is_tapless, note.is_star);
+            println!("  slide #{i}: lane={} slides={} tapless={} star={}",
+                note.lane, note.slide.len(), note.is_tapless, note.is_star);
+            for (si, sl) in note.slide.iter().enumerate() {
+                let shapes: Vec<_> = sl.segments.iter().map(|seg| format!("{:?}", seg.shape)).collect();
+                let pt_count: usize = sl.segments.iter().map(|seg| seg.points.len()).sum();
+                println!("    slide[{si}]: shapes=[{}] pts={pt_count} dur={:.3} delay={:.3} break={}",
+                    shapes.join(","), sl.slide_duration, sl.slide_start_delay, sl.slide_is_break);
+            }
         }
         self.chart = chart;
     }
@@ -279,6 +290,9 @@ impl AppState {
             println!("[AppState] editing_slide_path: {:?} -> {:?}", self.editing_slide_path, v);
         }
         self.editing_slide_path = v;
+        if v.is_none() {
+            self.editing_slide_idx = None;
+        }
     }
 
     pub(crate) fn set_status(&mut self, msg: String) {
@@ -511,27 +525,28 @@ impl AppState {
                 }
                 self.hit_sounds_played.insert(i);
             }
-            // Slide start (when the star begins moving)
+            // Slide start/end sounds — per individual slide
             if matches!(note.note_type, NoteType::Slide) {
-                let slide_key = i + self.chart.notes.len() * 3;
-                let slide_move_time = ns + mdur_to_secs(note.slide_start_delay, note.time, bpms);
-                if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
-                    if note.is_break {
-                        slide_break_start_count += 1;
-                    } else {
-                        slide_count += 1;
+                for (si, sl) in note.slide.iter().enumerate() {
+                    let slide_key = i * 100 + si + self.chart.notes.len() * 3;
+                    let slide_move_time = ns + mdur_to_secs(sl.slide_start_delay, note.time, bpms);
+                    if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
+                        if sl.slide_is_break {
+                            slide_break_start_count += 1;
+                        } else {
+                            slide_count += 1;
+                        }
+                        self.hit_sounds_played.insert(slide_key);
                     }
-                    self.hit_sounds_played.insert(slide_key);
-                }
-                // Slide end sound (break slides only)
-                let slide_end_key = i + self.chart.notes.len() * 4;
-                let slide_end_t = ns + mdur_to_secs(note.slide_duration, note.time, bpms);
-                if note.is_break
-                    && !self.hit_sounds_played.contains(&slide_end_key)
-                    && slide_end_t <= t
-                {
-                    slide_break_end_count += 1;
-                    self.hit_sounds_played.insert(slide_end_key);
+                    let slide_end_key = i * 100 + si + self.chart.notes.len() * 4;
+                    let slide_end_t = ns + mdur_to_secs(sl.slide_duration, note.time, bpms);
+                    if sl.slide_is_break
+                        && !self.hit_sounds_played.contains(&slide_end_key)
+                        && slide_end_t <= t
+                    {
+                        slide_break_end_count += 1;
+                        self.hit_sounds_played.insert(slide_end_key);
+                    }
                 }
             }
             // Hold tail
@@ -702,13 +717,25 @@ impl AppState {
             None
         };
 
+        let slide_vec = if matches!(note_type, NoteType::Slide) {
+            vec![super::types::Slide {
+                segments: vec![super::types::SlideSegment {
+                    points: slide_points.clone(),
+                    shape: slide_shape.unwrap_or(super::types::SlideShape::Line),
+                }],
+                slide_duration: slide_dur,
+                slide_start_delay: default_delay,
+                slide_is_break: false,
+            }]
+        } else {
+            vec![]
+        };
+
         self.chart.notes.push(Note {
             time: start_measure, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
-            is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false,
-            star_is_break: false, star_is_ex: false,
-            slide_points: slide_points.clone(),
-            slide_duration: slide_dur, slide_start_delay: default_delay, slide_shape,
+            slide: slide_vec.clone(),
+            ..Default::default()
         });
         self.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
         self.recompute_each();
@@ -716,10 +743,8 @@ impl AppState {
         self.recording_notes.push(Note {
             time: start_measure, lane: active.lane, note_type,
             hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
-            is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false,
-            star_is_break: false, star_is_ex: false,
-            slide_points,
-            slide_duration: slide_dur, slide_start_delay: default_delay, slide_shape,
+            slide: slide_vec,
+            ..Default::default()
         });
         self.recording_hits.push(HitEvent {
             time: active.start_time,

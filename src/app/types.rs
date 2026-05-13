@@ -92,6 +92,11 @@ pub(crate) enum NoteType {
     Hold,
     Slide,
 }
+impl Default for NoteType {
+    fn default() -> Self {
+        NoteType::Tap
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -117,6 +122,26 @@ pub(crate) struct SlidePoint {
     pub(crate) beat_offset: f32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Slide {
+    pub(crate) segments: Vec<SlideSegment>,
+    /// Total slide span in measures (head → tail) for this individual slide.
+    pub(crate) slide_duration: f32,
+    /// Delay before slide motion starts, in measures.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub(crate) slide_start_delay: f32,
+    /// Whether this slide trail is a break slide.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) slide_is_break: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SlideSegment {
+    pub(crate) points: Vec<SlidePoint>,
+    pub(crate) shape: SlideShape,
+}
+
+
 fn is_zero_f32(v: &f32) -> bool {
     *v == 0.0
 }
@@ -124,7 +149,7 @@ fn is_zero_f32(v: &f32) -> bool {
 /// Note times and durations are stored in **measures** (where measure 1.0 =
 /// the first beat of the song).  Use `measure_to_secs` / `mdur_to_secs` to
 /// convert to wall-clock seconds for playback and rendering.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize,Default)]
 pub(crate) struct Note {
     /// Measure position (1.0 = first beat).
     pub(crate) time: f32,
@@ -143,22 +168,7 @@ pub(crate) struct Note {
     pub(crate) is_star: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) is_tapless: bool,
-    /// Star-head break (independent from slide trail `is_break`).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) star_is_break: bool,
-    /// Star-head ex (independent from slide trail `is_ex`).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) star_is_ex: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) slide_points: Vec<SlidePoint>,
-    /// Total slide span in measures (head → tail).
-    #[serde(default, skip_serializing_if = "is_zero_f32")]
-    pub(crate) slide_duration: f32,
-    /// Delay before slide motion starts, in measures.
-    #[serde(default, skip_serializing_if = "is_zero_f32")]
-    pub(crate) slide_start_delay: f32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) slide_shape: Option<SlideShape>,
+    pub(crate) slide: Vec<Slide>
 }
 
 // ─── BPM change list ──────────────────────────────────────────────
@@ -416,8 +426,11 @@ pub(crate) fn is_touch_zone(zone: u8) -> bool {
     zone >= PAD_B_START
 }
 
-/// Slide end time in seconds (note fields are in measures).
+/// Slide end time in seconds — takes the longest slide's duration.
 pub(crate) fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
-    let dur_s = mdur_to_secs(note.slide_duration, note.time, bpms).max(0.3);
+    let max_dur = note.slide.iter()
+        .map(|s| s.slide_duration)
+        .fold(0.0_f32, f32::max);
+    let dur_s = mdur_to_secs(max_dur, note.time, bpms).max(0.3);
     note_secs(note, bpms) + dur_s
 }
