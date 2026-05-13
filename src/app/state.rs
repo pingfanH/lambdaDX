@@ -35,6 +35,7 @@ pub(crate) struct AppState {
     pub(crate) drag_part: Option<DragPart>,
     pub(crate) drag_start_pos: Option<Vec2>,
     pub(crate) drag_start_time: f32,
+    pub(crate) drag_shift: bool,
     /// Cursor's chart time at the moment of click. Used so dragging tracks the
     /// mouse's absolute position even if the user scrolls the timeline mid-drag.
     pub(crate) drag_cursor_anchor_t: f32,
@@ -173,6 +174,7 @@ impl AppState {
             drag_part: None,
             drag_start_pos: None,
             drag_start_time: 0.0,
+            drag_shift: false,
             drag_cursor_anchor_t: 0.0,
             drag_multi_orig: Vec::new(),
             drag_slide_idx: None,

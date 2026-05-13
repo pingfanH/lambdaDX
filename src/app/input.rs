@@ -907,6 +907,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 _ => note_secs(n, bpms),
             };
             app.drag_part = Some(best_part);
+            app.drag_shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
             app.drag_slide_idx = best_slide_idx;
             app.drag_orig_note = Some(app.chart.notes[i].clone());
         } else {
@@ -985,16 +986,26 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 match part {
                     DragPart::Head => {
                         if let Some(o) = orig {
-                            if is_slide {
+                            if !app.drag_shift {
+                                // Shift+Head: only move head time, keep all durations/delays
                                 note.time = new_t;
-                                for (si, sl) in note.slide.iter_mut().enumerate() {
-                                    let old_tail_m = o.time + o.slide.get(si).map(|x| x.slide_duration).unwrap_or(sl.slide_duration);
-                                    sl.slide_duration = (old_tail_m - new_t).max(0.0);
-                                }
                             } else {
-                                let tail_m = o.time + o.hold_duration;
                                 note.time = new_t;
-                                note.hold_duration = (tail_m - new_t).max(0.0);
+                                // Keep duration fixed (head+tail move together)
+                                if is_slide {
+                                     for (si, sl) in note.slide.iter_mut().enumerate() {
+                                    let old_tail_m = o.time + o.slide.get(si).map(|x| x.slide_duration).unwrap_or(sl.slide_duration);
+                                    let old_start_m = o.time + o.slide.get(si).map(|x| x.slide_start_delay).unwrap_or(sl.slide_start_delay);
+                                    sl.slide_duration = (old_tail_m - new_t).max(0.0);
+                                    sl.slide_start_delay= (old_start_m - new_t).max(0.0);
+                                     }
+                                } else {
+                                   for (si, sl) in note.slide.iter_mut().enumerate() {
+                                        if let Some(old) = o.slide.get(si) {
+                                            sl.slide_duration = old.slide_duration;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
