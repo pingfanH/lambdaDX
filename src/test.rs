@@ -99,3 +99,13 @@ async fn main() {
         next_frame().await;
     }
 }
+
+#[test]
+fn test() {
+    fn calc(a: i32, b: i32) -> i32 {
+        let dist = (a - b + 8) % 8;
+
+       4- dist
+    }
+    println!("{}", calc(3, 3));
+}

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-
+use crate::app::types::zone::PadZone;
 use super::beat_format;
 use super::platform;
 use super::state::AppState;
@@ -79,7 +79,7 @@ fn fallback_chart() -> ChartDoc {
             slide_duration: dur, slide_start_delay: delay, slide_is_break: false,
         }]
     };
-    let sp = |z: u8| SlidePoint { zone: z, beat_offset: 0.0 };
+    let sp = |z: u8| SlidePoint { zone: PadZone::from(z), beat_offset: 0.0 };
     ChartDoc {
         version: "0.3.0-measure".to_string(),
         title: "Fallback Demo Chart".to_string(),

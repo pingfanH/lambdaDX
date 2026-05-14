@@ -6,6 +6,7 @@ use macroquad_sim::app::types::{
     PAD_ROTATION_RAD, PAD_C_ZONE, TAP_RING_OFFSET,
     note_secs, secs_to_measure,
 };
+use macroquad_sim::app::types::zone::PadZone;
 
 // ── Render mode ──
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -25,7 +26,7 @@ struct ParsedSlide {
 async fn main() {
     set_pc_assets_folder("assets");
 
-    let mut input_text = String::from("1>2,3p5,5v2,2V48,1s7,4q2");
+    let mut input_text = String::from("3q2");
     let mut bpm: f32 = 180.0;
     let mut parsed: Vec<ParsedSlide> = vec![];
     let mut msg = String::new();
@@ -306,7 +307,7 @@ fn parse_one_slide(s: &str, time_s: f32, beat_s: f32) -> Option<ParsedSlide> {
 
     let points: Vec<SlidePoint> = zone_order.iter()
         .skip(1) // skip start lane
-        .map(|&z| SlidePoint { zone: z, beat_offset: 0.0 })
+        .map(|&z| SlidePoint { zone: PadZone::from(z), beat_offset: 0.0 })
         .collect();
 
     // Convert seconds to measures for the Note/Slide types

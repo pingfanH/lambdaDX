@@ -23,6 +23,7 @@ use serde::de;
 
 use super::platform;
 use super::types::{ChartDoc, Note, NoteType, Slide, SlideSegment, SlidePoint, SlideShape, BpmChange, snap_measure};
+use super::types::zone::PadZone;
 
 /// Pick a chart from a Simai file (highest difficulty by default) and convert
 /// it to a `ChartDoc`. Returns `Err` if the file has no charts.
@@ -265,7 +266,7 @@ pub(crate) fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern 
 pub(crate) fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
     let s = start + 1; // 1-indexed zone
     let e = end + 1;
-    let sp = |z: u8| SlidePoint { zone: z, beat_offset: 0.0 };
+    let sp = |z: u8| SlidePoint { zone: PadZone::from(z), beat_offset: 0.0 };
 
     match pattern {
         SlidePattern::Line => {
@@ -540,15 +541,15 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         .unwrap_or(SlideShape::Line);
                     let pattern = shape_to_simai_pattern(Some(first_shape));
                     let (reflect, end) = match (pattern, all_points.as_slice()) {
-                        (SlidePattern::BigV, [r, e, ..]) => (Some(r.zone.saturating_sub(1)), e.zone.saturating_sub(1)),
-                        (_, [.., last]) => (None, last.zone.saturating_sub(1)),
+                        (SlidePattern::BigV, [r, e, ..]) => (Some(r.zone.to_id().saturating_sub(1)), e.zone.to_id().saturating_sub(1)),
+                        (_, [.., last]) => (None, last.zone.to_id().saturating_sub(1)),
                         _ => (None, 0),
                     };
                     // Build chain from additional segments.
                     let chain: Vec<(SlidePattern, u8, Option<u8>)> = sl.segments.iter().skip(1)
                         .map(|seg| {
                             let cp = shape_to_simai_pattern(Some(seg.shape));
-                            let ce = seg.points.last().map(|p| p.zone.saturating_sub(1)).unwrap_or(0);
+                            let ce = seg.points.last().map(|p| p.zone.to_id().saturating_sub(1)).unwrap_or(0);
                             (cp, ce, None)
                         })
                         .collect();

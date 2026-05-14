@@ -1,12 +1,9 @@
 use macroquad::prelude::*;
 use macroquad::texture::{DrawTextureParams, Texture2D};
-
+use rustfft::num_traits::abs;
+use crate::app::types::zone::PadZone;
 use super::pad_svg::PadSvgDef;
-use super::types::{
-    Note, PadGeom, Slide,
-    SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE,
-    TAP_TARGET_OFFSET, PAD_ROTATION_RAD, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
-};
+use super::types::{Note, PadGeom, Slide, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE, TAP_TARGET_OFFSET, PAD_ROTATION_RAD, TAP_GROW_FRAC, TAP_SPAWN_FRAC, SlideShape};
 
 /// Resolved textures for a single draw_slide call.
 /// The caller picks the appropriate variant; the function just uses what's given.
@@ -65,24 +62,102 @@ pub fn draw_slide(
         let target_r = outer_r + TAP_TARGET_OFFSET;
         Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
     } else {
-        svg.zone_screen_centroid(note.lane, pad)
+        svg.zone_screen_centroid(PadZone::from(note.lane), pad)
     };
     if let Some(c) = start_pt { path.push(c); }
+    let get_zone_pos=|zone: PadZone|{
+        let idx = (zone.to_id() - 1) as f32;
+        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+        let target_r = outer_r + TAP_TARGET_OFFSET;
+        vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+    };
 
     for seg in &slide.segments {
-        for sp in &seg.points {
-            if sp.zone == note.lane && path.len() == 1 { continue; }
-            let c = if sp.zone >= 1 && sp.zone <= 8 {
-                let idx = (sp.zone - 1) as f32;
-                let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-                let target_r = outer_r + TAP_TARGET_OFFSET;
-                Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
-            } else {
-                svg.zone_screen_centroid(sp.zone, pad)
-            };
-            if let Some(c) = c {
-                if path.last().map(|p| (*p - c).length() > 1.0).unwrap_or(true) {
-                    path.push(c);
+        match seg.shape {
+
+            SlideShape::Q => {
+                let sp = if seg.points.len() == 1 {
+                    seg.points.first().unwrap()
+                } else {
+                    continue;
+                };
+
+                // ── 终点坐标：A 区用八边形环上位置，其他区域取 centroid ──
+                let end = if sp.zone.to_id() <= 8 {
+                    get_zone_pos(sp.zone)
+                } else {
+                    svg.zone_screen_centroid(sp.zone, pad).unwrap()
+                };
+
+                let b_cents: Vec<_> = (1..=8)
+
+                    .map(|i| {
+
+                        svg.zone_screen_centroid(PadZone::from("B".to_string()+ &*i.to_string()), pad).unwrap()
+
+                    })
+
+                    .collect();
+
+                let b_center = b_cents.iter().sum::<Vec2>() / 8.0;
+                let b_radius = b_cents.iter().map(|c| c.distance(b_center)).sum::<f32>() / 8.0;
+                fn calc(a: i32, b: i32) -> i32 {
+                    let dist = (a - b + 8) % 8;
+
+                    4- dist
+                }
+
+                fn parse_circle_num(x: i32)->i32{
+                    (x % 8) + 1
+                }
+                let get_zone_pos = |zone: PadZone| {
+                    svg.zone_screen_centroid(zone, pad).unwrap()
+                };
+                let base_zone = note.lane+1;
+                let total = calc(note.lane as i32,sp.zone.to_id() as i32);
+                println!("{}",total);
+                let base_zone = PadZone::from("B".to_owned() +&*(parse_circle_num(base_zone as i32)).to_string());
+                let base_zone_pos = get_zone_pos(base_zone);
+                let bp = (base_zone_pos.y - b_center.y).atan2(base_zone_pos.x - b_center.x);
+
+                let end_zone = PadZone::from("B".to_owned() +&*(parse_circle_num(base_zone as i32+total)).to_string());
+                let end_zone_pos = get_zone_pos(end_zone);
+                let mut ep = (end_zone_pos.y - b_center.y).atan2(end_zone_pos.x - b_center.x);
+
+                if ep <= bp { ep += std::f32::consts::TAU; }
+                path.push(base_zone_pos);
+                // 2. base_zone → end_zone（圆弧，步数 = 弧长 / 贴片间距，避免贴片重叠）
+                if base_zone!=end_zone {
+                    let arc_len = b_radius * (ep - bp).abs();
+                    let spacing = SLIDE_TILE_SPACING * scale;
+                    let steps = ((arc_len / spacing).ceil() as usize).max(4);
+                    for i in 1..=steps {
+                        let ang = bp + (ep - bp) * i as f32 / steps as f32;
+                        path.push(b_center + vec2(ang.cos(), ang.sin()) * b_radius);
+                    }
+                }
+                path.push(end);
+            }
+            SlideShape::P=>{
+
+            }
+            _=>{
+                for sp in &seg.points {
+                    if sp.zone == note.lane && path.len() == 1 { continue; }
+                    let zid = sp.zone.to_id();
+                    let c = if zid >= 1 && zid <= 8 {
+                        let idx = (zid - 1) as f32;
+                        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                        Some(vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r))
+                    } else {
+                        svg.zone_screen_centroid(sp.zone, pad)
+                    };
+                    if let Some(c) = c {
+                        if path.last().map(|p| (*p - c).length() > 1.0).unwrap_or(true) {
+                            path.push(c);
+                        }
+                    }
                 }
             }
         }
@@ -160,6 +235,24 @@ pub fn draw_slide(
         }
     }
 
+    // ── Original polyline on top of tiles ──
+    let line_alpha: u8 = if show_full { 200 } else { path_alpha.saturating_add(80).min(255) };
+    let line_color = Color::from_rgba(250, 204, 21, line_alpha);
+    let line_w = 5. * scale;
+    for w in path.windows(2) {
+        draw_line(w[0].x, w[0].y, w[1].x, w[1].y, line_w, line_color);
+    }
+
+    // ── Waypoint dots ──
+    for (i, pt) in path.iter().enumerate() {
+        let is_endpoint = i == 0 || i == path.len() - 1;
+        let r = if is_endpoint { 5.0 * scale } else { 3.5 * scale };
+        draw_circle(pt.x, pt.y, r, Color::from_rgba(255, 220, 50, 200));
+        if is_endpoint {
+            draw_circle_lines(pt.x, pt.y, r, 1.2 * scale, Color::from_rgba(255, 255, 255, 150));
+        }
+    }
+
     // ── Head star ──
     if show_full {
         // Static star at start position
@@ -232,3 +325,5 @@ pub fn draw_slide(
         }
     }
 }
+
+

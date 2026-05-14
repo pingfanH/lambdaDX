@@ -21,6 +21,7 @@ use super::types::{
     note_secs, measure_to_secs, secs_to_measure, mdur_to_secs, snap_measure, bpm_at,
 };
 use super::pad_svg;
+use super::types::zone::PadZone;
 
 pub fn window_conf() -> Conf {
     Conf {
@@ -984,8 +985,8 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     };
                     let travel_h = (delay_y - tail_y).abs();
                     if travel_h > 0.5 {
-                        let zone_to_cx_a = |z: u8| -> f32 {
-                            let li = (z.saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                        let zone_to_cx_a = |z: PadZone| -> f32 {
+                            let li = (z.to_id().saturating_sub(1) as usize).min(LANE_COUNT - 2);
                             track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
                         };
                         let mut a_points: Vec<&super::types::SlidePoint> = Vec::new();
@@ -1491,8 +1492,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
     // Tap spawn point indicator
     draw_circle(spawn_cx.x, spawn_cx.y, 3.0 * scale, Color::from_rgba(255, 255, 255, 180));
 
-    let active_zones: Vec<u8> = app.active_pointer_zones.values().copied().collect();
-    let feedback_zones: Vec<u8> = app.pad_feedback.iter().map(|fb| fb.zone).collect();
+    let active_zones: Vec<PadZone> = app.active_pointer_zones.values().copied().collect();
+    let feedback_zones: Vec<PadZone> = app.pad_feedback.iter().map(|fb| fb.zone).collect();
 
     if let Some(ref pad_svg) = app.pad_svg {
         for def in &pad_svg.zones {
@@ -1568,7 +1569,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         if let Some(note) = app.chart.notes.get(i) {
             if matches!(note.note_type, NoteType::Slide) {
                 let mut pts: Vec<(Vec2, String)> = Vec::new();
-                if let Some(c) = svg.zone_screen_centroid(note.lane, &pad) {
+                if let Some(c) = svg.zone_screen_centroid(PadZone::from(note.lane), &pad) {
                     pts.push((c, format!("S{}", note.lane)));
                 }
                 let mut shape_label = "none".to_string();
@@ -1809,7 +1810,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             let Some(center) = app
                 .pad_svg
                 .as_ref()
-                .and_then(|svg| svg.zone_screen_centroid(zone, &pad))
+                .and_then(|svg| svg.zone_screen_centroid(PadZone::from(zone), &pad))
             else {
                 continue;
             };

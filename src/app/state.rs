@@ -2,13 +2,13 @@ use macroquad::material::Material;
 use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
-
+use crate::app::types::zone::PadZone;
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
 use super::types::{
-    ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, WavPcm, DragPart,
-    HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN,
+    ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, SlidePoint,
+    WavPcm, DragPart, HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN,
     TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone, sanitize_note_zone,
     note_secs, secs_to_measure, mdur_to_secs, sdur_to_mdur, snap_measure,
 };
@@ -23,7 +23,7 @@ pub(crate) struct AppState {
     pub(crate) recording_hits: Vec<HitEvent>,
     pub(crate) recording_notes: Vec<Note>,
     pub(crate) active_record_holds: HashMap<RecordInputId, ActiveRecordHold>,
-    pub(crate) active_pointer_zones: HashMap<u64, u8>,
+    pub(crate) active_pointer_zones: HashMap<u64, PadZone>,
     pub(crate) prev_pointer_pos: HashMap<u64, Vec2>,
     pub(crate) pad_feedback: Vec<PadFeedback>,
     pub(crate) playback_cursor: usize,
@@ -632,18 +632,18 @@ impl AppState {
         }
     }
 
-    pub(crate) fn push_feedback(&mut self, zone: u8, duration: f64) {
+    pub(crate) fn push_feedback(&mut self, zone: PadZone, duration: f64) {
         self.pad_feedback.push(PadFeedback {
             zone,
             until: get_time() + duration,
         });
     }
 
-    pub(crate) fn start_record_hold_input(&mut self, input_id: RecordInputId, lane: u8) {
+    pub(crate) fn start_record_hold_input(&mut self, input_id: RecordInputId, lane: PadZone) {
         let start_time = self.song_time();
         self.active_record_holds
             .entry(input_id)
-            .or_insert(ActiveRecordHold { lane, start_time, slide_zones: vec![(lane, 0.0)] });
+            .or_insert(ActiveRecordHold { lane: lane.to_id(), start_time, slide_zones: vec![SlidePoint { zone: lane, beat_offset: 0.0 }] });
     }
 
     pub(crate) fn finish_record_hold_input(&mut self, input_id: RecordInputId) {
@@ -664,12 +664,12 @@ impl AppState {
         }
     }
 
-    pub(crate) fn record_slide_zone(&mut self, input_id: RecordInputId, zone: u8) {
+    pub(crate) fn record_slide_zone(&mut self, input_id: RecordInputId, zone: PadZone) {
         let t = self.song_time();
         if let Some(active) = self.active_record_holds.get_mut(&input_id) {
-            let last_zone = active.slide_zones.last().map(|z| z.0).unwrap_or(active.lane);
+            let last_zone = active.slide_zones.last().map(|sp| sp.zone.to_id()).unwrap_or(active.lane);
             if zone != last_zone {
-                active.slide_zones.push((zone, t - active.start_time));
+                active.slide_zones.push(SlidePoint { zone, beat_offset: t - active.start_time });
             }
         }
     }
@@ -686,9 +686,10 @@ impl AppState {
         let dur_measure = sdur_to_mdur(duration_secs, active.start_time, bpms);
         // Unique zones visited
         let mut visited: Vec<u8> = Vec::new();
-        for (z, _) in &active.slide_zones {
-            if visited.last() != Some(z) {
-                visited.push(*z);
+        for sp in &active.slide_zones {
+            let zid = sp.zone.to_id();
+            if visited.last() != Some(&zid) {
+                visited.push(zid);
             }
         }
         let note_type = if visited.len() >= SLIDE_MIN_POINTS && is_touch_zone(active.lane) {
@@ -705,9 +706,7 @@ impl AppState {
             NoteType::Tap
         };
 
-        let slide_points: Vec<super::types::SlidePoint> = active.slide_zones.iter()
-            .map(|(z, off)| super::types::SlidePoint { zone: *z, beat_offset: *off })
-            .collect();
+        let slide_points = active.slide_zones.clone();
 
         let slide_dur = if matches!(note_type, NoteType::Slide) { dur_measure } else { 0.0 };
         let default_delay = sdur_to_mdur(0.12, active.start_time, bpms);

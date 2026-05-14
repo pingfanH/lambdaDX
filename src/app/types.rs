@@ -1,5 +1,8 @@
+pub mod zone;
+
 use macroquad::prelude::{TouchPhase, Vec2};
 use serde::{Deserialize, Serialize};
+use crate::app::types::zone::PadZone;
 
 pub(crate) const LANE_COUNT: usize = 9;
 pub(crate) const LANE_LABELS: [&str; LANE_COUNT] = ["1", "2", "3", "4", "5", "6", "7", "8", "T"];
@@ -116,12 +119,16 @@ pub enum SlideShape {
     Wifi,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize,Copy)]
 pub struct SlidePoint {
-    pub zone: u8,
+    pub zone: PadZone,
     pub beat_offset: f32,
 }
-
+impl From<PadZone> for SlidePoint {
+    fn from(value: PadZone) -> Self {
+        SlidePoint { zone:value,beat_offset:0.0 }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Slide {
     pub segments: Vec<SlideSegment>,
@@ -140,8 +147,6 @@ pub struct SlideSegment {
     pub points: Vec<SlidePoint>,
     pub shape: SlideShape,
 }
-
-
 fn is_zero_f32(v: &f32) -> bool {
     *v == 0.0
 }
@@ -356,7 +361,7 @@ pub(crate) enum RecordInputId {
 pub(crate) struct ActiveRecordHold {
     pub(crate) lane: u8,
     pub(crate) start_time: f32,
-    pub(crate) slide_zones: Vec<(u8, f32)>,
+    pub(crate) slide_zones: Vec<SlidePoint>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -408,7 +413,7 @@ pub(crate) fn timeline_sidebar_buttons(tl: &RectF) -> [(RectF, PlaceTool, &'stat
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PadFeedback {
-    pub(crate) zone: u8,
+    pub(crate) zone: PadZone,
     pub(crate) until: f64,
 }
 

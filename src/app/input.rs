@@ -1,9 +1,11 @@
+use std::cmp::{Ordering, PartialEq, PartialOrd};
 use macroquad::prelude::*;
 use macroquad::prelude::get_time;
-
+use crate::app::types::NoteType::Slide;
+use crate::app::types::zone::PadZone;
 use super::chart;
 use super::state::AppState;
-use super::types::{Note, NoteType, PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, SlideShape, BpmChange, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs};
+use super::types::{Note, NoteType, PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, SlideShape, BpmChange, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs, SlidePoint};
 use super::ui::{rect_contains, trigger_ui_action};
 
 /// Collect indices of selected notes (multi-select or single).
@@ -16,6 +18,8 @@ fn gather_selected(app: &AppState) -> Vec<usize> {
         vec![]
     }
 }
+
+
 
 pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     if is_key_pressed(KeyCode::Space) {
@@ -273,15 +277,13 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
                         let dur = sl.slide_duration;
                         let beat_offset = (seg.points.len() as f32 + 1.0)
                             * (dur.max(0.3) / (seg.points.len() as f32 + 2.0));
-                        let last_zone = seg.points.last().map(|p| p.zone)
-                            .unwrap_or(n.lane);
-                        if z != last_zone {
-                            seg.points.push(super::types::SlidePoint {
-                                zone: z, beat_offset,
-                            });
+                        let last_zone = seg.points.last().copied()
+                            .unwrap_or(SlidePoint::from(PadZone::from(n.lane)));
+                        if z != last_zone.zone {
+                            seg.points.push(SlidePoint::from(PadZone::from(z)));
                             seg.shape = super::slide_match::match_slide_shape(
                                 n.lane, &seg.points,
-                            ).unwrap_or(super::types::SlideShape::Line);
+                            ).unwrap_or(SlideShape::Line);
                             msg = Some(format!("Added zone {} (#{} points)", z, seg.points.len()));
                         }
                     }
@@ -380,7 +382,7 @@ pub(crate) fn handle_lane_input(app: &mut AppState) {
     for (key, lane) in bindings {
         if is_key_pressed(key) {
             let input_id = RecordInputId::Key(lane);
-            app.start_record_hold_input(input_id, lane);
+            app.start_record_hold_input(input_id, PadZone::from(lane));
         }
         if is_key_released(key) {
             let input_id = RecordInputId::Key(lane);
@@ -430,6 +432,8 @@ pub(crate) fn collect_pointer_events() -> Vec<PointerEvent> {
     events
 }
 
+
+
 pub(crate) fn handle_touch_controls(
     app: &mut AppState,
     pad: PadGeom,
@@ -462,7 +466,7 @@ pub(crate) fn handle_touch_controls(
                                     if matches!(n.note_type, super::types::NoteType::Slide) && n.lane >= 1 && n.lane <= 8 {
                                         let pattern = super::simai_io::shape_to_simai_pattern(Some(shape));
                                         let points = super::simai_io::simai_pattern_to_points(
-                                            n.lane - 1, z - 1, pattern, None,
+                                            n.lane.saturating_sub(1), z.to_id().saturating_sub(1), pattern, None,
                                         );
                                         if n.slide.is_empty() {
                                             n.slide.push(super::types::Slide {
@@ -516,12 +520,10 @@ pub(crate) fn handle_touch_controls(
                                 let dur = sl.slide_duration;
                                 let beat_offset = (seg.points.len() as f32 + 1.0)
                                     * (dur.max(0.3) / (seg.points.len() as f32 + 2.0));
-                                let last_zone = seg.points.last().map(|p| p.zone)
-                                    .unwrap_or(n.lane);
-                                if z != last_zone {
-                                    seg.points.push(super::types::SlidePoint {
-                                        zone: z, beat_offset,
-                                    });
+                                let last_zone = seg.points.last().copied()
+                                    .unwrap_or(SlidePoint::from(PadZone::from(n.lane)));
+                                if z != last_zone.zone {
+                                    seg.points.push(SlidePoint::from(PadZone::from(z)));
                                     seg.shape = super::slide_match::match_slide_shape(
                                         n.lane, &seg.points,
                                     ).unwrap_or(super::types::SlideShape::Line);
@@ -1277,7 +1279,7 @@ pub(crate) fn slide_tail_cx_for(note: &super::types::Note, slide_idx: usize, tra
     if let Some(sl) = note.slide.get(slide_idx) {
         for seg in sl.segments.iter().rev() {
             if let Some(last) = seg.points.iter().rev().find(|sp| sp.zone >= 1 && sp.zone <= 8) {
-                let li = (last.zone.saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                let li = (last.zone.to_id().saturating_sub(1) as usize).min(LANE_COUNT - 2);
                 return track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
             }
         }

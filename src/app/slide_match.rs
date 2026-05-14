@@ -17,8 +17,9 @@ use super::types::{SlidePoint, SlideShape};
 fn build_visited(start_lane: u8, slide_points: &[SlidePoint]) -> Vec<u8> {
     let mut visited = vec![start_lane];
     for sp in slide_points {
-        if visited.last() != Some(&sp.zone) {
-            visited.push(sp.zone);
+        let zid = sp.zone.to_id();
+        if visited.last() != Some(&zid) {
+            visited.push(zid);
         }
     }
     visited
@@ -56,10 +57,11 @@ pub(crate) fn match_slide_shape(start_lane: u8, slide_points: &[SlidePoint]) -> 
 
 #[cfg(test)]
 mod tests {
+    use crate::app::types::zone::PadZone;
     use super::*;
 
     fn sp(zone: u8) -> SlidePoint {
-        SlidePoint { zone, beat_offset: 0.0 }
+        SlidePoint { zone:PadZone::from(zone), beat_offset: 0.0 }
     }
 
     #[test]

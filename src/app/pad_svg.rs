@@ -1,4 +1,5 @@
 use macroquad::prelude::{draw_line, draw_triangle, Color, Vec2, vec2};
+use crate::app::types::zone::PadZone;
 
 // SVG pad geometry constants (from the viewBox and bg circle)
 const SVG_BG_CX: f32 = 422.9;
@@ -8,7 +9,7 @@ const SVG_BG_R: f32 = 326.57;
 /// A single parsed touch zone from the SVG.
 #[derive(Debug, Clone)]
 pub struct ZoneDef {
-    pub zone: u8,
+    pub zone: PadZone,
     pub label: String,
     /// Polygon vertices in SVG viewBox coordinates.
     pub svg_verts: Vec<Vec2>,
@@ -49,23 +50,23 @@ impl PadSvgDef {
         Ok(PadSvgDef { zones })
     }
 
-    pub fn zone_def(&self, zone: u8) -> Option<&ZoneDef> {
+    pub fn zone_def(&self, zone: PadZone) -> Option<&ZoneDef> {
         self.zones.iter().find(|z| z.zone == zone)
     }
 
-    pub fn zone_screen_verts(&self, zone: u8, pad: &super::types::PadGeom) -> Option<Vec<Vec2>> {
+    pub fn zone_screen_verts(&self, zone: PadZone, pad: &super::types::PadGeom) -> Option<Vec<Vec2>> {
         let def = self.zone_def(zone)?;
         Some(def.svg_verts.iter().map(|&v| svg_to_screen(v, pad)).collect())
     }
 
-    pub fn zone_screen_centroid(&self, zone: u8, pad: &super::types::PadGeom) -> Option<Vec2> {
+    pub fn zone_screen_centroid(&self, zone: PadZone, pad: &super::types::PadGeom) -> Option<Vec2> {
         let def = self.zone_def(zone)?;
         Some(svg_to_screen(def.centroid, pad))
     }
 
     /// The visual center of the pad (C zone centroid).
     pub fn pad_visual_center(&self, pad: &super::types::PadGeom) -> Option<Vec2> {
-        self.zone_screen_centroid(17, pad)
+        self.zone_screen_centroid(PadZone::C, pad)
     }
 
     /// Transform a single ZoneDef's vertices and centroid to screen coordinates.
@@ -79,7 +80,7 @@ impl PadSvgDef {
 
     /// Hit-test a screen-space point against all zones using ray-casting.
     /// Returns the zone number if the point is inside a zone polygon.
-    pub fn hit_test(&self, screen_point: Vec2, pad: &super::types::PadGeom) -> Option<u8> {
+    pub fn hit_test(&self, screen_point: Vec2, pad: &super::types::PadGeom) -> Option<PadZone> {
         let svg_pt = screen_to_svg(screen_point, pad);
 
         for def in &self.zones {
@@ -143,7 +144,7 @@ fn parse_zone_element_with_id(node: roxmltree::Node, id: Option<&str>) -> Option
         return None;
     }
 
-    let (zone, label) = svg_id_to_zone(id)?;
+    let zone  = PadZone::from(id);
 
     let svg_verts = match node.tag_name().name() {
         "polygon" => parse_polygon_points(node.attribute("points")?)?,
@@ -182,8 +183,8 @@ fn parse_zone_element_with_id(node: roxmltree::Node, id: Option<&str>) -> Option
     };
 
     Some(ZoneDef {
+        label: zone.to_string(),
         zone,
-        label: label.to_string(),
         svg_verts,
         centroid,
     })
@@ -267,51 +268,6 @@ fn apply_rect_transform(transform_str: &str, corners: &[Vec2; 4]) -> [Vec2; 4] {
     };
 
     corners.map(transform_point)
-}
-
-/// Map SVG element ID to game zone number and display label.
-fn svg_id_to_zone(id: &str) -> Option<(u8, &'static str)> {
-    match id {
-        // Outer ring (zones 1-8)
-        "A1" => Some((1, "A1")),
-        "A2" => Some((2, "A2")),
-        "A3" => Some((3, "A3")),
-        "A4" => Some((4, "A4")),
-        "A5" => Some((5, "A5")),
-        "A6" => Some((6, "A6")),
-        "A7" => Some((7, "A7")),
-        "A8" => Some((8, "A8")),
-        // Inner ring (zones 9-16)
-        "B1" => Some((9, "B1")),
-        "B2" => Some((10, "B2")),
-        "B3" => Some((11, "B3")),
-        "B4" => Some((12, "B4")),
-        "B5" => Some((13, "B5")),
-        "B6" => Some((14, "B6")),
-        "B7" => Some((15, "B7")),
-        "B8" => Some((16, "B8")),
-        // Center zone
-        "C" | "C1" => Some((17, "C")),
-        // Left wing (zones 18-25)
-        "D1" => Some((18, "D1")),
-        "D2" => Some((19, "D2")),
-        "D3" => Some((20, "D3")),
-        "D4" => Some((21, "D4")),
-        "D5" => Some((22, "D5")),
-        "D6" => Some((23, "D6")),
-        "D7" => Some((24, "D7")),
-        "D8" => Some((25, "D8")),
-        // Right wing (zones 26-33)
-        "E1" => Some((26, "E1")),
-        "E1-2" => Some((27, "E2")),
-        "E1-3" => Some((28, "E3")),
-        "E1-4" => Some((29, "E4")),
-        "E1-5" => Some((30, "E5")),
-        "E1-6" => Some((31, "E6")),
-        "E1-7" => Some((32, "E7")),
-        "E1-8" => Some((33, "E8")),
-        _ => None,
-    }
 }
 
 /// Transform a point from SVG viewBox coordinates to screen coordinates.
