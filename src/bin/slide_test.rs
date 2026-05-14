@@ -26,7 +26,7 @@ struct ParsedSlide {
 async fn main() {
     set_pc_assets_folder("assets");
 
-    let mut input_text = String::from("3q2");
+    let mut input_text = String::from("3p2");
     let mut bpm: f32 = 180.0;
     let mut parsed: Vec<ParsedSlide> = vec![];
     let mut msg = String::new();

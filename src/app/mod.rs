@@ -12,7 +12,7 @@ mod slide_match;
 pub mod state;
 pub mod types;
 pub mod ui;
-mod slide;
+pub mod slide;
 
 use macroquad::file::set_pc_assets_folder;
 use macroquad::prelude::{clear_background, next_frame, Color};

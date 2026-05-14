@@ -107,5 +107,10 @@ fn test() {
 
        4- dist
     }
-    println!("{}", calc(3, 3));
+    //println!("{}", calc(3, 3));
+
+    let x = -1;
+
+    let result = ((x as i32).rem_euclid(8)) + 1;
+    println!("{}", result);
 }
