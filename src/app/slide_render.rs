@@ -1,11 +1,9 @@
 use macroquad::prelude::*;
 use macroquad::texture::{DrawTextureParams, Texture2D};
-use rustfft::num_traits::abs;
-use crate::app::slide;
 use crate::app::slide::path::{slide_shape_line, slide_shape_p, slide_shape_q};
 use crate::app::types::zone::PadZone;
 use super::pad_svg::PadSvgDef;
-use super::types::{Note, PadGeom, Slide, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE, TAP_TARGET_OFFSET, PAD_ROTATION_RAD, TAP_GROW_FRAC, TAP_SPAWN_FRAC, SlideShape, SlideSegment};
+use super::types::{Note, PadGeom, Slide, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE, TAP_TARGET_OFFSET, PAD_ROTATION_RAD, TAP_GROW_FRAC, TAP_SPAWN_FRAC, SlideShape};
 
 /// Resolved textures for a single draw_slide call.
 /// The caller picks the appropriate variant; the function just uses what's given.
@@ -55,7 +53,7 @@ pub fn draw_slide(
         }
     }
 
-    // ── Build path: start lane → each segment point zone centroid ──
+    // ── 构建路径：起点 + 各 segment ──
     let mut path: Vec<Vec2> = Vec::new();
 
     let start_pt = if note.lane <= 8 {
@@ -67,26 +65,13 @@ pub fn draw_slide(
         svg.zone_screen_centroid(PadZone::from(note.lane), pad)
     };
     if let Some(c) = start_pt { path.push(c); }
-    let get_zone_pos=|zone: PadZone|{
-        let idx = (zone.to_id() - 1) as f32;
-        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-        let target_r = outer_r + TAP_TARGET_OFFSET;
-        vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
-    };
 
     for seg in &slide.segments {
+        // 新形状只需在此处加一条分支
         match seg.shape {
-
-            SlideShape::Q => {
-              slide_shape_q(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale,);
-            }
-            SlideShape::P=>{
-                slide_shape_p(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale,);
-
-            }
-            _=>{
-                slide_shape_line(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale,);
-            }
+            SlideShape::Q => slide_shape_q(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::P => slide_shape_p(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
+            _              => slide_shape_line(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
         }
     }
 
