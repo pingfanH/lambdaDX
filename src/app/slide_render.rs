@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use macroquad::texture::{DrawTextureParams, Texture2D};
-use crate::app::slide::path::{slide_shape_line, slide_shape_p, slide_shape_q};
+use crate::app::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_q, slide_shape_right};
 use crate::app::types::zone::PadZone;
 use super::pad_svg::PadSvgDef;
 use super::types::{Note, PadGeom, Slide, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE, TAP_TARGET_OFFSET, PAD_ROTATION_RAD, TAP_GROW_FRAC, TAP_SPAWN_FRAC, SlideShape};
@@ -56,6 +56,7 @@ pub fn draw_slide(
     // ── 构建路径：起点 + 各 segment ──
     let mut path: Vec<Vec2> = Vec::new();
 
+    // 起点：A 区用外环 tap 圆点位置
     let start_pt = if note.lane <= 8 {
         let idx = (note.lane - 1) as f32;
         let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
@@ -71,6 +72,9 @@ pub fn draw_slide(
         match seg.shape {
             SlideShape::Q => slide_shape_q(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
             SlideShape::P => slide_shape_p(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::Left  => slide_shape_left(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::Right => slide_shape_right(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::Caret => slide_shape_caret(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
             _              => slide_shape_line(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
         }
     }

@@ -26,7 +26,7 @@ struct ParsedSlide {
 async fn main() {
     set_pc_assets_folder("assets");
 
-    let mut input_text = String::from("3p2");
+    let mut input_text = String::from("3^5");
     let mut bpm: f32 = 180.0;
     let mut parsed: Vec<ParsedSlide> = vec![];
     let mut msg = String::new();
@@ -179,22 +179,41 @@ fn draw_pad_background(pad: &PadGeom, pad_svg: Option<&PadSvgDef>, scale: f32, s
                 ts, Color::from_rgba(148, 163, 184, 255));
         }
     }
-
+    let spawn_cx =pad_svg.unwrap().pad_visual_center(pad).unwrap_or(vec2( pad.cx,  pad.cy));;
     // A-zone octagon ring
+    // Draw A-zone tap indicators with connecting octagon
+    // Draw A-zone tap indicators as a perfect circle centered on spawn_cx
     let dot_r = pad.outer_r + TAP_RING_OFFSET * scale;
-    let mut a_dots: Vec<Vec2> = vec![];
+    let mut a_dots: Vec<Vec2> = Vec::new();
     for i in 0..8 {
         let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
-        a_dots.push(vec2(spawn_cx + ang.cos() * dot_r, spawn_cy + ang.sin() * dot_r));
+        a_dots.push(vec2(spawn_cx.x + ang.cos() * dot_r, spawn_cx.y + ang.sin() * dot_r));
     }
+    // 圆弧连接 8 个 tap 圆点
+
+    let arc_steps = 8;
     for i in 0..8 {
-        draw_line(a_dots[i].x, a_dots[i].y, a_dots[(i + 1) % 8].x, a_dots[(i + 1) % 8].y,
-            2.0 * scale, Color::from_rgba(255, 255, 255, 120));
+        let a0 = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
+        let a1 = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + (i + 1) as f32 * std::f32::consts::TAU / 8.0;
+        for j in 0..arc_steps {
+            let t0 = j as f32 / arc_steps as f32;
+            let t1 = (j + 1) as f32 / arc_steps as f32;
+            let ang0 = a0 + (a1 - a0) * t0;
+            let ang1 = a0 + (a1 - a0) * t1;
+            draw_line(
+                spawn_cx.x + ang0.cos() * dot_r,
+                spawn_cx.y + ang0.sin() * dot_r,
+                spawn_cx.x + ang1.cos() * dot_r,
+                spawn_cx.y + ang1.sin() * dot_r,
+                2.0 * scale,
+                Color::from_rgba(255, 255, 255, 120),
+            );
+        }
     }
-    for d in &a_dots {
-        draw_circle(d.x, d.y, 5.0 * scale, Color::from_rgba(255, 255, 255, 220));
+    for dot in &a_dots {
+        draw_circle(dot.x, dot.y, 5.0 * scale, Color::from_rgba(255, 255, 255, 220));
     }
-    draw_circle(spawn_cx, spawn_cy, 3.0 * scale, Color::from_rgba(255, 255, 255, 180));
+    draw_circle(spawn_cx.x, spawn_cx.y, 3.0 * scale, Color::from_rgba(255, 255, 255, 180));
 }
 
 // ── Simai parser ──
@@ -270,6 +289,7 @@ fn parse_one_slide(s: &str, time_s: f32, beat_s: f32) -> Option<ParsedSlide> {
             "v" => SlideShape::VShape,
             ">" => SlideShape::Right,
             "<" => SlideShape::Left,
+            "^" => SlideShape::Caret,
             "bv" | "vb" => SlideShape::BigV,
             "" => SlideShape::Line,
             _ => SlideShape::Line,

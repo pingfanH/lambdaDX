@@ -1547,9 +1547,25 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
             a_dots.push(vec2(spawn_cx.x + ang.cos() * dot_r, spawn_cx.y + ang.sin() * dot_r));
         }
+        // 圆弧连接 8 个 tap 圆点
+        let arc_steps = 8;
         for i in 0..8 {
-            let j = (i + 1) % 8;
-            draw_line(a_dots[i].x, a_dots[i].y, a_dots[j].x, a_dots[j].y, 2.0 * scale, Color::from_rgba(255, 255, 255, 120));
+            let a0 = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
+            let a1 = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + (i + 1) as f32 * std::f32::consts::TAU / 8.0;
+            for j in 0..arc_steps {
+                let t0 = j as f32 / arc_steps as f32;
+                let t1 = (j + 1) as f32 / arc_steps as f32;
+                let ang0 = a0 + (a1 - a0) * t0;
+                let ang1 = a0 + (a1 - a0) * t1;
+                draw_line(
+                    spawn_cx.x + ang0.cos() * dot_r,
+                    spawn_cx.y + ang0.sin() * dot_r,
+                    spawn_cx.x + ang1.cos() * dot_r,
+                    spawn_cx.y + ang1.sin() * dot_r,
+                    2.0 * scale,
+                    Color::from_rgba(255, 255, 255, 120),
+                );
+            }
         }
         for dot in &a_dots {
             draw_circle(dot.x, dot.y, 5.0 * scale, Color::from_rgba(255, 255, 255, 220));

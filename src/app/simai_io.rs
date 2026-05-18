@@ -268,6 +268,7 @@ pub(crate) fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern,
     let e = end + 1;
     let sp = |z: u8| SlidePoint { zone: PadZone::from(z), beat_offset: 0.0 };
 
+    return   vec![sp(e)];
     match pattern {
         SlidePattern::Line => {
             // Straight line through center; endpoint only.
