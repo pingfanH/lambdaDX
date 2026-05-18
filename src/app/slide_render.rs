@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use macroquad::texture::{DrawTextureParams, Texture2D};
-use crate::app::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_q, slide_shape_right};
+use crate::app::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_q, slide_shape_qq, slide_shape_right};
 use crate::app::types::zone::PadZone;
 use super::pad_svg::PadSvgDef;
 use super::types::{Note, PadGeom, Slide, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE, TAP_TARGET_OFFSET, PAD_ROTATION_RAD, TAP_GROW_FRAC, TAP_SPAWN_FRAC, SlideShape};
@@ -71,6 +71,7 @@ pub fn draw_slide(
         // 新形状只需在此处加一条分支
         match seg.shape {
             SlideShape::Q => slide_shape_q(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::QQ => slide_shape_qq(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
             SlideShape::P => slide_shape_p(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
             SlideShape::Left  => slide_shape_left(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
             SlideShape::Right => slide_shape_right(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),

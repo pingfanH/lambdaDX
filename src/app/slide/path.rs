@@ -94,6 +94,47 @@ fn build_arc(
     push_arc(path, bp, ep, b_center, b_radius, SLIDE_TILE_SPACING * scale);
     path.push(end);
 }
+fn build_edge_arc(
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    svg: &PadSvgDef,
+    pad: &PadGeom,
+    scale: f32,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    base_offset: i32,
+    dir: ArcDir,
+) {
+    let sp = match seg.points.first() {
+        Some(p) if seg.points.len() == 1 => p,
+        _ => return,
+    };
+    let end = if sp.zone.to_id() <= 8 {
+        a_ring_pos(sp.zone, outer_r, spawn_cx)
+    } else {
+        svg.zone_screen_centroid(sp.zone, pad).unwrap()
+    };
+
+    let (b_center, b_radius) = b_ring(svg, pad);
+    let start_zone = base_offset + note.lane as i32;
+    let span = 4 - ((note.lane as i32 - sp.zone.to_id() as i32 + 8) % 8);
+    let end_zone = start_zone + span;
+
+    let start_pos = b_centroid(wrap(start_zone), svg, pad);
+    let end_pos   = b_centroid(wrap(end_zone),   svg, pad);
+
+    let bp = (start_pos.y - b_center.y).atan2(start_pos.x - b_center.x);
+    let mut ep = (end_pos.y - b_center.y).atan2(end_pos.x - b_center.x);
+    match dir {
+        ArcDir::CCW => { if ep <= bp { ep += std::f32::consts::TAU; } }
+        ArcDir::CW  => { if ep >= bp { ep -= std::f32::consts::TAU; } }
+    }
+
+    path.push(start_pos);
+    push_arc(path, bp, ep, b_center, b_radius, SLIDE_TILE_SPACING * scale);
+    path.push(end);
+}
 
 /// Left/Right：起点 → 直线 → A弧 → 直线 → 终点（弧在 A 环上，span 由 lane 和 target 自动算出）
 fn build_a_ring_arc(
@@ -164,6 +205,10 @@ fn sort_cw(a: i32, b: i32, n: i32) -> bool {
     }
 }
 pub fn slide_shape_q(
+    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
+    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
+) { build_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, 2, ArcDir::CCW); }
+pub fn slide_shape_qq(
     path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
     outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
 ) { build_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, 2, ArcDir::CCW); }

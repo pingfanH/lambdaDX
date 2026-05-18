@@ -104,14 +104,17 @@ pub fn svg_id_to_zone(id: &str) -> Option<PadZone> {
         "D8" => Some(PadZone::D8),
         // Right wing (zones 26-33)
         "E1" => Some(PadZone::E1),
-        "E1-2" => Some(PadZone::E2),
-        "E1-3" => Some(PadZone::E3),
-        "E1-4" => Some(PadZone::E4),
-        "E1-5" => Some(PadZone::E5),
-        "E1-6" => Some(PadZone::E6),
-        "E1-7" => Some(PadZone::E7),
-        "E1-8" => Some(PadZone::E8),
-        _ => None,
+        "E2" => Some(PadZone::E2),
+        "E3" => Some(PadZone::E3),
+        "E4" => Some(PadZone::E4),
+        "E5" => Some(PadZone::E5),
+        "E6" => Some(PadZone::E6),
+        "E7" => Some(PadZone::E7),
+        "E8" => Some(PadZone::E8),
+        _ => {
+            println!("Unknown SVG ID: {}", id);
+            None
+        },
     }
 }
 pub fn id_to_zone(id: u8) -> Option<PadZone> {

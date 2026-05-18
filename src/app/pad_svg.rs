@@ -1,5 +1,5 @@
 use macroquad::prelude::{draw_line, draw_triangle, Color, Vec2, vec2};
-use crate::app::types::zone::PadZone;
+use crate::app::types::zone::{svg_id_to_zone, PadZone};
 
 // SVG pad geometry constants (from the viewBox and bg circle)
 const SVG_BG_CX: f32 = 422.9;
@@ -13,8 +13,8 @@ pub struct ZoneDef {
     pub label: String,
     /// Polygon vertices in SVG viewBox coordinates.
     pub svg_verts: Vec<Vec2>,
-    /// Precomputed polygon centroid in SVG coordinates.
-    pub centroid: Vec2,
+    /// 显示/途经用的中心点（优先 center 图层，其次 polygon centroid）
+    pub center: Vec2,
 }
 
 /// Parsed SVG definition for the entire touch pad.
@@ -43,6 +43,24 @@ impl PadSvgDef {
             collect_zone_elements(child, None, &mut zones)?;
         }
 
+        // ── 读取 center 图层（可选），c-XX 替换对应 zone 的 center ──
+        if let Some(center_group) = doc
+            .descendants()
+            .find(|n| n.is_element() && n.attribute("id") == Some("center"))
+        {
+            for child in center_group.children() {
+                if !child.is_element() { continue; }
+                let cid = child.attribute("id");
+                // c-D7 → D7, c-A1 → A1
+                let zone_id = cid.and_then(|s| s.strip_prefix("c-"));
+                if let (Some(zone_id), Some(center)) = (zone_id, parse_center(child)) {
+                    if let Some(z) = zones.iter_mut().find(|z| z.zone.to_string() == zone_id) {
+                        z.center = center;
+                    }
+                }
+            }
+        }
+
         if zones.is_empty() {
             return Err("No touch zones found in SVG".to_string());
         }
@@ -61,7 +79,7 @@ impl PadSvgDef {
 
     pub fn zone_screen_centroid(&self, zone: PadZone, pad: &super::types::PadGeom) -> Option<Vec2> {
         let def = self.zone_def(zone)?;
-        Some(svg_to_screen(def.centroid, pad))
+        Some(svg_to_screen(def.center, pad))
     }
 
     /// The visual center of the pad (C zone centroid).
@@ -75,7 +93,7 @@ impl PadSvgDef {
     }
 
     pub fn def_screen_centroid(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec2 {
-        svg_to_screen(def.centroid, pad)
+        svg_to_screen(def.center, pad)
     }
 
     /// Hit-test a screen-space point against all zones using ray-casting.
@@ -144,7 +162,7 @@ fn parse_zone_element_with_id(node: roxmltree::Node, id: Option<&str>) -> Option
         return None;
     }
 
-    let zone  = PadZone::from(id);
+    let zone = svg_id_to_zone(id)?;
 
     let svg_verts = match node.tag_name().name() {
         "polygon" => parse_polygon_points(node.attribute("points")?)?,
@@ -186,8 +204,27 @@ fn parse_zone_element_with_id(node: roxmltree::Node, id: Option<&str>) -> Option
         label: zone.to_string(),
         zone,
         svg_verts,
-        centroid,
+        center: centroid,
     })
+}
+
+/// 从 center 图层元素提取中心坐标（circle: cx/cy, rect: x+w/2, y+h/2）
+fn parse_center(node: roxmltree::Node) -> Option<Vec2> {
+    match node.tag_name().name() {
+        "circle" => {
+            let cx: f32 = node.attribute("cx")?.parse().ok()?;
+            let cy: f32 = node.attribute("cy")?.parse().ok()?;
+            Some(vec2(cx, cy))
+        }
+        "rect" => {
+            let x: f32 = node.attribute("x")?.parse().ok()?;
+            let y: f32 = node.attribute("y")?.parse().ok()?;
+            let w: f32 = node.attribute("width")?.parse().ok()?;
+            let h: f32 = node.attribute("height")?.parse().ok()?;
+            Some(vec2(x + w / 2.0, y + h / 2.0))
+        }
+        _ => None,
+    }
 }
 
 /// Parse SVG polygon points attribute.
