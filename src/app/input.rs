@@ -192,7 +192,11 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     // Press a shape key (Q, P, S, Z, V, W, etc.) then a lane number (1-8) to
     // replace the slide's trajectory with the predefined shape ending at that lane.
     if app.editing_slide_path.is_some() && !mod_down {
-        let shape_key = if is_key_pressed(KeyCode::Q) { Some(SlideShape::Q) }
+        let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+        let shape_key =
+            if is_key_pressed(KeyCode::Q) && shift { Some(SlideShape::QQ) }
+            else if is_key_pressed(KeyCode::Q) { Some(SlideShape::Q) }
+            else if is_key_pressed(KeyCode::P) && shift { Some(SlideShape::PP) }
             else if is_key_pressed(KeyCode::P) { Some(SlideShape::P) }
             else if is_key_pressed(KeyCode::V) { Some(SlideShape::VShape) }
             else if is_key_pressed(KeyCode::W) { Some(SlideShape::Wifi) }
