@@ -67,17 +67,21 @@ pub fn draw_slide(
     };
     if let Some(c) = start_pt { path.push(c); }
 
+    let mut curr_note = note.clone();
     for seg in &slide.segments {
-        // 新形状只需在此处加一条分支
         match seg.shape {
-            SlideShape::Q => slide_shape_q(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
-            SlideShape::QQ => slide_shape_qq(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
-            SlideShape::P => slide_shape_p(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
-            SlideShape::PP => slide_shape_pp(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
-            SlideShape::Left  => slide_shape_left(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
-            SlideShape::Right => slide_shape_right(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
-            SlideShape::Caret => slide_shape_caret(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
-            _              => slide_shape_line(&mut path, note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::Q => slide_shape_q(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::QQ => slide_shape_qq(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::P => slide_shape_p(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::PP => slide_shape_pp(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::Left  => slide_shape_left(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::Right => slide_shape_right(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::Caret => slide_shape_caret(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+            _              => slide_shape_line(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+        }
+        // 下一段从上段的终点 lane 开始
+        if let Some(last_sp) = seg.points.last() {
+            curr_note.lane = last_sp.zone.to_id();
         }
     }
 
@@ -154,22 +158,22 @@ pub fn draw_slide(
     }
 
     // ── Original polyline on top of tiles ──
-    let line_alpha: u8 = if show_full { 200 } else { path_alpha.saturating_add(80).min(255) };
-    let line_color = Color::from_rgba(250, 204, 21, line_alpha);
-    let line_w = 5. * scale;
-    for w in path.windows(2) {
-        draw_line(w[0].x, w[0].y, w[1].x, w[1].y, line_w, line_color);
-    }
+    // let line_alpha: u8 = if show_full { 200 } else { path_alpha.saturating_add(80).min(255) };
+    // let line_color = Color::from_rgba(250, 204, 21, line_alpha);
+    // let line_w = 5. * scale;
+    // for w in path.windows(2) {
+    //     draw_line(w[0].x, w[0].y, w[1].x, w[1].y, line_w, line_color);
+    // }
 
     // ── Waypoint dots ──
-    for (i, pt) in path.iter().enumerate() {
-        let is_endpoint = i == 0 || i == path.len() - 1;
-        let r = if is_endpoint { 5.0 * scale } else { 3.5 * scale };
-        draw_circle(pt.x, pt.y, r, Color::from_rgba(255, 220, 50, 200));
-        if is_endpoint {
-            draw_circle_lines(pt.x, pt.y, r, 1.2 * scale, Color::from_rgba(255, 255, 255, 150));
-        }
-    }
+    // for (i, pt) in path.iter().enumerate() {
+    //     let is_endpoint = i == 0 || i == path.len() - 1;
+    //     let r = if is_endpoint { 5.0 * scale } else { 3.5 * scale };
+    //     draw_circle(pt.x, pt.y, r, Color::from_rgba(255, 220, 50, 200));
+    //     if is_endpoint {
+    //         draw_circle_lines(pt.x, pt.y, r, 1.2 * scale, Color::from_rgba(255, 255, 255, 150));
+    //     }
+    // }
 
     // ── Head star ──
     if show_full {

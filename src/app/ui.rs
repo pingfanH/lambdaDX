@@ -3,6 +3,7 @@ use macroquad::texture::{load_texture, DrawTextureParams, FilterMode, Texture2D}
 
 use super::chart;
 use super::slide_render;
+use crate::app::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp, slide_shape_q, slide_shape_qq, slide_shape_right};
 use super::state::AppState;
 use super::types::{
     hold_tail_time, is_touch_zone, sanitize_note_zone, slide_end_time, Layout, Mode, PadGeom, RectF,
@@ -17,7 +18,7 @@ use super::types::{
     TOUCH_GROW_FRAC,
     TOUCH_DISAPPEAR_TIME, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE,
     HIT_WINDOW,
-    PAD_ROTATION_RAD, TAP_RING_OFFSET, GRID_DIVISION, NoteType, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
+    PAD_ROTATION_RAD, TAP_RING_OFFSET, GRID_DIVISION, NoteType, SlideShape, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
     note_secs, measure_to_secs, secs_to_measure, mdur_to_secs, snap_measure, bpm_at,
 };
 use super::pad_svg;
@@ -1578,42 +1579,53 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
     };
 
     // ── Trajectory edit overlay ──
-    // When the user is editing a slide note's path, highlight its current
-    // start + current segment points with numbered markers and connecting polyline so
-    // they can see what will be appended next.
+    // 编辑时显示 slide 路径的折线和路点圆点
     if let (Some(i), Some(svg)) = (app.editing_slide_path, app.pad_svg.as_ref()) {
         if let Some(note) = app.chart.notes.get(i) {
-            if matches!(note.note_type, NoteType::Slide) {
-                let mut pts: Vec<(Vec2, String)> = Vec::new();
+            if matches!(note.note_type, NoteType::Slide) && !note.slide.is_empty() {
+                let spawn_cx = svg.pad_visual_center(&pad).unwrap_or(vec2(pad.cx, pad.cy));
+                // 构建路径
+                let mut path: Vec<Vec2> = Vec::new();
                 if let Some(c) = svg.zone_screen_centroid(PadZone::from(note.lane), &pad) {
-                    pts.push((c, format!("S{}", note.lane)));
+                    path.push(c);
                 }
-                let mut shape_label = "none".to_string();
-                let edit_idx = app.editing_slide_idx.unwrap_or(0);
-                if let Some(sl) = note.slide.get(edit_idx) {
-                    if let Some(seg) = sl.segments.first() {
-                        for (k, sp) in seg.points.iter().enumerate() {
-                            if let Some(c) = svg.zone_screen_centroid(sp.zone, &pad) {
-                                pts.push((c, format!("{}", k + 1)));
-                            }
+                let mut curr_note = note.clone();
+                for sl in &note.slide {
+                    for seg in &sl.segments {
+                        match seg.shape {
+                            SlideShape::Q => slide_shape_q(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::QQ => slide_shape_qq(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::P => slide_shape_p(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::PP => slide_shape_pp(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::Left => slide_shape_left(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::Right => slide_shape_right(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::Caret => slide_shape_caret(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            _ => slide_shape_line(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
                         }
-                        shape_label = format!("{:?}", seg.shape);
+                        if let Some(last_sp) = seg.points.last() {
+                            curr_note.lane = last_sp.zone.to_id();
+                        }
                     }
                 }
-                let line_col = Color::from_rgba(250, 204, 21, 220);
-                for w in pts.windows(2) {
-                    draw_line(w[0].0.x, w[0].0.y, w[1].0.x, w[1].0.y, 4.0 * scale, line_col);
+                // Polyline
+                let line_col = Color::from_rgba(250, 204, 21, 200);
+                let line_w = 5. * scale;
+                for w in path.windows(2) {
+                    draw_line(w[0].x, w[0].y, w[1].x, w[1].y, line_w, line_col);
                 }
-                for (p, lbl) in &pts {
-                    draw_circle(p.x, p.y, 12.0 * scale, Color::from_rgba(250, 204, 21, 220));
-                    draw_circle_lines(p.x, p.y, 12.0 * scale, 2.0 * scale, BLACK);
-                    let sz = 16.0 * scale;
-                    let dims = measure_text(lbl, None, sz as _, 1.0);
-                    draw_text(lbl, p.x - dims.width * 0.5, p.y + dims.height * 0.35, sz, BLACK);
+                // Waypoint dots
+                for (k, pt) in path.iter().enumerate() {
+                    let is_endpoint = k == 0 || k == path.len() - 1;
+                    let r = if is_endpoint { 5.0 * scale } else { 3.5 * scale };
+                    draw_circle(pt.x, pt.y, r, Color::from_rgba(255, 220, 50, 200));
+                    if is_endpoint {
+                        draw_circle_lines(pt.x, pt.y, r, 1.2 * scale, Color::from_rgba(255, 255, 255, 150));
+                    }
                 }
+                let edit_idx = app.editing_slide_idx.unwrap_or(0);
                 let banner = format!(
-                    "Trajectory edit  #{}:{}  pts={}  shape={:?}  [click=add  Bksp=undo  Esc/E=exit]",
-                    i, edit_idx, pts.len().saturating_sub(1), shape_label
+                    "Trajectory edit  #{}:{}  [click=add  Bksp=undo  Esc/E=exit]",
+                    i, edit_idx
                 );
                 draw_rectangle(
                     rect.x + 8.0 * scale, rect.y + 36.0 * scale,

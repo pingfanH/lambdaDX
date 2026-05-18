@@ -177,11 +177,16 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             if let Some(n) = app.chart.notes.get_mut(i) {
                 let edit_idx = app.editing_slide_idx.unwrap_or(0);
                 if let Some(sl) = n.slide.get_mut(edit_idx) {
-                    if let Some(seg) = sl.segments.first_mut() {
+                    if let Some(seg) = sl.segments.last_mut() {
                         if let Some(removed) = seg.points.pop() {
-                            seg.shape = super::slide_match::match_slide_shape(n.lane, &seg.points)
-                                .unwrap_or(super::types::SlideShape::Line);
-                            app.set_status(format!("Removed zone {}", removed.zone));
+                            if seg.points.is_empty() {
+                                sl.segments.pop(); // 删除整个空 segment
+                                app.set_status(format!("Removed segment → zone {}", removed.zone));
+                            } else {
+                                seg.shape = super::slide_match::match_slide_shape(n.lane, &seg.points)
+                                    .unwrap_or(super::types::SlideShape::Line);
+                                app.set_status(format!("Removed zone {}", removed.zone));
+                            }
                         }
                     }
                 }
@@ -244,8 +249,7 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
                             if sl.segments.is_empty() {
                                 sl.segments.push(super::types::SlideSegment { points, shape });
                             } else {
-                                sl.segments[0].points = points;
-                                sl.segments[0].shape = shape;
+                                sl.segments.push(super::types::SlideSegment { points, shape });
                             }
                         }
                         app.set_status(format!("Set shape {:?} → lane {}", shape, end_lane));
@@ -873,10 +877,19 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 app.push_undo();
                 // Mark the original star as double-star
                 app.chart.notes[i].is_star = true;
+                // 继承上一个 slide 的终点 lane
+                let last_end_lane = src.slide.last()
+                    .and_then(|s| s.segments.last())
+                    .and_then(|seg| seg.points.last())
+                    .map(|sp| sp.zone)
+                    .unwrap_or(PadZone::from(src.lane));
                 let default_dur = src.slide.first().map(|s| s.slide_duration).unwrap_or(0.5);
                 let default_delay = src.slide.first().map(|s| s.slide_start_delay).unwrap_or(0.0625);
                 let new_slide = super::types::Slide {
-                        segments: vec![],
+                        segments: vec![super::types::SlideSegment {
+                            points: vec![SlidePoint { zone: last_end_lane, beat_offset: 0.0 }],
+                            shape: SlideShape::Line,
+                        }],
                         slide_duration: default_dur,
                         slide_start_delay: default_delay,
                         slide_is_break: false,
