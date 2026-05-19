@@ -138,6 +138,7 @@ pub(crate) struct AppState {
     pub(crate) sfx_break_slide: Option<SfxBuffer>,
     pub(crate) touch_riser_playing: bool,
     pub(crate) hit_sounds_played: HashSet<usize>,
+    pub(crate) hidden_notes: HashSet<usize>,
 
     pub(crate) status: String,
 }
@@ -255,6 +256,7 @@ impl AppState {
             sfx_break_slide: None,
             touch_riser_playing: false,
             hit_sounds_played: HashSet::new(),
+            hidden_notes: HashSet::new(),
             status: "Ready".to_string(),
         }
     }
@@ -285,6 +287,13 @@ impl AppState {
             println!("[AppState] selected_note: {:?} -> {:?}", self.selected_note, sel);
         }
         self.selected_note = sel;
+    }
+
+    pub(crate) fn unhide_all_notes(&mut self) {
+        self.hidden_notes.clear();
+        self.selected_note = None;
+        self.selected_notes.clear();
+        self.set_status("Unhid all notes".to_string());
     }
 
     pub(crate) fn set_editing_slide_path(&mut self, v: Option<usize>) {
@@ -458,6 +467,11 @@ impl AppState {
         let bpms = &self.chart.bpms;
 
         while self.playback_cursor < self.chart.notes.len() {
+            // 跳过隐藏的 note
+            if self.hidden_notes.contains(&self.playback_cursor) {
+                self.playback_cursor += 1;
+                continue;
+            }
             if note_secs(&self.chart.notes[self.playback_cursor], bpms) + HIT_WINDOW < t {
                 self.playback_cursor += 1;
             } else {

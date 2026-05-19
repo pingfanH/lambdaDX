@@ -516,11 +516,14 @@ pub(crate) fn trigger_ui_action(app: &mut AppState, action: UiAction) {
 }
 
 fn draw_tap_sprite(tex: &Texture2D, cx: f32, cy: f32, size: f32) {
+    draw_tap_sprite_c(tex, cx, cy, size, WHITE);
+}
+fn draw_tap_sprite_c(tex: &Texture2D, cx: f32, cy: f32, size: f32, color: Color) {
     draw_texture_ex(
         tex,
         cx - size * 0.5,
         cy - size * 0.5,
-        WHITE,
+        color,
         DrawTextureParams {
             dest_size: Some(vec2(size, size)),
             ..Default::default()
@@ -894,6 +897,11 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         if tail_dt < -margin_s || dt.min(tail_dt) > margin_s {
             continue;
         }
+        let hidden = app.hidden_notes.contains(&idx);
+        let ca = |r: u8, g: u8, b: u8, a: u8| -> Color {
+            if hidden { Color::from_rgba(r, g, b, (a as f32 * 0.3) as u8) }
+            else { Color::from_rgba(r, g, b, a) }
+        };
         let lane_index = if is_touch_zone(zone) {
             LANE_COUNT - 1
         } else {
@@ -903,9 +911,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let scroll = scroll_speed;
         let ny = judge_y - dt * scroll;
 
-        // Selection highlight
-        if app.selected_note == Some(idx) {
-            draw_circle(cx, ny, 16.0, Color::from_rgba(56, 189, 248, 100));
+        // Selection highlight（隐藏 note 不选中）
+        if !hidden && app.selected_note == Some(idx) {
+            draw_circle(cx, ny, 16.0, ca(56, 189, 248, 100));
         }
 
         match note.note_type {
@@ -919,20 +927,20 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 }.or(app.tap_texture.as_ref());
                 let ts = TAP_SIZE * scale;
                 if let Some(tex) = tap_tex {
-                    draw_tap_sprite(tex, cx, ny, ts);
+                    draw_tap_sprite_c(tex, cx, ny, ts, ca(255, 255, 255, 255));
                     if note.is_ex {
                         if let Some(ex) = app.tap_ex_tex.as_ref() {
-                            draw_tap_sprite(ex, cx, ny, ts);
+                            draw_tap_sprite_c(ex, cx, ny, ts, ca(255, 255, 255, 255));
                         }
                     }
                 } else {
                     let tr = TAP_SIZE * 0.3125 * scale;
-                    draw_circle(cx, ny, tr, Color::from_rgba(17, 24, 39, 255));
-                    draw_circle_lines(cx, ny, tr, tr * 0.3, Color::from_rgba(244, 114, 182, 255));
-                    draw_circle(cx, ny, tr * 0.3, Color::from_rgba(249, 168, 212, 255));
+                    draw_circle(cx, ny, tr, ca(17, 24, 39, 255));
+                    draw_circle_lines(cx, ny, tr, tr * 0.3, ca(244, 114, 182, 255));
+                    draw_circle(cx, ny, tr * 0.3, ca(249, 168, 212, 255));
                 }
                 // Judgment center dot
-                draw_circle(cx, ny, 2.5 * scale, Color::from_rgba(255, 255, 255, 200));
+                draw_circle(cx, ny, 2.5 * scale, ca(255, 255, 255, 200));
             }
             NoteType::Touch => {
                 let tri_tex = if note.is_each { app.touch_tri_each_tex.as_ref() } else { app.touch_tri_tex.as_ref() }
@@ -943,16 +951,16 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     let ratio = tex.width() / tex.height();
                     let ts = 30.0 * scale;
                     let tw = ts; let th = ts / ratio;
-                    let color = Color::from_rgba(255, 255, 255, 200);
+                    let color = ca(255, 255, 255, 200);
                     draw_texture_ex(tex, cx - tw*0.5, ny + ts*0.3 - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), ..Default::default() });
                     draw_texture_ex(tex, cx - tw*0.5, ny - ts*0.3 - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::PI, ..Default::default() });
                     draw_texture_ex(tex, cx - ts*0.3 - tw*0.5, ny - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
                     draw_texture_ex(tex, cx + ts*0.3 - tw*0.5, ny - th*0.5, color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
                 }
                 if let Some(pt) = pt_tex {
-                    draw_texture_ex(pt, cx - 6.0*scale, ny - 6.0*scale, Color::from_rgba(255,255,255,200), DrawTextureParams { dest_size: Some(vec2(12.0*scale,12.0*scale)), ..Default::default() });
+                    draw_texture_ex(pt, cx - 6.0*scale, ny - 6.0*scale, ca(255,255,255,200), DrawTextureParams { dest_size: Some(vec2(12.0*scale,12.0*scale)), ..Default::default() });
                 } else {
-                    draw_circle(cx, ny, 3.0*scale, Color::from_rgba(103,232,249,200));
+                    draw_circle(cx, ny, 3.0*scale, ca(103,232,249,200));
                 }
             }
             NoteType::Slide => {
@@ -969,7 +977,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                         let period = dash_len + gap;
                         let top = ny.min(delay_y);
                         let n_dashes = (delay_h / period).ceil() as i32;
-                        let col = Color::from_rgba(253, 224, 71, 220);
+                        let col = ca(253, 224, 71, 220);
                         for k in 0..n_dashes {
                             let y0 = top + (k as f32) * period;
                             let y1 = (y0 + dash_len).min(top + delay_h);
@@ -1013,8 +1021,8 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                         }
 
                         let line_w = 3.0 * scale;
-                        let col = Color::from_rgba(250, 204, 21, 200);
-                        let tile_col = Color::from_rgba(255, 255, 255, 230);
+                        let col = ca(250, 204, 21, 200);
+                        let tile_col = ca(255, 255, 255, 230);
                         for seg in 0..waypoints.len() - 1 {
                             let (x0, y0) = waypoints[seg];
                             let (x1, y1) = waypoints[seg + 1];
@@ -1046,18 +1054,18 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                             }
                         }
                         for &(wx, wy) in &waypoints[1..] {
-                            draw_circle(wx, wy, 3.0 * scale, Color::from_rgba(253, 224, 71, 200));
+                            draw_circle(wx, wy, 3.0 * scale, ca(253, 224, 71, 200));
                         }
                     }
 
                     if delay_s > 0.0 || dur_s > 0.0 {
-                        draw_circle(cx, delay_y, 4.5 * scale, Color::from_rgba(56, 189, 248, 230));
-                        draw_circle_lines(cx, delay_y, 4.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
+                        draw_circle(cx, delay_y, 4.5 * scale, ca(56, 189, 248, 230));
+                        draw_circle_lines(cx, delay_y, 4.5 * scale, 1.5 * scale, ca(255, 255, 255, 220));
                     }
                     if dur_s > 0.0 {
                         let tail_cx = super::input::slide_tail_cx_for(note, si, track_x, ruler_w, lane_w);
-                        draw_circle(tail_cx, tail_y, 5.5 * scale, Color::from_rgba(250, 204, 21, 230));
-                        draw_circle_lines(tail_cx, tail_y, 5.5 * scale, 1.5 * scale, Color::from_rgba(255, 255, 255, 220));
+                        draw_circle(tail_cx, tail_y, 5.5 * scale, ca(250, 204, 21, 230));
+                        draw_circle_lines(tail_cx, tail_y, 5.5 * scale, 1.5 * scale, ca(255, 255, 255, 220));
                     }
                 }
 
@@ -1077,18 +1085,18 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     let ss = TAP_SIZE * scale;
                     if let Some(tex) = star_tex.or(fallback).or(app.star_tex.as_ref()) {
                         draw_texture_ex(tex, cx - ss * 0.5, ny - ss * 0.5,
-                            Color::from_rgba(255, 255, 255, 230),
+                            ca(255, 255, 255, 230),
                             DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
                         if note.is_ex {
                             let ex_tex = if is_double { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() };
                             if let Some(ex) = ex_tex.or(app.star_ex_tex.as_ref()) {
                                 draw_texture_ex(ex, cx - ss * 0.5, ny - ss * 0.5,
-                                    Color::from_rgba(255, 255, 255, 230),
+                                    ca(255, 255, 255, 230),
                                     DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
                             }
                         }
                     } else {
-                        draw_poly(cx, ny, 5, ss * 0.4, 0.0, Color::from_rgba(250, 204, 21, 230));
+                        draw_poly(cx, ny, 5, ss * 0.4, 0.0, ca(250, 204, 21, 230));
                     }
                 }
 
@@ -1121,17 +1129,17 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                     let hw = HOLD_WIDTH * scale;
                     let top = ny.min(tail_y);
                     let h = (ny - tail_y).abs().max(hw * 0.133);
-                    draw_rectangle(cx - hw * 0.2, top, hw * 0.4, h, Color::from_rgba(190, 24, 93, 130));
-                    draw_rectangle_lines(cx - hw * 0.2, top, hw * 0.4, h, 1.0 * scale, Color::from_rgba(244, 114, 182, 200));
+                    draw_rectangle(cx - hw * 0.2, top, hw * 0.4, h, ca(190, 24, 93, 130));
+                    draw_rectangle_lines(cx - hw * 0.2, top, hw * 0.4, h, 1.0 * scale, ca(244, 114, 182, 200));
                     let hr = hw * 0.367;
-                    draw_circle(cx, ny, hr, Color::from_rgba(17, 24, 39, 255));
-                    draw_circle_lines(cx, ny, hr, hw * 0.1, Color::from_rgba(251, 113, 133, 255));
-                    draw_circle(cx, ny, hw * 0.107, Color::from_rgba(253, 164, 175, 255));
-                    draw_circle(cx, tail_y, hw * 0.133, Color::from_rgba(251, 113, 133, 220));
+                    draw_circle(cx, ny, hr, ca(17, 24, 39, 255));
+                    draw_circle_lines(cx, ny, hr, hw * 0.1, ca(251, 113, 133, 255));
+                    draw_circle(cx, ny, hw * 0.107, ca(253, 164, 175, 255));
+                    draw_circle(cx, tail_y, hw * 0.133, ca(251, 113, 133, 220));
                 }
                 // Judgment center dots (head & tail)
-                draw_circle(cx, ny, 2.5 * scale, Color::from_rgba(255, 255, 255, 200));
-                draw_circle(cx, tail_y, 2.5 * scale, Color::from_rgba(255, 255, 255, 180));
+                draw_circle(cx, ny, 2.5 * scale, ca(255, 255, 255, 200));
+                draw_circle(cx, tail_y, 2.5 * scale, ca(255, 255, 255, 180));
             }
         }
     }
@@ -1639,7 +1647,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
     }
 
     let bpms = &app.chart.bpms;
-    for note in &app.chart.notes {
+    for (p_idx, note) in app.chart.notes.iter().enumerate() {
+        if app.hidden_notes.contains(&p_idx) { continue; }
         let zone = sanitize_note_zone(note.note_type, note.lane);
         let ns = note_secs(note, bpms);
         let dt = ns - current_t;

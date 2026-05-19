@@ -51,6 +51,24 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
             app.stop_audio_if_any();
         }
     }
+    // H 隐藏选中 note（支持多选），Shift+H 取消全部隐藏
+    if is_key_pressed(KeyCode::H) {
+        if is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift) {
+            app.unhide_all_notes();
+        } else {
+            let targets: Vec<usize> = if app.selected_notes.is_empty() {
+                app.selected_note.iter().copied().collect()
+            } else {
+                app.selected_notes.clone()
+            };
+            if !targets.is_empty() {
+                for &i in &targets { app.hidden_notes.insert(i); }
+                app.selected_note = None;
+                app.selected_notes.clear();
+                app.set_status(format!("Hidden {} note(s)", targets.len()));
+            }
+        }
+    }
 
     // Record speed: [ and ]
     if is_key_pressed(KeyCode::LeftBracket) {
@@ -781,6 +799,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     if is_mouse_button_pressed(MouseButton::Right) && pos.x >= lanes_x {
         let mut best: Option<usize> = None; let mut best_d = 30.0;
         for (i, note) in app.chart.notes.iter().enumerate() {
+            if app.hidden_notes.contains(&i) { continue; }
             let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             let d = pos.distance(vec2(cx, ny));
             if d < best_d { best = Some(i); best_d = d; }
@@ -799,6 +818,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     if is_mouse_button_pressed(MouseButton::Middle) && pos.x >= lanes_x {
         let mut best: Option<usize> = None; let mut best_d = 30.0_f32;
         for (i, note) in app.chart.notes.iter().enumerate() {
+            if app.hidden_notes.contains(&i) { continue; }
             if !matches!(note.note_type, NoteType::Slide) { continue; }
             let (cx, _ny, _tail_ny, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             for (si, sl) in note.slide.iter().enumerate() {
@@ -829,6 +849,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         let mut best_part = DragPart::Body;
         let mut best_slide_idx: Option<usize> = None;
         for (i, note) in app.chart.notes.iter().enumerate() {
+            if app.hidden_notes.contains(&i) { continue; }
             let (cx, ny, tail_ny, has_tail) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             let d = pos.distance(vec2(cx, ny));
             if matches!(note.note_type, super::types::NoteType::Slide) && !note.slide.is_empty() {
@@ -1106,6 +1127,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             let y1 = start.y.min(pos.y); let y2 = start.y.max(pos.y);
             app.selected_notes.clear();
             for (i, note) in app.chart.notes.iter().enumerate() {
+                if app.hidden_notes.contains(&i) { continue; }
                 let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
                 if cx >= x1 && cx <= x2 && ny >= y1 && ny <= y2 { app.selected_notes.push(i); }
             }
