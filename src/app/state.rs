@@ -66,6 +66,7 @@ pub(crate) struct AppState {
     pub(crate) waveform_threshold: f32,
     pub(crate) record_snap_grid: bool,
     pub(crate) selected_notes: Vec<usize>,
+    pub(crate) selected_note_ids: HashSet<u64>,
     pub(crate) drag_orig_note: Option<super::types::Note>,
     pub(crate) timeline_view_time: f32,
     pub(crate) timeline_zoom: f32,
@@ -138,7 +139,8 @@ pub(crate) struct AppState {
     pub(crate) sfx_break_slide: Option<SfxBuffer>,
     pub(crate) touch_riser_playing: bool,
     pub(crate) hit_sounds_played: HashSet<usize>,
-    pub(crate) hidden_notes: HashSet<usize>,
+    pub(crate) next_note_id: u64,
+    pub(crate) hidden_notes: HashSet<u64>,
 
     pub(crate) status: String,
 }
@@ -194,6 +196,7 @@ impl AppState {
             waveform_threshold: 0.3,
             record_snap_grid: true,
             selected_notes: Vec::new(),
+            selected_note_ids: HashSet::new(),
             drag_orig_note: None,
             timeline_view_time: 0.0,
             timeline_zoom: 1.0,
@@ -256,6 +259,7 @@ impl AppState {
             sfx_break_slide: None,
             touch_riser_playing: false,
             hit_sounds_played: HashSet::new(),
+            next_note_id: 1,
             hidden_notes: HashSet::new(),
             status: "Ready".to_string(),
         }
@@ -263,7 +267,8 @@ impl AppState {
 
     // ── Setters with logging ──────────────────────────────────────────
 
-    pub(crate) fn set_chart(&mut self, chart: ChartDoc) {
+    pub(crate) fn set_chart(&mut self, mut chart: ChartDoc) {
+        for note in &mut chart.notes { if note.id == 0 { note.id = self.next_id(); } }
         let n = chart.notes.len();
         let slides: Vec<_> = chart.notes.iter().enumerate()
             .filter(|(_, n)| matches!(n.note_type, NoteType::Slide))
@@ -289,10 +294,21 @@ impl AppState {
         self.selected_note = sel;
     }
 
+    pub(crate) fn next_id(&mut self) -> u64 {
+        let id = self.next_note_id;
+        self.next_note_id += 1;
+        id
+    }
+    pub(crate) fn push_note(&mut self, mut note: Note) {
+        if note.id == 0 { note.id = self.next_id(); }
+        self.chart.notes.push(note);
+    }
+
     pub(crate) fn unhide_all_notes(&mut self) {
         self.hidden_notes.clear();
         self.selected_note = None;
         self.selected_notes.clear();
+        self.selected_note_ids.clear();
         self.set_status("Unhid all notes".to_string());
     }
 
@@ -468,7 +484,7 @@ impl AppState {
 
         while self.playback_cursor < self.chart.notes.len() {
             // 跳过隐藏的 note
-            if self.hidden_notes.contains(&self.playback_cursor) {
+            if self.hidden_notes.contains(&self.chart.notes[self.playback_cursor].id) {
                 self.playback_cursor += 1;
                 continue;
             }

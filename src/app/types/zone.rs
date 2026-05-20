@@ -14,6 +14,18 @@ impl PadZone {
     pub fn to_id(self)->u8{
         zone_to_id(self)
     }
+    pub fn num_to_b(zone: i8) -> Self {
+        let num = (zone - 1).rem_euclid(8) as u8 + 9;
+        PadZone::from(num)
+    }
+
+    pub fn num_to_d(zone: i8) -> Self {
+        PadZone::from((zone - 1).rem_euclid(8) as u8 + 18)
+    }
+
+    pub fn num_to_e(zone: i8) -> Self {
+        PadZone::from((zone - 1).rem_euclid(8)  as u8+ 26)
+    }
 }
 
 impl From<String> for PadZone {
@@ -185,7 +197,7 @@ macro_rules! impl_cmp_for_zone {
     };
 }
 
-impl_cmp_for_zone!(u8, u16, u32, u64, usize, i32, i64);
+impl_cmp_for_zone!(u8, u16, u32, u64, usize, i32, i64,i8, i16);
 
 use std::ops::{Add, Sub, Mul, Div, AddAssign, SubAssign, MulAssign, DivAssign};
 

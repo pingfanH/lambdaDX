@@ -3,7 +3,7 @@ use macroquad::texture::{load_texture, DrawTextureParams, FilterMode, Texture2D}
 
 use super::chart;
 use super::slide_render;
-use crate::app::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp, slide_shape_q, slide_shape_qq, slide_shape_right};
+use crate::app::slide::path::*;
 use super::state::AppState;
 use super::types::{
     hold_tail_time, is_touch_zone, sanitize_note_zone, slide_end_time, Layout, Mode, PadGeom, RectF,
@@ -897,7 +897,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         if tail_dt < -margin_s || dt.min(tail_dt) > margin_s {
             continue;
         }
-        let hidden = app.hidden_notes.contains(&idx);
+        let hidden = app.hidden_notes.contains(&note.id);
         let ca = |r: u8, g: u8, b: u8, a: u8| -> Color {
             if hidden { Color::from_rgba(r, g, b, (a as f32 * 0.3) as u8) }
             else { Color::from_rgba(r, g, b, a) }
@@ -1608,6 +1608,9 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             SlideShape::Left => slide_shape_left(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
                             SlideShape::Right => slide_shape_right(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
                             SlideShape::Caret => slide_shape_caret(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::Z => slide_shape_z(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::S => slide_shape_s(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+
                             _ => slide_shape_line(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
                         }
                         if let Some(last_sp) = seg.points.last() {
@@ -1647,8 +1650,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
     }
 
     let bpms = &app.chart.bpms;
-    for (p_idx, note) in app.chart.notes.iter().enumerate() {
-        if app.hidden_notes.contains(&p_idx) { continue; }
+    for (_p_idx, note) in app.chart.notes.iter().enumerate() {
+        if app.hidden_notes.contains(&note.id) { continue; }
         let zone = sanitize_note_zone(note.note_type, note.lane);
         let ns = note_secs(note, bpms);
         let dt = ns - current_t;

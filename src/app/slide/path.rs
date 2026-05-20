@@ -1,6 +1,6 @@
 use macroquad::math::{vec2, Vec2};
 use crate::app::pad_svg::PadSvgDef;
-use crate::app::types::{Note, PadGeom, SlideSegment, PAD_ROTATION_RAD, SLIDE_TILE_SPACING, TAP_TARGET_OFFSET};
+use crate::app::types::{Note, PadGeom, SlideSegment, SlideShape, PAD_ROTATION_RAD, SLIDE_TILE_SPACING, TAP_TARGET_OFFSET};
 use crate::app::types::zone::PadZone;
 
 // ── Direction ──
@@ -325,6 +325,47 @@ fn sort_cw(a: i32, b: i32, n: i32) -> bool {
         true
     }
 }
+
+fn build_z_arc(
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    svg: &PadSvgDef,
+    pad: &PadGeom,
+    scale: f32,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    slide_type:SlideShape
+) {
+    let sp = match seg.points.first() {
+        Some(p) if seg.points.len() == 1 => p,
+        _ => return,
+    };
+    // 目标终点：seg 指定的 zone
+    let target_end = if sp.zone.to_id() <= 8 {
+        a_ring_pos(sp.zone, outer_r, spawn_cx)
+    } else {
+        svg.zone_screen_centroid(sp.zone, pad).unwrap()
+    };
+
+    // C 区中心
+    let c_pos = svg.zone_screen_centroid(PadZone::C, pad).unwrap();
+
+    let b1 =    svg.zone_screen_centroid(PadZone::num_to_b(note.lane as i8+2),pad).unwrap();
+    let b2 =    svg.zone_screen_centroid(PadZone::num_to_b(note.lane as i8-2),pad).unwrap();
+
+    if matches!(slide_type,SlideShape::Z) {
+        path.push(b1);
+        path.push(b2);
+    }else if  matches!(slide_type,SlideShape::S) {
+        path.push(b2);
+        path.push(b1);
+    }
+
+    // 目标终点（直线）
+    path.push(target_end);
+}
+
 pub fn slide_shape_q(
     path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
     outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
@@ -359,6 +400,19 @@ pub fn slide_shape_caret(
     outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
 ) {
     build_caret_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx); }
+
+pub fn slide_shape_z(
+    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
+    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
+) {
+    build_z_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, SlideShape::Z);
+}
+pub fn slide_shape_s(
+    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
+    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
+) {
+    build_z_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, SlideShape::S);
+}
 
 /// 直线连接 segment 的各个 waypoint
 pub fn slide_shape_line(

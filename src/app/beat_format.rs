@@ -157,6 +157,7 @@ pub(crate) fn ser_to_note(s: &SerNote) -> Note {
     let hold_duration = s.hold_duration.map_or(0.0, fraction_to_duration);
 
     Note {
+        id: 0,
         time,
         lane: s.lane,
         note_type: s.note_type,

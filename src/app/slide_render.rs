@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use macroquad::texture::{DrawTextureParams, Texture2D};
-use crate::app::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp, slide_shape_q, slide_shape_qq, slide_shape_right};
+use crate::app::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp, slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z};
 use crate::app::types::zone::PadZone;
 use super::pad_svg::PadSvgDef;
 use super::types::{Note, PadGeom, Slide, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE, TAP_TARGET_OFFSET, PAD_ROTATION_RAD, TAP_GROW_FRAC, TAP_SPAWN_FRAC, SlideShape};
@@ -77,6 +77,9 @@ pub fn draw_slide(
             SlideShape::Left  => slide_shape_left(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
             SlideShape::Right => slide_shape_right(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
             SlideShape::Caret => slide_shape_caret(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
+            SlideShape::Z => slide_shape_z(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+            SlideShape::S => slide_shape_s(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+
             _              => slide_shape_line(&mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale),
         }
         // 下一段从上段的终点 lane 开始

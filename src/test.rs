@@ -1,4 +1,5 @@
 use macroquad::prelude::*;
+use crate::app::types::zone::PadZone;
 
 #[macroquad::main("Mask")]
 async fn main() {
@@ -102,15 +103,8 @@ async fn main() {
 
 #[test]
 fn test() {
-    fn calc(a: i32, b: i32) -> i32 {
-        let dist = (a - b + 8) % 8;
-
-       4- dist
-    }
-    //println!("{}", calc(3, 3));
-
-    let x = -1;
-
-    let result = ((x as i32).rem_euclid(8)) + 1;
-    println!("{}", result);
+    let zone:i8 = 3;
+    let fin = (zone - 1).rem_euclid(8) as u8 +9;
+    let zone =  PadZone::num_to_b(zone);
+    println!("{}", zone);
 }

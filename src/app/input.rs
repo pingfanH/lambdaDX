@@ -56,13 +56,15 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
         if is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift) {
             app.unhide_all_notes();
         } else {
-            let targets: Vec<usize> = if app.selected_notes.is_empty() {
-                app.selected_note.iter().copied().collect()
+            let targets: Vec<u64> = if !app.selected_note_ids.is_empty() {
+                app.selected_note_ids.iter().copied().collect()
+            } else if app.selected_note.is_some() {
+                app.selected_note.and_then(|i| app.chart.notes.get(i)).map(|n| n.id).into_iter().collect()
             } else {
-                app.selected_notes.clone()
+                vec![]
             };
             if !targets.is_empty() {
-                for &i in &targets { app.hidden_notes.insert(i); }
+                for id in &targets { app.hidden_notes.insert(*id); }
                 app.selected_note = None;
                 app.selected_notes.clear();
                 app.set_status(format!("Hidden {} note(s)", targets.len()));
@@ -799,7 +801,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     if is_mouse_button_pressed(MouseButton::Right) && pos.x >= lanes_x {
         let mut best: Option<usize> = None; let mut best_d = 30.0;
         for (i, note) in app.chart.notes.iter().enumerate() {
-            if app.hidden_notes.contains(&i) { continue; }
+            if app.hidden_notes.contains(&note.id) { continue; }
             let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             let d = pos.distance(vec2(cx, ny));
             if d < best_d { best = Some(i); best_d = d; }
@@ -818,7 +820,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
     if is_mouse_button_pressed(MouseButton::Middle) && pos.x >= lanes_x {
         let mut best: Option<usize> = None; let mut best_d = 30.0_f32;
         for (i, note) in app.chart.notes.iter().enumerate() {
-            if app.hidden_notes.contains(&i) { continue; }
+            if app.hidden_notes.contains(&note.id) { continue; }
             if !matches!(note.note_type, NoteType::Slide) { continue; }
             let (cx, _ny, _tail_ny, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             for (si, sl) in note.slide.iter().enumerate() {
@@ -849,7 +851,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         let mut best_part = DragPart::Body;
         let mut best_slide_idx: Option<usize> = None;
         for (i, note) in app.chart.notes.iter().enumerate() {
-            if app.hidden_notes.contains(&i) { continue; }
+            if app.hidden_notes.contains(&note.id) { continue; }
             let (cx, ny, tail_ny, has_tail) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
             let d = pos.distance(vec2(cx, ny));
             if matches!(note.note_type, super::types::NoteType::Slide) && !note.slide.is_empty() {
@@ -1126,20 +1128,35 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
             let x1 = start.x.min(pos.x); let x2 = start.x.max(pos.x);
             let y1 = start.y.min(pos.y); let y2 = start.y.max(pos.y);
             app.selected_notes.clear();
+            app.selected_note_ids.clear();
             for (i, note) in app.chart.notes.iter().enumerate() {
-                if app.hidden_notes.contains(&i) { continue; }
+                if app.hidden_notes.contains(&note.id) { continue; }
                 let (cx, ny, _, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
-                if cx >= x1 && cx <= x2 && ny >= y1 && ny <= y2 { app.selected_notes.push(i); }
+                if cx >= x1 && cx <= x2 && ny >= y1 && ny <= y2 {
+                    app.selected_notes.push(i);
+                    app.selected_note_ids.insert(note.id);
+                }
             }
             if !app.selected_notes.is_empty() { app.set_selected_note(Some(app.selected_notes[0])); }
             app.set_status(format!("Selected {} notes", app.selected_notes.len()));
         } else if !moved {
             // Simple click (no drag)
+            let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
             if let Some(candidate) = app.press_note_candidate {
-                // Clicked on an existing note → select it
-                app.set_selected_note(Some(candidate));
-                app.selected_notes = vec![candidate];
-                app.set_status(format!("Selected 1 notes"));
+                let cid = app.chart.notes.get(candidate).map(|n| n.id);
+                if shift && !app.selected_notes.contains(&candidate) {
+                    // Shift+click: 追加到多选
+                    app.selected_notes.push(candidate);
+                    if let Some(id) = cid { app.selected_note_ids.insert(id); }
+                    app.set_status(format!("Selected {} notes", app.selected_notes.len()));
+                } else if !shift {
+                    // 单击：替换选择
+                    app.set_selected_note(Some(candidate));
+                    app.selected_notes = vec![candidate];
+                    app.selected_note_ids.clear();
+                    if let Some(id) = cid { app.selected_note_ids.insert(id); }
+                    app.set_status(format!("Selected 1 notes"));
+                }
             } else {
                 // Clicked on empty space → place note via tool
                 let dt = (judge_y - pos.y) / scroll_speed;
@@ -1173,6 +1190,7 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
         let anchor_lane = app.clipboard.first().map(|n| n.lane).unwrap_or(1);
         let lane_off = tgt_lane as i32 - anchor_lane as i32;
         for mut n in app.clipboard.clone() {
+            n.id = app.next_id();
             n.time = snap_grid(n.time + offset);
             n.lane = (n.lane as i32 + lane_off).clamp(1, super::types::PAD_ZONE_MAX as i32) as u8;
             app.chart.notes.push(n);
@@ -1194,9 +1212,10 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
         PlaceTool::Tap => {
             app.push_undo();
             let nt = if touch { NoteType::Touch } else { NoteType::Tap };
+            let nid = app.next_id();
             app.chart.notes.push(Note {
-                time: t, lane, note_type: nt, hold_duration: 0.0, is_each: false,
-                is_break: false, is_ex: false, is_star: false, is_tapless: false,
+                id: nid, time: t, lane, note_type: nt, hold_duration: 0.0,
+                is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false,
                 slide: vec![],
             });
             app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
@@ -1216,8 +1235,9 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                     let (head_t, tail_t) = if t >= anchor_t { (anchor_t, t) } else { (t, anchor_t) };
                     let dur = (tail_t - head_t).max(0.05);
                     app.push_undo();
+                    let nid = app.next_id();
                     app.chart.notes.push(Note {
-                        time: head_t, lane: lane0, note_type: NoteType::Hold,
+                        id: nid, time: head_t, lane: lane0, note_type: NoteType::Hold,
                         hold_duration: dur, is_each: false,
                         is_break: false, is_ex: false, is_star: false, is_tapless: false,
                         slide: vec![],
@@ -1258,8 +1278,9 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                     let slide_duration = t - head_t;
                     let slide_start_delay = (delay_end_t - head_t).max(0.0).min(slide_duration);
                     app.push_undo();
+                    let nid = app.next_id();
                     app.chart.notes.push(Note {
-                        time: head_t, lane: lane0, note_type: NoteType::Slide,
+                        id: nid, time: head_t, lane: lane0, note_type: NoteType::Slide,
                         hold_duration: 0.0, is_each: false,
                         is_break: false, is_ex: false, is_star: false, is_tapless: false,
                         slide: vec![super::types::Slide {

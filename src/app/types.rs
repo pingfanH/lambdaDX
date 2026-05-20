@@ -156,6 +156,9 @@ fn is_zero_f32(v: &f32) -> bool {
 /// convert to wall-clock seconds for playback and rendering.
 #[derive(Debug, Clone, Serialize, Deserialize,Default)]
 pub struct Note {
+    /// 唯一 ID，插入删除后不变
+    #[serde(default)]
+    pub id: u64,
     /// Measure position (1.0 = first beat).
     pub time: f32,
     pub lane: u8,
