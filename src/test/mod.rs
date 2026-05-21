@@ -1,3 +1,5 @@
+mod ffi_test;
+
 use macroquad::prelude::*;
 use crate::app::types::zone::PadZone;
 
@@ -28,7 +30,7 @@ async fn main() {
                     color = color0;
                 }
             "#,
-            fragment: include_str!("mask.frag"),
+            fragment: include_str!("../mask.frag"),
         },
         MaterialParams {
             pipeline_params: macroquad::miniquad::PipelineParams {

@@ -13,15 +13,15 @@ path = "src/main.rs"
 
 [[bin]]
 name = "mask_test"
-path = "src/test.rs"
+path = "src/test/mod.rs"
 
 [[bin]]
 name = "sfx_test"
-path = "src/sfx_test.rs"
+path = "src/test/sfx_test.rs"
 
 [[bin]]
 name = "slide_test"
-path = "src/bin/slide_test.rs"
+path = "src/test/slide_test.rs"
 
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
@@ -34,7 +34,7 @@ rustfft = "6"
 egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 maisimai = { path = "../maisimai" }
-
+#lnmai-core = {path = "./lnmai-core"}
 [package.metadata.android]
 package_name = "com.mai2chart.macroquad_sim"
 android_version = 35

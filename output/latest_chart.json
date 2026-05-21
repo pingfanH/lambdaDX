@@ -1,74 +1,21 @@
 {
   "version": "0.4.0-beat",
-  "title": "Jack-the-Ripper◆[SD]",
-  "bpm": 210.0,
+  "title": "Fallback Demo Chart",
+  "bpm": 180.0,
   "bpms": [
     {
       "measure": 1.0,
-      "bpm": 210.0
+      "bpm": 180.0
     }
   ],
   "audio_offset": 0.0,
   "notes": [
     {
       "measure": 1,
-      "beat": 4,
-      "division": 4,
-      "offset": 1,
-      "lane": 7,
-      "note_type": "slide",
-      "is_star": true,
-      "slide": [
-        {
-          "segments": [
-            {
-              "points": [
-                {
-                  "zone": 3,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 8,
-                  "beat_offset": 0.0
-                }
-              ],
-              "shape": "big_v"
-            }
-          ],
-          "slide_duration": 1.25,
-          "slide_start_delay": 0.421875
-        },
-        {
-          "segments": [
-            {
-              "points": [
-                {
-                  "zone": 1,
-                  "beat_offset": 0.39844
-                },
-                {
-                  "zone": 2,
-                  "beat_offset": 0.53125334
-                },
-                {
-                  "zone": 3,
-                  "beat_offset": 0.59766
-                }
-              ],
-              "shape": "line"
-            }
-          ],
-          "slide_duration": 0.812505,
-          "slide_start_delay": 0.421875
-        }
-      ]
-    },
-    {
-      "measure": 2,
-      "beat": 3,
-      "division": 8,
+      "beat": 1,
+      "division": 16,
       "offset": 7,
-      "lane": 3,
+      "lane": 2,
       "note_type": "slide",
       "slide": [
         {
@@ -76,216 +23,21 @@
             {
               "points": [
                 {
-                  "zone": 12,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 13,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 14,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 15,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 16,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 9,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 10,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 3,
+                  "zone": "A1",
                   "beat_offset": 0.0
                 }
               ],
-              "shape": "p"
+              "shape": "wifi"
             }
           ],
-          "slide_duration": 0.828125,
-          "slide_start_delay": 0.25
+          "slide_duration": 0.4375,
+          "slide_start_delay": 0.203125
         }
       ]
     },
     {
-      "measure": 3,
-      "beat": 4,
-      "division": 1,
-      "offset": 0,
-      "lane": 4,
-      "note_type": "slide",
-      "slide": [
-        {
-          "segments": [
-            {
-              "points": [
-                {
-                  "zone": 11,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 10,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 9,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 16,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 15,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 14,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 13,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 4,
-                  "beat_offset": 0.0
-                }
-              ],
-              "shape": "q"
-            }
-          ],
-          "slide_duration": 0.734375,
-          "slide_start_delay": 0.25
-        }
-      ]
-    },
-    {
-      "measure": 4,
-      "beat": 4,
-      "division": 8,
-      "offset": 1,
-      "lane": 4,
-      "note_type": "slide",
-      "slide": [
-        {
-          "segments": [
-            {
-              "points": [
-                {
-                  "zone": 13,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 14,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 15,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 16,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 9,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 10,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 11,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 12,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 4,
-                  "beat_offset": 0.0
-                }
-              ],
-              "shape": "p_p"
-            }
-          ],
-          "slide_duration": 0.609375,
-          "slide_start_delay": 0.25
-        }
-      ]
-    },
-    {
-      "measure": 5,
-      "beat": 3,
-      "division": 2,
-      "offset": 1,
-      "lane": 4,
-      "note_type": "slide",
-      "slide": [
-        {
-          "segments": [
-            {
-              "points": [
-                {
-                  "zone": 13,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 14,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 15,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 16,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 9,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 10,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 11,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 12,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 4,
-                  "beat_offset": 0.0
-                }
-              ],
-              "shape": "p_p"
-            }
-          ],
-          "slide_duration": 0.609375,
-          "slide_start_delay": 0.25
-        }
-      ]
-    },
-    {
-      "measure": 6,
-      "beat": 3,
+      "measure": 1,
+      "beat": 2,
       "division": 4,
       "offset": 1,
       "lane": 3,
@@ -296,96 +48,11 @@
             {
               "points": [
                 {
-                  "zone": 10,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 9,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 16,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 15,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 14,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 13,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 12,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 11,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 3,
+                  "zone": "A7",
                   "beat_offset": 0.0
                 }
               ],
-              "shape": "q_q"
-            }
-          ],
-          "slide_duration": 0.5625,
-          "slide_start_delay": 0.25
-        }
-      ]
-    },
-    {
-      "measure": 7,
-      "beat": 2,
-      "division": 2,
-      "offset": 1,
-      "lane": 3,
-      "note_type": "slide",
-      "slide": [
-        {
-          "segments": [
-            {
-              "points": [
-                {
-                  "zone": 4,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 5,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 6,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 7,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 8,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 1,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 2,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 3,
-                  "beat_offset": 0.0
-                }
-              ],
-              "shape": "left"
+              "shape": "wifi"
             }
           ],
           "slide_duration": 0.5,
@@ -394,11 +61,63 @@
       ]
     },
     {
-      "measure": 8,
+      "measure": 2,
       "beat": 1,
-      "division": 16,
-      "offset": 7,
-      "lane": 4,
+      "division": 1,
+      "offset": 0,
+      "lane": 1,
+      "note_type": "tap"
+    },
+    {
+      "measure": 2,
+      "beat": 2,
+      "division": 1,
+      "offset": 0,
+      "lane": 3,
+      "note_type": "tap"
+    },
+    {
+      "measure": 2,
+      "beat": 3,
+      "division": 1,
+      "offset": 0,
+      "lane": 5,
+      "note_type": "tap"
+    },
+    {
+      "measure": 2,
+      "beat": 4,
+      "division": 1,
+      "offset": 0,
+      "lane": 8,
+      "note_type": "tap"
+    },
+    {
+      "measure": 3,
+      "beat": 1,
+      "division": 1,
+      "offset": 0,
+      "lane": 9,
+      "note_type": "touch"
+    },
+    {
+      "measure": 3,
+      "beat": 3,
+      "division": 1,
+      "offset": 0,
+      "lane": 6,
+      "note_type": "hold",
+      "hold_duration": [
+        2,
+        1
+      ]
+    },
+    {
+      "measure": 5,
+      "beat": 1,
+      "division": 1,
+      "offset": 0,
+      "lane": 1,
       "note_type": "slide",
       "slide": [
         {
@@ -406,51 +125,23 @@
             {
               "points": [
                 {
-                  "zone": 3,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 2,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 1,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 8,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 7,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 6,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 5,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 4,
+                  "zone": "A5",
                   "beat_offset": 0.0
                 }
               ],
-              "shape": "right"
+              "shape": "line"
             }
           ],
-          "slide_duration": 0.65625,
-          "slide_start_delay": 0.25
+          "slide_duration": 0.5,
+          "slide_start_delay": 0.0625
         }
       ]
     },
     {
-      "measure": 9,
+      "measure": 6,
       "beat": 1,
-      "division": 8,
-      "offset": 1,
+      "division": 1,
+      "offset": 0,
       "lane": 3,
       "note_type": "slide",
       "slide": [
@@ -459,24 +150,24 @@
             {
               "points": [
                 {
-                  "zone": 7,
+                  "zone": "A7",
                   "beat_offset": 0.0
                 }
               ],
-              "shape": "wifi"
+              "shape": "line"
             }
           ],
-          "slide_duration": 0.6875,
-          "slide_start_delay": 0.25
+          "slide_duration": 0.5,
+          "slide_start_delay": 0.125
         }
       ]
     },
     {
-      "measure": 9,
-      "beat": 4,
-      "division": 4,
-      "offset": 3,
-      "lane": 8,
+      "measure": 7,
+      "beat": 1,
+      "division": 1,
+      "offset": 0,
+      "lane": 1,
       "note_type": "slide",
       "slide": [
         {
@@ -484,177 +175,104 @@
             {
               "points": [
                 {
-                  "zone": 4,
+                  "zone": "A3",
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": "A5",
                   "beat_offset": 0.0
                 }
               ],
-              "shape": "wifi"
+              "shape": "line"
             }
           ],
-          "slide_duration": 0.625,
+          "slide_duration": 0.75,
+          "slide_start_delay": 0.0625
+        }
+      ]
+    },
+    {
+      "measure": 8,
+      "beat": 3,
+      "division": 1,
+      "offset": 0,
+      "lane": 2,
+      "note_type": "slide",
+      "slide": [
+        {
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": "A4",
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": "A6",
+                  "beat_offset": 0.0
+                },
+                {
+                  "zone": "A8",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "line"
+            }
+          ],
+          "slide_duration": 1.0,
           "slide_start_delay": 0.25
         }
       ]
     },
     {
       "measure": 10,
-      "beat": 4,
-      "division": 8,
-      "offset": 1,
-      "lane": 4,
+      "beat": 1,
+      "division": 1,
+      "offset": 0,
+      "lane": 1,
       "note_type": "slide",
-      "is_break": true,
+      "is_each": true,
       "slide": [
         {
           "segments": [
             {
               "points": [
                 {
-                  "zone": 17,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 7,
+                  "zone": "A5",
                   "beat_offset": 0.0
                 }
               ],
-              "shape": "v_shape"
+              "shape": "line"
             }
           ],
-          "slide_duration": 0.703125,
-          "slide_start_delay": 0.25,
-          "slide_is_break": true
+          "slide_duration": 0.5,
+          "slide_start_delay": 0.125
         }
       ]
     },
     {
-      "measure": 11,
-      "beat": 3,
-      "division": 4,
-      "offset": 3,
-      "lane": 7,
-      "note_type": "tap",
-      "is_break": true
-    },
-    {
-      "measure": 11,
-      "beat": 4,
-      "division": 16,
-      "offset": 11,
-      "lane": 4,
-      "note_type": "tap",
-      "is_break": true
-    },
-    {
-      "measure": 12,
+      "measure": 10,
       "beat": 1,
-      "division": 16,
-      "offset": 5,
-      "lane": 3,
-      "note_type": "tap",
-      "is_ex": true
-    },
-    {
-      "measure": 12,
-      "beat": 2,
-      "division": 16,
-      "offset": 7,
-      "lane": 3,
-      "note_type": "tap",
-      "is_ex": true
-    },
-    {
-      "measure": 12,
-      "beat": 3,
-      "division": 16,
-      "offset": 3,
-      "lane": 6,
-      "note_type": "tap",
-      "is_break": true,
-      "is_ex": true
-    },
-    {
-      "measure": 12,
-      "beat": 3,
-      "division": 2,
-      "offset": 1,
-      "lane": 3,
-      "note_type": "hold",
-      "hold_duration": [
-        11,
-        8
-      ]
-    },
-    {
-      "measure": 12,
-      "beat": 4,
-      "division": 8,
-      "offset": 1,
-      "lane": 1,
-      "note_type": "tap"
-    },
-    {
-      "measure": 12,
-      "beat": 4,
-      "division": 8,
-      "offset": 3,
-      "lane": 7,
-      "note_type": "hold",
-      "hold_duration": [
-        25,
-        16
-      ]
-    },
-    {
-      "measure": 13,
-      "beat": 1,
-      "division": 16,
-      "offset": 3,
+      "division": 1,
+      "offset": 0,
       "lane": 5,
-      "note_type": "tap"
-    },
-    {
-      "measure": 13,
-      "beat": 2,
-      "division": 8,
-      "offset": 1,
-      "lane": 4,
       "note_type": "slide",
+      "is_each": true,
       "slide": [
         {
           "segments": [
             {
               "points": [
                 {
-                  "zone": 5,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 6,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 7,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 8,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 1,
-                  "beat_offset": 0.0
-                },
-                {
-                  "zone": 2,
+                  "zone": "A1",
                   "beat_offset": 0.0
                 }
               ],
-              "shape": "left"
+              "shape": "line"
             }
           ],
-          "slide_duration": 0.734375,
-          "slide_start_delay": 0.25
+          "slide_duration": 0.5,
+          "slide_start_delay": 0.125
         }
       ]
     }

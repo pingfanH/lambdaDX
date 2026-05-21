@@ -147,6 +147,15 @@ pub(crate) async fn load_note_textures(app: &mut AppState) {
             break;
         }
     }
+    for i in 0..11 {
+        for path in [format!("Skins/classic/wifi_{i}.png"), format!("wifi_{i}.png")] {
+            if let Ok(tex) = load_texture(&path).await {
+                tex.set_filter(FilterMode::Linear);
+                app.wifi_tex[i as usize] = Some(tex);
+                break;
+            }
+        }
+    }
 
     // Star textures
     for path in ["Skins/classic/star.png", "star.png"] {
@@ -1610,6 +1619,48 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             SlideShape::Caret => slide_shape_caret(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
                             SlideShape::Z => slide_shape_z(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
                             SlideShape::S => slide_shape_s(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::Wifi => {
+                                // Build three separate Wifi lines for editor preview
+                                // Calculate start position
+                                let start_pos = {
+                                    let idx = (note.lane - 1) as f32;
+                                    let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                    let target_r = outer_r + TAP_TARGET_OFFSET;
+                                    vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+                                };
+
+                                // Calculate target positions (1-8环形排列)
+                                let lane_i = note.lane as i32;
+                                let targets = vec![
+                                    {
+                                        let z = ((lane_i + 3 - 1).rem_euclid(8) + 1) as u8;
+                                        let idx = (z - 1) as f32;
+                                        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                                        vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+                                    },
+                                    {
+                                        let z = ((lane_i + 4 - 1).rem_euclid(8) + 1) as u8;
+                                        let idx = (z - 1) as f32;
+                                        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                                        vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+                                    },
+                                    {
+                                        let z = ((lane_i + 5 - 1).rem_euclid(8) + 1) as u8;
+                                        let idx = (z - 1) as f32;
+                                        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                                        vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+                                    },
+                                ];
+
+                                // Add all path points for editor preview rendering
+                                for target in targets {
+                                    path.push(start_pos);
+                                    path.push(target);
+                                }
+                            },
 
                             _ => slide_shape_line(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
                         }
@@ -1717,6 +1768,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         star_fallback: app.star_tex.as_ref(),
                         star_ex: ex_variant,
                         star_ex_fallback: app.star_ex_tex.as_ref(),
+                        wifi: std::array::from_fn(|i| app.wifi_tex[i].as_ref()),
                     };
 
                     slide_render::draw_slide(

@@ -90,6 +90,7 @@ async fn main() {
                 star_fallback: star_tex.as_ref(),
                 star_ex: None,
                 star_ex_fallback: None,
+                wifi: [None; 11],
             };
 
             for ps in &parsed {

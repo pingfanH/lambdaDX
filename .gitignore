@@ -2,3 +2,5 @@
 /target/
 .idea
 Cargo.lock
+/ffi_test/
+/lnmai-core/

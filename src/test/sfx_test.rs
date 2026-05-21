@@ -188,9 +188,9 @@ fn play_test(
 
 fn main() {
     // ── Load assets ────────────────────────────────────────────────
-    let mp3_bytes = include_bytes!("../assets/demo.mp3");
-    let tap_wav = include_bytes!("../assets/Sfx/tap_perfect.wav");
-    let chart_json = include_str!("../output/latest_chart.json");
+    let mp3_bytes = include_bytes!("../../assets/demo.mp3");
+    let tap_wav = include_bytes!("../../assets/Sfx/tap_perfect.wav");
+    let chart_json = include_str!("../../output/latest_chart.json");
 
     println!("Decoding MP3...");
     let (pcm, src_rate) = decode_mp3(mp3_bytes);

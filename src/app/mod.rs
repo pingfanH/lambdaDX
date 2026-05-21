@@ -22,7 +22,7 @@ use state::AppState;
 pub use ui::window_conf;
 
 /// Main app loop.
-/// `main.rs` only keeps the macroquad entry function and delegates to here.
+/// `bin` only keeps the macroquad entry function and delegates to here.
 pub async fn run_app() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     set_pc_assets_folder("assets");
