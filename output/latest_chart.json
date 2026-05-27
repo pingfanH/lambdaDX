@@ -97,8 +97,61 @@
       "beat": 1,
       "division": 1,
       "offset": 0,
-      "lane": 9,
-      "note_type": "touch"
+      "lane": 4,
+      "note_type": "slide",
+      "slide": [
+        {
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": "A1",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q"
+            },
+            {
+              "points": [
+                {
+                  "zone": "A3",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q"
+            },
+            {
+              "points": [
+                {
+                  "zone": "A5",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q"
+            },
+            {
+              "points": [
+                {
+                  "zone": "A6",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q"
+            },
+            {
+              "points": [
+                {
+                  "zone": "A7",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q"
+            }
+          ],
+          "slide_duration": 2.0,
+          "slide_start_delay": 0.5
+        }
+      ]
     },
     {
       "measure": 3,
@@ -150,11 +203,20 @@
             {
               "points": [
                 {
-                  "zone": "A7",
+                  "zone": "A6",
                   "beat_offset": 0.0
                 }
               ],
-              "shape": "line"
+              "shape": "q_q"
+            },
+            {
+              "points": [
+                {
+                  "zone": "A2",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q_q"
             }
           ],
           "slide_duration": 0.5,

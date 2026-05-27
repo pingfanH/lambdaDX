@@ -38,7 +38,7 @@ pub fn window_conf() -> Conf {
 /// Load note skins from assets.
 /// - `tap.png`: used for tap notes.
 /// - `hold.png`: used as vertical 9-slice for hold notes.
-pub(crate) async fn load_note_textures(app: &mut AppState) {
+pub async fn load_note_textures(app: &mut AppState) {
     let tap_candidates = [
         "tap.png",
         "Skins/classic/tap.png",
@@ -274,7 +274,7 @@ fn ui_scale(app: &AppState) -> f32 {
     }
 }
 
-pub(crate) fn compute_layout(app: &AppState) -> Layout {
+pub fn compute_layout(app: &AppState) -> Layout {
     let scale = ui_scale(app);
     let sw = screen_width();
     let sh = screen_height();
@@ -322,14 +322,14 @@ pub(crate) fn compute_layout(app: &AppState) -> Layout {
     }
 }
 
-pub(crate) fn compute_pad_geom(panel: RectF) -> PadGeom {
+pub fn compute_pad_geom(panel: RectF) -> PadGeom {
     let cx = panel.x + panel.w * 0.5;
     let cy = panel.y + panel.h * 0.5;
     let outer_r = panel.w.min(panel.h) * 0.42;
     PadGeom { cx, cy, outer_r }
 }
 
-pub(crate) fn build_ui_buttons(layout: Layout, app: &AppState) -> Vec<UiButton> {
+pub fn build_ui_buttons(layout: Layout, app: &AppState) -> Vec<UiButton> {
     let scale = ui_scale(app);
     let mut out = Vec::new();
     let bw = if app.mobile_ui { 130.0 } else { 92.0 } * scale;
@@ -403,7 +403,7 @@ pub(crate) fn build_ui_buttons(layout: Layout, app: &AppState) -> Vec<UiButton> 
     out
 }
 
-pub(crate) fn draw_layout(app: &AppState, layout: Layout, pad: PadGeom, _buttons: &[UiButton]) {
+pub fn draw_layout(app: &AppState, layout: Layout, pad: PadGeom, _buttons: &[UiButton]) {
     // Header bg (egui toolbar overlays on top)
     // draw_rectangle(layout.header.x, layout.header.y, layout.header.w, layout.header.h,
     //     Color::from_rgba(17, 24, 39, 255));
@@ -454,11 +454,11 @@ fn draw_ui_buttons(app: &AppState, buttons: &[UiButton]) {
     }
 }
 
-pub(crate) fn rect_contains(r: RectF, p: Vec2) -> bool {
+pub fn rect_contains(r: RectF, p: Vec2) -> bool {
     p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
 }
 
-pub(crate) fn trigger_ui_action(app: &mut AppState, action: UiAction) {
+pub fn trigger_ui_action(app: &mut AppState, action: UiAction) {
     match action {
         UiAction::TogglePlay => app.toggle_play(),
         UiAction::ToggleRecord => app.toggle_record(),
@@ -623,7 +623,7 @@ fn draw_hold_9slice_vertical(tex: &Texture2D, cx: f32, y0: f32, y1: f32, width: 
     }
 }
 
-fn draw_hold_9slice_segment(
+pub fn draw_hold_9slice_segment(
     tex: &Texture2D,
     from: Vec2,
     to: Vec2,
@@ -1476,7 +1476,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     }
 }
 
-pub(crate) fn draw_pad_only(app: &AppState, pad: PadGeom, rect: RectF) {
+pub fn draw_pad_only(app: &AppState, pad: PadGeom, rect: RectF) {
     draw_pad_panel(app, rect, pad);
 }
 

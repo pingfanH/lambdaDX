@@ -6,7 +6,7 @@ use super::platform;
 use super::state::AppState;
 use super::types::{ChartDoc, Note, NoteType, RecordingDoc, BpmChange, secs_to_measure, sdur_to_mdur};
 
-pub(crate) async fn load_generated_chart() -> ChartDoc {
+pub async fn load_generated_chart() -> ChartDoc {
     // Try latest saved chart first, then generated_chart, then fallback
     if let Ok(s) = platform::read_output_text("latest_chart.json") {
         if let Ok(chart) = load_chart_from_json(&s) {
@@ -109,7 +109,7 @@ fn fallback_chart() -> ChartDoc {
 }
 
 /// Save full recording and latest chart to a platform-compatible writable folder.
-pub(crate) fn save_recording_doc(app: &AppState) -> Result<PathBuf, String> {
+pub fn save_recording_doc(app: &AppState) -> Result<PathBuf, String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| format!("time error: {e}"))?
@@ -134,7 +134,7 @@ pub(crate) fn save_recording_doc(app: &AppState) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-pub(crate) fn load_latest_saved_chart() -> Result<ChartDoc, String> {
+pub fn load_latest_saved_chart() -> Result<ChartDoc, String> {
     let s = platform::read_output_text("latest_chart.json")?;
     load_chart_from_json(&s)
 }

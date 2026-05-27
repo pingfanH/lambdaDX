@@ -2,5 +2,8 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/lnmai-core-ffi" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/lnmai-core-ffi/lean-sys" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/lnmai-core-ffi/lnmai-core" vcs="Git" />
   </component>
 </project>

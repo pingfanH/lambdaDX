@@ -27,7 +27,7 @@ use super::types::zone::PadZone;
 
 /// Pick a chart from a Simai file (highest difficulty by default) and convert
 /// it to a `ChartDoc`. Returns `Err` if the file has no charts.
-pub(crate) fn simai_file_to_chart_doc(
+pub fn simai_file_to_chart_doc(
     file: &SimaiFile,
     prefer: Option<u32>,
 ) -> Result<ChartDoc, String> {
@@ -67,7 +67,7 @@ pub(crate) fn simai_file_to_chart_doc(
     Ok(doc)
 }
 
-pub(crate) fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
+pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
     let bpm0 = chart.bpms.first().map(|b| b.bpm).unwrap_or(120.0);
     let bpms = ensure_initial_bpm(&chart.bpms, bpm0);
 
@@ -239,7 +239,7 @@ fn simai_pattern_to_shape(p: SlidePattern) -> SlideShape {
     }
 }
 
-pub(crate) fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern {
+pub fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern {
     match shape {
         Some(SlideShape::Caret) => SlidePattern::Caret,
         Some(SlideShape::Left) => SlidePattern::Left,
@@ -263,12 +263,11 @@ pub(crate) fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern 
 ///
 /// Zone numbering: A1-A8 = 1-8 (outer ring), B1-B8 = 9-16 (inner ring),
 /// C = 17 (center).
-pub(crate) fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
+pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
     let s = start + 1; // 1-indexed zone
     let e = end + 1;
     let sp = |z: u8| SlidePoint { zone: PadZone::from(z), beat_offset: 0.0 };
-
-    return   vec![sp(e)];
+    return vec![sp(e)];
     match pattern {
         SlidePattern::Line => {
             // Straight line through center; endpoint only.
@@ -450,7 +449,7 @@ fn lane_to_touch(lane: u8) -> (char, u8) {
 
 // ──────────────────────────── Reverse conversion ──────────────────────────
 
-pub(crate) fn chart_doc_to_simai_file(doc: &ChartDoc) -> SimaiFile {
+pub fn chart_doc_to_simai_file(doc: &ChartDoc) -> SimaiFile {
     let chart = chart_doc_to_simai_chart(doc);
     SimaiFile {
         title: doc.title.clone(),
@@ -462,7 +461,7 @@ pub(crate) fn chart_doc_to_simai_file(doc: &ChartDoc) -> SimaiFile {
     }
 }
 
-pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
+pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
     let bpms: Vec<Bpm> = if doc.bpms.is_empty() {
         let bpm0 = if doc.bpm > 0.0 { doc.bpm } else { 120.0 };
         vec![Bpm { measure: 1.0, bpm: bpm0 }]
@@ -581,7 +580,7 @@ pub(crate) fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
 // ──────────────────────────────── I/O helpers ─────────────────────────────
 
 /// Read a Simai file from `<output>/<name>` and convert it to a ChartDoc.
-pub(crate) fn import_from_simai_path(name: &str) -> Result<ChartDoc, String> {
+pub fn import_from_simai_path(name: &str) -> Result<ChartDoc, String> {
     let text = platform::read_output_text(name)?;
     let parsed = if text.contains("&inote_") || text.contains("&title=") {
         ms::parse_file(&text).map_err(|e| format!("simai parse: {e}"))?
@@ -594,7 +593,7 @@ pub(crate) fn import_from_simai_path(name: &str) -> Result<ChartDoc, String> {
 }
 
 /// Export a ChartDoc as a Simai maidata.txt-style file under `<output>/<name>`.
-pub(crate) fn export_to_simai_path(doc: &ChartDoc, name: &str) -> Result<PathBuf, String> {
+pub fn export_to_simai_path(doc: &ChartDoc, name: &str) -> Result<PathBuf, String> {
     let file = chart_doc_to_simai_file(doc);
     let text = ms::export_file(&file);
     platform::write_output_text(name, &text)

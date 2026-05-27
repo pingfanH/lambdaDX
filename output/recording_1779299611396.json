@@ -1,0 +1,287 @@
+{
+  "created_at_epoch_ms": 1779299611396,
+  "source": "macroquad_sim",
+  "chart": {
+    "version": "0.4.0-beat",
+    "title": "Fallback Demo Chart",
+    "bpm": 180.0,
+    "bpms": [
+      {
+        "measure": 1.0,
+        "bpm": 180.0
+      }
+    ],
+    "audio_offset": 0.0,
+    "notes": [
+      {
+        "measure": 1,
+        "beat": 1,
+        "division": 16,
+        "offset": 7,
+        "lane": 2,
+        "note_type": "slide",
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A1",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "wifi"
+              }
+            ],
+            "slide_duration": 0.4375,
+            "slide_start_delay": 0.203125
+          }
+        ]
+      },
+      {
+        "measure": 1,
+        "beat": 2,
+        "division": 4,
+        "offset": 1,
+        "lane": 3,
+        "note_type": "slide",
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A7",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "wifi"
+              }
+            ],
+            "slide_duration": 0.5,
+            "slide_start_delay": 0.25
+          }
+        ]
+      },
+      {
+        "measure": 2,
+        "beat": 1,
+        "division": 1,
+        "offset": 0,
+        "lane": 1,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 2,
+        "division": 1,
+        "offset": 0,
+        "lane": 3,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 3,
+        "division": 1,
+        "offset": 0,
+        "lane": 5,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 4,
+        "division": 1,
+        "offset": 0,
+        "lane": 8,
+        "note_type": "tap"
+      },
+      {
+        "measure": 3,
+        "beat": 1,
+        "division": 1,
+        "offset": 0,
+        "lane": 9,
+        "note_type": "touch"
+      },
+      {
+        "measure": 3,
+        "beat": 3,
+        "division": 1,
+        "offset": 0,
+        "lane": 6,
+        "note_type": "hold",
+        "hold_duration": [
+          2,
+          1
+        ]
+      },
+      {
+        "measure": 5,
+        "beat": 1,
+        "division": 1,
+        "offset": 0,
+        "lane": 1,
+        "note_type": "slide",
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A5",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "line"
+              }
+            ],
+            "slide_duration": 0.5,
+            "slide_start_delay": 0.0625
+          }
+        ]
+      },
+      {
+        "measure": 6,
+        "beat": 1,
+        "division": 1,
+        "offset": 0,
+        "lane": 3,
+        "note_type": "slide",
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A7",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "line"
+              }
+            ],
+            "slide_duration": 0.5,
+            "slide_start_delay": 0.125
+          }
+        ]
+      },
+      {
+        "measure": 7,
+        "beat": 1,
+        "division": 1,
+        "offset": 0,
+        "lane": 1,
+        "note_type": "slide",
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A3",
+                    "beat_offset": 0.0
+                  },
+                  {
+                    "zone": "A5",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "line"
+              }
+            ],
+            "slide_duration": 0.75,
+            "slide_start_delay": 0.0625
+          }
+        ]
+      },
+      {
+        "measure": 8,
+        "beat": 3,
+        "division": 1,
+        "offset": 0,
+        "lane": 2,
+        "note_type": "slide",
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A4",
+                    "beat_offset": 0.0
+                  },
+                  {
+                    "zone": "A6",
+                    "beat_offset": 0.0
+                  },
+                  {
+                    "zone": "A8",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "line"
+              }
+            ],
+            "slide_duration": 1.0,
+            "slide_start_delay": 0.25
+          }
+        ]
+      },
+      {
+        "measure": 10,
+        "beat": 1,
+        "division": 1,
+        "offset": 0,
+        "lane": 1,
+        "note_type": "slide",
+        "is_each": true,
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A5",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "line"
+              }
+            ],
+            "slide_duration": 0.5,
+            "slide_start_delay": 0.125
+          }
+        ]
+      },
+      {
+        "measure": 10,
+        "beat": 1,
+        "division": 1,
+        "offset": 0,
+        "lane": 5,
+        "note_type": "slide",
+        "is_each": true,
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A1",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "line"
+              }
+            ],
+            "slide_duration": 0.5,
+            "slide_start_delay": 0.125
+          }
+        ]
+      }
+    ]
+  },
+  "hits": [],
+  "record_speed": 1.0,
+  "play_speed": 1.0
+}

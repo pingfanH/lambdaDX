@@ -1,15 +1,14 @@
-use egui_macroquad::egui::{self, TopBottomPanel};
+use egui_macroquad::egui;
+use egui_macroquad::egui::TopBottomPanel;
+use macroquad_sim::{chart, simai_io};
+use macroquad_sim::state::AppState;
+use macroquad_sim::types::Mode;
+use crate::state::PlayerState;
 
-use super::chart;
-use super::simai_io;
-use super::state::AppState;
-use super::types::Mode;
-
-/// Draw egui toolbar on top. Pad + timeline are native macroquad below.
-pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
+pub fn draw_egui_ui(ctx: &egui::Context, app: &mut PlayerState) {
     TopBottomPanel::top("toolbar").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.heading("Mai2Chart");
+            ui.heading("LambdaDX Player");
             ui.separator();
             let mode_label = match app.mode {
                 Mode::Idle => "IDLE", Mode::Recording => "REC", Mode::Playing => "PLAY",
@@ -17,14 +16,14 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
             ui.label(egui::RichText::new(mode_label).strong());
 
             if ui.button("▶ Play").clicked() { app.toggle_play(); }
-            if ui.button("⏺ Rec").clicked() { app.toggle_record(); }
+            if ui.button("Replay").clicked() { app.toggle_replay(); }
             ui.separator();
-            if ui.button("💾 Save").clicked() {
-                match chart::save_recording_doc(app) {
-                    Ok(p) => app.set_status(format!("Saved {}", p.display())),
-                    Err(e) => app.set_status(format!("Save: {e}")),
-                }
-            }
+            // if ui.button("💾 Save").clicked() {
+            //     match chart::save_recording_doc(app) {
+            //         Ok(p) => app.set_status(format!("Saved {}", p.display())),
+            //         Err(e) => app.set_status(format!("Save: {e}")),
+            //     }
+            // }
             if ui.button("📂 Load").clicked() {
                 match chart::load_latest_saved_chart() {
                     Ok(c) => { let n = c.notes.len(); app.set_chart(c); app.set_status(format!("{n} notes")); }

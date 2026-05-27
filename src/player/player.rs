@@ -1,35 +1,27 @@
-pub mod audio;
-mod beat_format;
-pub mod chart;
-pub mod egui_ui;
+pub mod player_layout;
+pub mod egui;
 pub mod input;
-pub mod pad_svg;
-pub mod platform;
-pub mod sfx;
-pub mod slide_render;
-pub mod simai_io;
-pub mod slide_match;
 pub mod state;
-pub mod types;
 pub mod ui;
-pub mod slide;
+pub mod audio;
+pub mod core_ir;
 
+use macroquad::color::Color;
 use macroquad::file::set_pc_assets_folder;
-use macroquad::prelude::{clear_background, next_frame, Color};
+use macroquad::prelude::{clear_background, next_frame};
+use macroquad_sim::app::{egui_ui, pad_svg, sfx, types};
 
-use state::AppState;
+use macroquad_sim::{ window_conf};
+use crate::state::PlayerState;
 
-pub use ui::window_conf;
-
-/// Main app loop.
-/// `bin` only keeps the macroquad entry function and delegates to here.
-pub async fn run_app() {
+#[macroquad::main(window_conf)]
+pub async fn main() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     set_pc_assets_folder("assets");
 
-    let chart = chart::load_generated_chart().await;
-    let (audio_source_name, audio_wav_pcm) = audio::load_audio_pcm_from_assets().await;
-    let mut app = AppState::new(chart, audio_source_name, audio_wav_pcm);
+    let chart = macroquad_sim::chart::load_generated_chart().await;
+    let (audio_source_name, audio_wav_pcm) = macroquad_sim::app::audio::load_audio_pcm_from_assets().await;
+    let mut app = PlayerState::new(chart, audio_source_name, audio_wav_pcm);
 
     // Parse the SVG pad definition
     match pad_svg::PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")) {
@@ -59,7 +51,7 @@ pub async fn run_app() {
     }
 
     // Load mask shader material
-    match load_mask_material() {
+    match macroquad_sim::app::load_mask_material() {
         Ok(m) => app.mask_material = Some(m),
         Err(e) => app.set_status(format!("Shader: {e}")),
     }
@@ -72,71 +64,32 @@ pub async fn run_app() {
         clear_background(Color::from_rgba(10, 17, 30, 255));
 
         // Layout: timeline (left) + pad (right), below toolbar
-        let layout = ui::compute_layout(&app);
+        let layout = player_layout::compute_layout(&app);
         let pad_geom = ui::compute_pad_geom(layout.pad);
         let buttons: Vec<types::UiButton> = Vec::new(); // buttons via egui
 
         // Draw timeline + pad (native macroquad first)
-        ui::draw_layout(&app, layout, pad_geom, &buttons);
+        player_layout::draw_layout(&app, layout, pad_geom, &buttons);
 
         // Input
         input::handle_global_hotkeys(&mut app);
-        input::handle_lane_input(&mut app);
+       input::handle_lane_input(&mut app);
         audio::service_audio(&mut app).await;
         app.update_playback();
         app.service_hit_sounds();
         app.tick_feedback();
 
-        let pointer_events = input::collect_pointer_events();
+        let pointer_events = macroquad_sim::app::input::collect_pointer_events();
         input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
-        input::handle_timeline_editing(&mut app, layout.timeline);
+        //macroquad_sim::app::input::handle_timeline_editing(&mut app, layout.timeline);
 
         // Egui on top (build UI + draw)
         egui_macroquad::ui(|egui_ctx| {
             egui_ctx.set_pixels_per_point(2.0);
-            egui_ui::draw_egui_ui(egui_ctx, &mut app);
+            egui::draw_egui_ui(egui_ctx, &mut app);
         });
         egui_macroquad::draw();
 
         next_frame().await;
     }
-}
-
-pub fn load_mask_material() -> Result<macroquad::material::Material, String> {
-    use macroquad::material::{load_material, MaterialParams};
-    use macroquad::prelude::{ShaderSource, UniformDesc, UniformType};
-
-    let vertex = r#"#version 100
-attribute vec3 position;
-attribute vec2 texcoord;
-attribute vec4 color0;
-varying vec2 uv;
-varying vec4 color;
-uniform mat4 Model;
-uniform mat4 Projection;
-void main() {
-    gl_Position = Projection * Model * vec4(position, 1.0);
-    uv = texcoord;
-    color = color0;
-}"#;
-
-    load_material(
-        ShaderSource::Glsl {
-            vertex,
-            fragment: include_str!("mask.frag"),
-        },
-        MaterialParams {
-            uniforms: vec![UniformDesc::new("progress", UniformType::Float1)],
-            pipeline_params: macroquad::miniquad::PipelineParams {
-                color_blend: Some(macroquad::miniquad::BlendState::new(
-                    macroquad::miniquad::Equation::Add,
-                    macroquad::miniquad::BlendFactor::Value(macroquad::miniquad::BlendValue::SourceAlpha),
-                    macroquad::miniquad::BlendFactor::OneMinusValue(macroquad::miniquad::BlendValue::SourceAlpha),
-                )),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-    )
-    .map_err(|e| format!("{e:?}"))
 }

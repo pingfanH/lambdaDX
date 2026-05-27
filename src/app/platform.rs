@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 /// Cross-platform asset loading helper.
 /// - Android/iOS: packaged assets via `load_file(name)`.
 /// - Desktop: try packaged path first, then local fallback paths.
-pub(crate) async fn load_asset_bytes(name: &str) -> Result<Vec<u8>, String> {
+pub async fn load_asset_bytes(name: &str) -> Result<Vec<u8>, String> {
     if let Ok(bytes) = load_file(name).await {
         return Ok(bytes);
     }
@@ -30,7 +30,7 @@ pub(crate) async fn load_asset_bytes(name: &str) -> Result<Vec<u8>, String> {
 
 /// Writable data root for both mobile and desktop.
 /// Can be overridden with `MAI2_DATA_DIR`.
-pub(crate) fn data_root_dir() -> PathBuf {
+pub fn data_root_dir() -> PathBuf {
     if let Ok(v) = std::env::var("MAI2_DATA_DIR") {
         if !v.trim().is_empty() {
             return PathBuf::from(v);
@@ -52,7 +52,7 @@ pub(crate) fn data_root_dir() -> PathBuf {
     }
 }
 
-pub(crate) fn output_dir() -> Result<PathBuf, String> {
+pub fn output_dir() -> Result<PathBuf, String> {
     let primary = data_root_dir().join("output");
     if fs::create_dir_all(&primary).is_ok() {
         return Ok(primary);
@@ -64,13 +64,13 @@ pub(crate) fn output_dir() -> Result<PathBuf, String> {
     Ok(fallback)
 }
 
-pub(crate) fn write_output_text(name: &str, content: &str) -> Result<PathBuf, String> {
+pub fn write_output_text(name: &str, content: &str) -> Result<PathBuf, String> {
     let path = output_dir()?.join(name);
     fs::write(&path, content).map_err(|e| format!("write {}: {e}", path.display()))?;
     Ok(path)
 }
 
-pub(crate) fn read_output_text(name: &str) -> Result<String, String> {
+pub fn read_output_text(name: &str) -> Result<String, String> {
     let path = output_dir()?.join(name);
     fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))
 }

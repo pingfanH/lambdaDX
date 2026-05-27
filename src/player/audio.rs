@@ -1,8 +1,8 @@
 use minimp3::{Decoder as Mp3Decoder, Frame as Mp3Frame};
 use std::io::Cursor;
 
-use super::platform;
-use super::state::AppState;
+use macroquad_sim::platform;
+use super::state::PlayerState;
 use super::types::{WavPcm, SPEED_MAX, SPEED_MIN};
 
 fn load_wav_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
@@ -52,11 +52,11 @@ fn load_mp3_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
     loop {
         match decoder.next_frame() {
             Ok(Mp3Frame {
-                data,
-                sample_rate: sr,
-                channels: ch,
-                ..
-            }) => {
+                   data,
+                   sample_rate: sr,
+                   channels: ch,
+                   ..
+               }) => {
                 if sample_rate.is_none() {
                     sample_rate = Some(sr as u32);
                 }
@@ -166,7 +166,7 @@ fn normalize_to_44100(src: WavPcm) -> WavPcm {
     }
 }
 
-pub async fn service_audio(app: &mut AppState) {
+pub async fn service_audio(app: &mut PlayerState) {
     if !app.pending_audio_start {
         return;
     }
@@ -218,7 +218,7 @@ fn speed_cache_key(speed: f32) -> i32 {
 }
 
 /// Pre-cache audio buffers for commonly used playback speeds.
-pub async fn warm_audio_cache(app: &mut AppState, _primary_speed: f32) {
+pub async fn warm_audio_cache(app: &mut PlayerState, _primary_speed: f32) {
     if app.audio_wav_pcm.is_none() {
         return;
     }
@@ -238,7 +238,7 @@ pub struct BgmPcm {
     pub sample_rate: u32,
 }
 
-fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<BgmPcm, String> {
+fn load_cached_audio_for_speed(app: &mut PlayerState, speed: f32) -> Result<BgmPcm, String> {
     let key = speed_cache_key(speed);
     let chart_seek = app.audio_seek_offset.unwrap_or(0.0);
     let audio_offset = app.chart.audio_offset;
@@ -298,7 +298,7 @@ fn pcm_to_wav_bytes(samples: &[i16], channels: u16, sample_rate: u32) -> Vec<u8>
     buf
 }
 
-pub fn build_waveform(app: &mut super::state::AppState) {
+pub fn build_waveform(app: &mut super::state::PlayerState) {
     let Some(pcm) = &app.audio_wav_pcm else { return };
     let ch = pcm.channels.max(1) as usize;
     let sr = pcm.sample_rate.max(1) as usize;

@@ -4,69 +4,69 @@ use macroquad::prelude::{TouchPhase, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::app::types::zone::PadZone;
 
-pub(crate) const LANE_COUNT: usize = 9;
-pub(crate) const LANE_LABELS: [&str; LANE_COUNT] = ["1", "2", "3", "4", "5", "6", "7", "8", "T"];
-pub(crate) const SCROLL_SPEED: f32 = 480.0;
-pub(crate) const PREVIEW_LEAD_TIME: f32 = 1.6;
-pub(crate) const HIT_WINDOW: f32 = 0.00;
-pub(crate) const TAP_TRAVEL_TIME: f32 = 0.55;
-pub(crate) const TOUCH_TRAVEL_TIME: f32 = 0.5;
-pub(crate) const HOLD_TRAVEL_TIME: f32 = 0.55;
+pub const LANE_COUNT: usize = 9;
+pub const LANE_LABELS: [&str; LANE_COUNT] = ["1", "2", "3", "4", "5", "6", "7", "8", "T"];
+pub const SCROLL_SPEED: f32 = 480.0;
+pub const PREVIEW_LEAD_TIME: f32 = 1.6;
+pub const HIT_WINDOW: f32 = 0.00;
+pub const TAP_TRAVEL_TIME: f32 = 0.55;
+pub const TOUCH_TRAVEL_TIME: f32 = 0.5;
+pub const HOLD_TRAVEL_TIME: f32 = 0.55;
 pub const TAP_GROW_FRAC: f32 = 0.35;
 pub const TAP_SPAWN_FRAC: f32 = 0.3;
-pub(crate) const TAP_DISAPPEAR_FRAC: f32 = 0.0;
-pub(crate) const HOLD_DISAPPEAR_FRAC: f32 = 0.1;
-pub(crate) const HOLD_FLY_TIME: f32 = 0.6;
-pub(crate) const HOLD_TAIL_FLY_TIME: f32 = 0.40;
+pub const TAP_DISAPPEAR_FRAC: f32 = 0.0;
+pub const HOLD_DISAPPEAR_FRAC: f32 = 0.1;
+pub const HOLD_FLY_TIME: f32 = 0.6;
+pub const HOLD_TAIL_FLY_TIME: f32 = 0.40;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) const HOLD_LENGTH_FRAC: f32 = 0.4;
+pub const HOLD_LENGTH_FRAC: f32 = 0.4;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub(crate) const HOLD_LENGTH_FRAC: f32 = 0.6;
+pub const HOLD_LENGTH_FRAC: f32 = 0.6;
 
-pub(crate) const HOLD_SPAWN_FRAC: f32 = 0.5;
-pub(crate) const HOLD_TARGET_OFFSET: f32 = 40.0;
+pub const HOLD_SPAWN_FRAC: f32 = 0.5;
+pub const HOLD_TARGET_OFFSET: f32 = 40.0;
 pub const TAP_TARGET_OFFSET: f32 = 15.;
 // touch: base values (multiplied by TOUCH_SCALE in code)
-pub(crate) const TOUCH_CROSS_SIZE: f32 = 50.0;
-pub(crate) const TOUCH_START_DIST: f32 = 30.0;
-pub(crate) const TOUCH_END_DIST: f32 = 10.0;
+pub const TOUCH_CROSS_SIZE: f32 = 50.0;
+pub const TOUCH_START_DIST: f32 = 30.0;
+pub const TOUCH_END_DIST: f32 = 10.0;
 // touchhold: base values (multiplied by TOUCHHOLD_SCALE in code)
-pub(crate) const TOUCHHOLD_CROSS_BASE: f32 = 86.0;
-pub(crate) const TOUCHHOLD_BORDER_BASE: f32 = 170.0;
-pub(crate) const TOUCHHOLD_START_DIST: f32 = 30.0;
-pub(crate) const TOUCHHOLD_END_DIST: f32 = 19.0;
-pub(crate) const TOUCHHOLD_ROT_OFFSET: f32 = 0.0;
-pub(crate) const EACH_WINDOW: f32 = 0.02;
-pub(crate) const TOUCH_GROW_FRAC: f32 = 0.25;
-pub(crate) const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
+pub const TOUCHHOLD_CROSS_BASE: f32 = 86.0;
+pub const TOUCHHOLD_BORDER_BASE: f32 = 170.0;
+pub const TOUCHHOLD_START_DIST: f32 = 30.0;
+pub const TOUCHHOLD_END_DIST: f32 = 19.0;
+pub const TOUCHHOLD_ROT_OFFSET: f32 = 0.0;
+pub const EACH_WINDOW: f32 = 0.02;
+pub const TOUCH_GROW_FRAC: f32 = 0.25;
+pub const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) const TAP_SIZE: f32 = 40.0;
+pub const TAP_SIZE: f32 = 40.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) const HOLD_WIDTH: f32 = 40.0;
+pub const HOLD_WIDTH: f32 = 40.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) const TOUCH_SIZE: f32 = 18.0;
+pub const TOUCH_SIZE: f32 = 18.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) const TOUCH_SCALE: f32 = 1.0;
+pub const TOUCH_SCALE: f32 = 1.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) const TOUCHHOLD_SCALE: f32 = 0.6;
+pub const TOUCHHOLD_SCALE: f32 = 0.6;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub(crate) const TAP_SIZE: f32 = 80.0;
+pub const TAP_SIZE: f32 = 80.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub(crate) const HOLD_WIDTH: f32 = 80.0;
+pub const HOLD_WIDTH: f32 = 80.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub(crate) const TOUCH_SIZE: f32 = 70.0;
+pub const TOUCH_SIZE: f32 = 70.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub(crate) const TOUCH_SCALE: f32 = 1.5;
+pub const TOUCH_SCALE: f32 = 1.5;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub(crate) const TOUCHHOLD_SCALE: f32 = 1.0;
+pub const TOUCHHOLD_SCALE: f32 = 1.0;
 
 pub const PAD_ROTATION_RAD: f32 = std::f32::consts::FRAC_PI_8;
 pub const TAP_RING_OFFSET: f32 = 14.;
 pub const GRID_DIVISION: u32 = 64;
-pub(crate) const SCROLL_SPEED_FACTOR: f32 = 0.01;
-pub(crate) const SCROLL_INVERT: bool = true;
+pub const SCROLL_SPEED_FACTOR: f32 = 0.01;
+pub const SCROLL_INVERT: bool = true;
 
 pub const SLIDE_TILE_SPACING: f32 = 20.0;
 pub const SLIDE_TILE_SIZE: f32 = 40.0;
@@ -75,14 +75,14 @@ pub const SLIDE_MIN_POINTS: usize = 2;
 pub const STAR_SIZE: f32 = 45.0;
 pub const SLIDE_TRAVEL_TIME: f32 = 0.55;
 pub const SLIDE_STAR_FADE_IN: f32 = 0.12;
-pub(crate) const SPEED_MIN: f32 = 0.1;
-pub(crate) const SPEED_MAX: f32 = 3.0;
-pub(crate) const SPEED_STEP: f32 = 0.1;
-pub(crate) const HOLD_RECORD_MIN_DURATION: f32 = 0.2;
-pub(crate) const TOUCH_SPEED_MIN: f32 = 0.5;
-pub(crate) const TOUCH_SPEED_MAX: f32 = 3.0;
-pub(crate) const TOUCH_SPEED_STEP: f32 = 0.1;
-pub(crate) const MOUSE_POINTER_ID: u64 = u64::MAX;
+pub const SPEED_MIN: f32 = 0.1;
+pub const SPEED_MAX: f32 = 3.0;
+pub const SPEED_STEP: f32 = 0.1;
+pub const HOLD_RECORD_MIN_DURATION: f32 = 0.2;
+pub const TOUCH_SPEED_MIN: f32 = 0.5;
+pub const TOUCH_SPEED_MAX: f32 = 3.0;
+pub const TOUCH_SPEED_STEP: f32 = 0.1;
+pub const MOUSE_POINTER_ID: u64 = u64::MAX;
 pub const PAD_B_START: u8 = 9;
 pub const PAD_C_ZONE: u8 = 17;
 pub const PAD_ZONE_MAX: u8 = 33;
@@ -236,12 +236,12 @@ pub fn mdur_to_secs(d: f32, start_m: f32, bpms: &[BpmChange]) -> f32 {
 }
 
 /// Duration in seconds → duration in measures, starting at `start_secs`.
-pub(crate) fn sdur_to_mdur(d: f32, start_secs: f32, bpms: &[BpmChange]) -> f32 {
+pub fn sdur_to_mdur(d: f32, start_secs: f32, bpms: &[BpmChange]) -> f32 {
     secs_to_measure(start_secs + d, bpms) - secs_to_measure(start_secs, bpms)
 }
 
 /// BPM in effect at the given measure position.
-pub(crate) fn bpm_at(m: f32, bpms: &[BpmChange]) -> f32 {
+pub fn bpm_at(m: f32, bpms: &[BpmChange]) -> f32 {
     let mut bpm = bpms.first().map(|b| b.bpm).unwrap_or(120.0);
     for b in bpms {
         if b.measure > m + 0.0001 { break; }
@@ -251,7 +251,7 @@ pub(crate) fn bpm_at(m: f32, bpms: &[BpmChange]) -> f32 {
 }
 
 /// Snap a measure value to the nearest 1/384 grid position.
-pub(crate) fn snap_measure(m: f32) -> f32 {
+pub fn snap_measure(m: f32) -> f32 {
     const GRID: f32 = 384.0;
     (m * GRID).round() / GRID
 }
@@ -262,57 +262,57 @@ pub fn note_secs(note: &Note, bpms: &[BpmChange]) -> f32 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ChartDoc {
-    pub(crate) version: String,
-    pub(crate) title: String,
-    pub(crate) bpm: f32,
+pub struct ChartDoc {
+    pub version: String,
+    pub title: String,
+    pub bpm: f32,
     /// Sorted list of BPM changes. First entry starts at measure 1.0.
     #[serde(default)]
-    pub(crate) bpms: Vec<BpmChange>,
+    pub bpms: Vec<BpmChange>,
     /// Seconds from audio start to the first beat (Simai `&first`).  When
     /// non-zero the audio playback position is shifted by this amount so that
     /// `song_time == 0` aligns with this point in the audio file.
     #[serde(default)]
-    pub(crate) audio_offset: f32,
-    pub(crate) notes: Vec<Note>,
+    pub audio_offset: f32,
+    pub notes: Vec<Note>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct HitEvent {
-    pub(crate) time: f32,
-    pub(crate) lane: u8,
+pub struct HitEvent {
+    pub time: f32,
+    pub lane: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct RecordingDoc {
-    pub(crate) created_at_epoch_ms: u128,
-    pub(crate) source: String,
-    pub(crate) chart: ChartDoc,
-    pub(crate) hits: Vec<HitEvent>,
-    pub(crate) record_speed: f32,
-    pub(crate) play_speed: f32,
+pub struct RecordingDoc {
+    pub created_at_epoch_ms: u128,
+    pub source: String,
+    pub chart: ChartDoc,
+    pub hits: Vec<HitEvent>,
+    pub record_speed: f32,
+    pub play_speed: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mode {
+pub enum Mode {
     Idle,
     Recording,
     Playing,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct RectF {
-    pub(crate) x: f32,
-    pub(crate) y: f32,
-    pub(crate) w: f32,
-    pub(crate) h: f32,
+pub struct RectF {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Layout {
-    pub(crate) header: RectF,
-    pub(crate) timeline: Option<RectF>,
-    pub(crate) pad: RectF,
+pub struct Layout {
+    pub header: RectF,
+    pub timeline: Option<RectF>,
+    pub pad: RectF,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -323,7 +323,7 @@ pub struct PadGeom {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum UiAction {
+pub enum UiAction {
     TogglePlay,
     ToggleRecord,
     Save,
@@ -341,50 +341,50 @@ pub(crate) enum UiAction {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct UiButton {
-    pub(crate) rect: RectF,
-    pub(crate) label: &'static str,
-    pub(crate) action: UiAction,
+pub struct UiButton {
+    pub rect: RectF,
+    pub label: &'static str,
+    pub action: UiAction,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct WavPcm {
-    pub(crate) sample_rate: u32,
-    pub(crate) channels: u16,
-    pub(crate) samples: Vec<i16>,
+pub struct WavPcm {
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub samples: Vec<i16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum RecordInputId {
+pub enum RecordInputId {
     Key(u8),
     Pointer(u64),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveRecordHold {
-    pub(crate) lane: u8,
-    pub(crate) start_time: f32,
-    pub(crate) slide_zones: Vec<SlidePoint>,
+pub struct ActiveRecordHold {
+    pub lane: u8,
+    pub start_time: f32,
+    pub slide_zones: Vec<SlidePoint>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PointerEvent {
-    pub(crate) id: u64,
-    pub(crate) phase: TouchPhase,
-    pub(crate) position: Vec2,
+pub struct PointerEvent {
+    pub id: u64,
+    pub phase: TouchPhase,
+    pub position: Vec2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum DragPart { Head, Body, Tail, SlideDelayEnd }
+pub enum DragPart { Head, Body, Tail, SlideDelayEnd }
 
 /// Currently selected tool in the timeline-left sidebar (Blender-style N-panel).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PlaceTool { Tap, Hold, Star }
+pub enum PlaceTool { Tap, Hold, Star }
 
 /// Multi-step placement state machine driven by clicks on the timeline.
 /// Tap is single-shot, so it has no in-progress state.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum PlacementState {
+pub enum PlacementState {
     Idle,
     /// First click of a Hold has been made; cursor preview shows the tail.
     HoldPending { anchor_t: f32, lane: u8 },
@@ -397,11 +397,11 @@ pub(crate) enum PlacementState {
 /// Width of the tool sidebar inside the timeline panel (in screen pixels,
 /// before applying ui_scale). Kept as a single source of truth so the
 /// renderer (`ui.rs`) and input handler (`input.rs`) stay aligned.
-pub(crate) const TIMELINE_SIDEBAR_W: f32 = 56.0;
+pub const TIMELINE_SIDEBAR_W: f32 = 56.0;
 
 /// Compute the screen rects for the three sidebar tool buttons given the
 /// timeline panel rect. Returned in the order [Tap, Hold, Star].
-pub(crate) fn timeline_sidebar_buttons(tl: &RectF) -> [(RectF, PlaceTool, &'static str); 3] {
+pub fn timeline_sidebar_buttons(tl: &RectF) -> [(RectF, PlaceTool, &'static str); 3] {
     let pad = 6.0_f32;
     let btn_h = 50.0_f32;
     let x = tl.x + pad;
@@ -415,13 +415,13 @@ pub(crate) fn timeline_sidebar_buttons(tl: &RectF) -> [(RectF, PlaceTool, &'stat
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PadFeedback {
-    pub(crate) zone: PadZone,
-    pub(crate) until: f64,
+pub struct PadFeedback {
+    pub zone: PadZone,
+    pub until: f64,
 }
 
 /// Hold tail time in seconds (note fields are in measures).
-pub(crate) fn hold_tail_time(note: &Note, bpms: &[BpmChange]) -> f32 {
+pub fn hold_tail_time(note: &Note, bpms: &[BpmChange]) -> f32 {
     let dur_s = mdur_to_secs(note.hold_duration, note.time, bpms).max(0.15);
     note_secs(note, bpms) + dur_s
 }

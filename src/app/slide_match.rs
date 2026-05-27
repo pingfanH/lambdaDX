@@ -34,7 +34,7 @@ fn is_a_zone(z: u8) -> bool {
 ///
 /// Returns `Some(shape)` if the visited sequence matches a known template,
 /// or `None` if no match is found (caller should keep the free-form trajectory).
-pub(crate) fn match_slide_shape(start_lane: u8, slide_points: &[SlidePoint]) -> Option<SlideShape> {
+pub fn match_slide_shape(start_lane: u8, slide_points: &[SlidePoint]) -> Option<SlideShape> {
     let visited = build_visited(start_lane, slide_points);
 
     // All visited zones must be A-zones for v1 (B/C/D/E shapes deferred).

@@ -4,3 +4,4 @@
 Cargo.lock
 /ffi_test/
 /lnmai-core/
+.DS_Store

@@ -2,7 +2,7 @@ use macroquad::material::Material;
 use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
-use crate::app::types::zone::PadZone;
+use macroquad_sim::app::types::zone::PadZone;
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
@@ -14,7 +14,7 @@ use super::types::{
 };
 
 /// Runtime mutable state for the editor/simulator.
-pub struct AppState {
+pub struct PlayerState {
     pub mode: Mode,
     pub mode_wall_anchor: f64,
     pub mode_song_offset: f32,
@@ -146,7 +146,7 @@ pub struct AppState {
     pub status: String,
 }
 
-impl AppState {
+impl PlayerState {
     pub fn new(
         chart: ChartDoc,
         audio_source_name: Option<String>,
@@ -758,7 +758,7 @@ impl AppState {
 
         // Phase 4: classify the recorded trajectory against known shape templates.
         let slide_shape = if matches!(note_type, NoteType::Slide) {
-            super::slide_match::match_slide_shape(active.lane, &slide_points)
+            macroquad_sim::slide_match::match_slide_shape(active.lane, &slide_points)
         } else {
             None
         };

@@ -23,6 +23,11 @@ path = "src/test/sfx_test.rs"
 name = "slide_test"
 path = "src/test/slide_test.rs"
 
+[[bin]]
+name = "player"
+path = "src/player/player.rs"
+
+
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }
@@ -34,7 +39,7 @@ rustfft = "6"
 egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 maisimai = { path = "../maisimai" }
-#lnmai-core = {path = "./lnmai-core"}
+#lnmai-core-ffi = {path = "./lnmai-core-ffi"}
 [package.metadata.android]
 package_name = "com.mai2chart.macroquad_sim"
 android_version = 35

@@ -12,7 +12,7 @@ const TICKS_PER_BEAT: i32 = 96; // 4/4 time: 384/4
 // ─── Serialization structs ──────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SerChartDoc {
+pub struct SerChartDoc {
     pub version: String,
     pub title: String,
     pub bpm: f32,
@@ -24,7 +24,7 @@ pub(crate) struct SerChartDoc {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SerNote {
+pub struct SerNote {
     pub measure: i32,
     pub beat: i32,
     #[serde(default = "default_division")]
@@ -51,7 +51,7 @@ pub(crate) struct SerNote {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SerRecordingDoc {
+pub struct SerRecordingDoc {
     pub created_at_epoch_ms: u128,
     pub source: String,
     pub chart: SerChartDoc,
@@ -126,7 +126,7 @@ fn beat_pos_to_measure(measure: i32, beat: i32, division: i32, offset: i32) -> f
 
 // ─── Public conversion API ──────────────────────────────────────────
 
-pub(crate) fn note_to_ser(note: &Note) -> SerNote {
+pub fn note_to_ser(note: &Note) -> SerNote {
     let (measure, beat, division, offset) = measure_to_beat_pos(note.time);
 
     let hold_duration = if note.hold_duration != 0.0 {
@@ -152,7 +152,7 @@ pub(crate) fn note_to_ser(note: &Note) -> SerNote {
     }
 }
 
-pub(crate) fn ser_to_note(s: &SerNote) -> Note {
+pub fn ser_to_note(s: &SerNote) -> Note {
     let time = beat_pos_to_measure(s.measure, s.beat, s.division, s.offset);
     let hold_duration = s.hold_duration.map_or(0.0, fraction_to_duration);
 
@@ -171,7 +171,7 @@ pub(crate) fn ser_to_note(s: &SerNote) -> Note {
     }
 }
 
-pub(crate) fn chart_to_ser(chart: &ChartDoc) -> SerChartDoc {
+pub fn chart_to_ser(chart: &ChartDoc) -> SerChartDoc {
     SerChartDoc {
         version: "0.4.0-beat".to_string(),
         title: chart.title.clone(),
@@ -182,7 +182,7 @@ pub(crate) fn chart_to_ser(chart: &ChartDoc) -> SerChartDoc {
     }
 }
 
-pub(crate) fn ser_to_chart(s: &SerChartDoc) -> ChartDoc {
+pub fn ser_to_chart(s: &SerChartDoc) -> ChartDoc {
     let bpms = if s.bpms.is_empty() && s.bpm > 0.0 {
         vec![BpmChange { measure: 1.0, bpm: s.bpm }]
     } else {
@@ -198,7 +198,7 @@ pub(crate) fn ser_to_chart(s: &SerChartDoc) -> ChartDoc {
     }
 }
 
-pub(crate) fn recording_to_ser(doc: &RecordingDoc) -> SerRecordingDoc {
+pub fn recording_to_ser(doc: &RecordingDoc) -> SerRecordingDoc {
     SerRecordingDoc {
         created_at_epoch_ms: doc.created_at_epoch_ms,
         source: doc.source.clone(),
@@ -209,7 +209,7 @@ pub(crate) fn recording_to_ser(doc: &RecordingDoc) -> SerRecordingDoc {
     }
 }
 
-pub(crate) fn ser_to_recording(s: &SerRecordingDoc) -> RecordingDoc {
+pub fn ser_to_recording(s: &SerRecordingDoc) -> RecordingDoc {
     RecordingDoc {
         created_at_epoch_ms: s.created_at_epoch_ms,
         source: s.source.clone(),
@@ -221,13 +221,13 @@ pub(crate) fn ser_to_recording(s: &SerRecordingDoc) -> RecordingDoc {
 }
 
 /// Serialize a ChartDoc to pretty JSON in format C.
-pub(crate) fn chart_to_json(chart: &ChartDoc) -> Result<String, String> {
+pub fn chart_to_json(chart: &ChartDoc) -> Result<String, String> {
     let ser = chart_to_ser(chart);
     serde_json::to_string_pretty(&ser).map_err(|e| format!("serialize chart: {e}"))
 }
 
 /// Deserialize a ChartDoc from JSON (supports both format C and legacy).
-pub(crate) fn chart_from_json(json: &str) -> Result<ChartDoc, String> {
+pub fn chart_from_json(json: &str) -> Result<ChartDoc, String> {
     // Try format C first
     if let Ok(ser) = serde_json::from_str::<SerChartDoc>(json) {
         if ser.version.contains("beat") {
@@ -239,13 +239,13 @@ pub(crate) fn chart_from_json(json: &str) -> Result<ChartDoc, String> {
 }
 
 /// Serialize a RecordingDoc to pretty JSON in format C.
-pub(crate) fn recording_to_json(doc: &RecordingDoc) -> Result<String, String> {
+pub fn recording_to_json(doc: &RecordingDoc) -> Result<String, String> {
     let ser = recording_to_ser(doc);
     serde_json::to_string_pretty(&ser).map_err(|e| format!("serialize recording: {e}"))
 }
 
 /// Deserialize a RecordingDoc from JSON (supports both format C and legacy).
-pub(crate) fn recording_from_json(json: &str) -> Result<RecordingDoc, String> {
+pub fn recording_from_json(json: &str) -> Result<RecordingDoc, String> {
     if let Ok(ser) = serde_json::from_str::<SerRecordingDoc>(json) {
         if ser.chart.version.contains("beat") {
             return Ok(ser_to_recording(&ser));

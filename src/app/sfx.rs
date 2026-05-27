@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 /// Pre-decoded audio samples ready for instant playback.
 #[derive(Clone)]
-pub(crate) struct SfxBuffer {
+pub struct SfxBuffer {
     samples: Arc<Vec<f32>>,
     channels: u16,
     sample_rate: u32,
@@ -28,7 +28,7 @@ impl SfxBuffer {
 }
 
 /// Low-latency sound effect player backed by rodio/cpal.
-pub(crate) struct SfxPlayer {
+pub struct SfxPlayer {
     _stream: OutputStream,
     handle: OutputStreamHandle,
     /// Looping sink for touch-hold riser (needs stop support)

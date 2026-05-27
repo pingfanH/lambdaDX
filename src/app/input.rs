@@ -21,7 +21,7 @@ fn gather_selected(app: &AppState) -> Vec<usize> {
 
 
 
-pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
+pub fn handle_global_hotkeys(app: &mut AppState) {
     if is_key_pressed(KeyCode::Space) {
         app.toggle_play();
     }
@@ -391,7 +391,7 @@ pub(crate) fn handle_global_hotkeys(app: &mut AppState) {
     }
 }
 
-pub(crate) fn handle_lane_input(app: &mut AppState) {
+pub fn handle_lane_input(app: &mut AppState) {
     // Don't record taps while editing slide trajectory
     if app.editing_slide_path.is_some() { return; }
 
@@ -419,7 +419,7 @@ pub(crate) fn handle_lane_input(app: &mut AppState) {
     }
 }
 
-pub(crate) fn collect_pointer_events() -> Vec<PointerEvent> {
+pub fn collect_pointer_events() -> Vec<PointerEvent> {
     let touch_events = touches();
     let mut events = Vec::with_capacity(touch_events.len() + 2);
     let has_touch = !touch_events.is_empty();
@@ -462,7 +462,7 @@ pub(crate) fn collect_pointer_events() -> Vec<PointerEvent> {
 
 
 
-pub(crate) fn handle_touch_controls(
+pub fn handle_touch_controls(
     app: &mut AppState,
     pad: PadGeom,
     buttons: &[UiButton],
@@ -506,12 +506,7 @@ pub(crate) fn handle_touch_controls(
                                         } else {
                                             let edit_idx = app.editing_slide_idx.unwrap_or(0).min(n.slide.len().saturating_sub(1));
                                             let sl = &mut n.slide[edit_idx];
-                                            if sl.segments.is_empty() {
-                                                sl.segments.push(super::types::SlideSegment { points, shape });
-                                            } else {
-                                                sl.segments[0].points = points;
-                                                sl.segments[0].shape = shape;
-                                            }
+                                            sl.segments.push(super::types::SlideSegment { points, shape });
                                         }
                                         app.set_status(format!("Set shape {:?} → lane {}", shape, z));
                                     }
@@ -637,7 +632,7 @@ fn snap_secs_to_measure(secs: f32, bpms: &[BpmChange]) -> f32 {
     snap_grid(secs_to_measure(secs, bpms))
 }
 
-pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>) {
+pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>) {
     let Some(tl) = timeline_rect else { return };
     let (mx, my) = mouse_position();
     let pos = vec2(mx, my);
@@ -1028,6 +1023,27 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                 match part {
                     DragPart::Head => {
                         if let Some(o) = orig {
+                            if is_slide {
+                                let lane_delta = new_lane as i32 - o.lane as i32;
+                                if lane_delta != 0 {
+                                    for sl in &mut note.slide {
+                                        for seg in &mut sl.segments {
+                                            for pt in &mut seg.points {
+                                                let id = pt.zone.to_id() as i32;
+                                                let new_id = match id {
+                                                    1..=8  => (id - 1 + lane_delta).rem_euclid(8) + 1,
+                                                    9..=16 => (id - 9 + lane_delta).rem_euclid(8) + 9,
+                                                    17 => 17,
+                                                    18..=25 => (id - 18 + lane_delta).rem_euclid(8) + 18,
+                                                    26..=33 => (id - 26 + lane_delta).rem_euclid(8) + 26,
+                                                    _ => id,
+                                                } as u8;
+                                                pt.zone = PadZone::from(new_id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             if !app.drag_shift {
                                 // Shift+Head: only move head time, keep all durations/delays
                                 note.time = new_t;
@@ -1091,7 +1107,9 @@ pub(crate) fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<
                         }
                     }
                 }
-                note.lane = new_lane;
+                if !matches!(part, DragPart::Tail | DragPart::SlideDelayEnd) {
+                    note.lane = new_lane;
+                }
                 let dur = if is_slide {
                     note.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max)
                 } else {
@@ -1307,7 +1325,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
 /// Get screen position of a note. Returns (cx, head_y, tail_y, has_tail).
 /// `has_tail` is true for Hold (hold_duration) and Slide (slide_duration) notes.
 /// For slides with waypoints, tail_cx is at the last slide_point's lane.
-pub(crate) fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32, ruler_w: f32, lane_w: f32, judge_y: f32, bpms: &[BpmChange], scroll_speed: f32) -> (f32, f32, f32, bool) {
+pub fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32, ruler_w: f32, lane_w: f32, judge_y: f32, bpms: &[BpmChange], scroll_speed: f32) -> (f32, f32, f32, bool) {
     let zone = sanitize_note_zone(note.note_type, note.lane);
     let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
     let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
@@ -1327,7 +1345,7 @@ pub(crate) fn note_screen_pos(note: &super::types::Note, now: f32, track_x: f32,
 }
 
 /// Get the x position of a slide note's tail (last A-zone waypoint lane).
-pub(crate) fn slide_tail_cx(note: &super::types::Note, track_x: f32, ruler_w: f32, lane_w: f32) -> f32 {
+pub fn slide_tail_cx(note: &super::types::Note, track_x: f32, ruler_w: f32, lane_w: f32) -> f32 {
     let idx = note.slide.iter().enumerate()
         .max_by(|a, b| a.1.slide_duration.partial_cmp(&b.1.slide_duration).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(i, _)| i)
@@ -1335,7 +1353,7 @@ pub(crate) fn slide_tail_cx(note: &super::types::Note, track_x: f32, ruler_w: f3
     slide_tail_cx_for(note, idx, track_x, ruler_w, lane_w)
 }
 
-pub(crate) fn slide_tail_cx_for(note: &super::types::Note, slide_idx: usize, track_x: f32, ruler_w: f32, lane_w: f32) -> f32 {
+pub fn slide_tail_cx_for(note: &super::types::Note, slide_idx: usize, track_x: f32, ruler_w: f32, lane_w: f32) -> f32 {
     if let Some(sl) = note.slide.get(slide_idx) {
         for seg in sl.segments.iter().rev() {
             if let Some(last) = seg.points.iter().rev().find(|sp| sp.zone >= 1 && sp.zone <= 8) {
