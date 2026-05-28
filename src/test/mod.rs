@@ -1,7 +1,7 @@
 mod ffi_test;
 
 use macroquad::prelude::*;
-use crate::app::types::zone::PadZone;
+use macroquad_sim::app::types::zone::PadZone;
 
 #[macroquad::main("Mask")]
 async fn main() {

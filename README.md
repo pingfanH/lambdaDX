@@ -1,5 +1,39 @@
 # Mai2Chart macroquad local demo
 
+## Clone
+
+Clone with submodules so `lnmai-core-ffi` is available:
+
+```bash
+git clone --recurse-submodules git@github.com:pingfanH/lambdaDX.git
+```
+
+If you already cloned the repo:
+
+```bash
+git submodule update --init --recursive
+```
+
+## Nix shell
+
+Enter the development shell with Rust, `elan`, Lean build tooling, and Linux native libraries:
+
+```bash
+nix-shell
+```
+
+Or with flakes enabled:
+
+```bash
+nix develop
+```
+
+Build all binaries inside the shell:
+
+```bash
+cargo build --bins
+```
+
 ## Run
 
 ```bash
@@ -14,6 +48,7 @@ cargo run --manifest-path demo/macroquad_sim/Cargo.toml
 - `1..8`: record tap lanes
 - `T`: record touch lane
 - Mouse click / touch on pad: record by pad hit area (`1~8` ring, `T` center)
+- In `player`, multi-touch now feeds both touch clicks and held sensor state to `lnmai`, so simultaneous touches map to sensor status correctly.
 - `[` / `]`: record speed `0.1x ~ 3.0x`
 - `-` / `=`: playback speed `0.1x ~ 3.0x`
 - `P`: pad-only view

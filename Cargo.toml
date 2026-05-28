@@ -7,8 +7,7 @@ edition = "2024"
 members = [".", "lnmai-core-rs"]
 
 [lib]
-
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [[bin]]
 name = "macroquad_sim"

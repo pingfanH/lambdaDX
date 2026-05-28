@@ -74,14 +74,13 @@ pub async fn main() {
         // Input
         input::handle_global_hotkeys(&mut app);
         input::handle_lane_input(&mut app);
+        let pointer_events = macroquad_sim::app::input::collect_pointer_events();
+        input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
         audio::service_audio(&mut app).await;
         input::collect_lnmai_input_events(&mut app);
         app.advance_lnmai_frame();
         app.tick_judge_texts();
         app.tick_feedback();
-
-        let pointer_events = macroquad_sim::app::input::collect_pointer_events();
-        input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
         //macroquad_sim::app::input::handle_timeline_editing(&mut app, layout.timeline);
 
         // Egui on top (build UI + draw)
