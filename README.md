@@ -1,5 +1,39 @@
 # Mai2Chart macroquad local demo
 
+## Clone
+
+Clone with submodules so `lnmai-core-ffi` is available:
+
+```bash
+git clone --recurse-submodules git@github.com:pingfanH/lambdaDX.git
+```
+
+If you already cloned the repo:
+
+```bash
+git submodule update --init --recursive
+```
+
+## Nix shell
+
+Enter the development shell with Rust, `elan`, Lean build tooling, and Linux native libraries:
+
+```bash
+nix-shell
+```
+
+Or with flakes enabled:
+
+```bash
+nix develop
+```
+
+Build all binaries inside the shell:
+
+```bash
+cargo build --bins
+```
+
 ## Run
 
 ```bash

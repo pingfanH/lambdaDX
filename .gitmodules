@@ -1,0 +1,3 @@
+[submodule "lnmai-core-ffi"]
+	path = lnmai-core-ffi
+	url = https://github.com/pingfanH/lnmai-core-ffi.git

@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [[bin]]
 name = "macroquad_sim"
@@ -38,7 +37,7 @@ roxmltree = "0.20"
 rustfft = "6"
 egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
-maisimai = { path = "../maisimai" }
+maisimai = { git="https://github.com/pingfanH/maisimai-rs" }
 lnmai_core = {package = "lnmai-core", path = "./lnmai-core-ffi"}
 
 [features]
