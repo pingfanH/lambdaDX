@@ -4,7 +4,6 @@ pub mod input;
 pub mod state;
 pub mod ui;
 pub mod audio;
-pub mod core_ir;
 
 use macroquad::color::Color;
 use macroquad::file::set_pc_assets_folder;
@@ -57,6 +56,7 @@ pub async fn main() {
     }
 
     ui::load_note_textures(&mut app).await;
+    app.init_lnmai();
     // Prime egui state on first frame to avoid mouse event issues on macOS
     egui_macroquad::ui(|egui_ctx| { egui_ctx.set_pixels_per_point(2.0); });
     egui_macroquad::draw();
@@ -73,10 +73,11 @@ pub async fn main() {
 
         // Input
         input::handle_global_hotkeys(&mut app);
-       input::handle_lane_input(&mut app);
+        input::handle_lane_input(&mut app);
         audio::service_audio(&mut app).await;
-        app.update_playback();
-        app.service_hit_sounds();
+        input::collect_lnmai_input_events(&mut app);
+        app.advance_lnmai_frame();
+        app.tick_judge_texts();
         app.tick_feedback();
 
         let pointer_events = macroquad_sim::app::input::collect_pointer_events();

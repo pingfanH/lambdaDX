@@ -5,7 +5,7 @@ use macroquad::prelude::{draw_circle, draw_circle_lines, draw_line, draw_rectang
 use macroquad_sim::{pad_svg, slide_render};
 use macroquad_sim::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp, slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z};
 use macroquad_sim::state::AppState;
-use macroquad_sim::types::{hold_tail_time, mdur_to_secs, note_secs, sanitize_note_zone, slide_end_time, Mode, NoteType, PadGeom, RectF, SlideShape, HIT_WINDOW, HOLD_DISAPPEAR_FRAC, HOLD_FLY_TIME, HOLD_LENGTH_FRAC, HOLD_SPAWN_FRAC, HOLD_TAIL_FLY_TIME, HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, PAD_ROTATION_RAD, SLIDE_TRAVEL_TIME, TAP_DISAPPEAR_FRAC, TAP_GROW_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_SPAWN_FRAC, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME};
+use macroquad_sim::types::{hold_tail_time, mdur_to_secs, note_secs, sanitize_note_zone, slide_end_time, Mode, NoteType, PadGeom, RectF, SlideShape, HIT_WINDOW, HOLD_FLY_TIME, HOLD_LENGTH_FRAC, HOLD_SPAWN_FRAC, HOLD_TAIL_FLY_TIME, HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, PAD_ROTATION_RAD, SLIDE_TRAVEL_TIME, TAP_GROW_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_SPAWN_FRAC, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME};
 use macroquad_sim::types::zone::PadZone;
 use macroquad_sim::ui::draw_hold_9slice_segment;
 use crate::state::PlayerState;
@@ -311,17 +311,6 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             }
         }
 
-        // A-zone tap disappears at dt fraction; hold disappears at tail fraction
-        if zone <= 8 {
-            if matches!(note.note_type, NoteType::Hold) {
-                if tail_dt <= (hold_tail_time(note, bpms) - ns) * HOLD_DISAPPEAR_FRAC {
-                    continue;
-                }
-            } else if !matches!(note.note_type, NoteType::Slide) && dt <= TAP_TRAVEL_TIME * TAP_DISAPPEAR_FRAC {
-                continue;
-            }
-        }
-
         if zone <= 8 {
             let idx = (zone - 1) as f32;
             let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
@@ -538,6 +527,34 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                 }
             }
         }
+    }
+
+    // Render judgment texts
+    for jt in &app.judge_texts {
+        let remaining = jt.until - macroquad::prelude::get_time();
+        if remaining <= 0.0 { continue; }
+        let alpha = if remaining < 0.2 { (remaining / 0.2 * 255.0) as u8 } else { 255u8 };
+        let color = match jt.grade.as_str() {
+            "Perfect" => Color::from_rgba(255, 215, 0, alpha),
+            "Great" => Color::from_rgba(0, 255, 0, alpha),
+            "Good" => Color::from_rgba(255, 255, 255, alpha),
+            _ => Color::from_rgba(255, 255, 255, alpha),
+        };
+        let pos = if jt.zone.to_id() <= 8 {
+            let idx = (jt.zone.to_id() - 1) as f32;
+            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+            let dir = vec2(ang.cos(), ang.sin());
+            let target_r = outer_r + TAP_TARGET_OFFSET;
+            vec2(spawn_cx.x + dir.x * target_r, spawn_cx.y + dir.y * target_r)
+        } else {
+            app.pad_svg.as_ref()
+                .and_then(|svg| svg.zone_screen_centroid(jt.zone, &pad))
+                .unwrap_or(vec2(pad.cx, pad.cy))
+        };
+        let text = jt.grade.to_uppercase();
+        let font_size = 24.0 * scale;
+        let dims = measure_text(&text, None, font_size as u16, 1.0);
+        draw_text(&text, pos.x - dims.width * 0.5, pos.y, font_size, color);
     }
 
 

@@ -3,6 +3,8 @@ use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 use macroquad_sim::app::types::zone::PadZone;
+use lnmai_core::session::{self, Session, Empty, Loaded};
+use serde_json::json;
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
@@ -12,6 +14,32 @@ use super::types::{
     TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone, sanitize_note_zone,
     note_secs, secs_to_measure, mdur_to_secs, sdur_to_mdur, snap_measure,
 };
+
+#[derive(Debug, Clone)]
+pub struct JudgeText {
+    pub zone: PadZone,
+    pub grade: String,
+    pub until: f64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JudgeEvent {
+    kind: String,
+    grade: String,
+    note_index: u64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RuntimeStepLightResult {
+    events: Vec<JudgeEvent>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct FfiResult {
+    ok: bool,
+    result: Option<RuntimeStepLightResult>,
+}
 
 /// Runtime mutable state for the editor/simulator.
 pub struct PlayerState {
@@ -144,6 +172,12 @@ pub struct PlayerState {
     pub hidden_notes: HashSet<u64>,
 
     pub status: String,
+
+    pub lnmai_session: Option<Session<Loaded>>,
+    pub lnmai_initialized: bool,
+    pub lnmai_note_zones: Vec<PadZone>,
+    pub judge_texts: Vec<JudgeText>,
+    pub lnmai_input_events: Vec<(u64, serde_json::Value)>,
 }
 
 impl PlayerState {
@@ -264,6 +298,11 @@ impl PlayerState {
             next_note_id: 1,
             hidden_notes: HashSet::new(),
             status: "Ready".to_string(),
+            lnmai_session: None,
+            lnmai_initialized: false,
+            lnmai_note_zones: Vec::new(),
+            judge_texts: Vec::new(),
+            lnmai_input_events: Vec::new(),
         }
     }
 
@@ -440,6 +479,7 @@ impl PlayerState {
             if let Some(player) = &mut self.sfx_player { player.stop_looped(); }
             self.touch_riser_playing = false;
             self.timeline_view_time = self.mode_song_offset;
+            self.free_lnmai_session();
             self.set_status(format!("Paused at {:.2}s", self.mode_song_offset));
         } else {
             // Resume with audio seek
@@ -448,6 +488,8 @@ impl PlayerState {
             self.mode_wall_anchor = get_time();
             self.hit_sounds_played.clear();
             self.playback_cursor = 0;
+            self.judge_texts.clear();
+            self.create_lnmai_session();
             self.request_audio_start();
             self.set_status(format!("Resumed @ {:.1}x from {:.2}s", self.play_speed, self.mode_song_offset));
         }
@@ -463,6 +505,9 @@ impl PlayerState {
         self.active_record_holds.clear();
         self.active_pointer_zones.clear();
         self.prev_pointer_pos.clear();
+        self.judge_texts.clear();
+        #[cfg(feature = "lnmai")]
+        self.create_lnmai_session();
         self.request_audio_start();
     }
 
@@ -491,32 +536,8 @@ impl PlayerState {
     }
 
     pub fn update_playback(&mut self) {
-        if self.mode != Mode::Playing {
-            return;
-        }
-        let t = self.song_time();
-        let bpms = &self.chart.bpms;
-
-        while self.playback_cursor < self.chart.notes.len() {
-            // 跳过隐藏的 note
-            if self.hidden_notes.contains(&self.chart.notes[self.playback_cursor].id) {
-                self.playback_cursor += 1;
-                continue;
-            }
-            if note_secs(&self.chart.notes[self.playback_cursor], bpms) + HIT_WINDOW < t {
-                self.playback_cursor += 1;
-            } else {
-                break;
-            }
-        }
-
-        if let Some(last) = self.chart.notes.last() {
-            if t > note_secs(last, bpms) + 1.2 {
-                self.set_mode(Mode::Idle);
-                self.stop_audio_if_any();
-                self.set_status("Playback finished".to_string());
-            }
-        }
+        // Judgment is now handled by lnmai-core-ffi via advance_lnmai_frame().
+        // Keep this as a no-op for backward compat in the main loop.
     }
 
     pub fn tick_feedback(&mut self) {
@@ -524,157 +545,132 @@ impl PlayerState {
         self.pad_feedback.retain(|f| f.until > now);
     }
 
-    /// Play hit sound for notes that just reached their hit point or tail end.
-    ///
-    /// Instead of issuing one `play_sound` per note (which overwhelms the
-    /// audio mixer on dense clusters), we count how many tap-type and
-    /// touch-type events fire this frame and play each sound type **once**
-    /// with volume scaled by the cluster size (capped at 1.0).
-    pub fn service_hit_sounds(&mut self) {
-        if self.mode != Mode::Playing {
-            return;
-        }
-        let t = self.song_time();
-        let bpms = &self.chart.bpms;
+    /// Playback sounds are now handled by lnmai-core-ffi judgment.
+    /// This is kept as a no-op for backward compatibility in the main loop.
+    pub fn service_hit_sounds(&mut self) {}
 
-        // --- count pending hit-sound events per type ---
-        let mut tap_count: u32 = 0;
-        let mut touch_count: u32 = 0;
-        let mut slide_count: u32 = 0;
-        let mut break_tap_count: u32 = 0;
-        let mut ex_tap_count: u32 = 0;
-        let mut slide_break_start_count: u32 = 0;
-        let mut slide_break_end_count: u32 = 0;
-
-        for (i, note) in self.chart.notes.iter().enumerate() {
-            let ns = note_secs(note, bpms);
-            // Head hit — touch uses TOUCH_DISAPPEAR_TIME to align with visual
-            let hit_time = if matches!(note.note_type, NoteType::Touch) {
-                ns + TOUCH_DISAPPEAR_TIME
-            } else {
-                ns
-            };
-            if !self.hit_sounds_played.contains(&i) && hit_time <= t {
-                if matches!(note.note_type, NoteType::Touch) {
-                    touch_count += 1;
-                } else if note.is_break {
-                    // Break tap/star/hold head: play break_tap + break simultaneously
-                    break_tap_count += 1;
-                } else if note.is_ex {
-                    ex_tap_count += 1;
-                } else if !matches!(note.note_type, NoteType::Slide) {
-                    // Normal tap/hold head (not slide — slide star head gets tap sound below)
-                    tap_count += 1;
-                }
-                // Slide (non-break, non-ex) star head also gets a tap sound
-                if matches!(note.note_type, NoteType::Slide) && !note.is_break && !note.is_ex {
-                    tap_count += 1;
-                }
-                self.hit_sounds_played.insert(i);
+    pub fn init_lnmai(&mut self) {
+        if self.lnmai_initialized { return; }
+        match unsafe { session::initialize_runtime() } {
+            Ok(()) => {
+                self.lnmai_initialized = true;
+                self.set_status("lnmai runtime initialized".to_string());
             }
-            // Slide start/end sounds — per individual slide
-            if matches!(note.note_type, NoteType::Slide) {
-                for (si, sl) in note.slide.iter().enumerate() {
-                    let slide_key = i * 100 + si + self.chart.notes.len() * 3;
-                    let slide_move_time = ns + mdur_to_secs(sl.slide_start_delay, note.time, bpms);
-                    if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
-                        if sl.slide_is_break {
-                            slide_break_start_count += 1;
-                        } else {
-                            slide_count += 1;
+            Err(()) => {
+                self.set_status("lnmai runtime init failed".to_string());
+            }
+        }
+    }
+
+    pub fn create_lnmai_session(&mut self) {
+        if !self.lnmai_initialized { return; }
+        self.free_lnmai_session();
+        let empty = match Session::<Empty>::create() {
+            Ok(s) => s,
+            Err(e) => { self.set_status(format!("lnmai create session failed: {}", e.json)); return; }
+        };
+        let simai_file = macroquad_sim::simai_io::chart_doc_to_simai_file(&self.chart);
+        let simai_text = maisimai::export_file(&simai_file);
+        let (loaded, _info) = match empty.load_chart_text(&simai_text, 6) {
+            Ok(v) => v,
+            Err(e) => { self.set_status(format!("lnmai load chart failed: {}", e.json)); return; }
+        };
+
+        self.lnmai_note_zones.clear();
+        if let Ok(envelope) = loaded.get_lowered_chart_json() {
+            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&envelope.json) {
+                let data = json_val.get("result").unwrap_or(&json_val);
+                let mut note_entries: Vec<(u64, PadZone)> = Vec::new();
+                for key in &["taps", "holds", "slides"] {
+                    if let Some(arr) = data.get(*key).and_then(|n| n.as_array()) {
+                        for note in arr {
+                            let note_index = note.get("noteIndex").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let zone = if let Some(slot) = note.get("slot").and_then(|v| v.as_str()) {
+                                if let Some(lane) = slot.strip_prefix('S').and_then(|s| s.parse::<u8>().ok()) {
+                                    PadZone::from(lane)
+                                } else {
+                                    PadZone::from(slot)
+                                }
+                            } else {
+                                PadZone::A1
+                            };
+                            note_entries.push((note_index, zone));
                         }
-                        self.hit_sounds_played.insert(slide_key);
-                    }
-                    let slide_end_key = i * 100 + si + self.chart.notes.len() * 4;
-                    let slide_end_t = ns + mdur_to_secs(sl.slide_duration, note.time, bpms);
-                    if sl.slide_is_break
-                        && !self.hit_sounds_played.contains(&slide_end_key)
-                        && slide_end_t <= t
-                    {
-                        slide_break_end_count += 1;
-                        self.hit_sounds_played.insert(slide_end_key);
                     }
                 }
-            }
-            // Hold tail
-            let tail_key = i + self.chart.notes.len();
-            if matches!(note.note_type, NoteType::Hold)
-                && !self.hit_sounds_played.contains(&tail_key)
-                && hold_tail_time(note, bpms) <= t
-            {
-                tap_count += 1;
-                self.hit_sounds_played.insert(tail_key);
+                note_entries.sort_by_key(|(idx, _)| *idx);
+                let max_idx = note_entries.last().map(|(i, _)| *i).unwrap_or(0) as usize;
+                self.lnmai_note_zones = vec![PadZone::A1; max_idx + 1];
+                for (idx, zone) in note_entries {
+                    self.lnmai_note_zones[idx as usize] = zone;
+                }
+                let count = self.lnmai_note_zones.len();
+                println!("[lnmai lowered] zone_map len={count}");
             }
         }
 
-        // --- play one sound per type via rodio, volume scales with cluster size ---
-        let player = match &mut self.sfx_player {
-            Some(p) => p,
+        self.lnmai_session = Some(loaded);
+        self.set_status(format!("lnmai session loaded ({} lowered notes)", self.lnmai_note_zones.len()));
+    }
+
+    pub fn free_lnmai_session(&mut self) {
+        if let Some(session) = self.lnmai_session.take() {
+            match session.free() {
+                Err(e) => self.set_status(format!("lnmai free session failed: {}", e.json)),
+                _ => {}
+            }
+        }
+    }
+
+    pub fn advance_lnmai_frame(&mut self) {
+        if self.mode != Mode::Playing { return; }
+        let t_s = self.song_time() as f64;
+        let t_us = (t_s * 1_000_000.0) as u64;
+        let events: Vec<serde_json::Value> = self.lnmai_input_events.drain(..).map(|(_, v)| v).collect();
+
+        let session = match &mut self.lnmai_session {
+            Some(s) => s,
             None => return,
         };
 
-        if tap_count > 0 {
-            if let Some(buf) = &self.sfx_tap {
-                let vol = (0.6 + 0.1 * tap_count as f32).min(1.0);
-                player.play(buf, vol);
-            }
-        }
-        if break_tap_count > 0 {
-            if let Some(buf) = &self.sfx_break_tap {
-                let vol = (0.6 + 0.1 * break_tap_count as f32).min(1.0);
-                player.play(buf, vol);
-            }
-            if let Some(buf) = &self.sfx_break {
-                let vol = (0.6 + 0.1 * break_tap_count as f32).min(1.0);
-                player.play(buf, vol);
-            }
-        }
-        if ex_tap_count > 0 {
-            if let Some(buf) = &self.sfx_tap_ex {
-                let vol = (0.6 + 0.1 * ex_tap_count as f32).min(1.0);
-                player.play(buf, vol);
-            }
-        }
-        if touch_count > 0 {
-            if let Some(buf) = &self.sfx_touch {
-                let vol = (0.6 + 0.1 * touch_count as f32).min(1.0);
-                player.play(buf, vol);
-            }
-        }
-        if slide_count > 0 {
-            if let Some(buf) = &self.sfx_slide {
-                let vol = (0.6 + 0.1 * slide_count as f32).min(1.0);
-                player.play(buf, vol);
-            }
-        }
-        if slide_break_start_count > 0 {
-            if let Some(buf) = &self.sfx_slide_break_start {
-                let vol = (0.6 + 0.1 * slide_break_start_count as f32).min(1.0);
-                player.play(buf, vol);
-            }
-        }
-        if slide_break_end_count > 0 {
-            if let Some(buf) = &self.sfx_break_slide {
-                let vol = (0.6 + 0.1 * slide_break_end_count as f32).min(1.0);
-                player.play(buf, vol);
-            }
+        let batch = json!({
+            "currentTime": t_us,
+            "events": events
+        });
+
+        if !events.is_empty() {
+            println!("[lnmai input] currentTime={} events={}", t_us, serde_json::to_string(&batch["events"]).unwrap_or_default());
         }
 
-        // Touch hold riser: play while any touch hold is active
-        let active_th = self.chart.notes.iter()
-            .filter(|n| matches!(n.note_type, NoteType::Hold)
-                && is_touch_zone(sanitize_note_zone(n.note_type, n.lane))
-                && note_secs(n, bpms) <= t && hold_tail_time(n, bpms) > t)
-            .count();
-        if active_th > 0 && !self.touch_riser_playing {
-            if let Some(buf) = &self.sfx_touch_riser {
-                player.play_looped(buf, 0.5);
-                self.touch_riser_playing = true;
+        match session.advance_frame_light(&batch.to_string()) {
+            Ok(envelope) => {
+                if let Ok(ffi) = serde_json::from_str::<FfiResult>(&envelope.json) {
+                    if let Some(res) = ffi.result {
+                        for e in &res.events {
+                            let zone = self.lnmai_note_zones
+                                .get(e.note_index as usize)
+                                .copied()
+                                .unwrap_or(PadZone::A1);
+                            println!("[lnmai step] JudgeEvent {{ kind: {:?}, grade: {:?}, note_index: {} }} → zone {} (zone_map_len={})",
+                                e.kind, e.grade, e.note_index, zone, self.lnmai_note_zones.len());
+                            self.judge_texts.push(JudgeText {
+                                zone,
+                                grade: e.grade.clone(),
+                                until: get_time() + 0.6,
+                            });
+                        }
+                    }
+                }
             }
-        } else if active_th == 0 && self.touch_riser_playing {
-            player.stop_looped();
-            self.touch_riser_playing = false;
+            Err(e) => {
+                self.set_status(format!("lnmai advance frame error: {}", e.json));
+            }
         }
+    }
+
+    pub fn tick_judge_texts(&mut self) {
+        let now = get_time();
+        self.judge_texts.retain(|jt| jt.until > now);
     }
 
     pub fn push_feedback(&mut self, zone: PadZone, duration: f64) {

@@ -39,7 +39,12 @@ rustfft = "6"
 egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 maisimai = { path = "../maisimai" }
-#lnmai-core-ffi = {path = "./lnmai-core-ffi"}
+lnmai_core = {package = "lnmai-core", path = "./lnmai-core-ffi"}
+
+[features]
+default = ["lnmai"]
+lnmai = ["dep:lnmai_core"]
+
 [package.metadata.android]
 package_name = "com.mai2chart.macroquad_sim"
 android_version = 35
@@ -48,3 +53,5 @@ min_sdk_version = 23
 build_targets = ["aarch64-linux-android"]
 assets = "assets/"
 activity_attributes = { "android:exported" = "true" }
+[build-dependencies]
+lnmai_core = {package = "lnmai-core", path = "./lnmai-core-ffi", optional = true}
