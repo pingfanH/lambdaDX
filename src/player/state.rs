@@ -52,6 +52,7 @@ pub struct PlayerState {
     pub recording_notes: Vec<Note>,
     pub active_record_holds: HashMap<RecordInputId, ActiveRecordHold>,
     pub active_pointer_zones: HashMap<u64, PadZone>,
+    pub active_sensor_holds: HashMap<u64, PadZone>,
     pub prev_pointer_pos: HashMap<u64, Vec2>,
     pub pad_feedback: Vec<PadFeedback>,
     pub playback_cursor: usize,
@@ -203,6 +204,7 @@ impl PlayerState {
             recording_notes: Vec::new(),
             active_record_holds: HashMap::new(),
             active_pointer_zones: HashMap::new(),
+            active_sensor_holds: HashMap::new(),
             prev_pointer_pos: HashMap::new(),
             pad_feedback: Vec::new(),
             playback_cursor: 0,
@@ -479,6 +481,7 @@ impl PlayerState {
             if let Some(player) = &mut self.sfx_player { player.stop_looped(); }
             self.touch_riser_playing = false;
             self.timeline_view_time = self.mode_song_offset;
+            self.active_sensor_holds.clear();
             self.free_lnmai_session();
             self.set_status(format!("Paused at {:.2}s", self.mode_song_offset));
         } else {
@@ -504,6 +507,7 @@ impl PlayerState {
         self.recording_notes.clear();
         self.active_record_holds.clear();
         self.active_pointer_zones.clear();
+        self.active_sensor_holds.clear();
         self.prev_pointer_pos.clear();
         self.judge_texts.clear();
         #[cfg(feature = "lnmai")]
@@ -528,6 +532,7 @@ impl PlayerState {
             self.recording_notes.clear();
             self.active_record_holds.clear();
             self.active_pointer_zones.clear();
+            self.active_sensor_holds.clear();
             self.prev_pointer_pos.clear();
             self.set_mode(Mode::Recording);
             self.set_status(format!("Recording started @ {:.1}x", self.record_speed));

@@ -48,6 +48,7 @@ cargo run --manifest-path demo/macroquad_sim/Cargo.toml
 - `1..8`: record tap lanes
 - `T`: record touch lane
 - Mouse click / touch on pad: record by pad hit area (`1~8` ring, `T` center)
+- In `player`, multi-touch now feeds both touch clicks and held sensor state to `lnmai`, so simultaneous touches map to sensor status correctly.
 - `[` / `]`: record speed `0.1x ~ 3.0x`
 - `-` / `=`: playback speed `0.1x ~ 3.0x`
 - `P`: pad-only view

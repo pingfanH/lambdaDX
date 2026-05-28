@@ -6,6 +6,43 @@ use macroquad_sim::types::zone::PadZone;
 use macroquad_sim::ui::{rect_contains};
 use serde_json::json;
 use crate::state::PlayerState;
+
+fn push_lnmai_sensor_click(app: &mut PlayerState, zone: PadZone) {
+    if app.mode != Mode::Playing {
+        return;
+    }
+    let t_us = (app.song_time() as f64 * 1_000_000.0) as u64;
+    app.lnmai_input_events.push((t_us, json!({"sensorClick": {"tp": t_us, "area": zone.to_string()}})));
+}
+
+fn update_lnmai_sensor_hold(app: &mut PlayerState, pointer_id: u64, new_zone: Option<PadZone>) {
+    if app.mode != Mode::Playing {
+        app.active_sensor_holds.remove(&pointer_id);
+        return;
+    }
+
+    let old_zone = app.active_sensor_holds.get(&pointer_id).copied();
+    if old_zone == new_zone {
+        return;
+    }
+
+    let t_us = (app.song_time() as f64 * 1_000_000.0) as u64;
+
+    if let Some(zone) = old_zone {
+        app.lnmai_input_events.push((t_us, json!({
+            "sensorHold": {"tp": t_us, "area": zone.to_string(), "isDown": false}
+        })));
+        app.active_sensor_holds.remove(&pointer_id);
+    }
+
+    if let Some(zone) = new_zone {
+        app.lnmai_input_events.push((t_us, json!({
+            "sensorHold": {"tp": t_us, "area": zone.to_string(), "isDown": true}
+        })));
+        app.active_sensor_holds.insert(pointer_id, zone);
+    }
+}
+
 pub fn trigger_ui_action(app: &mut PlayerState, action: UiAction) {
     match action {
         UiAction::TogglePlay => app.toggle_play(),
@@ -27,6 +64,7 @@ pub fn trigger_ui_action(app: &mut PlayerState, action: UiAction) {
             app.recording_notes.clear();
             app.active_record_holds.clear();
             app.active_pointer_zones.clear();
+            app.active_sensor_holds.clear();
             app.set_status("Cleared recording hits".to_string());
         }
         UiAction::ToggleAudio => {
@@ -205,6 +243,8 @@ pub fn handle_touch_controls(
 
                 if let Some(zone) = zone {
                     app.active_pointer_zones.insert(ev.id, zone);
+                    update_lnmai_sensor_hold(app, ev.id, Some(zone));
+                    push_lnmai_sensor_click(app, zone);
                     app.push_feedback(zone, 0.12);
                     //app.start_record_hold_input(RecordInputId::Pointer(ev.id), zone);
                 }
@@ -239,9 +279,12 @@ pub fn handle_touch_controls(
                         if let Some(zone) = new_zone {
                             //app.record_slide_zone(RecordInputId::Pointer(ev.id), zone);
                             app.active_pointer_zones.insert(ev.id, zone);
+                            update_lnmai_sensor_hold(app, ev.id, Some(zone));
+                            push_lnmai_sensor_click(app, zone);
                             app.push_feedback(zone, 0.10);
                         } else {
                             app.active_pointer_zones.remove(&ev.id);
+                            update_lnmai_sensor_hold(app, ev.id, None);
                         }
                     }
                 }
@@ -249,6 +292,7 @@ pub fn handle_touch_controls(
             TouchPhase::Ended | TouchPhase::Cancelled => {
                 app.prev_pointer_pos.remove(&ev.id);
                 app.active_pointer_zones.remove(&ev.id);
+                update_lnmai_sensor_hold(app, ev.id, None);
                 app.finish_record_hold_input(RecordInputId::Pointer(ev.id));
             }
             _ => {}
@@ -304,9 +348,4 @@ pub fn collect_lnmai_input_events(app: &mut PlayerState) {
         }
     }
 
-    // Send sensorClick for each active pointer zone
-    for zone in app.active_pointer_zones.values() {
-        let area = zone.to_string();
-        app.lnmai_input_events.push((t_us, json!({"sensorClick": {"tp": t_us, "area": area}})));
-    }
 }
