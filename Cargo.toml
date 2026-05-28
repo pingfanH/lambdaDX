@@ -1,7 +1,10 @@
 [package]
 name = "macroquad_sim"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
+[workspace]
+members = [".", "lnmai-core-rs"]
 
 [lib]
 crate-type = ["rlib"]
@@ -26,7 +29,6 @@ path = "src/test/slide_test.rs"
 name = "player"
 path = "src/player/player.rs"
 
-
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }
@@ -37,12 +39,9 @@ roxmltree = "0.20"
 rustfft = "6"
 egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
-maisimai = { git="https://github.com/pingfanH/maisimai-rs" }
-lnmai_core = {package = "lnmai-core", path = "./lnmai-core-ffi"}
+maisimai = { version = "0.1.0",git = "https://github.com/pingfanH/maisimai-rs" }
+lnmai_core_rs = {package = "lnmai-core-rs", path = "lnmai-core-rs",default-features = false,features = ["ffi"]}
 
-[features]
-default = ["lnmai"]
-lnmai = ["dep:lnmai_core"]
 
 [package.metadata.android]
 package_name = "com.mai2chart.macroquad_sim"
@@ -53,4 +52,4 @@ build_targets = ["aarch64-linux-android"]
 assets = "assets/"
 activity_attributes = { "android:exported" = "true" }
 [build-dependencies]
-lnmai_core = {package = "lnmai-core", path = "./lnmai-core-ffi", optional = true}
+lnmai_core_rs = {package = "lnmai-core-rs", path = "lnmai-core-rs",features = ["ffi"]}
