@@ -1,5 +1,7 @@
+
 use std::path::PathBuf;
-use lnmai_core;
+use lnmai_core_rs;
+
 fn main() {
-    lnmai_core::build::build(PathBuf::from("/Users/pingfanh/project/Mai2Chart/demo/macroquad_sim/lnmai-core-ffi"));
+    lnmai_core_rs::build(PathBuf::from("lnmai-core-rs/lnmai-core-ffi"));
 }

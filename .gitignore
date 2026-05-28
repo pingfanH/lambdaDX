@@ -1,7 +1,4 @@
 # 项目排除路径
-/target/
-.idea
-Cargo.lock
-/ffi_test/
-/lnmai-core/
+target
+.idea/
 .DS_Store

@@ -3,7 +3,7 @@ use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 use macroquad_sim::app::types::zone::PadZone;
-use lnmai_core::session::{self, Session, Empty, Loaded};
+use lnmai_core_rs::session::{self, Session, Empty, Loaded};
 use serde_json::json;
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
@@ -506,7 +506,6 @@ impl PlayerState {
         self.active_pointer_zones.clear();
         self.prev_pointer_pos.clear();
         self.judge_texts.clear();
-        #[cfg(feature = "lnmai")]
         self.create_lnmai_session();
         self.request_audio_start();
     }
@@ -536,7 +535,7 @@ impl PlayerState {
     }
 
     pub fn update_playback(&mut self) {
-        // Judgment is now handled by lnmai-core-ffi via advance_lnmai_frame().
+        // Judgment is now handled by lnmai-core-rs-ffi via advance_lnmai_frame().
         // Keep this as a no-op for backward compat in the main loop.
     }
 
@@ -545,7 +544,7 @@ impl PlayerState {
         self.pad_feedback.retain(|f| f.until > now);
     }
 
-    /// Playback sounds are now handled by lnmai-core-ffi judgment.
+    /// Playback sounds are now handled by lnmai-core-rs-ffi judgment.
     /// This is kept as a no-op for backward compatibility in the main loop.
     pub fn service_hit_sounds(&mut self) {}
 
