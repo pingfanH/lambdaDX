@@ -904,6 +904,288 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         );
     }
 
+    // ── Template instance blocks (rendered behind notes) ──
+    if !template::is_in_isolation(app) {
+        let lane_w = lanes_w / LANE_COUNT as f32;
+        for (inst_idx, inst) in app.chart.template_instances.iter().enumerate() {
+            let (i_start, i_end) = template::instance_time_range(app, inst);
+            let start_secs = super::types::measure_to_secs(i_start, bpms);
+            let end_secs = super::types::measure_to_secs(i_end, bpms);
+            let dt_start = start_secs - now;
+            let dt_end = end_secs - now;
+
+            // Skip if entirely off-screen.
+            if dt_end < -margin_s || dt_start > margin_s {
+                continue;
+            }
+
+            let y_top = judge_y - dt_start * scroll_speed;
+            let y_bot = judge_y - dt_end * scroll_speed;
+            let block_x = track_x + ruler_w;
+            let block_w = lanes_w;
+            let block_y = y_top.min(y_bot);
+            let block_h = (y_top - y_bot).abs();
+
+            // Dark translucent fill.
+            draw_rectangle(block_x, block_y, block_w, block_h, Color::from_rgba(20, 20, 40, 120));
+            // Top edge line.
+            draw_rectangle(block_x, y_top, block_w, 2.0 * scale, Color::from_rgba(100, 140, 200, 200));
+            // Bottom edge line.
+            draw_rectangle(block_x, y_bot, block_w, 2.0 * scale, Color::from_rgba(100, 140, 200, 200));
+            // Left edge line.
+            draw_rectangle(block_x, block_y, 2.0 * scale, block_h, Color::from_rgba(100, 140, 200, 140));
+            // Right edge line.
+            draw_rectangle(block_x + block_w - 2.0 * scale, block_y, 2.0 * scale, block_h, Color::from_rgba(100, 140, 200, 140));
+
+            // Resize handles: small squares at corners.
+            let handle_size = 6.0 * scale;
+            let handle_color = Color::from_rgba(140, 180, 240, 220);
+            draw_rectangle(block_x - handle_size * 0.5, y_top - handle_size * 0.5, handle_size, handle_size, handle_color);
+            draw_rectangle(block_x + block_w - handle_size * 0.5, y_top - handle_size * 0.5, handle_size, handle_size, handle_color);
+            draw_rectangle(block_x - handle_size * 0.5, y_bot - handle_size * 0.5, handle_size, handle_size, handle_color);
+            draw_rectangle(block_x + block_w - handle_size * 0.5, y_bot - handle_size * 0.5, handle_size, handle_size, handle_color);
+
+            // Label: template name above the block.
+            let tpl = app.chart.templates.iter().find(|t| t.id == inst.template_id);
+            if let Some(tpl) = tpl {
+                let label = format!("[{}]", tpl.name);
+                let label_y = y_top - 6.0 * scale;
+                draw_text(
+                    &label,
+                    block_x + 4.0 * scale,
+                    label_y,
+                    14.0 * scale,
+                    Color::from_rgba(140, 180, 240, 200),
+                );
+
+                // Render expanded template notes inside the block using proper textures.
+                let expanded = template::expand_instance(inst, tpl);
+                for enote in &expanded {
+                    let en_zone = sanitize_note_zone(enote.note_type, enote.lane);
+                    let en_secs = note_secs(enote, bpms);
+                    let en_dt = en_secs - now;
+                    if en_dt < -margin_s || en_dt > margin_s { continue; }
+                    let en_lane_idx = if is_touch_zone(en_zone) {
+                        LANE_COUNT - 1
+                    } else {
+                        (en_zone.saturating_sub(1) as usize).min(LANE_COUNT - 1)
+                    };
+                    let en_cx = track_x + ruler_w + lane_w * en_lane_idx as f32 + lane_w * 0.5;
+                    let en_ny = judge_y - en_dt * scroll_speed;
+
+                    // Render with proper textures, using a slight blue tint to indicate template.
+                    let tpl_color = Color::from_rgba(180, 200, 255, 220);
+                    match enote.note_type {
+                        NoteType::Tap => {
+                            let tap_tex = if enote.is_break {
+                                app.tap_break_tex.as_ref()
+                            } else if enote.is_each {
+                                app.tap_each_tex.as_ref()
+                            } else {
+                                app.tap_texture.as_ref()
+                            }.or(app.tap_texture.as_ref());
+                            let ts = TAP_SIZE * scale;
+                            if let Some(tex) = tap_tex {
+                                draw_tap_sprite_c(tex, en_cx, en_ny, ts, tpl_color);
+                            } else {
+                                let tr = TAP_SIZE * 0.3125 * scale;
+                                draw_circle(en_cx, en_ny, tr, Color::from_rgba(17, 24, 39, 255));
+                                draw_circle_lines(en_cx, en_ny, tr, tr * 0.3, Color::from_rgba(100, 140, 200, 255));
+                                draw_circle(en_cx, en_ny, tr * 0.3, Color::from_rgba(140, 180, 240, 255));
+                            }
+                        }
+                        NoteType::Touch => {
+                            let tri_tex = if enote.is_each { app.touch_tri_each_tex.as_ref() } else { app.touch_tri_tex.as_ref() }
+                                .or(app.touch_tri_tex.as_ref());
+                            let pt_tex = if enote.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() }
+                                .or(app.touch_point_tex.as_ref());
+                            if let Some(tex) = tri_tex {
+                                let ratio = tex.width() / tex.height();
+                                let ts = 30.0 * scale;
+                                let tw = ts; let th = ts / ratio;
+                                draw_texture_ex(tex, en_cx - tw*0.5, en_ny + ts*0.3 - th*0.5, tpl_color, DrawTextureParams { dest_size: Some(vec2(tw,th)), ..Default::default() });
+                                draw_texture_ex(tex, en_cx - tw*0.5, en_ny - ts*0.3 - th*0.5, tpl_color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::PI, ..Default::default() });
+                                draw_texture_ex(tex, en_cx - ts*0.3 - tw*0.5, en_ny - th*0.5, tpl_color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
+                                draw_texture_ex(tex, en_cx + ts*0.3 - tw*0.5, en_ny - th*0.5, tpl_color, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
+                            } else {
+                                draw_circle(en_cx, en_ny, 3.0*scale, Color::from_rgba(100,140,200,200));
+                            }
+                        }
+                         NoteType::Slide => {
+                            if !enote.is_tapless {
+                                let is_double = enote.is_star;
+                                let star_tex = if enote.is_break {
+                                    if is_double { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
+                                } else if enote.is_each {
+                                    if is_double { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
+                                } else {
+                                    if is_double { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() }
+                                };
+                                let fallback = if is_double { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() };
+                                let ss = TAP_SIZE * scale;
+                                if let Some(tex) = star_tex.or(fallback).or(app.star_tex.as_ref()) {
+                                    draw_texture_ex(tex, en_cx - ss * 0.5, en_ny - ss * 0.5,
+                                        tpl_color,
+                                        DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
+                                } else {
+                                    draw_poly(en_cx, en_ny, 5, ss * 0.4, 0.0, Color::from_rgba(100, 140, 200, 230));
+                                }
+                            }
+                            // Slide trail rendering
+                            for sl in &enote.slide {
+                                let dur_s = mdur_to_secs(sl.slide_duration, enote.time, bpms).max(0.0);
+                                let delay_s = mdur_to_secs(sl.slide_start_delay, enote.time, bpms).max(0.0).min(dur_s);
+                                let delay_y = judge_y - (en_dt + delay_s) * scroll_speed;
+                                let tail_y = judge_y - (en_dt + dur_s) * scroll_speed;
+                                // Dashed delay line
+                                let delay_h = (en_ny - delay_y).abs();
+                                if delay_s > 0.0 && delay_h > 0.5 {
+                                    let dash_len = 6.0 * scale;
+                                    let gap = 4.0 * scale;
+                                    let period = dash_len + gap;
+                                    let top = en_ny.min(delay_y);
+                                    let n_dashes = (delay_h / period).ceil() as i32;
+                                    for k in 0..n_dashes {
+                                        let y0 = top + (k as f32) * period;
+                                        let y1 = (y0 + dash_len).min(top + delay_h);
+                                        draw_line(en_cx, y0, en_cx, y1, 2.0 * scale, Color::from_rgba(180, 200, 255, 200));
+                                    }
+                                }
+                                // Slide trail waypoints
+                                let travel_h = (delay_y - tail_y).abs();
+                                if travel_h > 0.5 {
+                                    let zone_to_cx_a = |z: PadZone| -> f32 {
+                                        let li = (z.to_id().saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                                        track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+                                    };
+                                    let mut a_points: Vec<&super::types::SlidePoint> = Vec::new();
+                                    for seg in &sl.segments {
+                                        for sp in &seg.points {
+                                            if sp.zone >= 1 && sp.zone <= 8 { a_points.push(sp); }
+                                        }
+                                    }
+                                    let mut waypoints: Vec<(f32, f32)> = Vec::new();
+                                    waypoints.push((en_cx, delay_y));
+                                    let n_pts = a_points.len();
+                                    if n_pts > 0 {
+                                        for (pi, sp) in a_points.iter().enumerate() {
+                                            let frac = (pi + 1) as f32 / (n_pts) as f32;
+                                            let wy = delay_y + (tail_y - delay_y) * frac;
+                                            let wx = zone_to_cx_a(sp.zone);
+                                            waypoints.push((wx, wy));
+                                        }
+                                    } else {
+                                        waypoints.push((en_cx, tail_y));
+                                    }
+                                    let line_w = 3.0 * scale;
+                                    for seg_i in 0..waypoints.len() - 1 {
+                                        let (x0, y0) = waypoints[seg_i];
+                                        let (x1, y1) = waypoints[seg_i + 1];
+                                        if let Some(tex) = app.slide_tex.as_ref() {
+                                            let dx = x1 - x0;
+                                            let dy = y1 - y0;
+                                            let seg_len = (dx * dx + dy * dy).sqrt();
+                                            let bar_w = 14.0 * scale;
+                                            let tw_nat = tex.width() * scale * SLIDE_TILE_SCALE;
+                                            let th_nat = tex.height() * scale * SLIDE_TILE_SCALE;
+                                            let tile_h = th_nat * (bar_w / tw_nat).max(0.001);
+                                            let spacing = SLIDE_TILE_SPACING * scale;
+                                            let angle = dy.atan2(dx) + std::f32::consts::PI;
+                                            let steps = (seg_len / spacing).ceil().max(1.0) as i32;
+                                            for k in 0..=steps {
+                                                let t = k as f32 / steps as f32;
+                                                let px = x0 + dx * t;
+                                                let py = y0 + dy * t;
+                                                draw_texture_ex(tex, px - bar_w * 0.5, py - tile_h * 0.5,
+                                                    Color::from_rgba(200, 210, 255, 230),
+                                                    DrawTextureParams { dest_size: Some(vec2(bar_w, tile_h)), rotation: angle, ..Default::default() });
+                                            }
+                                        } else {
+                                            draw_line(x0, y0, x1, y1, line_w, Color::from_rgba(180, 200, 255, 200));
+                                        }
+                                    }
+                                    for &(wx, wy) in &waypoints[1..] {
+                                        draw_circle(wx, wy, 3.0 * scale, Color::from_rgba(180, 200, 255, 200));
+                                    }
+                                }
+                                // Delay handle and tail circles
+                                if delay_s > 0.0 || dur_s > 0.0 {
+                                    draw_circle(en_cx, delay_y, 4.5 * scale, Color::from_rgba(140, 180, 240, 230));
+                                    draw_circle_lines(en_cx, delay_y, 4.5 * scale, 1.5 * scale, Color::from_rgba(200, 210, 255, 220));
+                                }
+                                if dur_s > 0.0 {
+                                    let tail_cx = super::input::slide_tail_cx_for(enote, 0, track_x, ruler_w, lane_w);
+                                    draw_circle(tail_cx, tail_y, 5.5 * scale, Color::from_rgba(180, 200, 255, 230));
+                                    draw_circle_lines(tail_cx, tail_y, 5.5 * scale, 1.5 * scale, Color::from_rgba(200, 210, 255, 220));
+                                }
+                            }
+                        }
+                        NoteType::Hold => {
+                            let tail_time = hold_tail_time(enote, bpms);
+                            let tail_dt_s = tail_time - now;
+                            let tail_y = judge_y - tail_dt_s * scroll_speed;
+                            let hold_tex = if enote.is_break {
+                                app.hold_break_tex.as_ref()
+                            } else if enote.is_each {
+                                app.hold_each_tex.as_ref()
+                            } else {
+                                app.hold_texture.as_ref()
+                            }.or(app.hold_texture.as_ref());
+                            let hw = HOLD_WIDTH * scale;
+                            if let Some(tex) = hold_tex {
+                                draw_hold_9slice_vertical(tex, en_cx, en_ny, tail_y, hw);
+                            } else {
+                                let top = en_ny.min(tail_y);
+                                let h = (en_ny - tail_y).abs().max(hw * 0.133);
+                                draw_rectangle(en_cx - hw * 0.2, top, hw * 0.4, h, Color::from_rgba(100, 140, 200, 130));
+                                draw_rectangle_lines(en_cx - hw * 0.2, top, hw * 0.4, h, 1.0 * scale, Color::from_rgba(140, 180, 240, 200));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Isolation mode: dim areas outside template range ──
+    if template::is_in_isolation(app) {
+        let block_x = track_x + ruler_w;
+        let block_w = lanes_w;
+        // Determine the template's time range.
+        // In isolation with instance_anchor, notes are already offset.
+        // Find min/max time of the current notes (which are the template's notes).
+        if let (Some(min_t), Some(max_t)) = (
+            app.chart.notes.iter().map(|n| n.time).reduce(f32::min),
+            app.chart.notes.iter().map(|n| {
+                let dur = n.hold_duration.max(
+                    n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max),
+                );
+                n.time + dur
+            }).reduce(f32::max),
+        ) {
+            let start_secs = super::types::measure_to_secs(min_t, bpms);
+            let end_secs = super::types::measure_to_secs(max_t, bpms);
+            let y_top = judge_y - (start_secs - now) * scroll_speed;
+            let y_bot = judge_y - (end_secs - now) * scroll_speed;
+            let region_top = y_top.min(y_bot);
+            let region_bot = y_top.max(y_bot);
+
+            // Dim above the template region.
+            if region_top > track_y {
+                draw_rectangle(block_x, track_y, block_w, region_top - track_y,
+                    Color::from_rgba(10, 10, 20, 160));
+            }
+            // Dim below the template region.
+            if region_bot < track_y + track_h {
+                draw_rectangle(block_x, region_bot, block_w, track_y + track_h - region_bot,
+                    Color::from_rgba(10, 10, 20, 160));
+            }
+            // Highlight border lines at template edges.
+            draw_rectangle(block_x, region_top, block_w, 2.0 * scale, Color::from_rgba(230, 149, 48, 200));
+            draw_rectangle(block_x, region_bot, block_w, 2.0 * scale, Color::from_rgba(230, 149, 48, 200));
+        }
+    }
+
     for (idx, note) in app.chart.notes.iter().enumerate() {
         let zone = sanitize_note_zone(note.note_type, note.lane);
         let ns = note_secs(note, bpms);
@@ -1456,19 +1738,24 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let bar_w = track_w;
         let bar_h = progress_bar_h - 4.0 * scale;
 
-        // Total song duration: max of last note end or audio length
-        let last_note_end = app.chart.notes.iter().map(|n| {
-            let ns = note_secs(n, bpms);
-            match n.note_type {
-                NoteType::Hold => hold_tail_time(n, bpms),
-                NoteType::Slide => {
-                    let max_d = n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
-                    ns + mdur_to_secs(max_d, n.time, bpms)
-                },
-                _ => ns,
-            }
-        }).fold(0.0_f32, f32::max);
-        let total_dur = last_note_end.max(1.0);
+        // Total song duration: use audio length if available, otherwise fallback to note range.
+        let total_dur = if let Some(ref wav) = app.audio_wav_pcm {
+            let audio_dur = wav.samples.len() as f32 / (wav.sample_rate as f32 * wav.channels as f32).max(1.0);
+            audio_dur.max(1.0)
+        } else {
+            let last_note_end = app.chart.notes.iter().map(|n| {
+                let ns = note_secs(n, bpms);
+                match n.note_type {
+                    NoteType::Hold => hold_tail_time(n, bpms),
+                    NoteType::Slide => {
+                        let max_d = n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
+                        ns + mdur_to_secs(max_d, n.time, bpms)
+                    },
+                    _ => ns,
+                }
+            }).fold(0.0_f32, f32::max);
+            last_note_end.max(1.0)
+        };
 
         // Background
         draw_rectangle(bar_x, bar_y, bar_w, bar_h, Color::from_rgba(40, 40, 40, 255));
@@ -2037,6 +2324,176 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     draw_texture_ex(tex, center.x - ps * 0.5, center.y - ps * 0.5,
                         Color::from_rgba(255, 255, 255, alpha),
                         DrawTextureParams { dest_size: Some(vec2(ps, ps)), ..Default::default() });
+                }
+            }
+        }
+    }
+
+    // ── Template instance notes on pad (blue-tinted) ──
+    if !template::is_in_isolation(app) {
+        let tpl_color = Color::from_rgba(180, 200, 255, 220);
+        for inst in &app.chart.template_instances {
+            if let Some(tpl) = app.chart.templates.iter().find(|t| t.id == inst.template_id) {
+                let expanded = template::expand_instance(inst, tpl);
+                for note in &expanded {
+                    let zone = sanitize_note_zone(note.note_type, note.lane);
+                    let ns = note_secs(note, bpms);
+                    let dt = ns - current_t;
+                    let lead_time = if zone <= 8 {
+                        if matches!(note.note_type, NoteType::Hold) { HOLD_FLY_TIME }
+                        else if matches!(note.note_type, NoteType::Slide) { SLIDE_TRAVEL_TIME }
+                        else { TAP_TRAVEL_TIME }
+                    } else {
+                        match note.note_type {
+                            NoteType::Hold => HOLD_TRAVEL_TIME,
+                            NoteType::Slide => SLIDE_TRAVEL_TIME,
+                            _ => TOUCH_TRAVEL_TIME,
+                        }
+                    };
+                    let disappear_time = if matches!(note.note_type, NoteType::Touch) { TOUCH_DISAPPEAR_TIME }
+                        else if matches!(note.note_type, NoteType::Slide) { 0.3 }
+                        else { 0.18 };
+                    let slide_tail_dt = if matches!(note.note_type, NoteType::Slide) {
+                        slide_end_time(note, bpms) - current_t
+                    } else {
+                        dt
+                    };
+                    if slide_tail_dt < -disappear_time || dt > lead_time { continue; }
+
+                    // ── Slide rendering ──
+                    if matches!(note.note_type, NoteType::Slide) && !note.slide.is_empty() {
+                        let spawn_center = app.pad_svg.as_ref()
+                            .and_then(|svg| svg.pad_visual_center(&pad))
+                            .unwrap_or(vec2(cx, cy));
+                        if let Some(ref svg) = app.pad_svg {
+                            for sl in &note.slide {
+                                let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
+                                let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
+                                    .max(0.0).min(slide_dur_s - 0.001).max(0.001);
+                                let trail_tex = if sl.slide_is_break { app.slide_break_tex.as_ref() }
+                                    else if note.is_each { app.slide_each_tex.as_ref() }
+                                    else { app.slide_tex.as_ref() };
+                                let star_variant = if note.is_break { app.star_break_tex.as_ref() }
+                                    else if note.is_each { app.star_each_tex.as_ref() }
+                                    else { app.star_tex.as_ref() };
+                                let star_fb = app.star_tex.as_ref();
+                                let ex_variant: Option<&Texture2D> = None;
+                                let tex = slide_render::SlideTextures {
+                                    trail: trail_tex,
+                                    star: star_variant.or(star_fb),
+                                    star_fallback: app.star_tex.as_ref(),
+                                    star_ex: ex_variant,
+                                    star_ex_fallback: app.star_ex_tex.as_ref(),
+                                    wifi: std::array::from_fn(|i| app.wifi_tex[i].as_ref()),
+                                };
+                                slide_render::draw_slide(
+                                    note, sl,
+                                    current_t, ns, slide_dur_s, fade_in_s,
+                                    &pad, svg, scale, spawn_center, outer_r,
+                                    &tex, false,
+                                );
+                            }
+                        }
+                    }
+
+                    if zone <= 8 {
+                        let idx = (zone - 1) as f32;
+                        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                        let dir = vec2(ang.cos(), ang.sin());
+                        let head_travel = if matches!(note.note_type, NoteType::Slide) { SLIDE_TRAVEL_TIME } else { TAP_TRAVEL_TIME };
+                        let progress = ((head_travel - dt) / head_travel).clamp(0.0, 1.0);
+                        let size_scale = if progress < TAP_GROW_FRAC { progress / TAP_GROW_FRAC } else { 1.0 };
+                        let fly_progress = if progress < TAP_GROW_FRAC { 0.0 } else { (progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };
+                        let spawn_r = outer_r * TAP_SPAWN_FRAC;
+                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                        let r = spawn_r + (target_r - spawn_r) * fly_progress;
+                        let px = spawn_cx.x + dir.x * r;
+                        let py = spawn_cx.y + dir.y * r;
+
+                        // Hold rendering
+                        if matches!(note.note_type, NoteType::Hold) {
+                            let h_spawn_r = outer_r * HOLD_SPAWN_FRAC;
+                            let h_target_r = outer_r + HOLD_TARGET_OFFSET;
+                            let h_progress = ((HOLD_FLY_TIME - dt) / HOLD_FLY_TIME).clamp(0.0, 1.0);
+                            let h_size_scale = if h_progress < TAP_GROW_FRAC { h_progress / TAP_GROW_FRAC } else { 1.0 };
+                            let h_fly_progress = if h_progress < TAP_GROW_FRAC { 0.0 } else { (h_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };
+                            let full_hold_len = (h_target_r - h_spawn_r) * HOLD_LENGTH_FRAC;
+                            let hold_half = (full_hold_len * h_size_scale * 0.5).max(2.0);
+                            let head_fly_r = h_spawn_r + (h_target_r - h_spawn_r) * h_fly_progress;
+                            let head_r = (head_fly_r + hold_half).min(h_target_r);
+                            let tail_dt_h = hold_tail_time(note, bpms) - current_t;
+                            let tail_fly = if tail_dt_h <= HOLD_TAIL_FLY_TIME {
+                                (1.0 - tail_dt_h / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
+                            } else { 0.0 };
+                            let tail_base = h_spawn_r + (h_target_r - h_spawn_r) * tail_fly;
+                            let tail_r = (tail_base - hold_half).max(h_spawn_r * 0.1);
+                            let hx = spawn_cx.x + dir.x * head_r;
+                            let hy = spawn_cx.y + dir.y * head_r;
+                            let tx = spawn_cx.x + dir.x * tail_r;
+                            let ty = spawn_cx.y + dir.y * tail_r;
+                            let hold_w = HOLD_WIDTH * scale * h_size_scale;
+                            if let Some(tex) = app.hold_texture.as_ref() {
+                                draw_hold_9slice_segment(tex, vec2(hx, hy), vec2(tx, ty), hold_w.max(1.0), tpl_color);
+                            } else {
+                                draw_line(hx, hy, tx, ty, HOLD_WIDTH * 0.233 * scale * h_size_scale, Color::from_rgba(100, 140, 200, 200));
+                                draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale * h_size_scale, Color::from_rgba(140, 180, 240, 255));
+                            }
+                        }
+
+                        // Tap/Touch rendering (not Hold, not Slide)
+                        if !matches!(note.note_type, NoteType::Hold | NoteType::Slide) {
+                            let ts = TAP_SIZE * scale * size_scale;
+                            if let Some(tex) = app.tap_texture.as_ref() {
+                                draw_texture_ex(tex, px - ts * 0.5, py - ts * 0.5, tpl_color, DrawTextureParams {
+                                    dest_size: Some(vec2(ts, ts)), ..Default::default()
+                                });
+                            } else {
+                                let tr = TAP_SIZE * 0.375 * scale * size_scale;
+                                draw_circle(px, py, tr, Color::from_rgba(50, 70, 120, 255));
+                                draw_circle_lines(px, py, tr, tr * 0.25, tpl_color);
+                            }
+                        }
+                    } else {
+                        // Touch zone rendering
+                        let Some(center) = app.pad_svg.as_ref()
+                            .and_then(|svg| svg.zone_screen_centroid(PadZone::from(zone), &pad))
+                        else { continue; };
+                        let travel = match note.note_type {
+                            NoteType::Hold => HOLD_TRAVEL_TIME,
+                            _ => TOUCH_TRAVEL_TIME,
+                        };
+                        let raw = (travel - dt) / travel;
+                        let progress = smoothstep(raw.clamp(0.0, 1.0));
+                        let alpha_val = if progress < TOUCH_GROW_FRAC {
+                            (progress / TOUCH_GROW_FRAC * 220.0) as u8
+                        } else { 220 };
+                        let move_progress = if progress < TOUCH_GROW_FRAC { 0.0 }
+                        else { (progress - TOUCH_GROW_FRAC) / (1.0 - TOUCH_GROW_FRAC) };
+                        let dist = (TOUCH_START_DIST + (TOUCH_END_DIST - TOUCH_START_DIST) * move_progress) * TOUCH_SCALE * scale;
+                        let ts = TOUCH_CROSS_SIZE * TOUCH_SCALE * scale;
+
+                        if !matches!(note.note_type, NoteType::Hold) {
+                            if let Some(tex) = app.touch_tri_tex.as_ref() {
+                                let ratio = tex.width() / tex.height();
+                                let tw = ts; let th = ts / ratio;
+                                let c = Color::from_rgba(180, 200, 255, alpha_val);
+                                draw_texture_ex(tex, center.x - tw*0.5, center.y + dist - th*0.5, c, DrawTextureParams { dest_size: Some(vec2(tw,th)), ..Default::default() });
+                                draw_texture_ex(tex, center.x - tw*0.5, center.y - dist - th*0.5, c, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::PI, ..Default::default() });
+                                draw_texture_ex(tex, center.x - dist - tw*0.5, center.y - th*0.5, c, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: std::f32::consts::FRAC_PI_2, ..Default::default() });
+                                draw_texture_ex(tex, center.x + dist - tw*0.5, center.y - th*0.5, c, DrawTextureParams { dest_size: Some(vec2(tw,th)), rotation: -std::f32::consts::FRAC_PI_2, ..Default::default() });
+                            } else {
+                                draw_circle(center.x, center.y, 3.0*scale, Color::from_rgba(100,140,200, alpha_val));
+                            }
+                        }
+                        if !matches!(note.note_type, NoteType::Hold) {
+                            if let Some(tex) = app.touch_point_tex.as_ref() {
+                                let ps = ts * 0.4;
+                                draw_texture_ex(tex, center.x - ps*0.5, center.y - ps*0.5,
+                                    Color::from_rgba(180, 200, 255, alpha_val),
+                                    DrawTextureParams { dest_size: Some(vec2(ps, ps)), ..Default::default() });
+                            }
+                        }
+                    }
                 }
             }
         }

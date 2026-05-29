@@ -455,10 +455,16 @@ pub fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
 // ─── Template system ──────────────────────────────────────────────
 
 /// Identifies whether we're editing the main chart or a template.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SceneRef {
     Main,
-    Template { template_id: String },
+    Template {
+        template_id: String,
+        /// If Some, we're editing via a specific instance at this anchor time.
+        /// Notes are offset to appear at their timeline position.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        instance_anchor: Option<f32>,
+    },
 }
 
 /// A reusable chart fragment (like an Adobe Animate symbol).

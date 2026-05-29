@@ -6,12 +6,24 @@ use crate::app::types::zone::PadZone;
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
+use super::template;
 use super::types::{
     ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId,
-    SceneRef, SlidePoint, WavPcm, DragPart, HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX,
-    SPEED_MIN, TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone,
-    sanitize_note_zone, note_secs, secs_to_measure, mdur_to_secs, sdur_to_mdur, snap_measure,
+    SceneRef, SlidePoint, TemplateInstance, WavPcm, DragPart, HIT_WINDOW,
+    HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS,
+    hold_tail_time, is_touch_zone, sanitize_note_zone, note_secs, secs_to_measure, mdur_to_secs,
+    sdur_to_mdur, snap_measure,
 };
+
+/// Saved playback state for restoring after exiting isolation mode.
+#[derive(Debug, Clone)]
+pub struct SavedPlaybackState {
+    pub mode: Mode,
+    pub mode_wall_anchor: f64,
+    pub mode_song_offset: f32,
+    pub timeline_view_time: f32,
+    pub playback_cursor: usize,
+}
 
 /// Runtime mutable state for the editor/simulator.
 pub struct AppState {
@@ -120,6 +132,8 @@ pub struct AppState {
     pub star_double_ex_tex: Option<Texture2D>,
     pub mask_material: Option<Material>,
     pub pad_rect: Option<egui_macroquad::egui::Rect>,
+    /// Y coordinate of the bottom of the egui toolbar, used to block clicks on the toolbar.
+    pub egui_toolbar_bottom: f32,
     pub audio_cache: HashMap<i32, BgmPcm>,
     pub audio_seek_offset: Option<f32>,
     pub pending_audio_start: bool,
@@ -155,6 +169,8 @@ pub struct AppState {
     /// ID generators for templates and instances.
     pub next_template_id: u32,
     pub next_instance_id: u32,
+    /// Saved playback state when entering isolation mode.
+    pub saved_playback: Option<SavedPlaybackState>,
 
     pub status: String,
 }
@@ -257,6 +273,7 @@ impl AppState {
             star_double_ex_tex: None,
             mask_material: None,
             pad_rect: None,
+            egui_toolbar_bottom: 0.0,
             audio_cache: HashMap::new(),
             audio_seek_offset: None,
             pending_audio_start: false,
@@ -282,6 +299,7 @@ impl AppState {
             selected_template_idx: None,
             next_template_id: 1,
             next_instance_id: 1,
+            saved_playback: None,
             status: "Ready".to_string(),
         }
     }
@@ -346,6 +364,35 @@ impl AppState {
     pub fn set_status(&mut self, msg: String) {
         println!("[AppState] status: {}", msg);
         self.status = msg;
+    }
+
+    /// Check if a note at the given index is inside a template instance.
+    /// Returns true if the note has `template_source` metadata.
+    pub fn is_note_in_template_instance(&self, idx: usize) -> bool {
+        self.chart
+            .notes
+            .get(idx)
+            .map(|n| n.template_source.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Get the template instance that contains the note at the given index.
+    pub fn template_instance_for_note(&self, idx: usize) -> Option<&TemplateInstance> {
+        let note = self.chart.notes.get(idx)?;
+        let ts = note.template_source.as_ref()?;
+        self.chart
+            .template_instances
+            .iter()
+            .find(|inst| inst.instance_id == ts.instance_id)
+    }
+
+    /// Get the TemplateDef for a given template instance.
+    pub fn template_def_for_instance(&self, inst: &TemplateInstance) -> Option<(usize, &super::types::TemplateDef)> {
+        self.chart
+            .templates
+            .iter()
+            .enumerate()
+            .find(|(_, t)| t.id == inst.template_id)
     }
 
     pub fn current_speed(&self) -> f32 {
@@ -623,6 +670,57 @@ impl AppState {
             {
                 tap_count += 1;
                 self.hit_sounds_played.insert(tail_key);
+            }
+        }
+
+        // --- Template instance hit sounds (key offset by 100000 to avoid conflicts) ---
+        let tpl_key_offset = 100000usize;
+        for (inst_idx, inst) in self.chart.template_instances.iter().enumerate() {
+            if let Some(tpl) = self.chart.templates.iter().find(|tp| tp.id == inst.template_id) {
+                let expanded = template::expand_instance(inst, tpl);
+                for (i, note) in expanded.iter().enumerate() {
+                    let ns = note_secs(note, bpms);
+                    let hit_time = if matches!(note.note_type, NoteType::Touch) {
+                        ns + TOUCH_DISAPPEAR_TIME
+                    } else { ns };
+                    let key = tpl_key_offset + inst_idx * 10000 + i;
+                    if !self.hit_sounds_played.contains(&key) && hit_time <= t {
+                        if matches!(note.note_type, NoteType::Touch) {
+                            touch_count += 1;
+                        } else if note.is_break {
+                            break_tap_count += 1;
+                        } else if note.is_ex {
+                            ex_tap_count += 1;
+                        } else if !matches!(note.note_type, NoteType::Slide) {
+                            tap_count += 1;
+                        }
+                        if matches!(note.note_type, NoteType::Slide) && !note.is_break && !note.is_ex {
+                            tap_count += 1;
+                        }
+                        self.hit_sounds_played.insert(key);
+                    }
+                    // Slide sounds
+                    if matches!(note.note_type, NoteType::Slide) {
+                        for (si, sl) in note.slide.iter().enumerate() {
+                            let slide_key = key * 100 + si;
+                            let slide_move_time = ns + mdur_to_secs(sl.slide_start_delay, note.time, bpms);
+                            if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
+                                if sl.slide_is_break { slide_break_start_count += 1; }
+                                else { slide_count += 1; }
+                                self.hit_sounds_played.insert(slide_key);
+                            }
+                        }
+                    }
+                    // Hold tail
+                    let tail_key = key + self.chart.notes.len();
+                    if matches!(note.note_type, NoteType::Hold)
+                        && !self.hit_sounds_played.contains(&tail_key)
+                        && hold_tail_time(note, bpms) <= t
+                    {
+                        tap_count += 1;
+                        self.hit_sounds_played.insert(tail_key);
+                    }
+                }
             }
         }
 

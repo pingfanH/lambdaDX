@@ -5,7 +5,7 @@ use super::chart;
 use super::simai_io;
 use super::state::AppState;
 use super::template;
-use super::types::{Mode, SceneRef};
+use super::types::Mode;
 
 // ── Blender color palette ──────────────────────────────────────────────
 const BG_DARK: Color32 = Color32::from_rgb(30, 30, 30);
@@ -296,14 +296,32 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
             ui.horizontal_centered(|ui| {
                 section_label(ui, "Template");
 
-                // Template name input for "New" action.
-                let creating_new = ui.button(egui::RichText::new("New from Sel").color(TEXT))
+                // New empty template → enters isolation directly.
+                if ui.button(egui::RichText::new("New").color(TEXT))
+                    .on_hover_text("Create a new empty template and edit it")
+                    .clicked()
+                {
+                    let name = format!("Template {}", app.next_template_id);
+                    match template::create_new_template(app, &name) {
+                        Ok(id) => {
+                            app.selected_template_idx = Some(app.chart.templates.len() - 1);
+                            // status already set by enter_isolation
+                        }
+                        Err(e) => app.set_status(format!("New template: {}", e)),
+                    }
+                }
+
+                // Create template from selection.
+                if ui.button(egui::RichText::new("New from Sel").color(TEXT))
                     .on_hover_text("Create template from selected notes")
-                    .clicked();
-                if creating_new {
+                    .clicked()
+                {
                     let name = format!("Template {}", app.next_template_id);
                     match template::create_template(app, &name) {
-                        Ok(id) => app.set_status(format!("Created template: {}", id)),
+                        Ok(id) => {
+                            app.selected_template_idx = app.chart.templates.iter().position(|t| t.id == id);
+                            app.set_status(format!("Created template: {}", id));
+                        }
                         Err(e) => app.set_status(format!("Create template: {}", e)),
                     }
                 }
@@ -346,16 +364,12 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                 // Insert instance at cursor.
                 if ui
                     .button(egui::RichText::new("Insert").color(TEXT))
-                    .on_hover_text("Insert template instance at cursor")
+                    .on_hover_text("Insert template instance at current playback/view position")
                     .clicked()
                 {
                     if let Some(idx) = app.selected_template_idx {
-                        let anchor = app.timeline_view_time;
-                        match template::insert_instance(app, idx, anchor) {
-                            Ok(()) => app.set_status(format!(
-                                "Inserted instance at {:.2}",
-                                anchor
-                            )),
+                        match template::insert_instance(app, idx) {
+                            Ok(()) => app.set_status("Inserted template instance".to_string()),
                             Err(e) => app.set_status(format!("Insert: {}", e)),
                         }
                     } else {
@@ -386,6 +400,24 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                         match template::exit_isolation(app) {
                             Ok(()) => {}
                             Err(e) => app.set_status(format!("Exit: {}", e)),
+                        }
+                    }
+                }
+
+                // Rename template.
+                if let Some(idx) = app.selected_template_idx {
+                    if !in_isolation {
+                        section_sep(ui);
+                        if let Some(tpl) = app.chart.templates.get(idx) {
+                            let mut rename_buf = tpl.name.clone();
+                            let response = ui.add(
+                                egui::TextEdit::singleline(&mut rename_buf)
+                                    .desired_width(100.0)
+                                    .hint_text("Rename"),
+                            );
+                            if response.changed() {
+                                let _ = template::rename_template(app, idx, &rename_buf);
+                            }
                         }
                     }
                 }
@@ -440,4 +472,8 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                 }
             });
         });
+
+    // Store the approximate toolbar bottom for input blocking.
+    // The toolbar has 2 panels (main + template bar), each ~30px, plus margins.
+    app.egui_toolbar_bottom = 75.0;
 }

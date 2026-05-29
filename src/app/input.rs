@@ -115,14 +115,17 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
 
     // Delete selected note (skipped while editing a slide trajectory: there
     // Backspace pops the last slide point instead).
+    // Block deletion of template instance notes (must edit in isolation mode).
     if (is_key_pressed(KeyCode::Delete)
         || (is_key_pressed(KeyCode::Backspace) && app.editing_slide_path.is_none()))
     {
         if let Some(i) = app.selected_note {
-            if i < app.chart.notes.len() {
+            if i < app.chart.notes.len() && !app.is_note_in_template_instance(i) {
                 app.chart.notes.remove(i);
                 app.set_selected_note(None);
                 app.set_status(format!("Deleted note #{i}"));
+            } else if app.is_note_in_template_instance(i) {
+                app.set_status("Cannot delete template note here; enter isolation mode (Edit)".to_string());
             }
         }
     }
@@ -326,44 +329,59 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
 
     // B: toggle Break on selected note(s)
     // For Slide notes, toggles is_break (star head break).
+    // Skip template instance notes (must edit in isolation mode).
     if is_key_pressed(KeyCode::B) && !mod_down {
         let indices = gather_selected(app);
-        if !indices.is_empty() {
+        let filtered: Vec<usize> = indices.iter()
+            .copied()
+            .filter(|&i| !app.is_note_in_template_instance(i))
+            .collect();
+        if !filtered.is_empty() {
             app.push_undo();
             let mut count = 0;
-            for &i in &indices {
+            for &i in &filtered {
                 if let Some(n) = app.chart.notes.get_mut(i) {
                     n.is_break = !n.is_break;
                     count += 1;
                 }
             }
-            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| n.is_break).unwrap_or(false);
+            let on = app.chart.notes.get(*filtered.first().unwrap()).map(|n| n.is_break).unwrap_or(false);
             app.set_status(format!("Break {}: {} notes", if on { "ON" } else { "OFF" }, count));
         }
     }
     // X: toggle Ex on selected note(s)
+    // Skip template instance notes.
     if is_key_pressed(KeyCode::X) && !mod_down {
         let indices = gather_selected(app);
-        if !indices.is_empty() {
+        let filtered: Vec<usize> = indices.iter()
+            .copied()
+            .filter(|&i| !app.is_note_in_template_instance(i))
+            .collect();
+        if !filtered.is_empty() {
             app.push_undo();
             let mut count = 0;
-            for &i in &indices {
+            for &i in &filtered {
                 if let Some(n) = app.chart.notes.get_mut(i) {
                     n.is_ex = !n.is_ex;
                     count += 1;
                 }
             }
-            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| n.is_ex).unwrap_or(false);
+            let on = app.chart.notes.get(*filtered.first().unwrap()).map(|n| n.is_ex).unwrap_or(false);
             app.set_status(format!("Ex {}: {} notes", if on { "ON" } else { "OFF" }, count));
         }
     }
     // N: toggle ExBreak on selected note(s) (both break + ex)
+    // Skip template instance notes.
     if is_key_pressed(KeyCode::N) && !mod_down {
         let indices = gather_selected(app);
-        if !indices.is_empty() {
+        let filtered: Vec<usize> = indices.iter()
+            .copied()
+            .filter(|&i| !app.is_note_in_template_instance(i))
+            .collect();
+        if !filtered.is_empty() {
             app.push_undo();
             let mut count = 0;
-            for &i in &indices {
+            for &i in &filtered {
                 if let Some(n) = app.chart.notes.get_mut(i) {
                     let target = !(n.is_break && n.is_ex);
                     n.is_break = target;
@@ -371,7 +389,7 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
                     count += 1;
                 }
             }
-            let on = app.chart.notes.get(*indices.first().unwrap()).map(|n| n.is_break && n.is_ex).unwrap_or(false);
+            let on = app.chart.notes.get(*filtered.first().unwrap()).map(|n| n.is_break && n.is_ex).unwrap_or(false);
             app.set_status(format!("ExBreak {}: {} notes", if on { "ON" } else { "OFF" }, count));
         }
     }
@@ -392,11 +410,24 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
     }
 
     // ── Template hotkeys ───────────────────────────────────────────
-    // Escape: exit isolation mode when editing a template.
-    if is_key_pressed(KeyCode::Escape) && template::is_in_isolation(app) {
-        match template::exit_isolation(app) {
-            Ok(()) => {}
-            Err(e) => app.set_status(format!("Exit: {}", e)),
+    // Escape priority: slide edit > isolation mode > placement reset.
+    if is_key_pressed(KeyCode::Escape) {
+        // If editing a slide path inside isolation, exit slide edit first.
+        if app.editing_slide_path.is_some() {
+            app.set_editing_slide_path(None);
+            app.pending_slide_shape = None;
+            app.set_status("Exited slide edit".to_string());
+        }
+        // If in isolation mode (and not editing slide anymore), exit isolation.
+        else if template::is_in_isolation(app) {
+            match template::exit_isolation(app) {
+                Ok(()) => {}
+                Err(e) => app.set_status(format!("Exit: {}", e)),
+            }
+        }
+        // Otherwise, reset placement state.
+        else {
+            app.placement = super::types::PlacementState::Idle;
         }
     }
 }
@@ -647,6 +678,11 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
     let (mx, my) = mouse_position();
     let pos = vec2(mx, my);
 
+    // Block clicks on the egui toolbar area.
+    if my < app.egui_toolbar_bottom && is_mouse_button_pressed(MouseButton::Left) {
+        return;
+    }
+
     let scroll_speed = SCROLL_SPEED * app.timeline_zoom;
 
     // Cmd+scroll: zoom
@@ -802,6 +838,34 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
         return;
     }
 
+    // ── Shift+Right-click delete template instance ──
+    let shift_down = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+    if is_mouse_button_pressed(MouseButton::Right) && pos.x >= lanes_x && shift_down && !template::is_in_isolation(app) {
+        for (inst_idx, inst) in app.chart.template_instances.iter().enumerate() {
+            let (i_start, i_end) = template::instance_time_range(app, inst);
+            let start_secs = super::types::measure_to_secs(i_start, &app.chart.bpms);
+            let end_secs = super::types::measure_to_secs(i_end, &app.chart.bpms);
+            let y_top = judge_y - (start_secs - now) * scroll_speed;
+            let y_bot = judge_y - (end_secs - now) * scroll_speed;
+            let block_x = track_x + ruler_w;
+            let block_w = lanes_w;
+            let block_y = y_top.min(y_bot);
+            let block_h = (y_top - y_bot).abs();
+            if pos.x >= block_x && pos.x <= block_x + block_w
+                && pos.y >= block_y && pos.y <= block_y + block_h
+            {
+                let name = app.chart.templates.iter()
+                    .find(|t| t.id == inst.template_id)
+                    .map(|t| t.name.clone())
+                    .unwrap_or_default();
+                app.push_undo();
+                app.chart.template_instances.remove(inst_idx);
+                app.set_status(format!("Deleted instance of '{}'", name));
+                return;
+            }
+        }
+    }
+
     // ── Right-click delete ──
     if is_mouse_button_pressed(MouseButton::Right) && pos.x >= lanes_x {
         let mut best: Option<usize> = None; let mut best_d = 30.0;
@@ -850,7 +914,52 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
 
     // ── Mouse press: record candidate, do NOT select yet ──
     let drag_threshold = 8.0;
+
     if is_mouse_button_pressed(MouseButton::Left) && pos.x >= lanes_x {
+        // ── Template block interaction (Shift+click/drag only, main chart) ──
+        if !template::is_in_isolation(app) && shift_down {
+            let mut hit_inst: Option<(usize, f32, String)> = None;
+            for (inst_idx, inst) in app.chart.template_instances.iter().enumerate() {
+                let (i_start, i_end) = template::instance_time_range(app, inst);
+                let start_secs = super::types::measure_to_secs(i_start, &app.chart.bpms);
+                let end_secs = super::types::measure_to_secs(i_end, &app.chart.bpms);
+                let y_top = judge_y - (start_secs - now) * scroll_speed;
+                let y_bot = judge_y - (end_secs - now) * scroll_speed;
+                let block_x = track_x + ruler_w;
+                let block_w = lanes_w;
+                let block_y = y_top.min(y_bot);
+                let block_h = (y_top - y_bot).abs();
+
+                if pos.x >= block_x && pos.x <= block_x + block_w
+                    && pos.y >= block_y && pos.y <= block_y + block_h
+                {
+                    let name = app.chart.templates.iter()
+                        .find(|t| t.id == inst.template_id)
+                        .map(|t| t.name.clone())
+                        .unwrap_or_default();
+                    hit_inst = Some((inst_idx, inst.anchor_time, name));
+                    break;
+                }
+            }
+
+            if let Some((inst_idx, anchor_time, tpl_name)) = hit_inst {
+                app.set_selected_note(None);
+                app.selected_notes.clear();
+                app.drag_start_pos = Some(pos);
+                app.press_note_candidate = Some(usize::MAX);
+                app.drag_start_time = anchor_time;
+                app.drag_cursor_anchor_t = inst_idx as f32;
+                app.set_status(format!("Template '{}': drag to move, release to edit", tpl_name));
+                return;
+            }
+        }
+
+        // ── Template drag handling (no Shift) — clear sentinel if set ──
+        if app.press_note_candidate == Some(usize::MAX) && !shift_down {
+            app.press_note_candidate = None;
+            app.drag_start_pos = None;
+        }
+
         // Hit-test: find nearest note (potential drag target)
         let mut best: Option<usize> = None; let mut best_d = 30.0;
         let mut best_part = DragPart::Body;
@@ -968,14 +1077,54 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
         }
     }
 
+    // ── Template drag/release handling (runs every frame while active) ──
+    if app.press_note_candidate == Some(usize::MAX) && shift_down {
+        if is_mouse_button_down(MouseButton::Left) {
+            let moved = app.drag_start_pos.map(|s| pos.distance(s) >= drag_threshold).unwrap_or(false);
+            if moved {
+                let dt = (judge_y - pos.y) / scroll_speed;
+                let new_time = (now + dt).max(1.0);
+                let anchor = app.drag_start_time;
+                if let Some(inst_idx) = app.chart.template_instances.iter()
+                    .position(|i| (i.anchor_time - anchor).abs() < 0.01)
+                {
+                    template::move_instance(app, inst_idx, new_time);
+                    app.drag_start_time = new_time;
+                }
+            }
+        }
+        if is_mouse_button_released(MouseButton::Left) {
+            let barely_moved = app.drag_start_pos.map(|s| pos.distance(s) < drag_threshold).unwrap_or(true);
+            if barely_moved {
+                let inst_idx = app.drag_cursor_anchor_t as usize;
+                if inst_idx < app.chart.template_instances.len() {
+                    match template::enter_instance_isolation(app, inst_idx) {
+                        Ok(()) => {}
+                        Err(e) => app.set_status(format!("Enter: {}", e)),
+                    }
+                }
+            }
+            app.press_note_candidate = None;
+            app.drag_start_pos = None;
+            return;
+        }
+        return;
+    }
+    // Clear template sentinel if shift was released.
+    if app.press_note_candidate == Some(usize::MAX) {
+        app.press_note_candidate = None;
+        app.drag_start_pos = None;
+    }
+
     // ── Dragging: note move or box selection ──
     if is_mouse_button_down(MouseButton::Left) {
         let moved = app.drag_start_pos.map(|s| pos.distance(s) >= drag_threshold).unwrap_or(false);
         if !moved { /* waiting for threshold */ }
-        // Promote candidate → dragging (on first frame beyond threshold)
+        // Promote candidate -> dragging (on first frame beyond threshold)
+        // Block dragging of template instance notes.
         else if app.press_note_candidate.is_some() && app.dragging_note.is_none() {
             let i = app.press_note_candidate.take().unwrap();
-            if i < app.chart.notes.len() {
+            if i < app.chart.notes.len() && !app.is_note_in_template_instance(i) {
                 app.push_undo();
                 app.set_selected_note(Some(i));
                 app.dragging_note = Some(i);
@@ -986,6 +1135,10 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                         app.drag_multi_orig.push((si, n.time, n.lane));
                     }
                 }
+            } else if app.is_note_in_template_instance(i) {
+                // Select the note but don't allow dragging.
+                app.set_selected_note(Some(i));
+                app.set_status("Template note: enter isolation mode to edit".to_string());
             }
         }
         // No candidate → box selection
