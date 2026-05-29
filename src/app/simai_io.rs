@@ -531,16 +531,16 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                 }
                 // Emit one SimaiNote::Slide per Slide in note.slide.
                 for sl in &n.slide {
-                    // Collect all points across segments for this slide.
-                    let all_points: Vec<&SlidePoint> = sl.segments.iter()
-                        .flat_map(|seg| seg.points.iter())
-                        .collect();
-                    // First segment determines the primary pattern.
-                    let first_shape = sl.segments.first()
+                    // First segment determines the primary pattern and end point.
+                    let first_seg = sl.segments.first();
+                    let first_shape = first_seg
                         .map(|seg| seg.shape)
                         .unwrap_or(SlideShape::Line);
+                    let first_pts: Vec<&SlidePoint> = first_seg
+                        .map(|seg| seg.points.iter().collect())
+                        .unwrap_or_default();
                     let pattern = shape_to_simai_pattern(Some(first_shape));
-                    let (reflect, end) = match (pattern, all_points.as_slice()) {
+                    let (reflect, end) = match (pattern, first_pts.as_slice()) {
                         (SlidePattern::BigV, [r, e, ..]) => (Some(r.zone.to_id().saturating_sub(1)), e.zone.to_id().saturating_sub(1)),
                         (_, [.., last]) => (None, last.zone.to_id().saturating_sub(1)),
                         _ => (None, 0),

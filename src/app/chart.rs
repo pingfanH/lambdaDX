@@ -25,13 +25,23 @@ pub async fn load_generated_chart() -> ChartDoc {
     }
 }
 
-/// Load a chart from JSON, supporting format C (beat), legacy measure, and old seconds formats.
+/// Load a chart from JSON, supporting format C (beat), legacy measure, old seconds formats,
+/// and RecordingDoc (which wraps a chart).
 fn load_chart_from_json(json: &str) -> Result<ChartDoc, String> {
     // Try format C (beat) first
     if let Ok(chart) = beat_format::chart_from_json(json) {
         if chart.version.contains("beat") {
             return Ok(chart);
         }
+    }
+    // Try as RecordingDoc (wraps a chart inside)
+    if let Ok(ser) = serde_json::from_str::<beat_format::SerRecordingDoc>(json) {
+        if ser.chart.version.contains("beat") {
+            return Ok(beat_format::ser_to_chart(&ser.chart));
+        }
+    }
+    if let Ok(rec) = serde_json::from_str::<RecordingDoc>(json) {
+        return Ok(rec.chart);
     }
     // Legacy: parse as ChartDoc directly and migrate if needed
     match serde_json::from_str::<ChartDoc>(json) {
