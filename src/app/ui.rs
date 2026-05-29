@@ -410,7 +410,7 @@ pub fn draw_layout(app: &AppState, layout: Layout, pad: PadGeom, _buttons: &[UiB
 
     // Waveform threshold control
     let s = ui_scale(app);
-    draw_text(&format!("Wave threshold: {:.2}  [/] keys", app.waveform_threshold), layout.header.x + 14.0 * s, layout.header.y + 80.0 * s, 16.0 * s, Color::from_rgba(125, 211, 252, 200));
+    draw_text(&format!("Wave threshold: {:.2}  [/] keys", app.waveform_threshold), layout.header.x + 14.0 * s, layout.header.y + 80.0 * s, 16.0 * s, Color::from_rgba(140, 140, 140, 200));
 
     if let Some(timeline) = layout.timeline {
         draw_timeline_panel(app, timeline);
@@ -431,9 +431,9 @@ fn draw_ui_buttons(app: &AppState, buttons: &[UiButton]) {
             _ => false,
         };
         let bg = if active {
-            Color::from_rgba(30, 58, 138, 255)
+            Color::from_rgba(74, 125, 170, 255)
         } else {
-            Color::from_rgba(31, 41, 55, 255)
+            Color::from_rgba(60, 60, 60, 255)
         };
         draw_rectangle(b.rect.x, b.rect.y, b.rect.w, b.rect.h, bg);
         draw_rectangle_lines(
@@ -442,14 +442,14 @@ fn draw_ui_buttons(app: &AppState, buttons: &[UiButton]) {
             b.rect.w,
             b.rect.h,
             1.0 * scale,
-            Color::from_rgba(71, 85, 105, 255),
+            Color::from_rgba(70, 70, 70, 255),
         );
         draw_text(
             b.label,
             b.rect.x + 10.0 * scale,
             b.rect.y + 18.0 * scale,
             16.0 * scale,
-            Color::from_rgba(226, 232, 240, 255),
+            Color::from_rgba(224, 224, 224, 255),
         );
     }
 }
@@ -689,7 +689,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         rect.x + 12.0 * scale,
         rect.y + 24.0 * scale,
         24.0 * scale,
-        WHITE,
+        Color::from_rgba(180, 180, 180, 255),
     );
 
     let sidebar_w = super::types::TIMELINE_SIDEBAR_W;
@@ -703,9 +703,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     for (btn, tool, label) in super::types::timeline_sidebar_buttons(&rect) {
         let active = app.place_tool == tool;
         let (fill, border) = if active {
-            (Color::from_rgba(56, 189, 248, 200), Color::from_rgba(255, 255, 255, 230))
+            (Color::from_rgba(74, 125, 170, 220), Color::from_rgba(180, 180, 180, 230))
         } else {
-            (Color::from_rgba(30, 41, 59, 220), Color::from_rgba(71, 85, 105, 255))
+            (Color::from_rgba(50, 50, 50, 220), Color::from_rgba(70, 70, 70, 255))
         };
         draw_rectangle(btn.x, btn.y, btn.w, btn.h, fill);
         draw_rectangle_lines(btn.x, btn.y, btn.w, btn.h, 1.5, border);
@@ -741,7 +741,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 }
             }
         }
-        let lbl_color = if active { Color::from_rgba(15, 23, 42, 255) } else { WHITE };
+        let lbl_color = if active { Color::from_rgba(240, 240, 240, 255) } else { Color::from_rgba(180, 180, 180, 255) };
         let tw = measure_text(label, None, 16, 1.0).width;
         draw_text(label, btn.x + (btn.w - tw) * 0.5, btn.y + btn.h - 8.0, 16.0, lbl_color);
     }
@@ -752,9 +752,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     for (i, label) in LANE_LABELS.iter().enumerate() {
         let lx = track_x + ruler_w + lane_w * i as f32 + lane_w * 0.45;
         let color = if *label == "T" {
-            Color::from_rgba(253, 224, 71, 255)
+            Color::from_rgba(230, 149, 48, 255)
         } else {
-            Color::from_rgba(226, 232, 240, 255)
+            Color::from_rgba(180, 180, 180, 255)
         };
         draw_text(label, lx, track_y + 18.0 * scale, 20.0 * scale, color);
     }
@@ -762,9 +762,9 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
     for i in 0..=LANE_COUNT {
         let lx = track_x + ruler_w + lane_w * i as f32;
         let c = if i == 4 {
-            Color::from_rgba(100, 116, 139, 255)
+            Color::from_rgba(90, 90, 90, 255)
         } else {
-            Color::from_rgba(51, 65, 85, 255)
+            Color::from_rgba(55, 55, 55, 255)
         };
         draw_line(
             lx,
@@ -800,18 +800,18 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let dist_to_beat = ((t % beat_s) + beat_s) % beat_s;
         let is_beat = dist_to_beat < grid_s * 0.5 || (beat_s - dist_to_beat) < grid_s * 0.5;
         let color = if is_bar {
-            Color::from_rgba(185, 28, 28, 255)
+            Color::from_rgba(140, 50, 50, 255)
         } else if is_beat {
-            Color::from_rgba(100, 116, 139, 255)
+            Color::from_rgba(80, 80, 80, 255)
         } else {
-            Color::from_rgba(30, 41, 55, 255)
+            Color::from_rgba(40, 40, 40, 255)
         };
         let thickness = if is_bar { 2.0 } else if is_beat { 1.5 } else { 0.5 } * scale;
         draw_line(track_x + ruler_w, yy, track_x + track_w, yy, thickness, color);
         if is_bar {
             let bar_num = (t / (beat_s * 4.0)) as i32;
             draw_text(&format!("{bar_num}"), track_x + 10.0 * scale, yy + 4.0 * scale, 16.0 * scale,
-                Color::from_rgba(148, 163, 184, 255));
+                Color::from_rgba(140, 140, 140, 255));
         }
         t += grid_s;
     }
@@ -885,7 +885,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             vec2(track_x + ruler_w - 4.0 * scale, scrub_y),
             vec2(track_x + ruler_w - 14.0 * scale, scrub_y - 6.0 * scale),
             vec2(track_x + ruler_w - 14.0 * scale, scrub_y + 6.0 * scale),
-            Color::from_rgba(239, 68, 68, 255),
+            Color::from_rgba(200, 70, 70, 255),
         );
     }
 
@@ -1364,8 +1364,8 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
             if start != end {
                 let x1 = start.x.min(end.x); let x2 = start.x.max(end.x);
                 let y1 = start.y.min(end.y); let y2 = start.y.max(end.y);
-                draw_rectangle(x1, y1, x2 - x1, y2 - y1, Color::from_rgba(56, 189, 248, 30));
-                draw_rectangle_lines(x1, y1, x2 - x1, y2 - y1, 1.5 * scale, Color::from_rgba(56, 189, 248, 180));
+                draw_rectangle(x1, y1, x2 - x1, y2 - y1, Color::from_rgba(74, 125, 170, 30));
+                draw_rectangle_lines(x1, y1, x2 - x1, y2 - y1, 1.5 * scale, Color::from_rgba(74, 125, 170, 180));
             }
         }
         // Multi-select highlight
@@ -1432,7 +1432,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         }
 
         // Judge line on top
-        draw_line(track_x + ruler_w, judge_y, track_x + track_w, judge_y, 2.0 * scale, Color::from_rgba(239, 68, 68, 255));
+        draw_line(track_x + ruler_w, judge_y, track_x + track_w, judge_y, 2.0 * scale, Color::from_rgba(200, 70, 70, 255));
 
     // ── Progress bar at bottom of timeline ──
     {
@@ -1456,17 +1456,17 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         let total_dur = last_note_end.max(1.0);
 
         // Background
-        draw_rectangle(bar_x, bar_y, bar_w, bar_h, Color::from_rgba(30, 41, 59, 255));
-        draw_rectangle_lines(bar_x, bar_y, bar_w, bar_h, 1.0, Color::from_rgba(71, 85, 105, 255));
+        draw_rectangle(bar_x, bar_y, bar_w, bar_h, Color::from_rgba(40, 40, 40, 255));
+        draw_rectangle_lines(bar_x, bar_y, bar_w, bar_h, 1.0, Color::from_rgba(55, 55, 55, 255));
 
         // Filled portion
         let frac = (now / total_dur).clamp(0.0, 1.0);
         let fill_w = bar_w * frac;
-        draw_rectangle(bar_x, bar_y, fill_w, bar_h, Color::from_rgba(56, 189, 248, 160));
+        draw_rectangle(bar_x, bar_y, fill_w, bar_h, Color::from_rgba(74, 125, 170, 180));
 
         // Cursor indicator
         let cursor_x = bar_x + fill_w;
-        draw_rectangle(cursor_x - 1.5 * scale, bar_y, 3.0 * scale, bar_h, Color::from_rgba(239, 68, 68, 255));
+        draw_rectangle(cursor_x - 1.5 * scale, bar_y, 3.0 * scale, bar_h, Color::from_rgba(200, 70, 70, 255));
 
         // Time label
         let time_str = format!("{:.1}s / {:.1}s  (x{:.1})", now, total_dur, app.timeline_zoom);
@@ -1487,14 +1487,14 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         rect.y,
         rect.w,
         rect.h,
-        Color::from_rgba(17, 24, 39, 255),
+        Color::from_rgba(38, 38, 38, 255),
     );
     draw_text(
         "Pad View",
         rect.x + 12.0 * scale,
         rect.y + 24.0 * scale,
         24.0 * scale,
-        WHITE,
+        Color::from_rgba(180, 180, 180, 255),
     );
 
     let cx = pad.cx;
@@ -1505,7 +1505,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         .and_then(|svg| svg.pad_visual_center(&pad))
         .unwrap_or(vec2(cx, cy));
 
-    draw_circle(cx, cy, outer_r, Color::from_rgba(16, 24, 38, 255));
+    draw_circle(cx, cy, outer_r, Color::from_rgba(35, 35, 35, 255));
 
     // Tap spawn point indicator
     draw_circle(spawn_cx.x, spawn_cx.y, 3.0 * scale, Color::from_rgba(255, 255, 255, 180));
@@ -1523,18 +1523,18 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
             let (fill_color, stroke_color) = if is_active {
                 (
-                    Color::from_rgba(56, 189, 248, 180),
-                    Color::from_rgba(125, 211, 252, 255),
+                    Color::from_rgba(74, 125, 170, 180),
+                    Color::from_rgba(120, 170, 220, 255),
                 )
             } else if is_feedback {
                 (
-                    Color::from_rgba(250, 204, 21, 160),
-                    Color::from_rgba(252, 211, 77, 255),
+                    Color::from_rgba(230, 149, 48, 160),
+                    Color::from_rgba(240, 180, 80, 255),
                 )
             } else {
                 (
-                    Color::from_rgba(30, 41, 59, 255),
-                    Color::from_rgba(71, 85, 105, 255),
+                    Color::from_rgba(50, 50, 50, 255),
+                    Color::from_rgba(70, 70, 70, 255),
                 )
             };
 
@@ -1544,7 +1544,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             let text_color = if is_active || is_feedback {
                 WHITE
             } else {
-                Color::from_rgba(148, 163, 184, 255)
+                Color::from_rgba(160, 160, 160, 255)
             };
             let text_size = 17.0 * scale;
             let text_dims = measure_text(&def.label, None, text_size as _, 1.0);

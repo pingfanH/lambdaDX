@@ -17,14 +17,14 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         rect.y,
         rect.w,
         rect.h,
-        Color::from_rgba(17, 24, 39, 255),
+        Color::from_rgba(38, 38, 38, 255),
     );
     draw_text(
         "Pad View",
         rect.x + 12.0 * scale,
         rect.y + 24.0 * scale,
         24.0 * scale,
-        WHITE,
+        Color::from_rgba(180, 180, 180, 255),
     );
 
     let cx = pad.cx;
@@ -35,7 +35,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         .and_then(|svg| svg.pad_visual_center(&pad))
         .unwrap_or(vec2(cx, cy));
 
-    draw_circle(cx, cy, outer_r, Color::from_rgba(16, 24, 38, 255));
+    draw_circle(cx, cy, outer_r, Color::from_rgba(35, 35, 35, 255));
 
     // Tap spawn point indicator
     draw_circle(spawn_cx.x, spawn_cx.y, 3.0 * scale, Color::from_rgba(255, 255, 255, 180));
@@ -53,18 +53,18 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
 
             let (fill_color, stroke_color) = if is_active {
                 (
-                    Color::from_rgba(56, 189, 248, 180),
-                    Color::from_rgba(125, 211, 252, 255),
+                    Color::from_rgba(74, 125, 170, 180),
+                    Color::from_rgba(120, 170, 220, 255),
                 )
             } else if is_feedback {
                 (
-                    Color::from_rgba(250, 204, 21, 160),
-                    Color::from_rgba(252, 211, 77, 255),
+                    Color::from_rgba(230, 149, 48, 160),
+                    Color::from_rgba(240, 180, 80, 255),
                 )
             } else {
                 (
-                    Color::from_rgba(30, 41, 59, 255),
-                    Color::from_rgba(71, 85, 105, 255),
+                    Color::from_rgba(50, 50, 50, 255),
+                    Color::from_rgba(70, 70, 70, 255),
                 )
             };
 
@@ -74,7 +74,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             let text_color = if is_active || is_feedback {
                 WHITE
             } else {
-                Color::from_rgba(148, 163, 184, 255)
+                Color::from_rgba(160, 160, 160, 255)
             };
             let text_size = 17.0 * scale;
             let text_dims = measure_text(&def.label, None, text_size as _, 1.0);

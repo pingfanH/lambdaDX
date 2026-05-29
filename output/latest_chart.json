@@ -1,558 +1,89 @@
 {
-  "created_at_epoch_ms": 1780040050070,
-  "source": "macroquad_sim",
-  "chart": {
-    "version": "0.4.0-beat",
-    "title": "Fallback Demo Chart",
-    "bpm": 180.0,
-    "bpms": [
-      {
-        "measure": 1.0,
-        "bpm": 180.0
-      }
-    ],
-    "audio_offset": 0.0,
-    "notes": [
-      {
-        "measure": 2,
-        "beat": 1,
-        "division": 32,
-        "offset": 11,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 2,
-        "beat": 1,
-        "division": 24,
-        "offset": 17,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 2,
-        "beat": 2,
-        "division": 8,
-        "offset": 1,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 2,
-        "beat": 2,
-        "division": 16,
-        "offset": 9,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 2,
-        "beat": 3,
-        "division": 1,
-        "offset": 0,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 2,
-        "beat": 3,
-        "division": 96,
-        "offset": 41,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 2,
-        "beat": 3,
-        "division": 48,
-        "offset": 43,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 2,
-        "beat": 4,
-        "division": 24,
-        "offset": 7,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 2,
-        "beat": 4,
-        "division": 48,
-        "offset": 35,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 3,
-        "beat": 1,
-        "division": 96,
-        "offset": 13,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 3,
-        "beat": 1,
-        "division": 96,
-        "offset": 53,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 3,
-        "beat": 2,
-        "division": 1,
-        "offset": 0,
-        "lane": 5,
-        "note_type": "tap"
-      },
-      {
-        "measure": 3,
-        "beat": 2,
-        "division": 16,
-        "offset": 7,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 3,
-        "beat": 2,
-        "division": 6,
-        "offset": 5,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 3,
-        "beat": 3,
-        "division": 48,
-        "offset": 13,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 3,
-        "beat": 3,
-        "division": 4,
-        "offset": 3,
-        "lane": 4,
-        "note_type": "tap",
-        "is_each": true
-      },
-      {
-        "measure": 3,
-        "beat": 3,
-        "division": 4,
-        "offset": 3,
-        "lane": 5,
-        "note_type": "tap",
-        "is_each": true
-      },
-      {
-        "measure": 3,
-        "beat": 4,
-        "division": 96,
-        "offset": 17,
-        "lane": 7,
-        "note_type": "tap",
-        "is_each": true
-      },
-      {
-        "measure": 3,
-        "beat": 4,
-        "division": 96,
-        "offset": 17,
-        "lane": 6,
-        "note_type": "tap",
-        "is_each": true
-      },
-      {
-        "measure": 3,
-        "beat": 4,
-        "division": 96,
-        "offset": 59,
-        "lane": 4,
-        "note_type": "tap",
-        "is_each": true
-      },
-      {
-        "measure": 3,
-        "beat": 4,
-        "division": 96,
-        "offset": 59,
-        "lane": 3,
-        "note_type": "tap",
-        "is_each": true
-      },
-      {
-        "measure": 4,
-        "beat": 1,
-        "division": 96,
-        "offset": 7,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 4,
-        "beat": 1,
-        "division": 32,
-        "offset": 15,
-        "lane": 5,
-        "note_type": "tap"
-      },
-      {
-        "measure": 4,
-        "beat": 1,
-        "division": 96,
-        "offset": 95,
-        "lane": 1,
-        "note_type": "hold",
-        "hold_duration": [
-          121,
-          96
-        ]
-      },
-      {
-        "measure": 4,
-        "beat": 2,
-        "division": 32,
-        "offset": 13,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 4,
-        "beat": 2,
-        "division": 32,
-        "offset": 27,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 4,
-        "beat": 3,
-        "division": 32,
-        "offset": 9,
-        "lane": 5,
-        "note_type": "hold",
-        "hold_duration": [
-          95,
-          96
-        ]
-      },
-      {
-        "measure": 4,
-        "beat": 3,
-        "division": 3,
-        "offset": 2,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 4,
-        "beat": 4,
-        "division": 96,
-        "offset": 13,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 4,
-        "beat": 4,
-        "division": 12,
-        "offset": 7,
-        "lane": 6,
-        "note_type": "hold",
-        "hold_duration": [
-          71,
-          48
-        ]
-      },
-      {
-        "measure": 5,
-        "beat": 1,
-        "division": 96,
-        "offset": 1,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 1,
-        "division": 32,
-        "offset": 15,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 1,
-        "division": 48,
-        "offset": 41,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 2,
-        "division": 32,
-        "offset": 9,
-        "lane": 7,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 2,
-        "division": 48,
-        "offset": 29,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 3,
-        "division": 96,
-        "offset": 5,
-        "lane": 6,
-        "note_type": "hold",
-        "hold_duration": [
-          17,
-          16
-        ]
-      },
-      {
-        "measure": 5,
-        "beat": 3,
-        "division": 32,
-        "offset": 17,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 4,
-        "division": 96,
-        "offset": 1,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 4,
-        "division": 96,
-        "offset": 37,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 4,
-        "division": 96,
-        "offset": 43,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 4,
-        "division": 96,
-        "offset": 47,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 5,
-        "beat": 4,
-        "division": 8,
-        "offset": 7,
-        "lane": 6,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 1,
-        "division": 4,
-        "offset": 1,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 1,
-        "division": 24,
-        "offset": 7,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 1,
-        "division": 48,
-        "offset": 17,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 1,
-        "division": 24,
-        "offset": 17,
-        "lane": 6,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 2,
-        "division": 12,
-        "offset": 1,
-        "lane": 1,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 2,
-        "division": 48,
-        "offset": 7,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 2,
-        "division": 16,
-        "offset": 3,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 2,
-        "division": 48,
-        "offset": 11,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 2,
-        "division": 16,
-        "offset": 9,
-        "lane": 8,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 2,
-        "division": 32,
-        "offset": 19,
-        "lane": 7,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 2,
-        "division": 3,
-        "offset": 2,
-        "lane": 6,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 2,
-        "division": 4,
-        "offset": 3,
-        "lane": 5,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 3,
-        "division": 96,
-        "offset": 1,
-        "lane": 2,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 3,
-        "division": 32,
-        "offset": 3,
-        "lane": 3,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 3,
-        "division": 32,
-        "offset": 5,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 6,
-        "beat": 3,
-        "division": 8,
-        "offset": 7,
-        "lane": 7,
-        "note_type": "slide",
-        "slide": [
-          {
-            "segments": [
-              {
-                "points": [
-                  {
-                    "zone": "A1",
-                    "beat_offset": 0.0
-                  }
-                ],
-                "shape": "p_p"
-              },
-              {
-                "points": [
-                  {
-                    "zone": "A3",
-                    "beat_offset": 0.0
-                  }
-                ],
-                "shape": "q_q"
-              },
-              {
-                "points": [
-                  {
-                    "zone": "A5",
-                    "beat_offset": 0.0
-                  }
-                ],
-                "shape": "q_q"
-              }
-            ],
-            "slide_duration": 1.28125,
-            "slide_start_delay": 0.015625
-          }
-        ]
-      },
-      {
-        "measure": 8,
-        "beat": 3,
-        "division": 8,
-        "offset": 5,
-        "lane": 4,
-        "note_type": "tap"
-      },
-      {
-        "measure": 9,
-        "beat": 1,
-        "division": 16,
-        "offset": 15,
-        "lane": 4,
-        "note_type": "tap"
-      }
-    ]
-  },
-  "hits": [],
-  "record_speed": 1.0,
-  "play_speed": 1.0
+  "version": "0.4.0-beat",
+  "title": "Fallback Demo Chart",
+  "bpm": 180.0,
+  "bpms": [
+    {
+      "measure": 1.0,
+      "bpm": 180.0
+    }
+  ],
+  "audio_offset": 0.0,
+  "notes": [
+    {
+      "measure": 1,
+      "beat": 3,
+      "division": 4,
+      "offset": 1,
+      "lane": 3,
+      "note_type": "slide",
+      "slide": [
+        {
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": "A7",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "line"
+            }
+          ],
+          "slide_duration": 0.46875,
+          "slide_start_delay": 0.234375
+        }
+      ]
+    },
+    {
+      "measure": 2,
+      "beat": 2,
+      "division": 1,
+      "offset": 0,
+      "lane": 3,
+      "note_type": "slide",
+      "slide": [
+        {
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": "A7",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "right"
+            }
+          ],
+          "slide_duration": 0.5,
+          "slide_start_delay": 0.234375
+        }
+      ]
+    },
+    {
+      "measure": 2,
+      "beat": 4,
+      "division": 16,
+      "offset": 15,
+      "lane": 4,
+      "note_type": "slide",
+      "slide": [
+        {
+          "segments": [
+            {
+              "points": [
+                {
+                  "zone": "A1",
+                  "beat_offset": 0.0
+                }
+              ],
+              "shape": "q"
+            }
+          ],
+          "slide_duration": 0.71875,
+          "slide_start_delay": 0.25
+        }
+      ]
+    }
+  ]
 }

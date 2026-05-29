@@ -61,7 +61,7 @@ pub async fn main() {
     egui_macroquad::ui(|egui_ctx| { egui_ctx.set_pixels_per_point(2.0); });
     egui_macroquad::draw();
     loop {
-        clear_background(Color::from_rgba(10, 17, 30, 255));
+        clear_background(Color::from_rgba(30, 30, 30, 255));
 
         // Layout: timeline (left) + pad (right), below toolbar
         let layout = player_layout::compute_layout(&app);
