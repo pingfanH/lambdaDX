@@ -168,6 +168,7 @@ pub fn ser_to_note(s: &SerNote) -> Note {
         is_star: s.is_star,
         is_tapless: s.is_tapless,
         slide: s.slide.clone(),
+        template_source: None,
     }
 }
 
@@ -195,6 +196,8 @@ pub fn ser_to_chart(s: &SerChartDoc) -> ChartDoc {
         bpms,
         audio_offset: s.audio_offset,
         notes: s.notes.iter().map(ser_to_note).collect(),
+        templates: Vec::new(),
+        template_instances: Vec::new(),
     }
 }
 

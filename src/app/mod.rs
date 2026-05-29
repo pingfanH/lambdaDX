@@ -10,6 +10,7 @@ pub mod slide_render;
 pub mod simai_io;
 pub mod slide_match;
 pub mod state;
+pub mod template;
 pub mod types;
 pub mod ui;
 pub mod slide;

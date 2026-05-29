@@ -7,10 +7,10 @@ use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
 use super::types::{
-    ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId, SlidePoint,
-    WavPcm, DragPart, HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN,
-    TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone, sanitize_note_zone,
-    note_secs, secs_to_measure, mdur_to_secs, sdur_to_mdur, snap_measure,
+    ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId,
+    SceneRef, SlidePoint, WavPcm, DragPart, HIT_WINDOW, HOLD_RECORD_MIN_DURATION, SPEED_MAX,
+    SPEED_MIN, TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS, hold_tail_time, is_touch_zone,
+    sanitize_note_zone, note_secs, secs_to_measure, mdur_to_secs, sdur_to_mdur, snap_measure,
 };
 
 /// Runtime mutable state for the editor/simulator.
@@ -143,6 +143,19 @@ pub struct AppState {
     pub next_note_id: u64,
     pub hidden_notes: HashSet<u64>,
 
+    // ── Template system ──────────────────────────────────────────────
+    /// Current editing context (Main or a specific template).
+    pub active_scene: SceneRef,
+    /// Stack of parent scenes for breadcrumb navigation.
+    pub scene_stack: Vec<SceneRef>,
+    /// While in isolation mode, stores the main chart's notes so we can restore on exit.
+    pub main_chart_notes: Vec<Note>,
+    /// Index of the currently selected template in chart.templates (for UI dropdown).
+    pub selected_template_idx: Option<usize>,
+    /// ID generators for templates and instances.
+    pub next_template_id: u32,
+    pub next_instance_id: u32,
+
     pub status: String,
 }
 
@@ -263,6 +276,12 @@ impl AppState {
             hit_sounds_played: HashSet::new(),
             next_note_id: 1,
             hidden_notes: HashSet::new(),
+            active_scene: SceneRef::Main,
+            scene_stack: Vec::new(),
+            main_chart_notes: Vec::new(),
+            selected_template_idx: None,
+            next_template_id: 1,
+            next_instance_id: 1,
             status: "Ready".to_string(),
         }
     }

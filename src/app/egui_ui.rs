@@ -4,7 +4,8 @@ use egui_macroquad::egui::{self, Color32, CornerRadius, FontData, FontDefinition
 use super::chart;
 use super::simai_io;
 use super::state::AppState;
-use super::types::Mode;
+use super::template;
+use super::types::{Mode, SceneRef};
 
 // ── Blender color palette ──────────────────────────────────────────────
 const BG_DARK: Color32 = Color32::from_rgb(30, 30, 30);
@@ -282,6 +283,161 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(egui::RichText::new(&app.status).color(TEXT_DIM).small());
                 });
+            });
+        });
+
+    // ── Template controls (second row) ──
+    TopBottomPanel::top("template_bar")
+        .frame(egui::Frame::none()
+            .fill(BG_DARK)
+            .inner_margin(Margin::symmetric(8, 3))
+            .stroke(Stroke::new(0.5, BORDER)))
+        .show(ctx, |ui| {
+            ui.horizontal_centered(|ui| {
+                section_label(ui, "Template");
+
+                // Template name input for "New" action.
+                let creating_new = ui.button(egui::RichText::new("New from Sel").color(TEXT))
+                    .on_hover_text("Create template from selected notes")
+                    .clicked();
+                if creating_new {
+                    let name = format!("Template {}", app.next_template_id);
+                    match template::create_template(app, &name) {
+                        Ok(id) => app.set_status(format!("Created template: {}", id)),
+                        Err(e) => app.set_status(format!("Create template: {}", e)),
+                    }
+                }
+
+                // Template dropdown.
+                let tpl_names: Vec<String> = app
+                    .chart
+                    .templates
+                    .iter()
+                    .map(|t| format!("{} (v{})", t.name, t.version))
+                    .collect();
+
+                if !tpl_names.is_empty() {
+                    let selected_text = if let Some(idx) = app.selected_template_idx {
+                        tpl_names.get(idx).cloned().unwrap_or_default()
+                    } else {
+                        "Select template...".to_string()
+                    };
+
+                    egui::ComboBox::from_id_source("tpl_select")
+                        .selected_text(egui::RichText::new(selected_text).color(TEXT))
+                        .show_ui(ui, |ui| {
+                            for (i, name) in tpl_names.iter().enumerate() {
+                                let is_selected = app.selected_template_idx == Some(i);
+                                if ui
+                                    .selectable_label(
+                                        is_selected,
+                                        egui::RichText::new(name).color(TEXT),
+                                    )
+                                    .clicked()
+                                {
+                                    app.selected_template_idx = Some(i);
+                                }
+                            }
+                        });
+                }
+
+                section_sep(ui);
+
+                // Insert instance at cursor.
+                if ui
+                    .button(egui::RichText::new("Insert").color(TEXT))
+                    .on_hover_text("Insert template instance at cursor")
+                    .clicked()
+                {
+                    if let Some(idx) = app.selected_template_idx {
+                        let anchor = app.timeline_view_time;
+                        match template::insert_instance(app, idx, anchor) {
+                            Ok(()) => app.set_status(format!(
+                                "Inserted instance at {:.2}",
+                                anchor
+                            )),
+                            Err(e) => app.set_status(format!("Insert: {}", e)),
+                        }
+                    } else {
+                        app.set_status("Select a template first".to_string());
+                    }
+                }
+
+                // Enter isolation mode.
+                let in_isolation = template::is_in_isolation(app);
+                if !in_isolation {
+                    if ui
+                        .button(egui::RichText::new("Edit").color(TEXT))
+                        .on_hover_text("Enter isolation mode to edit template")
+                        .clicked()
+                    {
+                        if let Some(idx) = app.selected_template_idx {
+                            match template::enter_isolation(app, idx) {
+                                Ok(()) => {}
+                                Err(e) => app.set_status(format!("Enter: {}", e)),
+                            }
+                        } else {
+                            app.set_status("Select a template first".to_string());
+                        }
+                    }
+                } else {
+                    // Exit isolation mode.
+                    if toggle_btn(ui, "Exit Edit", true) {
+                        match template::exit_isolation(app) {
+                            Ok(()) => {}
+                            Err(e) => app.set_status(format!("Exit: {}", e)),
+                        }
+                    }
+                }
+
+                // Delete template.
+                if let Some(idx) = app.selected_template_idx {
+                    if !in_isolation {
+                        section_sep(ui);
+                        if ui
+                            .button(egui::RichText::new("Delete").color(ACCENT_ORANGE))
+                            .on_hover_text("Delete selected template")
+                            .clicked()
+                        {
+                            if idx < app.chart.templates.len() {
+                                let name = app.chart.templates[idx].name.clone();
+                                app.chart.templates.remove(idx);
+                                app.selected_template_idx = None;
+                                app.set_status(format!("Deleted template: {}", name));
+                            }
+                        }
+                    }
+                }
+
+                // Right-aligned breadcrumb when in isolation.
+                if in_isolation {
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            let path = template::breadcrumb_path(app);
+                            for (i, name) in path.iter().enumerate().rev() {
+                                if i < path.len() - 1 {
+                                    ui.label(
+                                        egui::RichText::new(">").color(TEXT_DIM).small(),
+                                    );
+                                }
+                                let is_current = i == path.len() - 1;
+                                let btn = ui.button(
+                                    egui::RichText::new(name)
+                                        .color(if is_current {
+                                            ACCENT_ORANGE
+                                        } else {
+                                            ACCENT_BLUE
+                                        })
+                                        .small(),
+                                );
+                                if btn.clicked() && !is_current {
+                                    template::navigate_to_breadcrumb(app, i);
+                                }
+                            }
+                        },
+                    );
+                }
             });
         });
 }

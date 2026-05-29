@@ -203,6 +203,8 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
         bpms: bpm_changes,
         audio_offset: 0.0,
         notes,
+        templates: Vec::new(),
+        template_instances: Vec::new(),
     }
 }
 

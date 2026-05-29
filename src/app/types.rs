@@ -176,7 +176,10 @@ pub struct Note {
     pub is_star: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_tapless: bool,
-    pub slide: Vec<Slide>
+    pub slide: Vec<Slide>,
+    /// If this note was expanded from a template instance, tracks its origin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_source: Option<NoteTemplateSource>,
 }
 
 // ─── BPM change list ──────────────────────────────────────────────
@@ -275,6 +278,12 @@ pub struct ChartDoc {
     #[serde(default)]
     pub audio_offset: f32,
     pub notes: Vec<Note>,
+    /// Template definitions (reusable chart fragments).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub templates: Vec<TemplateDef>,
+    /// Template instances placed in this chart.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub template_instances: Vec<TemplateInstance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -441,4 +450,44 @@ pub fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
         .fold(0.0_f32, f32::max);
     let dur_s = mdur_to_secs(max_dur, note.time, bpms).max(0.3);
     note_secs(note, bpms) + dur_s
+}
+
+// ─── Template system ──────────────────────────────────────────────
+
+/// Identifies whether we're editing the main chart or a template.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneRef {
+    Main,
+    Template { template_id: String },
+}
+
+/// A reusable chart fragment (like an Adobe Animate symbol).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateDef {
+    pub id: String,
+    pub name: String,
+    pub version: u32,
+    /// Template's internal notes (relative time, 1.0 = start of template).
+    pub notes: Vec<Note>,
+    /// Total time span in measures.
+    pub duration: f32,
+}
+
+/// An instance of a template placed in the chart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateInstance {
+    pub instance_id: String,
+    pub template_id: String,
+    pub template_version: u32,
+    /// Measure position in parent scene where this instance is anchored.
+    pub anchor_time: f32,
+}
+
+/// Metadata attached to expanded notes linking them back to their source instance.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NoteTemplateSource {
+    pub instance_id: String,
+    pub template_id: String,
+    pub template_version: u32,
+    pub source_note_id: u64,
 }

@@ -5,6 +5,7 @@ use crate::app::types::NoteType::Slide;
 use crate::app::types::zone::PadZone;
 use super::chart;
 use super::state::AppState;
+use super::template;
 use super::types::{Note, NoteType, PadGeom, PointerEvent, RecordInputId, RectF, UiButton, DragPart, SlideShape, BpmChange, MOUSE_POINTER_ID, SPEED_MAX, SPEED_MIN, SPEED_STEP, SCROLL_SPEED, LANE_COUNT, SCROLL_SPEED_FACTOR, SCROLL_INVERT, PAD_ZONE_MAX, is_touch_zone, sanitize_note_zone, hold_tail_time, note_secs, secs_to_measure, mdur_to_secs, SlidePoint};
 use super::ui::{rect_contains, trigger_ui_action};
 
@@ -388,6 +389,15 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
     if is_key_pressed(KeyCode::RightBracket) {
         app.waveform_threshold = (app.waveform_threshold + 0.05).min(1.0);
         app.set_status(format!("Wave threshold: {:.2}", app.waveform_threshold));
+    }
+
+    // ── Template hotkeys ───────────────────────────────────────────
+    // Escape: exit isolation mode when editing a template.
+    if is_key_pressed(KeyCode::Escape) && template::is_in_isolation(app) {
+        match template::exit_isolation(app) {
+            Ok(()) => {}
+            Err(e) => app.set_status(format!("Exit: {}", e)),
+        }
     }
 }
 
@@ -1235,6 +1245,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                 id: nid, time: t, lane, note_type: nt, hold_duration: 0.0,
                 is_each: false, is_break: false, is_ex: false, is_star: false, is_tapless: false,
                 slide: vec![],
+                template_source: None,
             });
             app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
             app.recompute_each();
@@ -1259,6 +1270,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                         hold_duration: dur, is_each: false,
                         is_break: false, is_ex: false, is_star: false, is_tapless: false,
                         slide: vec![],
+                        template_source: None,
                     });
                     app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
                     app.recompute_each();
@@ -1307,6 +1319,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                             slide_start_delay,
                             slide_is_break: false,
                         }],
+                        template_source: None,
                     });
                     app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
                     app.recompute_each();

@@ -3,6 +3,7 @@ use macroquad::texture::{load_texture, DrawTextureParams, FilterMode, Texture2D}
 
 use super::chart;
 use super::slide_render;
+use super::template;
 use crate::app::slide::path::*;
 use super::state::AppState;
 use super::types::{
@@ -684,12 +685,26 @@ pub fn draw_hold_9slice_segment(
 fn draw_timeline_panel(app: &AppState, rect: RectF) {
     let scale = ui_scale(app);
     // draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::from_rgba(17, 24, 39, 255));
+    let title = if template::is_in_isolation(app) {
+        if let Some(name) = template::current_template_name(app) {
+            format!("Template: {} (editing)", name)
+        } else {
+            "Template (editing)".to_string()
+        }
+    } else {
+        "Timeline (Vertical) : 1~8 Tap/Hold + T Touch".to_string()
+    };
+    let title_color = if template::is_in_isolation(app) {
+        Color::from_rgba(230, 149, 48, 255) // orange for isolation
+    } else {
+        Color::from_rgba(180, 180, 180, 255)
+    };
     draw_text(
-        "Timeline (Vertical) : 1~8 Tap/Hold + T Touch",
+        &title,
         rect.x + 12.0 * scale,
         rect.y + 24.0 * scale,
         24.0 * scale,
-        Color::from_rgba(180, 180, 180, 255),
+        title_color,
     );
 
     let sidebar_w = super::types::TIMELINE_SIDEBAR_W;
@@ -1482,20 +1497,37 @@ pub fn draw_pad_only(app: &AppState, pad: PadGeom, rect: RectF) {
 
 fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
     let scale = ui_scale(app);
-    draw_rectangle(
-        rect.x,
-        rect.y,
-        rect.w,
-        rect.h,
-        Color::from_rgba(38, 38, 38, 255),
-    );
-    draw_text(
-        "Pad View",
-        rect.x + 12.0 * scale,
-        rect.y + 24.0 * scale,
-        24.0 * scale,
-        Color::from_rgba(180, 180, 180, 255),
-    );
+    let in_isolation = template::is_in_isolation(app);
+
+    // Subtle blue-tinted background when in isolation mode.
+    let bg_color = if in_isolation {
+        Color::from_rgba(30, 35, 50, 255)
+    } else {
+        Color::from_rgba(38, 38, 38, 255)
+    };
+    draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg_color);
+
+    // Title: show template name in isolation, otherwise "Pad View".
+    if in_isolation {
+        let tpl_name = template::current_template_name(app)
+            .unwrap_or_else(|| "Template".to_string());
+        let label = format!("Editing: {} (ESC to exit)", tpl_name);
+        draw_text(
+            &label,
+            rect.x + 12.0 * scale,
+            rect.y + 24.0 * scale,
+            20.0 * scale,
+            Color::from_rgba(230, 149, 48, 255), // orange
+        );
+    } else {
+        draw_text(
+            "Pad View",
+            rect.x + 12.0 * scale,
+            rect.y + 24.0 * scale,
+            24.0 * scale,
+            Color::from_rgba(180, 180, 180, 255),
+        );
+    }
 
     let cx = pad.cx;
     let cy = pad.cy;

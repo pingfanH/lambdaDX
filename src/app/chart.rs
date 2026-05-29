@@ -115,6 +115,8 @@ fn fallback_chart() -> ChartDoc {
             Note { time: 10.0, lane: 1, note_type: NoteType::Slide, is_each: true, slide: mk_slide(vec![sp(5)], 0.5, 0.125), ..Default::default() },
             Note { time: 10.0, lane: 5, note_type: NoteType::Slide, is_each: true, slide: mk_slide(vec![sp(1)], 0.5, 0.125), ..Default::default() },
         ],
+        templates: Vec::new(),
+        template_instances: Vec::new(),
     }
 }
 
