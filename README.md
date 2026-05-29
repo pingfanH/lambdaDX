@@ -1,8 +1,8 @@
-# Mai2Chart macroquad local demo
+# LambdaDX demo
 
 ## Clone
 
-Clone with submodules so `lnmai-core-ffi` is available:
+Clone with submodules so `lnmai-core` is available:
 
 ```bash
 git clone --recurse-submodules git@github.com:pingfanH/lambdaDX.git

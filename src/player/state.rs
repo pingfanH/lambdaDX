@@ -2,7 +2,7 @@ use macroquad::material::Material;
 use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
-use macroquad_sim::app::types::zone::PadZone;
+use lambda_dx::app::types::zone::PadZone;
 use lnmai_core_rs::session::{self, Session, Empty, Loaded};
 use serde_json::json;
 use super::audio::BgmPcm;
@@ -573,7 +573,7 @@ impl PlayerState {
             Ok(s) => s,
             Err(e) => { self.set_status(format!("lnmai create session failed: {}", e.json)); return; }
         };
-        let simai_file = macroquad_sim::simai_io::chart_doc_to_simai_file(&self.chart);
+        let simai_file = lambda_dx::simai_io::chart_doc_to_simai_file(&self.chart);
         let simai_text = maisimai::export_file(&simai_file);
         let (loaded, _info) = match empty.load_chart_text(&simai_text, 6) {
             Ok(v) => v,
@@ -758,7 +758,7 @@ impl PlayerState {
 
         // Phase 4: classify the recorded trajectory against known shape templates.
         let slide_shape = if matches!(note_type, NoteType::Slide) {
-            macroquad_sim::slide_match::match_slide_shape(active.lane, &slide_points)
+            lambda_dx::slide_match::match_slide_shape(active.lane, &slide_points)
         } else {
             None
         };

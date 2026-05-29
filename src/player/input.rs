@@ -1,9 +1,9 @@
 use macroquad::input::{is_key_down, is_key_pressed, is_key_released, KeyCode, TouchPhase};
-use macroquad_sim::chart;
-use macroquad_sim::state::AppState;
-use macroquad_sim::types::{Mode, PadGeom, PointerEvent, RecordInputId, SlidePoint, SlideShape, UiAction, UiButton, SPEED_MAX, SPEED_MIN, SPEED_STEP};
-use macroquad_sim::types::zone::PadZone;
-use macroquad_sim::ui::{rect_contains};
+use lambda_dx::chart;
+use lambda_dx::state::AppState;
+use lambda_dx::types::{Mode, PadGeom, PointerEvent, RecordInputId, SlidePoint, SlideShape, UiAction, UiButton, SPEED_MAX, SPEED_MIN, SPEED_STEP};
+use lambda_dx::types::zone::PadZone;
+use lambda_dx::ui::{rect_contains};
 use serde_json::json;
 use crate::state::PlayerState;
 
@@ -168,8 +168,8 @@ pub fn handle_touch_controls(
                             if z >= 1 && z <= 8 {
                                 if let Some(n) = app.chart.notes.get_mut(i) {
                                     if matches!(n.note_type, super::types::NoteType::Slide) && n.lane >= 1 && n.lane <= 8 {
-                                        let pattern = macroquad_sim::simai_io::shape_to_simai_pattern(Some(shape));
-                                        let points =  macroquad_sim::simai_io::simai_pattern_to_points(
+                                        let pattern = lambda_dx::simai_io::shape_to_simai_pattern(Some(shape));
+                                        let points =  lambda_dx::simai_io::simai_pattern_to_points(
                                             n.lane.saturating_sub(1), z.to_id().saturating_sub(1), pattern, None,
                                         );
                                         if n.slide.is_empty() {
@@ -223,7 +223,7 @@ pub fn handle_touch_controls(
                                     .unwrap_or(SlidePoint::from(PadZone::from(n.lane)));
                                 if z != last_zone.zone {
                                     seg.points.push(SlidePoint::from(PadZone::from(z)));
-                                    seg.shape =  macroquad_sim::slide_match::match_slide_shape(
+                                    seg.shape =  lambda_dx::slide_match::match_slide_shape(
                                         n.lane, &seg.points,
                                     ).unwrap_or(super::types::SlideShape::Line);
                                     new_count = seg.points.len();

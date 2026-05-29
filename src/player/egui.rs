@@ -1,8 +1,8 @@
 use egui_macroquad::egui;
 use egui_macroquad::egui::TopBottomPanel;
-use macroquad_sim::{chart, simai_io};
-use macroquad_sim::state::AppState;
-use macroquad_sim::types::Mode;
+use lambda_dx::{chart, simai_io};
+use lambda_dx::state::AppState;
+use lambda_dx::types::Mode;
 use crate::state::PlayerState;
 
 pub fn draw_egui_ui(ctx: &egui::Context, app: &mut PlayerState) {

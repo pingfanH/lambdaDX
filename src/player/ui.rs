@@ -2,12 +2,12 @@ use macroquad::color::{Color, WHITE};
 use macroquad::math::{vec2, Vec2};
 use macroquad::miniquad::FilterMode;
 use macroquad::prelude::{draw_circle, draw_circle_lines, draw_line, draw_rectangle, draw_text, draw_texture_ex, load_texture, measure_text, DrawTextureParams};
-use macroquad_sim::{pad_svg, slide_render};
-use macroquad_sim::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp, slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z};
-use macroquad_sim::state::AppState;
-use macroquad_sim::types::{hold_tail_time, mdur_to_secs, note_secs, sanitize_note_zone, slide_end_time, Mode, NoteType, PadGeom, RectF, SlideShape, HIT_WINDOW, HOLD_FLY_TIME, HOLD_LENGTH_FRAC, HOLD_SPAWN_FRAC, HOLD_TAIL_FLY_TIME, HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, PAD_ROTATION_RAD, SLIDE_TRAVEL_TIME, TAP_GROW_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_SPAWN_FRAC, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME};
-use macroquad_sim::types::zone::PadZone;
-use macroquad_sim::ui::draw_hold_9slice_segment;
+use lambda_dx::{pad_svg, slide_render};
+use lambda_dx::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp, slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z};
+use lambda_dx::state::AppState;
+use lambda_dx::types::{hold_tail_time, mdur_to_secs, note_secs, sanitize_note_zone, slide_end_time, Mode, NoteType, PadGeom, RectF, SlideShape, HIT_WINDOW, HOLD_FLY_TIME, HOLD_LENGTH_FRAC, HOLD_SPAWN_FRAC, HOLD_TAIL_FLY_TIME, HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, PAD_ROTATION_RAD, SLIDE_TRAVEL_TIME, TAP_GROW_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_SPAWN_FRAC, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME};
+use lambda_dx::types::zone::PadZone;
+use lambda_dx::ui::draw_hold_9slice_segment;
 use crate::state::PlayerState;
 use crate::player_layout::*;
 pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {

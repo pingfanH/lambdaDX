@@ -1,12 +1,12 @@
 use macroquad::prelude::*;
-use macroquad_sim::app::pad_svg::{PadSvgDef, draw_polygon_fill, draw_polygon_lines};
-use macroquad_sim::app::slide_render::{self, SlideTextures};
-use macroquad_sim::app::types::{
+use lambda_dx::app::pad_svg::{PadSvgDef, draw_polygon_fill, draw_polygon_lines};
+use lambda_dx::app::slide_render::{self, SlideTextures};
+use lambda_dx::app::types::{
     Note, NoteType, Slide, SlideSegment, SlidePoint, SlideShape, PadGeom,
     PAD_ROTATION_RAD, PAD_C_ZONE, TAP_RING_OFFSET,
     note_secs, secs_to_measure,
 };
-use macroquad_sim::app::types::zone::PadZone;
+use lambda_dx::app::types::zone::PadZone;
 
 // ── Render mode ──
 #[derive(Clone, Copy, PartialEq, Eq)]

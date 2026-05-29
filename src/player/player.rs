@@ -8,9 +8,9 @@ pub mod audio;
 use macroquad::color::Color;
 use macroquad::file::set_pc_assets_folder;
 use macroquad::prelude::{clear_background, next_frame};
-use macroquad_sim::app::{egui_ui, pad_svg, sfx, types};
+use lambda_dx::app::{egui_ui, pad_svg, sfx, types};
 
-use macroquad_sim::{ window_conf};
+use lambda_dx::{ window_conf};
 use crate::state::PlayerState;
 
 #[macroquad::main(window_conf)]
@@ -18,8 +18,8 @@ pub async fn main() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     set_pc_assets_folder("assets");
 
-    let chart = macroquad_sim::chart::load_generated_chart().await;
-    let (audio_source_name, audio_wav_pcm) = macroquad_sim::app::audio::load_audio_pcm_from_assets().await;
+    let chart = lambda_dx::chart::load_generated_chart().await;
+    let (audio_source_name, audio_wav_pcm) = lambda_dx::app::audio::load_audio_pcm_from_assets().await;
     let mut app = PlayerState::new(chart, audio_source_name, audio_wav_pcm);
 
     // Parse the SVG pad definition
@@ -50,7 +50,7 @@ pub async fn main() {
     }
 
     // Load mask shader material
-    match macroquad_sim::app::load_mask_material() {
+    match lambda_dx::app::load_mask_material() {
         Ok(m) => app.mask_material = Some(m),
         Err(e) => app.set_status(format!("Shader: {e}")),
     }
@@ -74,14 +74,14 @@ pub async fn main() {
         // Input
         input::handle_global_hotkeys(&mut app);
         input::handle_lane_input(&mut app);
-        let pointer_events = macroquad_sim::app::input::collect_pointer_events();
+        let pointer_events = lambda_dx::app::input::collect_pointer_events();
         input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
         audio::service_audio(&mut app).await;
         input::collect_lnmai_input_events(&mut app);
         app.advance_lnmai_frame();
         app.tick_judge_texts();
         app.tick_feedback();
-        //macroquad_sim::app::input::handle_timeline_editing(&mut app, layout.timeline);
+        //lambda_dx::app::input::handle_timeline_editing(&mut app, layout.timeline);
 
         // Egui on top (build UI + draw)
         egui_macroquad::ui(|egui_ctx| {

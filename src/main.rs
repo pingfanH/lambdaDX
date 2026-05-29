@@ -1,4 +1,4 @@
-use macroquad_sim::{run_app, window_conf};
+use lambda_dx::{run_app, window_conf};
 
 #[macroquad::main(window_conf)]
 async fn main() {

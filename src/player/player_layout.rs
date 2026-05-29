@@ -1,7 +1,7 @@
 use macroquad::color::Color;
 use macroquad::prelude::{draw_text, screen_height, screen_width};
-use macroquad_sim::state::AppState;
-use macroquad_sim::types::{Layout, PadGeom, RectF, UiButton};
+use lambda_dx::state::AppState;
+use lambda_dx::types::{Layout, PadGeom, RectF, UiButton};
 use crate::state::PlayerState;
 use crate::ui::draw_pad_panel;
 

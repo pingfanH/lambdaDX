@@ -1,9 +1,9 @@
 use minimp3::{Decoder as Mp3Decoder, Frame as Mp3Frame};
 use std::io::Cursor;
 
-use macroquad_sim::platform;
+use lambda_dx::platform;
 use super::state::PlayerState;
-use super::types::{WavPcm, SPEED_MAX, SPEED_MIN};
+use lambda_dx::types::{WavPcm, SPEED_MAX, SPEED_MIN};
 
 fn load_wav_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
     let mut reader = hound::WavReader::new(Cursor::new(bytes.to_vec()))
