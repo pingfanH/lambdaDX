@@ -3,8 +3,9 @@ use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 use lambda_dx::app::types::zone::PadZone;
-use lnmai_core_rs::session::{self, Session, Empty, Loaded};
+use lnmai_core_rs::lnmai_core_ffi::session::{self, Session, Empty, Loaded};
 use serde_json::json;
+use lnmai_core_rs::lnmai_core_ffi::types::{RuntimeStepLightResult, RenderCommand, AudioCommand, JudgeEvent, JudgeEventKind, FfiResult};
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
@@ -22,24 +23,24 @@ pub struct JudgeText {
     pub until: f64,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JudgeEvent {
-    kind: String,
-    grade: String,
-    note_index: u64,
-}
+// #[derive(Debug, serde::Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// struct JudgeEvent {
+//     kind: String,
+//     grade: String,
+//     note_index: u64,
+// }
 
-#[derive(Debug, serde::Deserialize)]
-struct RuntimeStepLightResult {
-    events: Vec<JudgeEvent>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct FfiResult {
-    ok: bool,
-    result: Option<RuntimeStepLightResult>,
-}
+// #[derive(Debug, serde::Deserialize)]
+// struct RuntimeStepLightResult {
+//     events: Vec<JudgeEvent>,
+// }
+//
+// #[derive(Debug, serde::Deserialize)]
+// struct FfiResult {
+//     ok: bool,
+//     result: Option<RuntimeStepLightResult>,
+// }
 
 /// Runtime mutable state for the editor/simulator.
 pub struct PlayerState {
@@ -179,6 +180,14 @@ pub struct PlayerState {
     pub lnmai_note_zones: Vec<PadZone>,
     pub judge_texts: Vec<JudgeText>,
     pub lnmai_input_events: Vec<(u64, serde_json::Value)>,
+
+    pub slide_progress: HashMap<u64, SlideProgress>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SlideProgress {
+    pub remaining: u64,
+    pub hidden_bars: Vec<u64>,
 }
 
 impl PlayerState {
@@ -305,6 +314,7 @@ impl PlayerState {
             lnmai_note_zones: Vec::new(),
             judge_texts: Vec::new(),
             lnmai_input_events: Vec::new(),
+            slide_progress: HashMap::new(),
         }
     }
 
@@ -641,34 +651,93 @@ impl PlayerState {
             "currentTime": t_us,
             "events": events
         });
-
         if !events.is_empty() {
-            println!("[lnmai input] currentTime={} events={}", t_us, serde_json::to_string(&batch["events"]).unwrap_or_default());
+           // println!("[lnmai input] currentTime={} events={}", t_us, serde_json::to_string(&batch["events"]).unwrap_or_default());
         }
 
         match session.advance_frame_light(&batch.to_string()) {
             Ok(envelope) => {
-                if let Ok(ffi) = serde_json::from_str::<FfiResult>(&envelope.json) {
-                    if let Some(res) = ffi.result {
-                        for e in &res.events {
-                            let zone = self.lnmai_note_zones
-                                .get(e.note_index as usize)
-                                .copied()
-                                .unwrap_or(PadZone::A1);
-                            println!("[lnmai step] JudgeEvent {{ kind: {:?}, grade: {:?}, note_index: {} }} → zone {} (zone_map_len={})",
-                                e.kind, e.grade, e.note_index, zone, self.lnmai_note_zones.len());
-                            self.judge_texts.push(JudgeText {
-                                zone,
-                                grade: e.grade.clone(),
-                                until: get_time() + 0.6,
-                            });
-                        }
+                match envelope.decode_result::<RuntimeStepLightResult>() {
+                    Ok(result) => {
+                        self.process_render_commands(&result.render_commands);
+                        self.process_audio_commands(&result.audio_commands);
+                        self.process_judge_events(&result.events);
+                    }
+                    Err(e) => {
+                        self.set_status(format!("lnmai parse result failed [{}]", e));
                     }
                 }
             }
             Err(e) => {
                 self.set_status(format!("lnmai advance frame error: {}", e.json));
             }
+        }
+    }
+
+    fn process_render_commands(&mut self, commands: &[RenderCommand]) {
+        for cmd in commands {
+            match cmd {
+                RenderCommand::HideSlideBars { note_index, end_index } => {
+                    let entry = self.slide_progress.entry(*note_index).or_default();
+                    entry.hidden_bars.push(*end_index);
+                }
+                RenderCommand::UpdateSlideProgress { note_index, remaining } => {
+                    println!("note_index: {note_index}, remaining: {remaining}");
+                    let entry = self.slide_progress.entry(*note_index).or_default();
+                    entry.remaining = *remaining;
+                }
+                RenderCommand::UpdateSlideTrackProgress { note_index, track_index, remaining } => {
+                    // Track-specific progress (wifi/connected slides)
+                }
+                RenderCommand::HideAllSlideBars { note_index } => {
+                    self.slide_progress.remove(note_index);
+                }
+                RenderCommand::ShowJudgeResult { kind, grade, diff, note_index } => {
+                    let zone = self.lnmai_note_zones
+                        .get(*note_index as usize)
+                        .copied()
+                        .unwrap_or(PadZone::A1);
+                    self.judge_texts.push(JudgeText {
+                        zone,
+                        grade: grade.to_string(),
+                        until: get_time() + 0.6,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn process_audio_commands(&mut self, commands: &[AudioCommand]) {
+        for cmd in commands {
+            match cmd {
+                AudioCommand::PlayJudgeSfx { kind, grade, at_time, note_index } => {
+                    // Play judge sound effect
+                }
+                AudioCommand::PlaySlideCue { note_index, track_index, at_time } => {
+                    // Play slide cue sound
+                    if let Some(sfx) = &self.sfx_slide {
+                        if let Some(player) = &mut self.sfx_player {
+                            player.play(sfx,1.);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn process_judge_events(&mut self, events: &[lnmai_core_rs::lnmai_core_ffi::types::JudgeEvent]) {
+        for e in events {
+            let zone = self.lnmai_note_zones
+                .get(e.note_index as usize)
+                .copied()
+                .unwrap_or(PadZone::A1);
+            println!("[lnmai judge event] note_index={zone}");
+            self.judge_texts.push(JudgeText {
+                zone,
+                grade: e.grade.to_string(),
+                until: get_time() + 0.6,
+            });
         }
     }
 
