@@ -3,9 +3,9 @@ use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 use lambda_dx::app::types::zone::PadZone;
-use lnmai_core_rs::lnmai_core_ffi::session::{self, Session, Empty, Loaded};
+use lnmai_core_rs::session::{self, Session, Empty, Loaded};
 use serde_json::json;
-use lnmai_core_rs::lnmai_core_ffi::types::{RuntimeStepLightResult, RenderCommand, AudioCommand, JudgeEvent, JudgeEventKind, FfiResult};
+use lnmai_core_rs::ffi_types::{RuntimeStepLightResult, RenderCommand, AudioCommand, JudgeEvent, JudgeEventKind};
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
@@ -585,6 +585,7 @@ impl PlayerState {
         };
         let simai_file = lambda_dx::simai_io::chart_doc_to_simai_file(&self.chart);
         let simai_text = maisimai::export_file(&simai_file);
+        println!("[lnmai simai]\n{}", simai_text);
         let (loaded, _info) = match empty.load_chart_text(&simai_text, 6) {
             Ok(v) => v,
             Err(e) => { self.set_status(format!("lnmai load chart failed: {}", e.json)); return; }
@@ -652,7 +653,7 @@ impl PlayerState {
             "events": events
         });
         if !events.is_empty() {
-           // println!("[lnmai input] currentTime={} events={}", t_us, serde_json::to_string(&batch["events"]).unwrap_or_default());
+           println!("[lnmai input] currentTime={} events={}", t_us, serde_json::to_string(&batch["events"]).unwrap_or_default());
         }
 
         match session.advance_frame_light(&batch.to_string()) {
@@ -682,11 +683,12 @@ impl PlayerState {
                     entry.hidden_bars.push(*end_index);
                 }
                 RenderCommand::UpdateSlideProgress { note_index, remaining } => {
-                    println!("note_index: {note_index}, remaining: {remaining}");
+                    println!("UpdateSlideProgress- note_index: {note_index}, remaining: {remaining}");
                     let entry = self.slide_progress.entry(*note_index).or_default();
                     entry.remaining = *remaining;
                 }
                 RenderCommand::UpdateSlideTrackProgress { note_index, track_index, remaining } => {
+                    println!("UpdateSlideTrackProgress- note_index: {note_index}, remaining: {remaining}");
                     // Track-specific progress (wifi/connected slides)
                 }
                 RenderCommand::HideAllSlideBars { note_index } => {
@@ -726,7 +728,7 @@ impl PlayerState {
         }
     }
 
-    fn process_judge_events(&mut self, events: &[lnmai_core_rs::lnmai_core_ffi::types::JudgeEvent]) {
+    fn process_judge_events(&mut self, events: &[JudgeEvent]) {
         for e in events {
             let zone = self.lnmai_note_zones
                 .get(e.note_index as usize)
