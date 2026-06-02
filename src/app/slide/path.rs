@@ -95,7 +95,95 @@ fn push_arc(path: &mut Vec<Vec2>, bp: f32, ep: f32, b_center: Vec2, b_radius: f3
         path.push(b_center + vec2(ang.cos(), ang.sin()) * b_radius);
     }
 }
+fn push_corner_bezier(
 
+    path: &mut Vec<Vec2>,
+
+    corner: Vec2,
+
+    next: Vec2,
+
+    radius: f32,
+
+    spacing: f32,
+
+) {
+
+    if path.is_empty() {
+
+        path.push(corner);
+
+        path.push(next);
+
+        return;
+
+    }
+
+    let prev = *path.last().unwrap();
+
+    let v1 = corner - prev;
+
+    let v2 = next - corner;
+
+    let len1 = v1.length();
+
+    let len2 = v2.length();
+
+    if len1 < 1e-3 || len2 < 1e-3 {
+
+        path.push(corner);
+
+        path.push(next);
+
+        return;
+
+    }
+
+    let d1 = v1 / len1;
+
+    let d2 = v2 / len2;
+
+    let r = radius.min(len1 * 0.5).min(len2 * 0.5);
+
+    // 贝塞尔起点和终点
+
+    let p0 = corner - d1 * r;
+
+    let p2 = corner + d2 * r;
+
+    // 用 corner 作为控制点
+
+    let ctrl = corner;
+
+    // 先接到圆角起点
+
+    path.push(p0);
+
+    let approx_len = p0.distance(ctrl) + ctrl.distance(p2);
+
+    let steps = ((approx_len / spacing).ceil() as usize).max(6);
+
+    for i in 1..=steps {
+
+        let t = i as f32 / steps as f32;
+
+        let u = 1.0 - t;
+
+        let p =
+
+            p0 * (u * u)
+
+                + ctrl * (2.0 * u * t)
+
+                + p2 * (t * t);
+
+        path.push(p);
+
+    }
+
+    path.push(next);
+
+}
 // ── Shape builders ──
 
 /// Q/P：起点 → 直线 → B弧 → 直线 → 终点（span 由 lane 和 target 自动算出）
@@ -136,9 +224,28 @@ fn build_arc(
         ArcDir::CW  => { if ep >= bp { ep -= std::f32::consts::TAU; } }
     }
 
-    path.push(start_pos);
-    push_arc(path, bp, ep, b_center, b_radius, SLIDE_TILE_SPACING * scale);
-    path.push(end);
+    if start_zone==end_zone {
+        push_corner_bezier(
+
+            path,
+
+            start_pos,
+
+            end,
+
+            20.0 * scale,
+
+            SLIDE_TILE_SPACING * scale,
+
+        );
+        // path.push(start_pos);
+        // path.push(end);
+    }else{
+        path.push(start_pos);
+        push_arc(path, bp, ep, b_center, b_radius, SLIDE_TILE_SPACING * scale);
+        path.push(end);
+    }
+
 }
 /// PP：与 QQ 相反（CW 弧），同用 AD 环固定圆
 fn build_pp_arc(
@@ -388,12 +495,14 @@ pub fn slide_shape_pp(
 pub fn slide_shape_left(
     path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
     outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
-) { build_a_ring_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, -1, ArcDir::CW); }
+) { build_a_ring_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, -1, if   note.lane < 7 && note.lane > 2 { ArcDir::CCW }else{ArcDir::CW });}
 
 pub fn slide_shape_right(
     path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
     outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
-) { build_a_ring_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, 1, ArcDir::CCW); }
+) {
+
+    build_a_ring_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, 1, if note.lane < 7 && note.lane > 2 { ArcDir::CW} else{ArcDir::CCW});}
 
 pub fn slide_shape_caret(
     path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,

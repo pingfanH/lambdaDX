@@ -160,7 +160,7 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
         .show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
                 // ── App title ──
-                ui.label(egui::RichText::new("Mai2Chart")
+                ui.label(egui::RichText::new("LambdaDX Demo")
                     .font(FontId::new(16.0, FontFamily::Proportional))
                     .color(ACCENT_ORANGE).strong());
                 section_sep(ui);
