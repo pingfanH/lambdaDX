@@ -29,6 +29,10 @@ path = "src/test/slide_test.rs"
 name = "lambda_dx_player"
 path = "src/player/player.rs"
 
+[[bin]]
+name = "ui_prototype"
+path = "src/ui_prototype/main.rs"
+
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }
