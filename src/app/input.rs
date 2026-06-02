@@ -1370,6 +1370,30 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                     if let Some(note) = app.chart.notes.get_mut(si) {
                         note.time = snap_grid((orig_t + t_delta).max(1.0));
                         note.lane = wrap_lane(orig_l, l_delta);
+                        // Rotate slide points for slide heads
+                        if matches!(note.note_type, super::types::NoteType::Slide) && l_delta != 0 {
+                            if let Some(orig_note) = app.drag_orig_note.as_ref() {
+                                for (sli, sl) in note.slide.iter_mut().enumerate() {
+                                    if let Some(old_sl) = orig_note.slide.get(sli) {
+                                        sl.segments = old_sl.segments.clone();
+                                        for seg in &mut sl.segments {
+                                            for pt in &mut seg.points {
+                                                let id = pt.zone.to_id() as i32;
+                                                let new_id = match id {
+                                                    1..=8  => (id - 1 + l_delta).rem_euclid(8) + 1,
+                                                    9..=16 => (id - 9 + l_delta).rem_euclid(8) + 9,
+                                                    17 => 17,
+                                                    18..=25 => (id - 18 + l_delta).rem_euclid(8) + 18,
+                                                    26..=33 => (id - 26 + l_delta).rem_euclid(8) + 26,
+                                                    _ => id,
+                                                } as u8;
+                                                pt.zone = PadZone::from(new_id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 app.set_status(format!("Moving {} notes", app.selected_notes.len()));
@@ -1392,7 +1416,8 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                                         sl.segments = old_sl.segments.clone();
                                     }
                                 }
-                                let lane_delta = new_lane as i32 - o.lane as i32;
+                                // Use raw (unclamped) lane for delta so wrapping works outside bounds
+                                let lane_delta = raw_lane - (o.lane as i32 - 1);
                                 if lane_delta != 0 {
                                     for sl in &mut note.slide {
                                         for seg in &mut sl.segments {
@@ -1476,7 +1501,17 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                     }
                 }
                 if !matches!(part, DragPart::Tail | DragPart::SlideDelayEnd) {
-                    note.lane = new_lane;
+                    if is_slide && matches!(part, DragPart::Head) {
+                        // Slide head: use wrap_lane for wrapping
+                        if let Some(o) = orig {
+                            let lane_delta = raw_lane - (o.lane as i32 - 1);
+                            note.lane = wrap_lane(o.lane, lane_delta);
+                        } else {
+                            note.lane = new_lane;
+                        }
+                    } else {
+                        note.lane = new_lane;
+                    }
                 }
                 let dur = if is_slide {
                     note.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max)
