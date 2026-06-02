@@ -699,6 +699,25 @@ fn snap_grid(m: f32) -> f32 {
     (m / step).round() * step
 }
 
+/// Wrap lane within its zone group (A1-A8, D1-D8, E1-E8, B1-B8, C).
+fn wrap_lane(lane: u8, delta: i32) -> u8 {
+    if lane >= 1 && lane <= 8 {
+        // A-zone: wrap 1-8
+        ((lane as i32 - 1 + delta).rem_euclid(8) + 1) as u8
+    } else if lane >= 10 && lane <= 17 {
+        // D-zone: wrap 10-17
+        ((lane as i32 - 10 + delta).rem_euclid(8) + 10) as u8
+    } else if lane >= 18 && lane <= 25 {
+        // E-zone: wrap 18-25
+        ((lane as i32 - 18 + delta).rem_euclid(8) + 18) as u8
+    } else if lane >= 26 && lane <= 33 {
+        // B-zone: wrap 26-33
+        ((lane as i32 - 26 + delta).rem_euclid(8) + 26) as u8
+    } else {
+        lane // C or unknown: don't wrap
+    }
+}
+
 /// Snap a screen-seconds value to the nearest visible grid position.
 /// Returns the snapped value in **measures**.
 fn snap_secs_to_measure(secs: f32, bpms: &[BpmChange]) -> f32 {
@@ -1254,30 +1273,39 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
             app.set_status("Grab applied".to_string());
             return;
         }
-        // Compute cursor position in measures
-        let (mx, my) = mouse_position();
-        let cursor_secs = (now + (judge_y - my) / scroll_speed).max(0.0);
-        let cursor_m = secs_to_measure(cursor_secs, &app.chart.bpms);
-        let delta_m = cursor_m - app.grab_anchor_time;
-        // Compute lane from cursor X
-        let lx = mx - lanes_x;
-        let cursor_lane = if lx >= 0.0 {
-            let l = (lx / lane_w) as i32;
-            let l = l.clamp(0, LANE_COUNT as i32 - 1) as u8;
-            if l == LANE_COUNT as u8 - 1 { 9 } else { l + 1 }
-        } else { 1 };
-        // Compute lane delta from first selected note's original lane
-        let anchor_lane = app.grab_orig_notes.first().map(|&(_, _, l)| l).unwrap_or(1);
-        let lane_delta = cursor_lane as i32 - anchor_lane as i32;
-        // Apply move
-        for &(i, orig_t, orig_l) in &app.grab_orig_notes {
-            if let Some(note) = app.chart.notes.get_mut(i) {
-                note.time = snap_grid((orig_t + delta_m).max(1.0));
-                note.lane = (orig_l as i32 + lane_delta).clamp(1, PAD_ZONE_MAX as i32) as u8;
+        // Arrow keys: Left/Right = lane (with wrapping), Up/Down = time
+        let lane_step = 1;
+        let time_step = snap_grid(1.0 / 4.0); // 1/4 measure per keypress
+        if is_key_pressed(KeyCode::Left) {
+            for &(i, _, _) in &app.grab_orig_notes {
+                if let Some(note) = app.chart.notes.get_mut(i) {
+                    note.lane = wrap_lane(note.lane, -lane_step);
+                }
+            }
+        }
+        if is_key_pressed(KeyCode::Right) {
+            for &(i, _, _) in &app.grab_orig_notes {
+                if let Some(note) = app.chart.notes.get_mut(i) {
+                    note.lane = wrap_lane(note.lane, lane_step);
+                }
+            }
+        }
+        if is_key_pressed(KeyCode::Up) {
+            for &(i, _, _) in &app.grab_orig_notes {
+                if let Some(note) = app.chart.notes.get_mut(i) {
+                    note.time = snap_grid((note.time + time_step).max(1.0));
+                }
+            }
+        }
+        if is_key_pressed(KeyCode::Down) {
+            for &(i, _, _) in &app.grab_orig_notes {
+                if let Some(note) = app.chart.notes.get_mut(i) {
+                    note.time = snap_grid((note.time - time_step).max(1.0));
+                }
             }
         }
         app.recompute_each();
-        app.set_status(format!("Grabbing {} notes (click=confirm, Esc=cancel)", app.selected_notes.len()));
+        app.set_status(format!("Grabbing {} notes (arrows=move, click/Enter=confirm, Esc=cancel)", app.selected_notes.len()));
         return;
     }
 
@@ -1324,19 +1352,24 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
             let raw_m = (cursor_m + (start_m - anchor_m)).max(1.0);
             let new_t = snap_grid(raw_m);
             let lx = pos.x - lanes_x;
+            // Raw lane index (0-based A-zone), NOT clamped — used for delta in multi-select
+            let raw_lane = (lx / lane_w) as i32;
+            // Clamped lane for single-note and display
             let new_lane = if lx >= 0.0 {
-                let l = (lx / lane_w) as i32; let l = l.clamp(0, LANE_COUNT as i32 - 1) as u8;
+                let l = raw_lane.clamp(0, LANE_COUNT as i32 - 1) as u8;
                 if l == LANE_COUNT as u8 - 1 { 9 } else { l + 1 }
             } else { 1 };
             // Multi-select: move all selected notes by delta
             if app.selected_notes.len() > 1 && app.selected_notes.contains(&i) {
                 let orig = app.drag_orig_note.as_ref();
                 let t_delta = new_t - orig.map(|o| o.time).unwrap_or(new_t);
-                let l_delta = new_lane as i32 - orig.map(|o| o.lane as i32).unwrap_or(new_lane as i32);
+                // Use raw (unclamped) lane for delta so wrapping works outside bounds
+                let orig_raw = orig.map(|o| (o.lane as i32 - 1)).unwrap_or(raw_lane);
+                let l_delta = raw_lane - orig_raw;
                 for &(si, orig_t, orig_l) in &app.drag_multi_orig {
                     if let Some(note) = app.chart.notes.get_mut(si) {
                         note.time = snap_grid((orig_t + t_delta).max(1.0));
-                        note.lane = (orig_l as i32 + l_delta).clamp(1, PAD_ZONE_MAX as i32) as u8;
+                        note.lane = wrap_lane(orig_l, l_delta);
                     }
                 }
                 app.set_status(format!("Moving {} notes", app.selected_notes.len()));
