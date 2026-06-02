@@ -80,6 +80,12 @@ pub struct AppState {
     pub selected_notes: Vec<usize>,
     pub selected_note_ids: HashSet<u64>,
     pub drag_orig_note: Option<super::types::Note>,
+    /// When true, mouse Y controls time-scaling of selected notes.
+    pub scaling_notes: bool,
+    /// Original (index, time, lane) snapshot of selected notes at scale start.
+    pub scale_orig_notes: Vec<(usize, f32, u8)>,
+    /// Mouse Y position at the moment scale mode was entered.
+    pub scale_anchor_y: f32,
     pub timeline_view_time: f32,
     pub timeline_zoom: f32,
     pub dragging_progress_bar: bool,
@@ -228,6 +234,9 @@ impl AppState {
             selected_notes: Vec::new(),
             selected_note_ids: HashSet::new(),
             drag_orig_note: None,
+            scaling_notes: false,
+            scale_orig_notes: Vec::new(),
+            scale_anchor_y: 0.0,
             timeline_view_time: 0.0,
             timeline_zoom: 1.0,
             dragging_progress_bar: false,

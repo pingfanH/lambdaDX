@@ -107,20 +107,52 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
     }
 
     if is_key_pressed(KeyCode::S) && app.editing_slide_path.is_none() {
-        match chart::save_recording_doc(app) {
-            Ok(path) => app.set_status(format!("Saved recording: {}", path.display())),
-            Err(err) => app.set_status(format!("Save failed: {err}")),
+        if app.selected_notes.len() > 1 && !app.scaling_notes {
+            // Enter scale mode
+            app.push_undo();
+            app.scaling_notes = true;
+            let (_, my) = mouse_position();
+            app.scale_anchor_y = my;
+            app.scale_orig_notes = app.selected_notes.iter()
+                .filter_map(|&i| app.chart.notes.get(i).map(|n| (i, n.time, n.lane)))
+                .collect();
+            app.set_status(format!("Scaling {} notes — mouse up=enlarge, down=shrink, Esc=cancel", app.selected_notes.len()));
+        } else if !app.scaling_notes {
+            match chart::save_recording_doc(app) {
+                Ok(path) => app.set_status(format!("Saved recording: {}", path.display())),
+                Err(err) => app.set_status(format!("Save failed: {err}")),
+            }
         }
     }
 
-    // Delete selected note (skipped while editing a slide trajectory: there
+    // Delete selected note(s) (skipped while editing a slide trajectory: there
     // Backspace pops the last slide point instead).
     // Block deletion of template instance notes (must edit in isolation mode).
     if (is_key_pressed(KeyCode::Delete)
+        || is_key_pressed(KeyCode::D)
         || (is_key_pressed(KeyCode::Backspace) && app.editing_slide_path.is_none()))
     {
-        if let Some(i) = app.selected_note {
+        if app.selected_notes.len() > 1 {
+            // Multi-select delete
+            app.push_undo();
+            let mut to_remove: Vec<usize> = app.selected_notes.iter()
+                .filter(|&&i| i < app.chart.notes.len() && !app.is_note_in_template_instance(i))
+                .copied()
+                .collect();
+            to_remove.sort_unstable();
+            to_remove.dedup();
+            for &i in to_remove.iter().rev() {
+                if i < app.chart.notes.len() {
+                    app.chart.notes.remove(i);
+                }
+            }
+            app.set_selected_note(None);
+            app.selected_notes.clear();
+            app.selected_note_ids.clear();
+            app.set_status(format!("Deleted {} notes", to_remove.len()));
+        } else if let Some(i) = app.selected_note {
             if i < app.chart.notes.len() && !app.is_note_in_template_instance(i) {
+                app.push_undo();
                 app.chart.notes.remove(i);
                 app.set_selected_note(None);
                 app.set_status(format!("Deleted note #{i}"));
@@ -828,15 +860,15 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
     }
 
     // ── Ruler scrub ──
-    if pos.x >= track_x && pos.x <= lanes_x && is_mouse_button_down(MouseButton::Left) {
-        let dt = (judge_y - pos.y) / scroll_speed;
-        let new_t = (now + dt).max(0.0);
-        if matches!(app.mode, super::types::Mode::Playing) {
-            app.mode_song_offset = new_t; app.mode_wall_anchor = get_time(); app.seek_audio_to(new_t);
-        } else { app.timeline_view_time = new_t; }
-        app.set_selected_note(None); app.dragging_note = None; app.drag_part = None;
-        return;
-    }
+    // if pos.x >= track_x && pos.x <= lanes_x && is_mouse_button_down(MouseButton::Left) {
+    //     let dt = (judge_y - pos.y) / scroll_speed;
+    //     let new_t = (now + dt).max(0.0);
+    //     if matches!(app.mode, super::types::Mode::Playing) {
+    //         app.mode_song_offset = new_t; app.mode_wall_anchor = get_time(); app.seek_audio_to(new_t);
+    //     } else { app.timeline_view_time = new_t; }
+    //     app.set_selected_note(None); app.dragging_note = None; app.drag_part = None;
+    //     return;
+    // }
 
     // ── Shift+Right-click delete template instance ──
     let shift_down = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
@@ -948,7 +980,7 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                 app.drag_start_pos = Some(pos);
                 app.press_note_candidate = Some(usize::MAX);
                 app.drag_start_time = anchor_time;
-                app.drag_cursor_anchor_t = inst_idx as f32;
+                app.drag_cursor_anchor_t = (now + (judge_y - pos.y) / scroll_speed).max(0.0);
                 app.set_status(format!("Template '{}': drag to move, release to edit", tpl_name));
                 return;
             }
@@ -1082,14 +1114,18 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
         if is_mouse_button_down(MouseButton::Left) {
             let moved = app.drag_start_pos.map(|s| pos.distance(s) >= drag_threshold).unwrap_or(false);
             if moved {
-                let dt = (judge_y - pos.y) / scroll_speed;
-                let new_time = (now + dt).max(1.0);
+                let cursor_secs = (now + (judge_y - pos.y) / scroll_speed).max(0.0);
+                let cursor_m = secs_to_measure(cursor_secs, &app.chart.bpms);
+                let anchor_m = secs_to_measure(app.drag_cursor_anchor_t, &app.chart.bpms);
+                let start_m = secs_to_measure(app.drag_start_time, &app.chart.bpms);
+                let new_time = snap_grid((cursor_m + (start_m - anchor_m)).max(1.0));
                 let anchor = app.drag_start_time;
                 if let Some(inst_idx) = app.chart.template_instances.iter()
                     .position(|i| (i.anchor_time - anchor).abs() < 0.01)
                 {
                     template::move_instance(app, inst_idx, new_time);
                     app.drag_start_time = new_time;
+                    app.drag_cursor_anchor_t = cursor_secs;
                 }
             }
         }
@@ -1114,6 +1150,62 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
     if app.press_note_candidate == Some(usize::MAX) {
         app.press_note_candidate = None;
         app.drag_start_pos = None;
+    }
+
+    // ── Note scaling mode (S key with multi-select) ──
+    if app.scaling_notes {
+        if is_key_pressed(KeyCode::Escape) {
+            // Cancel: restore original positions
+            for &(i, orig_t, orig_l) in &app.scale_orig_notes {
+                if let Some(note) = app.chart.notes.get_mut(i) {
+                    note.time = orig_t;
+                    note.lane = orig_l;
+                }
+            }
+            app.scaling_notes = false;
+            app.scale_orig_notes.clear();
+            app.drag_start_pos = None;
+            app.press_note_candidate = None;
+            app.set_status("Scale cancelled".to_string());
+            return;
+        }
+        if is_mouse_button_pressed(MouseButton::Left) || is_key_pressed(KeyCode::Enter) {
+            // Confirm scaling
+            app.scaling_notes = false;
+            app.scale_orig_notes.clear();
+            app.drag_start_pos = None;
+            app.press_note_candidate = None;
+            app.recompute_each();
+            app.set_status("Scale applied".to_string());
+            return;
+        }
+        // Compute scale factor from mouse Y displacement
+        let (_, my) = mouse_position();
+        let dy = app.scale_anchor_y - my; // positive = mouse moved up = enlarge
+        let scale_factor = (1.0 + dy / 200.0).max(0.1);
+        let bpms = &app.chart.bpms;
+        // Compute center of selected notes group
+        let times: Vec<f32> = app.scale_orig_notes.iter().map(|&(_, t, _)| t).collect();
+        let center = if times.is_empty() { 1.0 } else {
+            (times.iter().cloned().fold(f32::INFINITY, f32::min)
+                + times.iter().cloned().fold(f32::NEG_INFINITY, f32::max)) / 2.0
+        };
+        // Apply scale: center stays fixed, other notes move proportionally
+        for &(i, orig_t, orig_l) in &app.scale_orig_notes {
+            if let Some(note) = app.chart.notes.get_mut(i) {
+                let delta = orig_t - center;
+                note.time = snap_grid((center + delta * scale_factor).max(1.0));
+                // Lane scaling: scale lane distance from center lane
+                let lanes: Vec<u8> = app.scale_orig_notes.iter().map(|&(_, _, l)| l).collect();
+                let lane_center = lanes.iter().map(|&l| l as f32).sum::<f32>() / lanes.len().max(1) as f32;
+                let lane_delta = orig_l as f32 - lane_center;
+                let new_lane = (lane_center + lane_delta * scale_factor).round().clamp(1.0, 8.0) as u8;
+                note.lane = new_lane;
+            }
+        }
+        app.recompute_each();
+        app.set_status(format!("Scaling ×{:.2} (mouse up=enlarge, down=shrink, click=confirm, Esc=cancel)", scale_factor));
+        return;
     }
 
     // ── Dragging: note move or box selection ──
