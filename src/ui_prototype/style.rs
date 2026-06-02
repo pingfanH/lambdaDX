@@ -1,80 +1,48 @@
-use macroquad::prelude::Color;
+use egui_macroquad::egui::Color32;
 
-// ── Colors (from Bevy Editor SVG) ──
-pub const BG_DARK: Color = Color::new(0.122, 0.122, 0.141, 1.0);      // #1F1F24
-pub const BG_PANEL: Color = Color::new(0.165, 0.165, 0.180, 1.0);     // #2A2A2E
-pub const BG_BUTTON: Color = Color::new(0.212, 0.216, 0.231, 1.0);    // #36373B
-pub const BG_BUTTON_HOVER: Color = Color::new(0.275, 0.278, 0.298, 1.0);
-pub const BG_INPUT: Color = Color::new(0.275, 0.278, 0.298, 1.0);     // #46474C
-pub const ACCENT_BLUE: Color = Color::new(0.125, 0.427, 0.788, 1.0);  // #206EC9
-pub const ACCENT_YELLOW: Color = Color::new(1.0, 0.792, 0.224, 1.0);  // #FFCA39
-pub const TEXT_PRIMARY: Color = Color::new(0.925, 0.925, 0.925, 1.0);  // #ECECEC
-pub const TEXT_SECONDARY: Color = Color::new(0.659, 0.659, 0.659, 1.0); // #A8A8A8
-pub const TEXT_DIM: Color = Color::new(0.514, 0.514, 0.522, 1.0);     // #838385
-pub const BORDER: Color = Color::new(0.251, 0.251, 0.251, 1.0);       // #404040
-pub const BORDER_LIGHT: Color = Color::new(0.188, 0.188, 0.188, 1.0); // #303030
-pub const BUTTON_BORDER: Color = Color::new(0.255, 0.255, 0.259, 1.0); // #414142
-pub const SEPARATOR: Color = Color::new(1.0, 1.0, 1.0, 0.06);
+// ── Colors from Bevy Editor SVG ──
+pub const BG_DARK: Color32 = Color32::from_rgb(31, 31, 36);       // #1F1F24
+pub const BG_PANEL: Color32 = Color32::from_rgb(42, 42, 46);      // #2A2A2E
+pub const BG_BUTTON: Color32 = Color32::from_rgb(54, 55, 59);     // #36373B
+pub const BG_BUTTON_HOVER: Color32 = Color32::from_rgb(71, 72, 77); // #47484D
+pub const BG_INPUT: Color32 = Color32::from_rgb(70, 71, 76);      // #46474C
+pub const ACCENT_BLUE: Color32 = Color32::from_rgb(32, 110, 201); // #206EC9
+pub const ACCENT_YELLOW: Color32 = Color32::from_rgb(255, 202, 57); // #FFCA39
+pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(236, 236, 236); // #ECECEC
+pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(168, 168, 168); // #A8A8A8
+pub const TEXT_DIM: Color32 = Color32::from_rgb(131, 131, 133);    // #838385
+pub const BORDER: Color32 = Color32::from_rgb(64, 64, 64);         // #404040
+pub const BORDER_LIGHT: Color32 = Color32::from_rgb(48, 48, 48);   // #303030
+pub const BUTTON_BORDER: Color32 = Color32::from_rgb(65, 65, 66);  // #414142
+pub const SEPARATOR: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 15); // white 6% opacity
 
-// ── Sizes ──
-pub const TOOLBAR_HEIGHT: f32 = 30.0;
-pub const SIDEBAR_WIDTH: f32 = 52.0;
-pub const RIGHT_PANEL_WIDTH: f32 = 280.0;
-pub const TIMELINE_HEIGHT: f32 = 180.0;
-pub const BUTTON_HEIGHT: f32 = 26.0;
-pub const BUTTON_RADIUS: f32 = 4.0;
-pub const ICON_SIZE: f32 = 18.0;
-pub const SPACING: f32 = 6.0;
-pub const PADDING: f32 = 8.0;
+// Additional colors from SVG
+pub const BG_VIEWPORT: Color32 = Color32::from_rgb(26, 26, 30);    // #1A1A1E
+pub const BG_SIDEBAR: Color32 = Color32::from_rgb(42, 42, 46);    // #2A2A2E
+pub const BG_TOOLBAR: Color32 = Color32::from_rgb(42, 42, 46);    // #2A2A2E
+pub const BG_TIMELINE: Color32 = Color32::from_rgb(42, 42, 46);   // #2A2A2E
+pub const BG_RULER: Color32 = Color32::from_rgb(42, 42, 46);      // #2A2A2E
+pub const BG_LANE: Color32 = Color32::from_rgb(28, 28, 32);       // #1C1C20
+pub const RING_OUTER: Color32 = Color32::from_rgb(75, 75, 85);    // #4B4B55
+pub const RING_INNER: Color32 = Color32::from_rgb(60, 60, 70);    // #3C3C46
+pub const SLIDE_COLOR: Color32 = Color32::from_rgba_premultiplied(230, 204, 51, 150); // Yellow slide path
 
-// ── Layout ──
-pub struct Layout {
-    pub toolbar: UIRect,
-    pub sidebar: UIRect,
-    pub viewport: UIRect,
-    pub right_panel: UIRect,
-    pub timeline: UIRect,
-}
+// ── Global scale factor (change this to resize everything) ──
+pub const UI_SCALE: f32 = 3.0;
 
-#[derive(Debug, Clone, Copy)]
-pub struct UIRect {
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-}
+// ── Base sizes (will be multiplied by UI_SCALE) ──
+pub const TOOLBAR_HEIGHT: f32 = 24.0 * UI_SCALE;
+pub const SIDEBAR_WIDTH: f32 = 36.0 * UI_SCALE;
+pub const RIGHT_PANEL_WIDTH: f32 = 180.0 * UI_SCALE;
+pub const TIMELINE_HEIGHT: f32 = 140.0 * UI_SCALE;
+pub const BUTTON_HEIGHT: f32 = 18.0 * UI_SCALE;
+pub const ICON_SIZE: f32 = 22.0 * UI_SCALE;
+pub const SPACING: f32 = 5.0 * UI_SCALE;
+pub const PADDING: f32 = 6.0 * UI_SCALE;
 
-impl UIRect {
-    pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
-        Self { x, y, w, h }
-    }
-
-    pub fn contains(&self, px: f32, py: f32) -> bool {
-        px >= self.x && px <= self.x + self.w && py >= self.y && py <= self.y + self.h
-    }
-
-    pub fn inset(&self, padding: f32) -> Self {
-        Self {
-            x: self.x + padding,
-            y: self.y + padding,
-            w: self.w - padding * 2.0,
-            h: self.h - padding * 2.0,
-        }
-    }
-}
-
-pub fn compute_layout(screen_w: f32, screen_h: f32) -> Layout {
-    let margin = 10.0;
-    let inner_x = margin;
-    let inner_y = margin;
-    let inner_w = screen_w - margin * 2.0;
-    let inner_h = screen_h - margin * 2.0;
-
-    let toolbar = UIRect::new(inner_x, inner_y, inner_w, TOOLBAR_HEIGHT);
-    let sidebar = UIRect::new(inner_x, toolbar.y + toolbar.h + SPACING, SIDEBAR_WIDTH, inner_h - TOOLBAR_HEIGHT - TIMELINE_HEIGHT - SPACING * 2.0);
-    let right_panel = UIRect::new(inner_x + inner_w - RIGHT_PANEL_WIDTH, sidebar.y, RIGHT_PANEL_WIDTH, sidebar.h);
-    let viewport = UIRect::new(sidebar.x + sidebar.w + SPACING, sidebar.y, right_panel.x - sidebar.x - sidebar.w - SPACING * 2.0, sidebar.h);
-    let timeline = UIRect::new(inner_x, sidebar.y + sidebar.h + SPACING, inner_w, TIMELINE_HEIGHT);
-
-    Layout { toolbar, sidebar, viewport, right_panel, timeline }
-}
+// ── Font sizes (will be multiplied by UI_SCALE) ──
+pub const FONT_SMALL: f32 = 7.0 * UI_SCALE;
+pub const FONT_BODY: f32 = 8.0 * UI_SCALE;
+pub const FONT_BUTTON: f32 = 7.5 * UI_SCALE;
+pub const FONT_HEADER: f32 = 8.5 * UI_SCALE;
+pub const FONT_ICON: f32 = 8.0 * UI_SCALE;

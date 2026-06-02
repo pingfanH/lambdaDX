@@ -13,11 +13,16 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    // Wait a frame for window to be ready
     next_frame().await;
 
     loop {
-        lambda_dx::ui_prototype::draw_editor();
+        clear_background(Color::from_rgba(31, 31, 36, 255));
+
+        egui_macroquad::ui(|egui_ctx| {
+            lambda_dx::ui_prototype::draw_editor(egui_ctx);
+        });
+
+        egui_macroquad::draw();
         next_frame().await;
     }
 }

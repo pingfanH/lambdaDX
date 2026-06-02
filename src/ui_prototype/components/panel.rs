@@ -1,112 +1,88 @@
-use macroquad::prelude::*;
-use crate::ui_prototype::style::*;
+use egui_macroquad::egui::{self, Vec2, Color32, CornerRadius, Stroke, StrokeKind};
 use super::button::*;
+use crate::ui_prototype::style::*;
 
-pub struct RightPanel;
+/// Right properties panel matching Bevy Editor SVG
+pub fn draw(ui: &mut egui::Ui) {
+    egui::Frame::new()
+        .fill(BG_DARK)
+        .stroke(Stroke::new(1.0_f32, BORDER_LIGHT))
+        .inner_margin(egui::Margin::same(PADDING as i8))
+        .show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = SPACING;
 
-impl RightPanel {
-    pub fn draw(rect: UIRect) {
-        draw_rectangle(rect.x, rect.y, rect.w, rect.h, BG_DARK);
-        draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.0, BORDER_LIGHT);
+                // ── Note Properties ──
+                section_header(ui, "Note Properties");
+                ui.add_space(SPACING * 1.5);
 
-        let inner = rect.inset(PADDING);
-        let row_h = 22.0;
-        let label_w = 80.0;
-        let mut y = inner.y;
+                value_row(ui, "Type", "Tap");
+                value_row(ui, "Time", "m4.000");
+                value_row(ui, "Lane", "3");
+                value_row(ui, "Duration", "m2.000");
 
-        // ── Note Properties Section ──
-        Self::draw_section_header(inner.x, y, inner.w, "Note Properties");
-        y += 28.0;
+                // Flags row
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = SPACING * 0.5;
+                    for (i, flag) in ["Break", "Ex", "Star", "Tapless"].iter().enumerate() {
+                        let btn = Button::new(flag, ButtonKind::Toggle(i == 0), Vec2::new(ICON_SIZE * 3.0, BUTTON_HEIGHT * 0.9));
+                        btn.show(ui);
+                    }
+                });
 
-        // Type
-        draw_value_row(UIRect::new(inner.x, y, inner.w, row_h), "Type", "Tap");
-        y += row_h + 2.0;
+                ui.add_space(SPACING * 1.5);
+                separator(ui);
 
-        // Time
-        draw_value_row(UIRect::new(inner.x, y, inner.w, row_h), "Time", "m4.000");
-        y += row_h + 2.0;
+                // ── Chart Info ──
+                section_header(ui, "Chart Info");
+                ui.add_space(SPACING * 1.5);
 
-        // Lane
-        draw_value_row(UIRect::new(inner.x, y, inner.w, row_h), "Lane", "3");
-        y += row_h + 2.0;
+                value_row(ui, "Title", "Demo Song");
+                value_row(ui, "Artist", "Unknown");
+                value_row(ui, "BPM", "180.0");
+                value_row(ui, "Offset", "0.000s");
 
-        // Duration (for holds)
-        draw_value_row(UIRect::new(inner.x, y, inner.w, row_h), "Duration", "m2.000");
-        y += row_h + 2.0;
+                ui.add_space(SPACING * 1.5);
+                separator(ui);
 
-        // Flags
-        let flags_rect = UIRect::new(inner.x, y, inner.w, row_h);
-        Self::draw_flags_row(flags_rect);
-        y += row_h + 12.0;
+                // ── Templates ──
+                section_header(ui, "Templates");
+                ui.add_space(SPACING * 1.5);
 
-        // Separator
-        draw_line(inner.x, y, inner.x + inner.w, y, 1.0, SEPARATOR);
-        y += 12.0;
+                // Template items
+                template_item(ui, "Slide Pattern A", 3, true);
+                template_item(ui, "Hold Sequence", 1, false);
 
-        // ── Chart Info Section ──
-        Self::draw_section_header(inner.x, y, inner.w, "Chart Info");
-        y += 28.0;
+                ui.add_space(SPACING);
+                Button::new("+ New Template", ButtonKind::Normal, Vec2::new(ui.available_width(), BUTTON_HEIGHT)).show(ui);
+            });
+        });
+}
 
-        draw_value_row(UIRect::new(inner.x, y, inner.w, row_h), "Title", "Demo Song");
-        y += row_h + 2.0;
+fn template_item(ui: &mut egui::Ui, name: &str, instance_count: usize, selected: bool) {
+    let bg = if selected { Color32::from_rgb(46, 71, 115) } else { BG_PANEL };
+    let item_h = BUTTON_HEIGHT * 1.3;
 
-        draw_value_row(UIRect::new(inner.x, y, inner.w, row_h), "Artist", "Unknown");
-        y += row_h + 2.0;
+    let btn = ui.allocate_response(Vec2::new(ui.available_width(), item_h), egui::Sense::click());
+    ui.painter().rect_filled(btn.rect, CornerRadius::same(6), bg);
+    ui.painter().rect_stroke(btn.rect, CornerRadius::same(6), Stroke::new(1.0_f32, BORDER_LIGHT), StrokeKind::Outside);
 
-        draw_value_row(UIRect::new(inner.x, y, inner.w, row_h), "BPM", "180.0");
-        y += row_h + 2.0;
+    // Name
+    ui.painter().text(
+        egui::pos2(btn.rect.left() + PADDING, btn.rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        name,
+        egui::FontId::proportional(FONT_BODY),
+        TEXT_PRIMARY,
+    );
 
-        draw_value_row(UIRect::new(inner.x, y, inner.w, row_h), "Offset", "0.000s");
-        y += row_h + 12.0;
-
-        // Separator
-        draw_line(inner.x, y, inner.x + inner.w, y, 1.0, SEPARATOR);
-        y += 12.0;
-
-        // ── Template Section ──
-        Self::draw_section_header(inner.x, y, inner.w, "Templates");
-        y += 28.0;
-
-        // Template list placeholder
-        Self::draw_template_item(UIRect::new(inner.x, y, inner.w, 32.0), "Slide Pattern A", true);
-        y += 36.0;
-        Self::draw_template_item(UIRect::new(inner.x, y, inner.w, 32.0), "Hold Sequence", false);
-        y += 36.0;
-
-        // Add template button
-        y += 4.0;
-        let add_btn = Button::new("+ New Template", ButtonKind::Normal, UIRect::new(inner.x, y, inner.w, BUTTON_HEIGHT));
-        add_btn.draw();
-    }
-
-    fn draw_section_header(x: f32, y: f32, w: f32, title: &str) {
-        draw_text(title, x, y + 14.0, 12.0, TEXT_PRIMARY);
-        // Collapse arrow placeholder
-        draw_text("▼", x + w - 14.0, y + 14.0, 10.0, TEXT_DIM);
-    }
-
-    fn draw_flags_row(rect: UIRect) {
-        let flags = ["Break", "Ex", "Star", "Tapless"];
-        let flag_w = rect.w / flags.len() as f32;
-        for (i, flag) in flags.iter().enumerate() {
-            let fx = rect.x + flag_w * i as f32;
-            let btn_rect = UIRect::new(fx + 1.0, rect.y, flag_w - 2.0, rect.h);
-            let btn = Button::new(flag, ButtonKind::Toggle(i == 0), btn_rect);
-            btn.draw();
-        }
-    }
-
-    fn draw_template_item(rect: UIRect, name: &str, selected: bool) {
-        let bg = if selected { Color::new(0.18, 0.28, 0.45, 1.0) } else { BG_PANEL };
-        draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
-        draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.0, BORDER_LIGHT);
-
-        let font_size = 11.0;
-        draw_text(name, rect.x + 8.0, rect.y + rect.h * 0.5 + 4.0, font_size, TEXT_PRIMARY);
-
-        // Instance count placeholder
-        let count_text = "×3";
-        let count_dims = measure_text(count_text, None, font_size as u16, 1.0);
-        draw_text(count_text, rect.x + rect.w - count_dims.width - 8.0, rect.y + rect.h * 0.5 + 4.0, font_size, TEXT_DIM);
-    }
+    // Instance count
+    let count_text = format!("×{}", instance_count);
+    ui.painter().text(
+        egui::pos2(btn.rect.right() - PADDING, btn.rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        &count_text,
+        egui::FontId::proportional(FONT_BODY),
+        TEXT_DIM,
+    );
 }

@@ -1,59 +1,56 @@
-use macroquad::prelude::*;
-use crate::ui_prototype::style::*;
+use egui_macroquad::egui::{self, Stroke};
 use super::button::*;
+use crate::ui_prototype::style::*;
 
-pub struct Sidebar;
+/// Left sidebar with tool icons matching Bevy Editor SVG
+pub fn draw(ui: &mut egui::Ui) {
+    egui::Frame::new()
+        .fill(BG_SIDEBAR)
+        .stroke(Stroke::new(1.0_f32, BORDER_LIGHT))
+        .inner_margin(egui::Margin::same(PADDING as i8))
+        .show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = SPACING;
 
-impl Sidebar {
-    pub fn draw(rect: UIRect) {
-        draw_rectangle(rect.x, rect.y, rect.w, rect.h, BG_DARK);
-        draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.0, BORDER_LIGHT);
+                // Tool icons (matching SVG layout)
+                let tools = [
+                    ("V", "Select", true),
+                    ("T", "Tap", false),
+                    ("H", "Hold", false),
+                    ("S", "Slide", false),
+                    ("C", "Touch", false),
+                    ("★", "Star", false),
+                ];
 
-        let inner = rect.inset(4.0);
-        let icon_size = 28.0;
-        let gap = 4.0;
-        let mut y = inner.y;
+                for (icon, _tooltip, active) in &tools {
+                    icon_button(ui, icon, *active);
+                }
 
-        // Tool icons (placeholder letters)
-        let tools = [
-            ("V", "Select", true),
-            ("T", "Tap", false),
-            ("H", "Hold", false),
-            ("S", "Slide", false),
-            ("C", "Touch", false),
-            ("★", "Star", false),
-        ];
+                // Separator line
+                ui.add_space(SPACING);
+                let rect = ui.available_rect_before_wrap();
+                let y = rect.top();
+                ui.painter().line_segment(
+                    [egui::pos2(rect.left() + SPACING, y), egui::pos2(rect.right() - SPACING, y)],
+                    Stroke::new(1.0_f32, SEPARATOR),
+                );
+                ui.add_space(SPACING * 1.5);
 
-        for (icon, _tooltip, active) in &tools {
-            let icon_rect = UIRect::new(inner.x + (inner.w - icon_size) * 0.5, y, icon_size, icon_size);
-            let clicked = draw_icon_button(icon_rect, icon, *active);
-            if clicked {
-                // TODO: tool selection
-            }
-            y += icon_size + gap;
-        }
+                // Utility icons (matching SVG)
+                let utils = [
+                    ("⚡", "Snap"),
+                    ("📏", "Grid"),
+                    ("🔊", "Audio"),
+                ];
 
-        // Separator
-        y += 4.0;
-        draw_line(inner.x + 6.0, y, inner.x + inner.w - 6.0, y, 1.0, SEPARATOR);
-        y += 8.0;
+                for (icon, _tooltip) in &utils {
+                    icon_button(ui, icon, false);
+                }
 
-        // Utility buttons
-        let utils = [
-            ("⚡", "Snap"),
-            ("📏", "Grid"),
-            ("🔊", "Audio"),
-        ];
-
-        for (icon, _tooltip) in &utils {
-            let icon_rect = UIRect::new(inner.x + (inner.w - icon_size) * 0.5, y, icon_size, icon_size);
-            draw_icon_button(icon_rect, icon, false);
-            y += icon_size + gap;
-        }
-
-        // Bottom: settings icon
-        let bottom_y = inner.y + inner.h - icon_size;
-        let icon_rect = UIRect::new(inner.x + (inner.w - icon_size) * 0.5, bottom_y, icon_size, icon_size);
-        draw_icon_button(icon_rect, "⚙", false);
-    }
+                // Spacer to push settings to bottom
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    icon_button(ui, "⚙", false);
+                });
+            });
+        });
 }

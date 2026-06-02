@@ -33,6 +33,10 @@ path = "src/player/player.rs"
 name = "ui_prototype"
 path = "src/ui_prototype/main.rs"
 
+[[bin]]
+name = "ui_prototype_bevy"
+path = "src/ui_prototype_bevy/main.rs"
+
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }

@@ -1,133 +1,161 @@
-use macroquad::prelude::*;
+use egui_macroquad::egui::{self, Vec2, Color32, CornerRadius, Stroke, Pos2};
+use super::button::*;
 use crate::ui_prototype::style::*;
 
-pub struct Timeline;
+/// Bottom timeline with transport, ruler, and note lanes matching Bevy Editor SVG
+pub fn draw(ui: &mut egui::Ui) {
+    egui::Frame::new()
+        .fill(BG_TIMELINE)
+        .stroke(Stroke::new(1.0_f32, BORDER_LIGHT))
+        .inner_margin(egui::Margin::same(PADDING as i8))
+        .show(ui, |ui| {
+            let available = ui.available_size();
 
-impl Timeline {
-    pub fn draw(rect: UIRect) {
-        // Background
-        draw_rectangle(rect.x, rect.y, rect.w, rect.h, BG_DARK);
-        draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.0, BORDER_LIGHT);
+            // ── Transport toolbar ──
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = SPACING;
 
-        let inner = rect.inset(PADDING);
+                let transport_size = Vec2::new(ICON_SIZE * 1.2, BUTTON_HEIGHT);
+                for label in &["◀◀", "▶", "■", "⏺", "▶▶"] {
+                    Button::new(label, ButtonKind::Normal, transport_size).show(ui);
+                }
+                separator(ui);
 
-        // ── Top toolbar row ──
-        let toolbar_h = 24.0;
-        Self::draw_toolbar(UIRect::new(inner.x, inner.y, inner.w, toolbar_h));
+                ui.label(egui::RichText::new("0:04.230 / 1:23.456").color(TEXT_SECONDARY).size(FONT_BODY));
 
-        // ── Ruler area ──
-        let ruler_y = inner.y + toolbar_h + 4.0;
-        let ruler_h = 20.0;
-        Self::draw_ruler(UIRect::new(inner.x, ruler_y, inner.w, ruler_h));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new("Snap: 1/4").color(TEXT_DIM).size(FONT_BODY));
+                });
+            });
 
-        // ── Note lanes ──
-        let lanes_y = ruler_y + ruler_h + 2.0;
-        let lanes_h = inner.h - toolbar_h - ruler_h - 8.0;
-        Self::draw_lanes(UIRect::new(inner.x, lanes_y, inner.w, lanes_h));
+            ui.add_space(SPACING);
 
-        // ── Playhead ──
-        let playhead_x = inner.x + inner.w * 0.3;
-        draw_line(playhead_x, ruler_y, playhead_x, inner.y + inner.h, 2.0, ACCENT_YELLOW);
-    }
+            // ── Ruler ──
+            let ruler_h = BUTTON_HEIGHT * 0.9;
+            let ruler_rect = ui.allocate_rect(
+                egui::Rect::from_min_size(
+                    ui.cursor().left_top(),
+                    Vec2::new(available.x, ruler_h),
+                ),
+                egui::Sense::hover(),
+            );
+            ui.painter().rect_filled(ruler_rect.rect, CornerRadius::ZERO, BG_RULER);
 
-    fn draw_toolbar(rect: UIRect) {
-        // Transport controls
-        let btn_w = 24.0;
-        let gap = 4.0;
-        let mut x = rect.x;
+            // Draw ruler ticks
+            let measure_count = 16;
+            let measure_w = ruler_rect.rect.width() / measure_count as f32;
+            for i in 0..measure_count {
+                let x = ruler_rect.rect.left() + measure_w * i as f32;
+                ui.painter().line_segment(
+                    [egui::pos2(x, ruler_rect.rect.bottom() - SPACING),
+                     egui::pos2(x, ruler_rect.rect.bottom())],
+                    Stroke::new(1.0_f32, TEXT_DIM),
+                );
 
-        let controls = ["◀◀", "▶", "■", "⏺", "▶▶"];
-        for label in &controls {
-            draw_rectangle(x, rect.y, btn_w, rect.h, BG_BUTTON);
-            let font_size = 10.0;
-            let text_dims = measure_text(label, None, font_size as u16, 1.0);
-            draw_text(label, x + (btn_w - text_dims.width) * 0.5, rect.y + rect.h * 0.5 + 4.0, font_size, TEXT_PRIMARY);
-            x += btn_w + gap;
-        }
+                if i % 2 == 0 {
+                    let label = format!("{}", i + 1);
+                    ui.painter().text(
+                        egui::pos2(x + SPACING * 0.5, ruler_rect.rect.top() + ruler_h * 0.5),
+                        egui::Align2::LEFT_CENTER,
+                        &label,
+                        egui::FontId::proportional(FONT_SMALL),
+                        TEXT_DIM,
+                    );
+                }
 
-        // Separator
-        x += 4.0;
-        draw_line(x, rect.y + 4.0, x, rect.y + rect.h - 4.0, 1.0, SEPARATOR);
-        x += 8.0;
-
-        // Time display
-        let time_text = "0:04.230 / 1:23.456";
-        draw_text(time_text, x, rect.y + rect.h * 0.5 + 4.0, 11.0, TEXT_SECONDARY);
-
-        // Right side: snap/grid controls
-        let right_x = rect.x + rect.w;
-        let snap_text = "Snap: 1/4";
-        let snap_dims = measure_text(snap_text, None, 11, 1.0);
-        draw_text(snap_text, right_x - snap_dims.width - 4.0, rect.y + rect.h * 0.5 + 4.0, 11.0, TEXT_DIM);
-    }
-
-    fn draw_ruler(rect: UIRect) {
-        // Ruler background
-        draw_rectangle(rect.x, rect.y, rect.w, rect.h, BG_PANEL);
-
-        // Measure markers
-        let measure_count = 16;
-        let measure_w = rect.w / measure_count as f32;
-        for i in 0..measure_count {
-            let x = rect.x + measure_w * i as f32;
-            // Tick mark
-            draw_line(x, rect.y + rect.h - 6.0, x, rect.y + rect.h, 1.0, TEXT_DIM);
-            // Measure number
-            if i % 2 == 0 {
-                let label = format!("{}", i + 1);
-                draw_text(&label, x + 2.0, rect.y + 12.0, 9.0, TEXT_DIM);
+                // Sub-ticks
+                for sub in 1..4 {
+                    let sx = x + measure_w * sub as f32 / 4.0;
+                    ui.painter().line_segment(
+                        [egui::pos2(sx, ruler_rect.rect.bottom() - SPACING * 0.5),
+                         egui::pos2(sx, ruler_rect.rect.bottom())],
+                        Stroke::new(1.0_f32, Color32::from_rgb(50, 50, 50)),
+                    );
+                }
             }
-            // Sub-ticks
-            for sub in 1..4 {
-                let sx = x + measure_w * sub as f32 / 4.0;
-                draw_line(sx, rect.y + rect.h - 3.0, sx, rect.y + rect.h, 1.0, Color::new(0.3, 0.3, 0.3, 1.0));
+
+            ui.add_space(SPACING * 0.5);
+
+            // ── Note lanes ──
+            let lanes_h = available.y - ruler_h - BUTTON_HEIGHT * 2.5;
+            let lanes_rect = ui.allocate_rect(
+                egui::Rect::from_min_size(
+                    ui.cursor().left_top(),
+                    Vec2::new(available.x, lanes_h.max(BUTTON_HEIGHT * 4.0)),
+                ),
+                egui::Sense::hover(),
+            );
+            ui.painter().rect_filled(lanes_rect.rect, CornerRadius::ZERO, BG_LANE);
+
+            // Lane labels and separators
+            let lane_count = 8;
+            let lane_h = lanes_rect.rect.height() / lane_count as f32;
+            let label_w = ICON_SIZE * 1.2;
+
+            for i in 0..lane_count {
+                let y = lanes_rect.rect.top() + lane_h * i as f32;
+                ui.painter().line_segment(
+                    [egui::pos2(lanes_rect.rect.left(), y),
+                     egui::pos2(lanes_rect.rect.right(), y)],
+                    Stroke::new(0.5_f32, Color32::from_rgb(50, 50, 50)),
+                );
+
+                let label = format!("A{}", i + 1);
+                ui.painter().text(
+                    egui::pos2(lanes_rect.rect.left() + SPACING * 0.5, y + lane_h * 0.5),
+                    egui::Align2::LEFT_CENTER,
+                    &label,
+                    egui::FontId::proportional(FONT_SMALL),
+                    TEXT_DIM,
+                );
             }
-        }
-    }
 
-    fn draw_lanes(rect: UIRect) {
-        // Background
-        draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::new(0.11, 0.11, 0.13, 1.0));
+            // Sample notes
+            let notes = [
+                (0.15, 0, ACCENT_BLUE),
+                (0.25, 2, ACCENT_BLUE),
+                (0.30, 4, ACCENT_YELLOW),
+                (0.45, 1, ACCENT_BLUE),
+                (0.55, 6, ACCENT_BLUE),
+                (0.70, 3, ACCENT_BLUE),
+            ];
 
-        // Lane labels (8 lanes for A1-A8)
-        let lane_h = rect.h / 8.0;
-        let label_w = 20.0;
-        for i in 0..8 {
-            let y = rect.y + lane_h * i as f32;
-            // Lane separator
-            draw_line(rect.x, y, rect.x + rect.w, y, 0.5, Color::new(0.2, 0.2, 0.2, 1.0));
-            // Lane label
-            let label = format!("A{}", i + 1);
-            draw_text(&label, rect.x + 2.0, y + lane_h * 0.5 + 4.0, 9.0, TEXT_DIM);
-        }
+            for (frac, lane, color) in &notes {
+                let nx = lanes_rect.rect.left() + label_w + (lanes_rect.rect.width() - label_w) * frac;
+                let ny = lanes_rect.rect.top() + lane_h * (*lane as f32) + lane_h * 0.5;
+                let r = lane_h * 0.38;
+                ui.painter().circle_filled(Pos2::new(nx, ny), r, *color);
+                ui.painter().circle_stroke(Pos2::new(nx, ny), r, Stroke::new(UI_SCALE, Color32::WHITE));
+            }
 
-        // Placeholder notes (some sample taps)
-        let notes = [
-            (0.15, 0, ACCENT_BLUE),
-            (0.25, 2, ACCENT_BLUE),
-            (0.30, 4, ACCENT_YELLOW), // break
-            (0.45, 1, ACCENT_BLUE),
-            (0.55, 6, ACCENT_BLUE),
-            (0.70, 3, ACCENT_BLUE),
-        ];
+            // Hold note placeholder
+            let hold_x = lanes_rect.rect.left() + label_w + (lanes_rect.rect.width() - label_w) * 0.35;
+            let hold_y = lanes_rect.rect.top() + lane_h * 5.0 + lane_h * 0.5;
+            let hold_w = (lanes_rect.rect.width() - label_w) * 0.15;
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(
+                    Pos2::new(hold_x, hold_y - UI_SCALE * 3.0),
+                    Vec2::new(hold_w, UI_SCALE * 6.0),
+                ),
+                CornerRadius::ZERO,
+                ACCENT_BLUE,
+            );
+            ui.painter().circle_filled(Pos2::new(hold_x, hold_y), UI_SCALE * 4.0, ACCENT_BLUE);
+            ui.painter().circle_filled(Pos2::new(hold_x + hold_w, hold_y), UI_SCALE * 4.0, ACCENT_BLUE);
 
-        for (frac, lane, color) in &notes {
-            let nx = rect.x + label_w + (rect.w - label_w) * frac;
-            let ny = rect.y + lane_h * (*lane as f32) + lane_h * 0.5;
-            let r = lane_h * 0.35;
-            draw_circle(nx, ny, r, *color);
-            draw_circle_lines(nx, ny, r, 1.5, WHITE);
-        }
+            // Bottom separator
+            ui.painter().line_segment(
+                [egui::pos2(lanes_rect.rect.left(), lanes_rect.rect.bottom()),
+                 egui::pos2(lanes_rect.rect.right(), lanes_rect.rect.bottom())],
+                Stroke::new(0.5_f32, Color32::from_rgb(50, 50, 50)),
+            );
 
-        // Hold note placeholder
-        let hold_x = rect.x + label_w + (rect.w - label_w) * 0.35;
-        let hold_y = rect.y + lane_h * 5.0 + lane_h * 0.5;
-        let hold_w = (rect.w - label_w) * 0.15;
-        draw_rectangle(hold_x, hold_y - 4.0, hold_w, 8.0, ACCENT_BLUE);
-        draw_circle(hold_x, hold_y, 6.0, ACCENT_BLUE);
-        draw_circle(hold_x + hold_w, hold_y, 6.0, ACCENT_BLUE);
-
-        // Bottom lane separator
-        draw_line(rect.x, rect.y + rect.h, rect.x + rect.w, rect.y + rect.h, 0.5, Color::new(0.2, 0.2, 0.2, 1.0));
-    }
+            // ── Playhead ──
+            let playhead_x = lanes_rect.rect.left() + lanes_rect.rect.width() * 0.3;
+            ui.painter().line_segment(
+                [egui::pos2(playhead_x, ruler_rect.rect.top()),
+                 egui::pos2(playhead_x, lanes_rect.rect.bottom())],
+                Stroke::new(UI_SCALE * 1.5, ACCENT_YELLOW),
+            );
+        });
 }
