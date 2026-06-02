@@ -86,6 +86,12 @@ pub struct AppState {
     pub scale_orig_notes: Vec<(usize, f32, u8)>,
     /// Mouse Y position at the moment scale mode was entered.
     pub scale_anchor_y: f32,
+    /// When true, selected notes follow cursor (grab & move).
+    pub grabbing_notes: bool,
+    /// Original (index, time, lane) snapshot of selected notes at grab start.
+    pub grab_orig_notes: Vec<(usize, f32, u8)>,
+    /// Cursor time at the moment grab mode was entered.
+    pub grab_anchor_time: f32,
     pub timeline_view_time: f32,
     pub timeline_zoom: f32,
     pub dragging_progress_bar: bool,
@@ -237,6 +243,9 @@ impl AppState {
             scaling_notes: false,
             scale_orig_notes: Vec::new(),
             scale_anchor_y: 0.0,
+            grabbing_notes: false,
+            grab_orig_notes: Vec::new(),
+            grab_anchor_time: 0.0,
             timeline_view_time: 0.0,
             timeline_zoom: 1.0,
             dragging_progress_bar: false,
@@ -585,12 +594,29 @@ impl AppState {
             }
         }
 
-        if let Some(last) = self.chart.notes.last() {
-            if t > note_secs(last, bpms) + 1.2 {
-                self.set_mode(Mode::Idle);
-                self.stop_audio_if_any();
-                self.set_status("Playback finished".to_string());
-            }
+        let total_dur = if let Some(ref wav) = self.audio_wav_pcm {
+            (wav.samples.len() as f32 / (wav.sample_rate as f32 * wav.channels as f32).max(1.0)).max(1.0)
+        } else {
+            self.chart.notes.last().map(|n| {
+                let ns = note_secs(n, bpms);
+                match n.note_type {
+                    NoteType::Hold => hold_tail_time(n, bpms),
+                    NoteType::Slide => {
+                        let max_d = n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
+                        ns + mdur_to_secs(max_d, n.time, bpms)
+                    }
+                    _ => ns,
+                }
+            }).unwrap_or(1.0).max(1.0)
+        };
+        if t >= total_dur {
+            self.mode_song_offset = 0.0;
+            self.mode_wall_anchor = get_time();
+            self.playback_cursor = 0;
+            self.hit_sounds_played.clear();
+            self.audio_seek_offset = Some(0.0);
+            self.request_audio_start();
+            self.set_status("Playback finished, restarted".to_string());
         }
     }
 

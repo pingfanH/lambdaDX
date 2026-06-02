@@ -426,8 +426,8 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
         }
     }
 
-    // Toggle grid snap for recording
-    if is_key_pressed(KeyCode::G) {
+    // Toggle grid snap for recording (only when not in grab mode and no multi-select)
+    if is_key_pressed(KeyCode::G) && !app.grabbing_notes && app.selected_notes.len() <= 1 {
         app.record_snap_grid = !app.record_snap_grid;
         app.set_status(format!("Record snap to grid: {}", app.record_snap_grid));
     }
@@ -803,18 +803,23 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
         // While dragging, seek based on mouse x (even if cursor leaves the bar)
         if app.dragging_progress_bar && is_mouse_button_down(MouseButton::Left) {
             let bpms = &app.chart.bpms;
-            let last_note_end = app.chart.notes.iter().map(|n| {
-                let ns = note_secs(n, bpms);
-                match n.note_type {
-                    super::types::NoteType::Hold => hold_tail_time(n, bpms),
-                    super::types::NoteType::Slide => {
-                        let max_dur = n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
-                        ns + mdur_to_secs(max_dur, n.time, bpms)
+            let total_dur = if let Some(ref wav) = app.audio_wav_pcm {
+                let audio_dur = wav.samples.len() as f32 / (wav.sample_rate as f32 * wav.channels as f32).max(1.0);
+                audio_dur.max(1.0)
+            } else {
+                let last_note_end = app.chart.notes.iter().map(|n| {
+                    let ns = note_secs(n, bpms);
+                    match n.note_type {
+                        super::types::NoteType::Hold => hold_tail_time(n, bpms),
+                        super::types::NoteType::Slide => {
+                            let max_dur = n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
+                            ns + mdur_to_secs(max_dur, n.time, bpms)
+                        }
+                        _ => ns,
                     }
-                    _ => ns,
-                }
-            }).fold(0.0_f32, f32::max);
-            let total_dur = last_note_end.max(1.0);
+                }).fold(0.0_f32, f32::max);
+                last_note_end.max(1.0)
+            };
             let frac = ((pos.x - bar_x) / bar_w).clamp(0.0, 1.0);
             let new_t = frac * total_dur;
             if matches!(app.mode, super::types::Mode::Playing) {
@@ -1152,6 +1157,20 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
         app.drag_start_pos = None;
     }
 
+    // ── Enter grab mode (G key with multi-select) ──
+    if is_key_pressed(KeyCode::G) && !app.grabbing_notes && !app.scaling_notes
+        && app.selected_notes.len() > 1 && app.editing_slide_path.is_none()
+    {
+        app.push_undo();
+        app.grabbing_notes = true;
+        let cursor_m = snap_secs_to_measure(now.max(0.0), &app.chart.bpms);
+        app.grab_anchor_time = cursor_m;
+        app.grab_orig_notes = app.selected_notes.iter()
+            .filter_map(|&i| app.chart.notes.get(i).map(|n| (i, n.time, n.lane)))
+            .collect();
+        app.set_status(format!("Grabbing {} notes — click to place, Esc=cancel", app.selected_notes.len()));
+    }
+
     // ── Note scaling mode (S key with multi-select) ──
     if app.scaling_notes {
         if is_key_pressed(KeyCode::Escape) {
@@ -1205,6 +1224,60 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
         }
         app.recompute_each();
         app.set_status(format!("Scaling ×{:.2} (mouse up=enlarge, down=shrink, click=confirm, Esc=cancel)", scale_factor));
+        return;
+    }
+
+    // ── Note grab mode (G key with multi-select) ──
+    if app.grabbing_notes {
+        if is_key_pressed(KeyCode::Escape) {
+            // Cancel: restore original positions
+            for &(i, orig_t, orig_l) in &app.grab_orig_notes {
+                if let Some(note) = app.chart.notes.get_mut(i) {
+                    note.time = orig_t;
+                    note.lane = orig_l;
+                }
+            }
+            app.grabbing_notes = false;
+            app.grab_orig_notes.clear();
+            app.drag_start_pos = None;
+            app.press_note_candidate = None;
+            app.set_status("Grab cancelled".to_string());
+            return;
+        }
+        if is_mouse_button_pressed(MouseButton::Left) || is_key_pressed(KeyCode::Enter) {
+            // Confirm grab
+            app.grabbing_notes = false;
+            app.grab_orig_notes.clear();
+            app.drag_start_pos = None;
+            app.press_note_candidate = None;
+            app.recompute_each();
+            app.set_status("Grab applied".to_string());
+            return;
+        }
+        // Compute cursor position in measures
+        let (mx, my) = mouse_position();
+        let cursor_secs = (now + (judge_y - my) / scroll_speed).max(0.0);
+        let cursor_m = secs_to_measure(cursor_secs, &app.chart.bpms);
+        let delta_m = cursor_m - app.grab_anchor_time;
+        // Compute lane from cursor X
+        let lx = mx - lanes_x;
+        let cursor_lane = if lx >= 0.0 {
+            let l = (lx / lane_w) as i32;
+            let l = l.clamp(0, LANE_COUNT as i32 - 1) as u8;
+            if l == LANE_COUNT as u8 - 1 { 9 } else { l + 1 }
+        } else { 1 };
+        // Compute lane delta from first selected note's original lane
+        let anchor_lane = app.grab_orig_notes.first().map(|&(_, _, l)| l).unwrap_or(1);
+        let lane_delta = cursor_lane as i32 - anchor_lane as i32;
+        // Apply move
+        for &(i, orig_t, orig_l) in &app.grab_orig_notes {
+            if let Some(note) = app.chart.notes.get_mut(i) {
+                note.time = snap_grid((orig_t + delta_m).max(1.0));
+                note.lane = (orig_l as i32 + lane_delta).clamp(1, PAD_ZONE_MAX as i32) as u8;
+            }
+        }
+        app.recompute_each();
+        app.set_status(format!("Grabbing {} notes (click=confirm, Esc=cancel)", app.selected_notes.len()));
         return;
     }
 
