@@ -1385,6 +1385,13 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                     DragPart::Head => {
                         if let Some(o) = orig {
                             if is_slide {
+                                // Restore original slide points before applying rotation
+                                // to prevent cumulative rotation each frame
+                                for (si, sl) in note.slide.iter_mut().enumerate() {
+                                    if let Some(old_sl) = o.slide.get(si) {
+                                        sl.segments = old_sl.segments.clone();
+                                    }
+                                }
                                 let lane_delta = new_lane as i32 - o.lane as i32;
                                 if lane_delta != 0 {
                                     for sl in &mut note.slide {
