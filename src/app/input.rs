@@ -699,6 +699,20 @@ fn snap_grid(m: f32) -> f32 {
     (m / step).round() * step
 }
 
+/// Distance from point (px, py) to line segment (x0,y0)-(x1,y1).
+fn point_to_segment_dist(px: f32, py: f32, x0: f32, y0: f32, x1: f32, y1: f32) -> f32 {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let len_sq = dx * dx + dy * dy;
+    if len_sq < 0.001 {
+        return ((px - x0) * (px - x0) + (py - y0) * (py - y0)).sqrt();
+    }
+    let t = ((px - x0) * dx + (py - y0) * dy).clamp(0.0, len_sq) / len_sq;
+    let proj_x = x0 + t * dx;
+    let proj_y = y0 + t * dy;
+    ((px - proj_x) * (px - proj_x) + (py - proj_y) * (py - proj_y)).sqrt()
+}
+
 /// Wrap lane within its zone group (A1-A8, D1-D8, E1-E8, B1-B8, C).
 fn wrap_lane(lane: u8, delta: i32) -> u8 {
     if lane >= 1 && lane <= 8 {
@@ -941,24 +955,73 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
         return;
     }
 
-    // ── Middle-click on Slide tail/body: enter trajectory editing mode ──
+    // ── Middle-click on slide path on timeline: enter trajectory editing mode ──
     if is_mouse_button_pressed(MouseButton::Middle) && pos.x >= lanes_x {
-        let mut best: Option<usize> = None; let mut best_d = 30.0_f32;
+        let mut best: Option<usize> = None; let mut best_d = 20.0_f32; // max click distance
         for (i, note) in app.chart.notes.iter().enumerate() {
             if app.hidden_notes.contains(&note.id) { continue; }
             if !matches!(note.note_type, NoteType::Slide) { continue; }
-            let (cx, _ny, _tail_ny, _) = note_screen_pos(note, now, track_x, ruler_w, lane_w, judge_y, &app.chart.bpms, scroll_speed);
+            let zone = sanitize_note_zone(note.note_type, note.lane);
+            let ns = note_secs(note, &app.chart.bpms);
+            let dt = ns - now;
+            let li = if is_touch_zone(zone) { LANE_COUNT - 1 } else { (zone.saturating_sub(1) as usize).min(LANE_COUNT - 1) };
+            let cx = track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5;
+            let ny = judge_y - dt * scroll_speed;
+
             for (si, sl) in note.slide.iter().enumerate() {
                 if sl.slide_duration <= 0.0 { continue; }
-                let tail_t = note_secs(note, &app.chart.bpms) + mdur_to_secs(sl.slide_duration, note.time, &app.chart.bpms);
-                let tail_ny = judge_y - (tail_t - now) * scroll_speed;
-                let tcx = slide_tail_cx_for(note, si, track_x, ruler_w, lane_w);
-                let tail_d = pos.distance(vec2(tcx, tail_ny));
-                if tail_d < best_d { best = Some(i); best_d = tail_d; app.drag_slide_idx = Some(si); }
-                let mid_y = (_ny + tail_ny) * 0.5;
-                let mid_x = (cx + tcx) * 0.5;
-                let mid_d = pos.distance(vec2(mid_x, mid_y));
-                if mid_d < best_d { best = Some(i); best_d = mid_d; app.drag_slide_idx = Some(si); }
+                let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, &app.chart.bpms).max(0.3);
+                let delay_s = mdur_to_secs(sl.slide_start_delay, note.time, &app.chart.bpms);
+                let delay_y = judge_y - (ns + delay_s - now) * scroll_speed;
+                let tail_t = ns + slide_dur_s;
+                let tail_y = judge_y - (tail_t - now) * scroll_speed;
+                let tail_zone = sl.segments.last()
+                    .and_then(|seg| seg.points.last())
+                    .map(|sp| sp.zone)
+                    .unwrap_or(PadZone::from(note.lane));
+                let tail_li = (tail_zone.to_id().saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                let tail_cx = track_x + ruler_w + lane_w * tail_li as f32 + lane_w * 0.5;
+
+                // Build waypoints: head → delay → segments → tail
+                let mut waypoints: Vec<(f32, f32)> = Vec::new();
+                waypoints.push((cx, ny));
+                if delay_s > 0.0 {
+                    waypoints.push((cx, delay_y));
+                }
+                let zone_to_cx = |z: PadZone| -> f32 {
+                    let li = (z.to_id().saturating_sub(1) as usize).min(LANE_COUNT - 2);
+                    track_x + ruler_w + lane_w * li as f32 + lane_w * 0.5
+                };
+                let mut a_points: Vec<&super::types::SlidePoint> = Vec::new();
+                for seg in &sl.segments {
+                    for sp in &seg.points {
+                        if sp.zone >= 1 && sp.zone <= 8 {
+                            a_points.push(sp);
+                        }
+                    }
+                }
+                let n_pts = a_points.len();
+                if n_pts > 0 {
+                    for (pi, sp) in a_points.iter().enumerate() {
+                        let frac = (pi + 1) as f32 / n_pts as f32;
+                        let wy = delay_y + (tail_y - delay_y) * frac;
+                        let wx = zone_to_cx(sp.zone);
+                        waypoints.push((wx, wy));
+                    }
+                }
+                waypoints.push((tail_cx, tail_y));
+
+                // Check distance to each line segment
+                for w in 0..waypoints.len() - 1 {
+                    let (x0, y0) = waypoints[w];
+                    let (x1, y1) = waypoints[w + 1];
+                    let d = point_to_segment_dist(pos.x, pos.y, x0, y0, x1, y1);
+                    if d < best_d {
+                        best = Some(i);
+                        best_d = d;
+                        app.drag_slide_idx = Some(si);
+                    }
+                }
             }
         }
         if let Some(i) = best {
