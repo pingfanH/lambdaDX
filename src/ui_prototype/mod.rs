@@ -22,31 +22,31 @@ pub fn draw_editor(egui_ctx: &egui::Context) {
     // Top panel: toolbar (matches SVG top bar)
     egui::TopBottomPanel::top("toolbar")
         .resizable(false)
-        .exact_height(TOOLBAR_HEIGHT + 8.0)
+        .exact_height(TOOLBAR_HEIGHT + PADDING)
         .show(egui_ctx, |ui| {
             toolbar::draw(ui);
-        });
-
-    // Bottom panel: timeline (matches SVG bottom section)
-    egui::TopBottomPanel::bottom("timeline")
-        .resizable(false)
-        .exact_height(TIMELINE_HEIGHT)
-        .show(egui_ctx, |ui| {
-            timeline::draw(ui);
         });
 
     // Left panel: sidebar (matches SVG left sidebar)
     egui::SidePanel::left("sidebar")
         .resizable(false)
-        .exact_width(SIDEBAR_WIDTH + 8.0)
+        .exact_width(SIDEBAR_WIDTH + PADDING)
         .show(egui_ctx, |ui| {
             sidebar::draw(ui);
+        });
+
+    // Left panel: timeline (vertical, next to sidebar)
+    egui::SidePanel::left("timeline")
+        .resizable(false)
+        .exact_width(TIMELINE_WIDTH)
+        .show(egui_ctx, |ui| {
+            timeline::draw_vertical(ui);
         });
 
     // Right panel: properties (matches SVG right panel)
     egui::SidePanel::right("properties")
         .resizable(false)
-        .exact_width(RIGHT_PANEL_WIDTH + 16.0)
+        .exact_width(RIGHT_PANEL_WIDTH + PADDING * 2.0)
         .show(egui_ctx, |ui| {
             panel::draw(ui);
         });

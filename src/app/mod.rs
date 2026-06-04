@@ -11,6 +11,7 @@ pub mod simai_io;
 pub mod slide_match;
 pub mod state;
 pub mod template;
+pub mod toast;
 pub mod types;
 pub mod ui;
 pub mod slide;
@@ -98,6 +99,10 @@ pub async fn run_app() {
             egui_ui::draw_egui_ui(egui_ctx, &mut app);
         });
         egui_macroquad::draw();
+
+        // Update and draw toast notifications
+        app.toasts.update();
+        app.toasts.draw();
 
         next_frame().await;
     }

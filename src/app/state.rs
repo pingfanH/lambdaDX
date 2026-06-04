@@ -7,6 +7,7 @@ use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
 use super::template;
+use super::toast::ToastManager;
 use super::types::{
     ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId,
     SceneRef, SlidePoint, TemplateInstance, WavPcm, DragPart, HIT_WINDOW,
@@ -185,6 +186,9 @@ pub struct AppState {
     pub saved_playback: Option<SavedPlaybackState>,
 
     pub status: String,
+    
+    /// Toast notification system
+    pub toasts: ToastManager,
 }
 
 impl AppState {
@@ -319,6 +323,7 @@ impl AppState {
             next_instance_id: 1,
             saved_playback: None,
             status: "Ready".to_string(),
+            toasts: ToastManager::new(),
         }
     }
 

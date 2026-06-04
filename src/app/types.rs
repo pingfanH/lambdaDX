@@ -119,6 +119,53 @@ pub enum SlideShape {
     Wifi,
 }
 
+/// Validate a slide shape with start and end lanes.
+/// Returns Ok(()) if valid, Err(message) if invalid.
+pub fn validate_slide_shape(shape: SlideShape, start_lane: u8, end_lane: u8) -> Result<(), String> {
+    if start_lane < 1 || start_lane > 8 {
+        return Err(format!("起始位置 {} 无效，必须是 1-8", start_lane));
+    }
+    if end_lane < 1 || end_lane > 8 {
+        return Err(format!("结束位置 {} 无效，必须是 1-8", end_lane));
+    }
+    
+    // Calculate relative end position (1-indexed, wrapping around 8 positions)
+    let rel_end = ((end_lane as i32 - start_lane as i32 + 8) % 8) + 1;
+    
+    match shape {
+        SlideShape::S | SlideShape::Z => {
+            // S and Z must end at position 5 (opposite side)
+            if rel_end != 5 {
+                return Err(format!("{:?} 形状必须结束在对面位置（相对位置5），当前相对位置是 {}", shape, rel_end));
+            }
+        }
+        SlideShape::Wifi => {
+            // Wifi must end at position 5 (opposite side)
+            if rel_end != 5 {
+                return Err(format!("Wifi 形状必须结束在对面位置（相对位置5），当前相对位置是 {}", rel_end));
+            }
+        }
+        SlideShape::VShape => {
+            // V shape cannot end at position 5
+            if rel_end == 5 {
+                return Err("V 形状不能结束在对面位置（相对位置5）".to_string());
+            }
+        }
+        SlideShape::BigV => {
+            // BigV (turn) has special rules
+            // For simplicity, just check it's not the same position
+            if start_lane == end_lane {
+                return Err("V 形状不能在同一位置开始和结束".to_string());
+            }
+        }
+        _ => {
+            // Other shapes are generally valid
+        }
+    }
+    
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize,Copy)]
 pub struct SlidePoint {
     pub zone: PadZone,

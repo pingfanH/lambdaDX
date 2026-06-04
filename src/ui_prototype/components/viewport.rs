@@ -1,4 +1,5 @@
 use egui_macroquad::egui::{self, Vec2, Color32, CornerRadius, Stroke, Pos2};
+use super::button::*;
 use crate::ui_prototype::style::*;
 
 /// Center viewport with pad visualization matching Bevy Editor SVG
@@ -9,7 +10,8 @@ pub fn draw(ui: &mut egui::Ui) {
         .show(ui, |ui| {
             let available = ui.available_size();
             let status_h = BUTTON_HEIGHT;
-            let pad_area_h = available.y - status_h;
+            let props_h = available.y * 0.4;
+            let pad_area_h = available.y - status_h - props_h;
 
             // ── Pad area ──
             let pad_rect = ui.allocate_rect(
@@ -21,7 +23,7 @@ pub fn draw(ui: &mut egui::Ui) {
             );
 
             let cx = pad_rect.rect.center().x;
-            let cy = pad_rect.rect.center().y - BUTTON_HEIGHT * 0.5;
+            let cy = pad_rect.rect.center().y;
             let pad_r = (pad_rect.rect.width().min(pad_rect.rect.height()) * 0.35).min(ICON_SIZE * 8.0);
 
             // Outer ring
@@ -105,9 +107,79 @@ pub fn draw(ui: &mut egui::Ui) {
                 ui.painter().circle_filled(Pos2::new(x, y), UI_SCALE * 2.5, Color32::from_rgba_premultiplied(255, 255, 255, 180));
             }
 
+            // ── Note Properties & Chart Info area ──
+            let props_rect = egui::Rect::from_min_size(
+                Pos2::new(pad_rect.rect.left(), pad_rect.rect.bottom()),
+                Vec2::new(available.x, props_h),
+            );
+            let props_outer = ui.allocate_rect(props_rect, egui::Sense::hover());
+            let props_ui_rect = props_outer.rect;
+
+            // Draw border between pad and props
+            ui.painter().line_segment(
+                [Pos2::new(props_ui_rect.left(), props_ui_rect.top()),
+                 Pos2::new(props_ui_rect.right(), props_ui_rect.top())],
+                Stroke::new(1.0_f32, BORDER_LIGHT),
+            );
+
+            // Fill background
+            ui.painter().rect_filled(props_ui_rect, CornerRadius::ZERO, BG_DARK);
+
+            // Draw content using a child ui
+            let mut child_ui = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(props_ui_rect.shrink(PADDING))
+                    .layout(egui::Layout::top_down(egui::Align::LEFT)),
+            );
+
+            // Note Properties
+            child_ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = SPACING * 0.8;
+
+                section_header(ui, "Note Properties");
+                ui.add_space(SPACING);
+
+                value_row(ui, "Type", "Tap");
+                value_row(ui, "Time", "m4.000");
+                value_row(ui, "Lane", "3");
+                value_row(ui, "Duration", "m2.000");
+
+                // Flags row
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = SPACING * 0.5;
+                    for (i, flag) in ["Break", "Ex", "Star", "Tapless"].iter().enumerate() {
+                        let btn = Button::new(flag, ButtonKind::Toggle(i == 0), Vec2::new(ICON_SIZE * 3.0, BUTTON_HEIGHT * 0.9));
+                        btn.show(ui);
+                    }
+                });
+            });
+
+            child_ui.add_space(SPACING);
+            // Horizontal separator
+            let sep_rect = child_ui.available_rect_before_wrap();
+            child_ui.painter().line_segment(
+                [Pos2::new(sep_rect.left(), sep_rect.top()),
+                 Pos2::new(sep_rect.right(), sep_rect.top())],
+                Stroke::new(1.0_f32, SEPARATOR),
+            );
+            child_ui.add_space(SPACING);
+
+            // Chart Info
+            child_ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = SPACING * 0.8;
+
+                section_header(ui, "Chart Info");
+                ui.add_space(SPACING);
+
+                value_row(ui, "Title", "Demo Song");
+                value_row(ui, "Artist", "Unknown");
+                value_row(ui, "BPM", "180.0");
+                value_row(ui, "Offset", "0.000s");
+            });
+
             // ── Status bar ──
             let status_rect = egui::Rect::from_min_size(
-                Pos2::new(pad_rect.rect.left(), pad_rect.rect.bottom()),
+                Pos2::new(props_ui_rect.left(), props_ui_rect.bottom()),
                 Vec2::new(available.x, status_h),
             );
             ui.painter().rect_filled(status_rect, CornerRadius::ZERO, BG_DARK);

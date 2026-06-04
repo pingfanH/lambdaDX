@@ -583,8 +583,7 @@ impl PlayerState {
             Ok(s) => s,
             Err(e) => { self.set_status(format!("lnmai create session failed: {}", e.json)); return; }
         };
-        let simai_file = lambda_dx::simai_io::chart_doc_to_simai_file(&self.chart);
-        let simai_text = maisimai::export_file(&simai_file);
+        let simai_text = lambda_dx::simai_io::chart_doc_to_simai_text(&self.chart);
         println!("[lnmai simai]\n{}", simai_text);
         let (loaded, _info) = match empty.load_chart_text(&simai_text, 6) {
             Ok(v) => v,

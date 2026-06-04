@@ -47,7 +47,6 @@ roxmltree = "0.20"
 rustfft = "6"
 egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
-maisimai = { version = "0.1.0", git = "https://github.com/pingfanH/maisimai-rs" }
 lnmai_core_rs = { package = "lnmai-core-rs", path = "lnmai-core-rs", features = ["ffi"] }
 tokio = {version = "1.52.3",features = ["sync"]}
 

@@ -285,9 +285,21 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
         if let (Some(end_lane), Some(shape)) = (lane_key, app.pending_slide_shape) {
             // Shape key + lane: apply predefined shape to first slide's first segment
             if let Some(i) = app.editing_slide_path {
+                // if let Some(n) = app.chart.notes.get(i) {
+                //     if matches!(n.note_type, NoteType::Slide) && n.lane >= 1 && n.lane <= 8 {
+                //         // Validate the slide shape before applying
+                //         if let Err(err_msg) = super::types::validate_slide_shape(shape, n.lane, end_lane) {
+                //             app.toasts.error(format!("非法的slide形状: {}", err_msg));
+                //             app.set_status(format!("Slide shape error: {}", err_msg));
+                //             app.pending_slide_shape = None;
+                //             return;
+                //         }
+                //     }
+                // }
+                // Apply the shape if validation passed
                 if let Some(n) = app.chart.notes.get_mut(i) {
                     if matches!(n.note_type, NoteType::Slide) && n.lane >= 1 && n.lane <= 8 {
-                        let pattern = super::simai_io::shape_to_simai_pattern(Some(shape));
+                        let pattern = super::simai_io::shape_to_slide_pattern(shape);
                         let points = super::simai_io::simai_pattern_to_points(
                             n.lane - 1, end_lane - 1, pattern, None,
                         );
@@ -302,11 +314,7 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
                         } else {
                             let edit_idx = app.editing_slide_idx.unwrap_or(0).min(n.slide.len().saturating_sub(1));
                             let sl = &mut n.slide[edit_idx];
-                            if sl.segments.is_empty() {
-                                sl.segments.push(super::types::SlideSegment { points, shape });
-                            } else {
-                                sl.segments.push(super::types::SlideSegment { points, shape });
-                            }
+                            sl.segments.push(super::types::SlideSegment { points, shape });
                         }
                         app.set_status(format!("Set shape {:?} → lane {}", shape, end_lane));
                     }
@@ -565,7 +573,7 @@ pub fn handle_touch_controls(
                             if z >= 1 && z <= 8 {
                                 if let Some(n) = app.chart.notes.get_mut(i) {
                                     if matches!(n.note_type, super::types::NoteType::Slide) && n.lane >= 1 && n.lane <= 8 {
-                                        let pattern = super::simai_io::shape_to_simai_pattern(Some(shape));
+                                        let pattern = super::simai_io::shape_to_slide_pattern(shape);
                                         let points = super::simai_io::simai_pattern_to_points(
                                             n.lane.saturating_sub(1), z.to_id().saturating_sub(1), pattern, None,
                                         );
@@ -1746,7 +1754,6 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                     app.set_status(format!("Star head at m{:.3}; click later to set delay end", t));
                 }
                 PlacementState::StarHead { head_t, lane: lane0 } => {
-                    // Second click must be later in time than the head.
                     if t <= head_t {
                         app.set_status("Star: 第二次点击必须在星星头上方（更晚）".to_string());
                         return;
