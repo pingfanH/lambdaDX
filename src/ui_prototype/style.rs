@@ -2,6 +2,7 @@ use egui_macroquad::egui::Color32;
 
 // ── Colors from Bevy Editor SVG ──
 pub const BG_DARK: Color32 = Color32::from_rgb(31, 31, 36);       // #1F1F24
+pub const TRANSPARENT: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0);       // TRANSPARENT
 pub const BG_PANEL: Color32 = Color32::from_rgb(42, 42, 46);      // #2A2A2E
 pub const BG_BUTTON: Color32 = Color32::from_rgb(54, 55, 59);     // #36373B
 pub const BG_BUTTON_HOVER: Color32 = Color32::from_rgb(71, 72, 77); // #47484D

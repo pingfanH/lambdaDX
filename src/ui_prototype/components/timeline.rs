@@ -1,5 +1,4 @@
 use egui_macroquad::egui::{self, Vec2, Color32, CornerRadius, Stroke, Pos2};
-use super::button::*;
 use crate::ui_prototype::style::*;
 
 /// Vertical timeline on the left side
@@ -19,13 +18,13 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
                 let btn_size = Vec2::new(btn_width, BUTTON_HEIGHT * 0.8);
 
                 // Play/Stop/Record buttons
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = SPACING * 0.5;
-                    let small_btn = Vec2::new(btn_width / 3.0 - SPACING * 0.3, BUTTON_HEIGHT * 0.8);
-                    Button::new("◀◀", ButtonKind::Normal, small_btn).show(ui);
-                    Button::new("▶", ButtonKind::Normal, small_btn).show(ui);
-                    Button::new("■", ButtonKind::Normal, small_btn).show(ui);
-                });
+                // ui.horizontal(|ui| {
+                //     ui.spacing_mut().item_spacing.x = SPACING * 0.5;
+                //     let small_btn = Vec2::new(btn_width / 3.0 - SPACING * 0.3, BUTTON_HEIGHT * 0.8);
+                //     Button::new("◀◀", ButtonKind::Normal, small_btn).show(ui);
+                //     Button::new("▶", ButtonKind::Normal, small_btn).show(ui);
+                //     Button::new("■", ButtonKind::Normal, small_btn).show(ui);
+                // });
 
                 // Time display
                 ui.label(egui::RichText::new("0:04.230").color(TEXT_SECONDARY).size(FONT_SMALL));
@@ -112,9 +111,31 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
                 Stroke::new(UI_SCALE * 1.5, ACCENT_YELLOW),
             );
 
-            // ── Snap info (bottom) ──
+            // ── Progress bar (bottom, replaces Snap info) ──
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new("Snap: 1/4").color(TEXT_DIM).size(FONT_SMALL));
+                let bar_w = available.x * 0.9;
+                let bar_h = FONT_SMALL;
+                let desired = Vec2::new(bar_w, bar_h + SPACING * 2.0);
+                let resp = ui.allocate_response(desired, egui::Sense::hover());
+                let bar_rect = egui::Rect::from_center_size(resp.rect.center(), Vec2::new(bar_w, bar_h));
+
+                // Track
+                ui.painter().rect_filled(bar_rect, CornerRadius::same(2), BG_RULER);
+
+                // Fill (30% demo)
+                let fill_rect = egui::Rect::from_min_size(
+                    bar_rect.left_top(),
+                    Vec2::new(bar_rect.width(), bar_h),
+                );
+                ui.painter().rect_filled(fill_rect, CornerRadius::same(2), ACCENT_BLUE);
+
+                // Handle
+                let handle_x = bar_rect.left() + bar_rect.width();
+                ui.painter().rect_filled(
+                    egui::Rect::from_center_size(Pos2::new(handle_x, bar_rect.center().y), Vec2::new(SPACING, bar_h + SPACING)),
+                    CornerRadius::same(1),
+                    Color32::WHITE,
+                );
             });
         });
 }
