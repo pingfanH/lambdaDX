@@ -323,6 +323,70 @@ pub fn collect_lnmai_input_events(app: &mut PlayerState) {
 
     let t_us = (app.song_time() as f64 * 1_000_000.0) as u64;
 
+    // Autoplay: inject events from pre-generated tactic
+    if app.autoplay {
+        let autoplay_pointer_id = u64::MAX;
+
+        // Collect all due events (clone them to avoid borrow conflicts)
+        let due_events: Vec<(u64, serde_json::Value)> = app.autoplay_events[app.autoplay_index..]
+            .iter()
+            .take_while(|(et, _)| *et <= t_us)
+            .map(|(et, ev)| (*et, ev.clone()))
+            .collect();
+        let due_count = due_events.len();
+
+        for (_t, event_json) in &due_events {
+            if let Some(obj) = event_json.as_object() {
+                for (key, val) in obj {
+                    match key.as_str() {
+                        "buttonClick" | "buttonHold" => {
+                            if let Some(zone_str) = val.get("zone").and_then(|v| v.as_str()) {
+                                if let Some(lane) = zone_str.strip_prefix('K').and_then(|s| s.parse::<u8>().ok()) {
+                                    let pad_zone = PadZone::from(lane);
+                                    app.push_feedback(pad_zone, 0.12);
+                                    if key == "buttonHold" {
+                                        let is_down = val.get("isDown").and_then(|v| v.as_bool()).unwrap_or(true);
+                                        if is_down {
+                                            app.active_pointer_zones.insert(autoplay_pointer_id, pad_zone);
+                                        } else {
+                                            app.active_pointer_zones.remove(&autoplay_pointer_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        "sensorClick" | "sensorHold" => {
+                            if let Some(area_str) = val.get("area").and_then(|v| v.as_str()) {
+                                let pad_zone = PadZone::from(area_str);
+                                app.push_feedback(pad_zone, 0.10);
+                                if key == "sensorHold" {
+                                    let is_down = val.get("isDown").and_then(|v| v.as_bool()).unwrap_or(true);
+                                    if is_down {
+                                        app.active_sensor_holds.insert(autoplay_pointer_id, pad_zone);
+                                        app.active_pointer_zones.insert(autoplay_pointer_id, pad_zone);
+                                    } else {
+                                        app.active_sensor_holds.remove(&autoplay_pointer_id);
+                                        app.active_pointer_zones.remove(&autoplay_pointer_id);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Push events to lnmai input queue
+        for (event_t_us, event_json) in due_events {
+            app.lnmai_input_events.push((event_t_us, event_json));
+        }
+
+        app.autoplay_index += due_count;
+        return;
+    }
+
     let bindings = [
         (KeyCode::Key1, 1_u8),
         (KeyCode::Key2, 2_u8),

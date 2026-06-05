@@ -299,7 +299,7 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
                 // Apply the shape if validation passed
                 if let Some(n) = app.chart.notes.get_mut(i) {
                     if matches!(n.note_type, NoteType::Slide) && n.lane >= 1 && n.lane <= 8 {
-                        let pattern = super::simai_io::shape_to_slide_pattern(shape);
+                        let pattern = super::simai_io::shape_to_simai_pattern(Some(shape));
                         let points = super::simai_io::simai_pattern_to_points(
                             n.lane - 1, end_lane - 1, pattern, None,
                         );
@@ -573,7 +573,7 @@ pub fn handle_touch_controls(
                             if z >= 1 && z <= 8 {
                                 if let Some(n) = app.chart.notes.get_mut(i) {
                                     if matches!(n.note_type, super::types::NoteType::Slide) && n.lane >= 1 && n.lane <= 8 {
-                                        let pattern = super::simai_io::shape_to_slide_pattern(shape);
+                                        let pattern = super::simai_io::shape_to_simai_pattern(Some(shape));
                                         let points = super::simai_io::simai_pattern_to_points(
                                             n.lane.saturating_sub(1), z.to_id().saturating_sub(1), pattern, None,
                                         );

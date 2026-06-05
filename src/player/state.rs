@@ -5,7 +5,10 @@ use std::collections::{HashMap, HashSet};
 use lambda_dx::app::types::zone::PadZone;
 use lnmai_core_rs::session::{self, Session, Empty, Loaded};
 use serde_json::json;
-use lnmai_core_rs::ffi_types::{RuntimeStepLightResult, RenderCommand, AudioCommand, JudgeEvent, JudgeEventKind};
+use lnmai_core_rs::ffi_types::{
+    JudgeEvent, ChartSpec, TapChartNote, HoldChartNote, TouchChartNote, TouchHoldChartNote,
+    SlideChartNote, OuterSlot, SensorArea, RuntimeSlideKind,
+};
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
@@ -182,6 +185,11 @@ pub struct PlayerState {
     pub lnmai_input_events: Vec<(u64, serde_json::Value)>,
 
     pub slide_progress: HashMap<u64, SlideProgress>,
+
+    // Autoplay
+    pub autoplay: bool,
+    pub autoplay_events: Vec<(u64, serde_json::Value)>,
+    pub autoplay_index: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -315,6 +323,9 @@ impl PlayerState {
             judge_texts: Vec::new(),
             lnmai_input_events: Vec::new(),
             slide_progress: HashMap::new(),
+            autoplay: false,
+            autoplay_events: Vec::new(),
+            autoplay_index: 0,
         }
     }
 
@@ -502,6 +513,9 @@ impl PlayerState {
             self.hit_sounds_played.clear();
             self.playback_cursor = 0;
             self.judge_texts.clear();
+            if self.autoplay {
+                self.generate_autoplay_events();
+            }
             self.create_lnmai_session();
             self.request_audio_start();
             self.set_status(format!("Resumed @ {:.1}x from {:.2}s", self.play_speed, self.mode_song_offset));
@@ -520,6 +534,9 @@ impl PlayerState {
         self.active_sensor_holds.clear();
         self.prev_pointer_pos.clear();
         self.judge_texts.clear();
+        if self.autoplay {
+            self.generate_autoplay_events();
+        }
         self.create_lnmai_session();
         self.request_audio_start();
     }
@@ -583,9 +600,16 @@ impl PlayerState {
             Ok(s) => s,
             Err(e) => { self.set_status(format!("lnmai create session failed: {}", e.json)); return; }
         };
-        let simai_text = lambda_dx::simai_io::chart_doc_to_simai_text(&self.chart);
-        println!("[lnmai simai]\n{}", simai_text);
-        let (loaded, _info) = match empty.load_chart_text(&simai_text, 6) {
+        let simai_chart = lambda_dx::simai_io::chart_doc_to_simai_chart(&self.chart);
+        println!("[lnmai simai]\n{}", maisimai::export_chart(&simai_chart));
+
+        let chart_spec = simai_chart_to_ffi_chart_spec(&simai_chart);
+        let chart_spec_json = match serde_json::to_string(&chart_spec) {
+            Ok(json) => json,
+            Err(e) => { self.set_status(format!("lnmai chart serialize: {e}")); return; }
+        };
+
+        let (loaded, _info) = match empty.load_chart_json(&chart_spec_json) {
             Ok(v) => v,
             Err(e) => { self.set_status(format!("lnmai load chart failed: {}", e.json)); return; }
         };
@@ -657,14 +681,28 @@ impl PlayerState {
 
         match session.advance_frame_light(&batch.to_string()) {
             Ok(envelope) => {
-                match envelope.decode_result::<RuntimeStepLightResult>() {
-                    Ok(result) => {
-                        self.process_render_commands(&result.render_commands);
-                        self.process_audio_commands(&result.audio_commands);
-                        self.process_judge_events(&result.events);
+                match serde_json::from_str::<serde_json::Value>(&envelope.json) {
+                    Ok(json_val) => {
+                        if let Some(result) = json_val.get("result") {
+                            let render_commands = result.get("renderCommands")
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let audio_commands = result.get("audioCommands")
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let judge_events: Vec<JudgeEvent> = result.get("events")
+                                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                                .unwrap_or_default();
+                            
+                            self.process_render_commands(&render_commands);
+                            self.process_audio_commands(&audio_commands);
+                            self.process_judge_events(&judge_events);
+                        }
                     }
                     Err(e) => {
-                        self.set_status(format!("lnmai parse result failed [{}]", e));
+                        self.set_status(format!("lnmai parse json failed [{}]", e));
                     }
                 }
             }
@@ -674,53 +712,69 @@ impl PlayerState {
         }
     }
 
-    fn process_render_commands(&mut self, commands: &[RenderCommand]) {
+    fn process_render_commands(&mut self, commands: &[serde_json::Value]) {
         for cmd in commands {
-            match cmd {
-                RenderCommand::HideSlideBars { note_index, end_index } => {
-                    let entry = self.slide_progress.entry(*note_index).or_default();
-                    entry.hidden_bars.push(*end_index);
+            if let Some(obj) = cmd.as_object() {
+                if let Some(kind) = obj.keys().next() {
+                    match kind.as_str() {
+                        "HideSlideBars" => {
+                            if let Some(data) = obj.get(kind) {
+                                let note_index = data.get("noteIndex").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let end_index = data.get("endIndex").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let entry = self.slide_progress.entry(note_index).or_default();
+                                entry.hidden_bars.push(end_index);
+                            }
+                        }
+                        "UpdateSlideProgress" => {
+                            if let Some(data) = obj.get(kind) {
+                                let note_index = data.get("noteIndex").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let remaining = data.get("remaining").and_then(|v| v.as_u64()).unwrap_or(0);
+                                println!("UpdateSlideProgress- note_index: {note_index}, remaining: {remaining}");
+                                let entry = self.slide_progress.entry(note_index).or_default();
+                                entry.remaining = remaining;
+                            }
+                        }
+                        "HideAllSlideBars" => {
+                            if let Some(data) = obj.get(kind) {
+                                let note_index = data.get("noteIndex").and_then(|v| v.as_u64()).unwrap_or(0);
+                                self.slide_progress.remove(&note_index);
+                            }
+                        }
+                        "ShowJudgeResult" => {
+                            if let Some(data) = obj.get(kind) {
+                                let note_index = data.get("noteIndex").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let grade = data.get("grade").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                                let zone = self.lnmai_note_zones
+                                    .get(note_index as usize)
+                                    .copied()
+                                    .unwrap_or(PadZone::A1);
+                                self.judge_texts.push(JudgeText {
+                                    zone,
+                                    grade: grade.to_string(),
+                                    until: get_time() + 0.6,
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
                 }
-                RenderCommand::UpdateSlideProgress { note_index, remaining } => {
-                    println!("UpdateSlideProgress- note_index: {note_index}, remaining: {remaining}");
-                    let entry = self.slide_progress.entry(*note_index).or_default();
-                    entry.remaining = *remaining;
-                }
-                RenderCommand::UpdateSlideTrackProgress { note_index, track_index, remaining } => {
-                    println!("UpdateSlideTrackProgress- note_index: {note_index}, remaining: {remaining}");
-                    // Track-specific progress (wifi/connected slides)
-                }
-                RenderCommand::HideAllSlideBars { note_index } => {
-                    self.slide_progress.remove(note_index);
-                }
-                RenderCommand::ShowJudgeResult { kind, grade, diff, note_index } => {
-                    let zone = self.lnmai_note_zones
-                        .get(*note_index as usize)
-                        .copied()
-                        .unwrap_or(PadZone::A1);
-                    self.judge_texts.push(JudgeText {
-                        zone,
-                        grade: grade.to_string(),
-                        until: get_time() + 0.6,
-                    });
-                }
-                _ => {}
             }
         }
     }
 
-    fn process_audio_commands(&mut self, commands: &[AudioCommand]) {
+    fn process_audio_commands(&mut self, commands: &[serde_json::Value]) {
         for cmd in commands {
-            match cmd {
-                AudioCommand::PlayJudgeSfx { kind, grade, at_time, note_index } => {
-                    // Play judge sound effect
-                }
-                AudioCommand::PlaySlideCue { note_index, track_index, at_time } => {
-                    // Play slide cue sound
-                    if let Some(sfx) = &self.sfx_slide {
-                        if let Some(player) = &mut self.sfx_player {
-                            player.play(sfx,1.);
+            if let Some(obj) = cmd.as_object() {
+                if let Some(kind) = obj.keys().next() {
+                    match kind.as_str() {
+                        "PlaySlideCue" => {
+                            if let Some(sfx) = &self.sfx_slide {
+                                if let Some(player) = &mut self.sfx_player {
+                                    player.play(sfx, 1.);
+                                }
+                            }
                         }
+                        _ => {}
                     }
                 }
             }
@@ -736,7 +790,7 @@ impl PlayerState {
             println!("[lnmai judge event] note_index={zone}");
             self.judge_texts.push(JudgeText {
                 zone,
-                grade: e.grade.to_string(),
+                grade: format!("{:?}", e.grade),
                 until: get_time() + 0.6,
             });
         }
@@ -867,4 +921,218 @@ impl PlayerState {
             lane: active.lane,
         });
     }
+
+    pub fn generate_autoplay_events(&mut self) {
+        let simai_chart = lambda_dx::simai_io::chart_doc_to_simai_chart(&self.chart);
+        let chart_spec = simai_chart_to_ffi_chart_spec(&simai_chart);
+        match lnmai_core_rs::api::default_tactic_from_chart(&chart_spec) {
+            Ok(tactic) => {
+                use lnmai_core_rs::ffi_types::TimedInputEvent;
+                self.autoplay_events = tactic.events.iter().map(|e| {
+                    let t_us = match e {
+                        TimedInputEvent::ButtonClick { tp, .. } => *tp,
+                        TimedInputEvent::ButtonHold { tp, .. } => *tp,
+                        TimedInputEvent::SensorClick { tp, .. } => *tp,
+                        TimedInputEvent::SensorHold { tp, .. } => *tp,
+                    };
+                    let json_val = match e {
+                        TimedInputEvent::ButtonClick { tp, zone } => json!({"buttonClick": {"tp": t_us, "zone": zone}}),
+                        TimedInputEvent::ButtonHold { tp, zone, is_down } => json!({"buttonHold": {"tp": t_us, "zone": zone, "isDown": is_down}}),
+                        TimedInputEvent::SensorClick { tp, area } => json!({"sensorClick": {"tp": t_us, "area": area}}),
+                        TimedInputEvent::SensorHold { tp, area, is_down } => json!({"sensorHold": {"tp": t_us, "area": area, "isDown": is_down}}),
+                    };
+                    (t_us as u64, json_val)
+                }).collect();
+                self.autoplay_index = 0;
+                self.set_status(format!("Generated {} autoplay events", self.autoplay_events.len()));
+            }
+            Err(e) => {
+                self.set_status(format!("Autoplay tactic failed: {}", e.json));
+            }
+        }
+    }
+
+    pub fn toggle_autoplay(&mut self) {
+        self.autoplay = !self.autoplay;
+        if self.autoplay {
+            self.generate_autoplay_events();
+            self.set_status("Autoplay enabled".to_string());
+        } else {
+            self.autoplay_events.clear();
+            self.autoplay_index = 0;
+            self.set_status("Autoplay disabled".to_string());
+        }
+    }
+}
+
+// ── Maisimai → ChartSpec conversion (bypasses lnmai-core simai) ─────
+
+fn simai_chart_to_ffi_chart_spec(chart: &maisimai::SimaiChart) -> ChartSpec {
+    let bpms = &chart.bpms;
+    let mut taps = Vec::new();
+    let mut holds = Vec::new();
+    let mut touches = Vec::new();
+    let mut touch_holds = Vec::new();
+    let mut slides = Vec::new();
+    let mut note_index: u64 = 0;
+
+    // Collect slide positions to identify companion stars
+    let slide_positions: Vec<(f32, u8)> = chart.notes.iter()
+        .filter_map(|n| {
+            if let maisimai::SimaiNote::Slide { measure, start, is_tapless, .. } = n {
+                if !is_tapless { Some((*measure, *start)) } else { None }
+            } else { None }
+        })
+        .collect();
+
+    for note in &chart.notes {
+        match note {
+            maisimai::SimaiNote::Tap { measure, button, is_break, is_ex, is_star, .. } => {
+                if *is_star && slide_positions.iter().any(|(m, b)| (*m - *measure).abs() < 0.001 && *b == *button) {
+                    continue;
+                }
+                note_index += 1;
+                taps.push(TapChartNote {
+                    timing: msr_to_time(*measure, bpms),
+                    slot: button_to_ffi_slot(*button),
+                    is_break: *is_break,
+                    is_ex: *is_ex,
+                    button_queue_index: note_index,
+                    note_index,
+                });
+            }
+            maisimai::SimaiNote::Hold { measure, button, duration, is_ex, .. } => {
+                note_index += 1;
+                holds.push(HoldChartNote {
+                    timing: msr_to_time(*measure, bpms),
+                    slot: button_to_ffi_slot(*button),
+                    length: msr_to_dur(*duration, bpms),
+                    is_break: false,
+                    is_ex: *is_ex,
+                    is_touch: false,
+                    is_classic: None,
+                    button_queue_index: note_index,
+                    touch_hold_group_id: None,
+                    touch_hold_group_size: None,
+                    note_index,
+                });
+            }
+            maisimai::SimaiNote::TouchTap { measure, region, position, .. } => {
+                note_index += 1;
+                touches.push(TouchChartNote {
+                    timing: msr_to_time(*measure, bpms),
+                    sensor_pos: region_pos_to_ffi_sensor(*region, *position),
+                    is_break: false,
+                    touch_queue_index: note_index,
+                    touch_group_id: None,
+                    touch_group_size: None,
+                    note_index,
+                });
+            }
+            maisimai::SimaiNote::TouchHold { measure, region, position, duration, .. } => {
+                note_index += 1;
+                touch_holds.push(TouchHoldChartNote {
+                    timing: msr_to_time(*measure, bpms),
+                    sensor_pos: region_pos_to_ffi_sensor(*region, *position),
+                    length: msr_to_dur(*duration, bpms),
+                    is_break: false,
+                    is_ex: false,
+                    touch_queue_index: note_index,
+                    touch_group_id: None,
+                    touch_group_size: None,
+                    touch_hold_group_id: None,
+                    touch_hold_group_size: None,
+                    note_index,
+                });
+            }
+            maisimai::SimaiNote::Slide { measure, start, pattern, duration, delay, .. } => {
+                note_index += 1;
+                let kind = if matches!(pattern, maisimai::SlidePattern::Wifi) {
+                    RuntimeSlideKind::Wifi
+                } else {
+                    RuntimeSlideKind::Single
+                };
+                slides.push(SlideChartNote {
+                    head_timing: msr_to_time(*measure, bpms),
+                    slot: button_to_ffi_slot(*start),
+                    length: msr_to_dur(*duration, bpms),
+                    start_timing: msr_to_time(*measure + *delay, bpms),
+                    slide_kind: kind,
+                    is_classic: false,
+                    is_slide_no_head: false,
+                    is_conn_slide: false,
+                    parent_note_index: None,
+                    is_group_head: false,
+                    is_group_end: false,
+                    parent_finished: false,
+                    parent_pending_finish: false,
+                    total_judge_queue_len: 0,
+                    track_count: 0,
+                    judge_at: None,
+                    is_break: false,
+                    is_ex: false,
+                    logical_slide_id: 0,
+                    note_index,
+                    judge_queues: vec![],
+                    debug_simai: None,
+                });
+            }
+        }
+    }
+
+    ChartSpec {
+        taps,
+        holds,
+        touches,
+        touch_holds,
+        slide_heads: vec![],
+        slides,
+        slide_skipping: None,
+    }
+}
+
+fn button_to_ffi_slot(button: u8) -> OuterSlot {
+    match button % 8 {
+        0 => OuterSlot::S1,
+        1 => OuterSlot::S2,
+        2 => OuterSlot::S3,
+        3 => OuterSlot::S4,
+        4 => OuterSlot::S5,
+        5 => OuterSlot::S6,
+        6 => OuterSlot::S7,
+        _ => OuterSlot::S8,
+    }
+}
+
+fn region_pos_to_ffi_sensor(region: char, position: u8) -> SensorArea {
+    let idx = (position % 8) + 1;
+    match region.to_ascii_uppercase() {
+        'A' => match idx {
+            1 => SensorArea::A1, 2 => SensorArea::A2, 3 => SensorArea::A3, 4 => SensorArea::A4,
+            5 => SensorArea::A5, 6 => SensorArea::A6, 7 => SensorArea::A7, _ => SensorArea::A8,
+        },
+        'B' => match idx {
+            1 => SensorArea::B1, 2 => SensorArea::B2, 3 => SensorArea::B3, 4 => SensorArea::B4,
+            5 => SensorArea::B5, 6 => SensorArea::B6, 7 => SensorArea::B7, _ => SensorArea::B8,
+        },
+        'D' => match idx {
+            1 => SensorArea::D1, 2 => SensorArea::D2, 3 => SensorArea::D3, 4 => SensorArea::D4,
+            5 => SensorArea::D5, 6 => SensorArea::D6, 7 => SensorArea::D7, _ => SensorArea::D8,
+        },
+        'E' => match idx {
+            1 => SensorArea::E1, 2 => SensorArea::E2, 3 => SensorArea::E3, 4 => SensorArea::E4,
+            5 => SensorArea::E5, 6 => SensorArea::E6, 7 => SensorArea::E7, _ => SensorArea::E8,
+        },
+        _ => SensorArea::C,
+    }
+}
+
+fn msr_to_time(measure: f32, bpms: &[maisimai::Bpm]) -> i64 {
+    let s = maisimai::measure_to_seconds(measure, bpms);
+    (s as f64 * 1_000_000.0) as i64
+}
+
+fn msr_to_dur(measure: f32, bpms: &[maisimai::Bpm]) -> i64 {
+    let s = maisimai::measure_to_seconds(measure, bpms);
+    (s as f64 * 1_000_000.0) as i64
 }

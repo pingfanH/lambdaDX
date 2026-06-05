@@ -254,6 +254,9 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut PlayerState) {
                 if toggle_btn(ui, if app.audio_enabled { "Audio" } else { "Muted" }, app.audio_enabled) {
                     app.audio_enabled = !app.audio_enabled;
                 }
+                if toggle_btn(ui, "Autoplay", app.autoplay) {
+                    app.toggle_autoplay();
+                }
                 if toggle_btn(ui, "Mobile", app.mobile_ui) {
                     app.mobile_ui = !app.mobile_ui;
                 }
