@@ -3,12 +3,9 @@ use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 use lambda_dx::app::types::zone::PadZone;
-use lnmai_core_rs::session::{self, Session, Empty, Loaded};
+use lnmai_core_ffi::session::{self, Session, Empty, Loaded};
+use lnmai_core_ffi::types::{TimedInputEvent, JudgeEvent};
 use serde_json::json;
-use lnmai_core_rs::ffi_types::{
-    JudgeEvent, ChartSpec, TapChartNote, HoldChartNote, TouchChartNote, TouchHoldChartNote,
-    SlideChartNote, OuterSlot, SensorArea, RuntimeSlideKind,
-};
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
@@ -596,20 +593,15 @@ impl PlayerState {
     pub fn create_lnmai_session(&mut self) {
         if !self.lnmai_initialized { return; }
         self.free_lnmai_session();
-        let empty = match Session::<Empty>::create() {
+        let empty: Session<Empty> = match Session::<Empty>::create() {
             Ok(s) => s,
             Err(e) => { self.set_status(format!("lnmai create session failed: {}", e.json)); return; }
         };
-        let simai_chart = lambda_dx::simai_io::chart_doc_to_simai_chart(&self.chart);
-        println!("[lnmai simai]\n{}", maisimai::export_chart(&simai_chart));
+        let simai_file = lambda_dx::simai_io::chart_doc_to_simai_file(&self.chart);
+        let simai_text = maisimai::export_file(&simai_file);
+        println!("[lnmai simai]\n{simai_text}");
 
-        let chart_spec = simai_chart_to_ffi_chart_spec(&simai_chart);
-        let chart_spec_json = match serde_json::to_string(&chart_spec) {
-            Ok(json) => json,
-            Err(e) => { self.set_status(format!("lnmai chart serialize: {e}")); return; }
-        };
-
-        let (loaded, _info) = match empty.load_chart_json(&chart_spec_json) {
+        let (loaded, _info): (Session<Loaded>, _) = match empty.load_chart_text(&simai_text, 6) {
             Ok(v) => v,
             Err(e) => { self.set_status(format!("lnmai load chart failed: {}", e.json)); return; }
         };
@@ -619,7 +611,7 @@ impl PlayerState {
             if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&envelope.json) {
                 let data = json_val.get("result").unwrap_or(&json_val);
                 let mut note_entries: Vec<(u64, PadZone)> = Vec::new();
-                for key in &["taps", "holds", "slides"] {
+                for key in &["taps", "holds", "touches", "touchHolds", "slideHeads", "slides"] {
                     if let Some(arr) = data.get(*key).and_then(|n| n.as_array()) {
                         for note in arr {
                             let note_index = note.get("noteIndex").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -629,6 +621,8 @@ impl PlayerState {
                                 } else {
                                     PadZone::from(slot)
                                 }
+                            } else if let Some(sensor) = note.get("sensorPos").and_then(|v| v.as_str()) {
+                                PadZone::from(sensor)
                             } else {
                                 PadZone::A1
                             };
@@ -652,8 +646,9 @@ impl PlayerState {
     }
 
     pub fn free_lnmai_session(&mut self) {
-        if let Some(session) = self.lnmai_session.take() {
-            match session.free() {
+        let maybe_session: Option<Session<Loaded>> = self.lnmai_session.take();
+        if let Some(loaded_session) = maybe_session {
+            match loaded_session.free() {
                 Err(e) => self.set_status(format!("lnmai free session failed: {}", e.json)),
                 _ => {}
             }
@@ -666,7 +661,7 @@ impl PlayerState {
         let t_us = (t_s * 1_000_000.0) as u64;
         let events: Vec<serde_json::Value> = self.lnmai_input_events.drain(..).map(|(_, v)| v).collect();
 
-        let session = match &mut self.lnmai_session {
+        let session: &mut Session<Loaded> = match &mut self.lnmai_session {
             Some(s) => s,
             None => return,
         };
@@ -923,11 +918,11 @@ impl PlayerState {
     }
 
     pub fn generate_autoplay_events(&mut self) {
-        let simai_chart = lambda_dx::simai_io::chart_doc_to_simai_chart(&self.chart);
-        let chart_spec = simai_chart_to_ffi_chart_spec(&simai_chart);
-        match lnmai_core_rs::api::default_tactic_from_chart(&chart_spec) {
+        let simai_file = lambda_dx::simai_io::chart_doc_to_simai_file(&self.chart);
+        let simai_text = maisimai::export_file(&simai_file);
+        match lnmai_core_ffi::api::parse_lowered_chart(&simai_text, 6)
+            .and_then(|chart_spec| lnmai_core_ffi::api::default_tactic_from_chart(&chart_spec)) {
             Ok(tactic) => {
-                use lnmai_core_rs::ffi_types::TimedInputEvent;
                 self.autoplay_events = tactic.events.iter().map(|e| {
                     let t_us = match e {
                         TimedInputEvent::ButtonClick { tp, .. } => *tp,
@@ -963,176 +958,4 @@ impl PlayerState {
             self.set_status("Autoplay disabled".to_string());
         }
     }
-}
-
-// ── Maisimai → ChartSpec conversion (bypasses lnmai-core simai) ─────
-
-fn simai_chart_to_ffi_chart_spec(chart: &maisimai::SimaiChart) -> ChartSpec {
-    let bpms = &chart.bpms;
-    let mut taps = Vec::new();
-    let mut holds = Vec::new();
-    let mut touches = Vec::new();
-    let mut touch_holds = Vec::new();
-    let mut slides = Vec::new();
-    let mut note_index: u64 = 0;
-
-    // Collect slide positions to identify companion stars
-    let slide_positions: Vec<(f32, u8)> = chart.notes.iter()
-        .filter_map(|n| {
-            if let maisimai::SimaiNote::Slide { measure, start, is_tapless, .. } = n {
-                if !is_tapless { Some((*measure, *start)) } else { None }
-            } else { None }
-        })
-        .collect();
-
-    for note in &chart.notes {
-        match note {
-            maisimai::SimaiNote::Tap { measure, button, is_break, is_ex, is_star, .. } => {
-                if *is_star && slide_positions.iter().any(|(m, b)| (*m - *measure).abs() < 0.001 && *b == *button) {
-                    continue;
-                }
-                note_index += 1;
-                taps.push(TapChartNote {
-                    timing: msr_to_time(*measure, bpms),
-                    slot: button_to_ffi_slot(*button),
-                    is_break: *is_break,
-                    is_ex: *is_ex,
-                    button_queue_index: note_index,
-                    note_index,
-                });
-            }
-            maisimai::SimaiNote::Hold { measure, button, duration, is_ex, .. } => {
-                note_index += 1;
-                holds.push(HoldChartNote {
-                    timing: msr_to_time(*measure, bpms),
-                    slot: button_to_ffi_slot(*button),
-                    length: msr_to_dur(*duration, bpms),
-                    is_break: false,
-                    is_ex: *is_ex,
-                    is_touch: false,
-                    is_classic: None,
-                    button_queue_index: note_index,
-                    touch_hold_group_id: None,
-                    touch_hold_group_size: None,
-                    note_index,
-                });
-            }
-            maisimai::SimaiNote::TouchTap { measure, region, position, .. } => {
-                note_index += 1;
-                touches.push(TouchChartNote {
-                    timing: msr_to_time(*measure, bpms),
-                    sensor_pos: region_pos_to_ffi_sensor(*region, *position),
-                    is_break: false,
-                    touch_queue_index: note_index,
-                    touch_group_id: None,
-                    touch_group_size: None,
-                    note_index,
-                });
-            }
-            maisimai::SimaiNote::TouchHold { measure, region, position, duration, .. } => {
-                note_index += 1;
-                touch_holds.push(TouchHoldChartNote {
-                    timing: msr_to_time(*measure, bpms),
-                    sensor_pos: region_pos_to_ffi_sensor(*region, *position),
-                    length: msr_to_dur(*duration, bpms),
-                    is_break: false,
-                    is_ex: false,
-                    touch_queue_index: note_index,
-                    touch_group_id: None,
-                    touch_group_size: None,
-                    touch_hold_group_id: None,
-                    touch_hold_group_size: None,
-                    note_index,
-                });
-            }
-            maisimai::SimaiNote::Slide { measure, start, pattern, duration, delay, .. } => {
-                note_index += 1;
-                let kind = if matches!(pattern, maisimai::SlidePattern::Wifi) {
-                    RuntimeSlideKind::Wifi
-                } else {
-                    RuntimeSlideKind::Single
-                };
-                slides.push(SlideChartNote {
-                    head_timing: msr_to_time(*measure, bpms),
-                    slot: button_to_ffi_slot(*start),
-                    length: msr_to_dur(*duration, bpms),
-                    start_timing: msr_to_time(*measure + *delay, bpms),
-                    slide_kind: kind,
-                    is_classic: false,
-                    is_slide_no_head: false,
-                    is_conn_slide: false,
-                    parent_note_index: None,
-                    is_group_head: false,
-                    is_group_end: false,
-                    parent_finished: false,
-                    parent_pending_finish: false,
-                    total_judge_queue_len: 0,
-                    track_count: 0,
-                    judge_at: None,
-                    is_break: false,
-                    is_ex: false,
-                    logical_slide_id: 0,
-                    note_index,
-                    judge_queues: vec![],
-                    debug_simai: None,
-                });
-            }
-        }
-    }
-
-    ChartSpec {
-        taps,
-        holds,
-        touches,
-        touch_holds,
-        slide_heads: vec![],
-        slides,
-        slide_skipping: None,
-    }
-}
-
-fn button_to_ffi_slot(button: u8) -> OuterSlot {
-    match button % 8 {
-        0 => OuterSlot::S1,
-        1 => OuterSlot::S2,
-        2 => OuterSlot::S3,
-        3 => OuterSlot::S4,
-        4 => OuterSlot::S5,
-        5 => OuterSlot::S6,
-        6 => OuterSlot::S7,
-        _ => OuterSlot::S8,
-    }
-}
-
-fn region_pos_to_ffi_sensor(region: char, position: u8) -> SensorArea {
-    let idx = (position % 8) + 1;
-    match region.to_ascii_uppercase() {
-        'A' => match idx {
-            1 => SensorArea::A1, 2 => SensorArea::A2, 3 => SensorArea::A3, 4 => SensorArea::A4,
-            5 => SensorArea::A5, 6 => SensorArea::A6, 7 => SensorArea::A7, _ => SensorArea::A8,
-        },
-        'B' => match idx {
-            1 => SensorArea::B1, 2 => SensorArea::B2, 3 => SensorArea::B3, 4 => SensorArea::B4,
-            5 => SensorArea::B5, 6 => SensorArea::B6, 7 => SensorArea::B7, _ => SensorArea::B8,
-        },
-        'D' => match idx {
-            1 => SensorArea::D1, 2 => SensorArea::D2, 3 => SensorArea::D3, 4 => SensorArea::D4,
-            5 => SensorArea::D5, 6 => SensorArea::D6, 7 => SensorArea::D7, _ => SensorArea::D8,
-        },
-        'E' => match idx {
-            1 => SensorArea::E1, 2 => SensorArea::E2, 3 => SensorArea::E3, 4 => SensorArea::E4,
-            5 => SensorArea::E5, 6 => SensorArea::E6, 7 => SensorArea::E7, _ => SensorArea::E8,
-        },
-        _ => SensorArea::C,
-    }
-}
-
-fn msr_to_time(measure: f32, bpms: &[maisimai::Bpm]) -> i64 {
-    let s = maisimai::measure_to_seconds(measure, bpms);
-    (s as f64 * 1_000_000.0) as i64
-}
-
-fn msr_to_dur(measure: f32, bpms: &[maisimai::Bpm]) -> i64 {
-    let s = maisimai::measure_to_seconds(measure, bpms);
-    (s as f64 * 1_000_000.0) as i64
 }
