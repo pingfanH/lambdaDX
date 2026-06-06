@@ -3,6 +3,7 @@ use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 use lambda_dx::app::types::zone::PadZone;
+use lnmai_core_rs::lnmai_core_ffi;
 use lnmai_core_ffi::session::{self, Session, Empty, Loaded};
 use lnmai_core_ffi::types::{TimedInputEvent, JudgeEvent};
 use serde_json::json;
@@ -175,6 +176,18 @@ pub struct PlayerState {
 
     pub status: String,
 
+    /// File path input for chart import.
+    pub import_path_input: String,
+    /// Pending file dialog import (triggered from main loop).
+    pub pending_import: bool,
+
+    /// Imported Simai file for level switching.
+    pub imported_simai: Option<maisimai::SimaiFile>,
+    /// Available levels: (number, display_text).
+    pub import_levels: Vec<(u32, String)>,
+    /// Currently selected import level.
+    pub import_selected_level: u32,
+
     pub lnmai_session: Option<Session<Loaded>>,
     pub lnmai_initialized: bool,
     pub lnmai_note_zones: Vec<PadZone>,
@@ -314,6 +327,11 @@ impl PlayerState {
             next_note_id: 1,
             hidden_notes: HashSet::new(),
             status: "Ready".to_string(),
+            import_path_input: String::new(),
+            pending_import: false,
+            imported_simai: None,
+            import_levels: Vec::new(),
+            import_selected_level: 0,
             lnmai_session: None,
             lnmai_initialized: false,
             lnmai_note_zones: Vec::new(),

@@ -126,6 +126,16 @@ pub async fn load_audio_pcm_from_assets() -> (Option<String>, Option<WavPcm>) {
     (None, None)
 }
 
+/// Load audio from raw bytes, auto-detecting format from extension.
+pub fn load_audio_from_bytes(bytes: &[u8], ext: &str) -> Option<WavPcm> {
+    let pcm = if ext.eq_ignore_ascii_case("wav") {
+        load_wav_pcm_from_bytes(bytes)
+    } else {
+        load_mp3_pcm_from_bytes(bytes)
+    };
+    pcm.map(normalize_to_44100).ok()
+}
+
 fn normalize_to_44100(src: WavPcm) -> WavPcm {
     if src.sample_rate == 44_100 {
         return src;

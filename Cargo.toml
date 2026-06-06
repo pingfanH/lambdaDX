@@ -49,6 +49,7 @@ egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 lnmai_core_rs = { package = "lnmai-core-rs", path = "lnmai-core-rs", features = ["ffi"] }
 maisimai = { version = "0.1.0", path = "maisimai" }
+tinyfiledialogs = "3.9"
 tokio = {version = "1.52.3",features = ["sync"]}
 
 [build-dependencies]

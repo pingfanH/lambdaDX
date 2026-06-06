@@ -149,6 +149,29 @@ fn step_btn(ui: &mut egui::Ui, label: &str) -> egui::Response {
 }
 
 /// Draw egui toolbar on top. Pad + timeline are native macroquad below.
+fn import_from_path(app: &mut super::state::AppState) {
+    let path = app.import_path_input.trim().to_string();
+    if path.is_empty() { return; }
+    match simai_io::import_from_file_path(&path) {
+        Ok(import) => {
+            let n = import.chart.notes.len();
+            app.set_chart(import.chart);
+            app.set_selected_note(None);
+            app.set_editing_slide_path(None);
+            if let (Some(bytes), Some(ext)) = (&import.audio_bytes, &import.audio_ext) {
+                if let Some(pcm) = super::audio::load_audio_from_bytes(bytes, ext) {
+                    app.audio_source_name = Some(import.title.clone());
+                    app.audio_wav_pcm = Some(pcm);
+                    app.audio_cache.clear();
+                    app.request_audio_start();
+                }
+            }
+            app.set_status(format!("Opened {} ({n} notes)", import.title));
+        }
+        Err(e) => app.set_status(format!("Import: {e}")),
+    }
+}
+
 pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
     apply_blender_style(ctx);
 
@@ -195,6 +218,51 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
                         Ok(c) => { let n = c.notes.len(); app.set_chart(c); app.set_status(format!("{n} notes")); }
                         Err(e) => app.set_status(format!("Load: {e}")),
                     }
+                }
+                if ui.button(egui::RichText::new("Open...").color(TEXT))
+                    .on_hover_text("Pick chart file from dialog")
+                    .clicked()
+                {
+                    app.pending_import = true;
+                }
+                if !app.import_levels.is_empty() {
+                    ui.add_space(2.0);
+                    let current_label = app.import_levels.iter()
+                        .find(|(lv, _)| *lv == app.import_selected_level)
+                        .map(|(_, s)| s.as_str())
+                        .unwrap_or("?");
+                    if ui.button(egui::RichText::new(format!("Lv.{}", current_label)).color(ACCENT_ORANGE))
+                        .clicked()
+                    {
+                        // Cycle to next level
+                        let idx = app.import_levels.iter()
+                            .position(|(lv, _)| *lv == app.import_selected_level)
+                            .unwrap_or(0);
+                        let next = (idx + 1) % app.import_levels.len();
+                        let (new_lv, _) = app.import_levels[next];
+                        app.import_selected_level = new_lv;
+                        if let Some(ref simai) = app.imported_simai {
+                            match simai_io::convert_simai_level(simai, new_lv) {
+                                Ok(chart) => {
+                                    app.set_chart(chart);
+                                    app.set_status(format!("Switched to Lv.{}", 
+                                        app.import_levels.iter().find(|(lv,_)| *lv==new_lv).map(|(_,s)| s.as_str()).unwrap_or("?")));
+                                }
+                                Err(e) => app.set_status(format!("Level switch: {e}")),
+                            }
+                        }
+                    }
+                }
+                ui.add_space(2.0);
+                ui.label(egui::RichText::new("Path:").color(TEXT_DIM));
+                let resp = ui.add(egui::TextEdit::singleline(&mut app.import_path_input)
+                    .hint_text("maidata.txt path...")
+                    .desired_width(140.0));
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui_macroquad::egui::Key::Enter)) {
+                    import_from_path(app);
+                }
+                if ui.button(egui::RichText::new("Import").color(TEXT)).clicked() {
+                    import_from_path(app);
                 }
                 section_sep(ui);
 

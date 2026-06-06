@@ -186,6 +186,18 @@ pub struct AppState {
     pub saved_playback: Option<SavedPlaybackState>,
 
     pub status: String,
+
+    /// File path input for chart import.
+    pub import_path_input: String,
+    /// Pending file dialog import (triggered from main loop).
+    pub pending_import: bool,
+
+    /// Imported Simai file for level switching.
+    pub imported_simai: Option<maisimai::SimaiFile>,
+    /// Available levels: (number, display_text).
+    pub import_levels: Vec<(u32, String)>,
+    /// Currently selected import level.
+    pub import_selected_level: u32,
     
     /// Toast notification system
     pub toasts: ToastManager,
@@ -323,6 +335,11 @@ impl AppState {
             next_instance_id: 1,
             saved_playback: None,
             status: "Ready".to_string(),
+            import_path_input: String::new(),
+            pending_import: false,
+            imported_simai: None,
+            import_levels: Vec::new(),
+            import_selected_level: 0,
             toasts: ToastManager::new(),
         }
     }

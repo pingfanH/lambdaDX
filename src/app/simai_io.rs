@@ -269,7 +269,6 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
     let s = start + 1; // 1-indexed zone
     let e = end + 1;
     let sp = |z: u8| SlidePoint { zone: PadZone::from(z), beat_offset: 0.0 };
-    return vec![sp(e)];
     match pattern {
         SlidePattern::Line => {
             // Straight line through center; endpoint only.
@@ -285,18 +284,21 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
         }
         SlidePattern::Caret => {
             // Shorter arc around the outer ring.
-            let cw = ring_cw(s, e);
-            let ccw = ring_ccw(s, e);
-            let route = if cw.len() <= ccw.len() { cw } else { ccw };
-            route.into_iter().map(sp).collect()
+            // let cw = ring_cw(s, e);
+            // let ccw = ring_ccw(s, e);
+            // let route = if cw.len() <= ccw.len() { cw } else { ccw };
+            // route.into_iter().map(sp).collect()
+            return  vec![sp(e)];
         }
         SlidePattern::Right => {
             // > = CCW arc around the outer ring.
-            ring_ccw(s, e).into_iter().map(sp).collect()
+           // ring_ccw(s, e).into_iter().map(sp).collect()
+            return  vec![sp(e)];
         }
         SlidePattern::Left => {
             // < = CW arc around the outer ring.
-            ring_cw(s, e).into_iter().map(sp).collect()
+           // ring_cw(s, e).into_iter().map(sp).collect()
+            return  vec![sp(e)];
         }
         SlidePattern::LowerV => {
             // V-shape through center.
@@ -304,46 +306,52 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
         }
         SlidePattern::P => {
             // CW half-circle through inner ring.
-            let mid = ring_cw(s, e);
-            let mut pts: Vec<SlidePoint> = mid.iter()
-                .take(mid.len().saturating_sub(1))
-                .map(|&z| sp(a_to_b(z)))
-                .collect();
-            pts.push(sp(e));
-            pts
+            // let mid = ring_cw(s, e);
+            // let mut pts: Vec<SlidePoint> = mid.iter()
+            //     .take(mid.len().saturating_sub(1))
+            //     .map(|&z| sp(a_to_b(z)))
+            //     .collect();
+            // pts.push(sp(e));
+            // pts
+            return  vec![sp(e)];
         }
         SlidePattern::Q => {
             // CCW half-circle through inner ring.
-            let mid = ring_ccw(s, e);
-            let mut pts: Vec<SlidePoint> = mid.iter()
-                .take(mid.len().saturating_sub(1))
-                .map(|&z| sp(a_to_b(z)))
-                .collect();
-            pts.push(sp(e));
-            pts
+            // let mid = ring_ccw(s, e);
+            // let mut pts: Vec<SlidePoint> = mid.iter()
+            //     .take(mid.len().saturating_sub(1))
+            //     .map(|&z| sp(a_to_b(z)))
+            //     .collect();
+            // pts.push(sp(e));
+            // pts
+            return  vec![sp(e)];
         }
         SlidePattern::PP => {
             // Full CW circle (inner ring) then to end.
-            let full = ring_cw_full(s);
-            let mut pts: Vec<SlidePoint> = full.iter().map(|&z| sp(a_to_b(z))).collect();
-            // After the full loop, go from last inner zone outward to end.
-            pts.push(sp(e));
-            pts
+            // let full = ring_cw_full(s);
+            // let mut pts: Vec<SlidePoint> = full.iter().map(|&z| sp(a_to_b(z))).collect();
+            // // After the full loop, go from last inner zone outward to end.
+            // pts.push(sp(e));
+            // pts
+            return  vec![sp(e)];
         }
         SlidePattern::QQ => {
             // Full CCW circle (inner ring) then to end.
-            let full = ring_ccw_full(s);
-            let mut pts: Vec<SlidePoint> = full.iter().map(|&z| sp(a_to_b(z))).collect();
-            pts.push(sp(e));
-            pts
+            // let full = ring_ccw_full(s);
+            // let mut pts: Vec<SlidePoint> = full.iter().map(|&z| sp(a_to_b(z))).collect();
+            // pts.push(sp(e));
+            // pts
+            return  vec![sp(e)];
         }
         SlidePattern::S => {
             // S-curve: CW first half → center → CCW second half.
-            s_curve_waypoints(s, e, false).into_iter().map(sp).collect()
+           // s_curve_waypoints(s, e, false).into_iter().map(sp).collect()
+            return  vec![sp(e)];
         }
         SlidePattern::Z => {
             // Z-curve: CCW first half → center → CW second half.
-            s_curve_waypoints(s, e, true).into_iter().map(sp).collect()
+           // s_curve_waypoints(s, e, true).into_iter().map(sp).collect()
+            return  vec![sp(e)];
         }
         SlidePattern::Wifi => {
             // Fan shape — just the endpoint (wifi is visually 3 lanes but
@@ -599,4 +607,147 @@ pub fn export_to_simai_path(doc: &ChartDoc, name: &str) -> Result<PathBuf, Strin
     let file = chart_doc_to_simai_file(doc);
     let text = ms::export_file(&file);
     platform::write_output_text(name, &text)
+}
+
+// ─────────────────────── Dialog-based import ──────────────────────────
+
+/// Result of a dialog-based chart import.
+pub struct DialogImport {
+    pub chart: ChartDoc,
+    pub title: String,
+    pub audio_bytes: Option<Vec<u8>>,
+    pub audio_ext: Option<String>,
+    /// Available difficulty levels: (level_number, display_text).
+    pub levels: Vec<(u32, String)>,
+    /// Parsed file for level switching without re-reading disk.
+    pub simai_file: ms::SimaiFile,
+}
+
+/// Open native file dialog to import a chart and its background music.
+pub fn dialog_import() -> Result<DialogImport, String> {
+    let path_str = native_open_file_dialog()
+        .ok_or_else(|| "cancelled".to_string())?;
+    import_from_file_path(&path_str)
+}
+
+/// Import chart from a file path. Audio is auto-detected in the same directory.
+pub fn import_from_file_path(path_str: &str) -> Result<DialogImport, String> {
+    let file = PathBuf::from(path_str);
+    let base_dir = file.parent().map(|p| p.to_path_buf());
+    let chart_text = std::fs::read_to_string(&file)
+        .map_err(|e| format!("read file: {e}"))?;
+
+    let parsed = if chart_text.contains("&inote_") || chart_text.contains("&title=") {
+        ms::parse_file(&chart_text)
+            .or_else(|e| {
+                let note_body = extract_note_body(&chart_text);
+                println!("[import] parse_file failed ({}), trying parse_chart_text with body ({} bytes): {:?}",
+                    e, note_body.len(), &note_body[..note_body.len().min(120)]);
+                ms::parse_chart_text(&note_body).map(|chart| SimaiFile {
+                    title: String::new(), artist: String::new(), first: 0.0,
+                    levels: Vec::new(), charts: vec![(0, chart)], wholebpm: None,
+                })
+            })
+            .map_err(|e| format!("simai parse: {e}"))?
+    } else {
+        let chart = ms::parse_chart_text(&chart_text).map_err(|e| format!("simai parse: {e}"))?;
+        SimaiFile {
+            title: String::new(), artist: String::new(), first: 0.0,
+            levels: Vec::new(), charts: vec![(0, chart)], wholebpm: None,
+        }
+    };
+
+    let chart = simai_file_to_chart_doc(&parsed, None)
+        .map_err(|e| format!("chart convert: {e}"))?;
+    let title = chart.title.clone();
+
+    // Build level list from charts + level labels
+    let mut levels: Vec<(u32, String)> = parsed.charts.iter().map(|(lv, _)| {
+        let label = parsed.levels.iter()
+            .find(|(n, _)| n == lv)
+            .map(|(_, s)| s.clone())
+            .unwrap_or_else(|| format!("Lv.{lv}"));
+        (*lv, label)
+    }).collect();
+    levels.sort_by_key(|(lv, _)| *lv);
+
+    let (audio_bytes, audio_ext) = if let Some(dir) = base_dir {
+        let result = ["track.mp3", "track.wav", "music.mp3", "music.wav"].iter().find_map(|name| {
+            let path = dir.join(name);
+            match std::fs::read(&path) {
+                Ok(b) => {
+                    println!("[dialog_import] found audio: {} ({} bytes)", path.display(), b.len());
+                    Some((b, name.rsplit('.').next().unwrap_or("").to_string()))
+                }
+                Err(_) => None,
+            }
+        });
+        if result.is_none() {
+            println!("[dialog_import] no audio found in {:?}", dir);
+        }
+        result
+    } else {
+        None
+    }.unzip();
+
+    Ok(DialogImport { chart, title, audio_bytes, audio_ext, levels, simai_file: parsed })
+}
+
+/// Re-convert a specific level from an already-parsed Simai file.
+pub fn convert_simai_level(simai_file: &ms::SimaiFile, level: u32) -> Result<ChartDoc, String> {
+    simai_file_to_chart_doc(simai_file, Some(level))
+}
+
+#[cfg(target_os = "macos")]
+fn native_open_file_dialog() -> Option<String> {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(r#"POSIX path of (choose file with prompt "Open Chart" default location (path to desktop))"#)
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    println!("[dialog] osascript stdout={stdout:?} stderr={stderr:?} status={}", output.status);
+    if output.status.success() && !stdout.is_empty() {
+        Some(stdout)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_open_file_dialog() -> Option<String> {
+    tinyfiledialogs::open_file_dialog(
+        "Open Chart",
+        "",
+        Some((&["*.txt", "*.map"], "Chart files")),
+    )
+}
+
+/// Extract the note body from a simai file and strip leading BPM marker.
+fn extract_note_body(text: &str) -> String {
+    let body = if let Some(pos) = text.rfind("&inote_") {
+        let after = &text[pos..];
+        if let Some(eq) = after.find('=') {
+            after[eq + 1..].trim().to_string()
+        } else {
+            text.to_string()
+        }
+    } else {
+        text.to_string()
+    };
+    // Strip leading equivalent BPM markers like "(120){4}" or "( ){4}"
+    let body = body.trim_start();
+    if body.starts_with('(') {
+        if let Some(close) = body.find(')') {
+            let after_paren = body[close + 1..].trim_start();
+            if after_paren.starts_with('{') {
+                if let Some(close_brace) = after_paren.find('}') {
+                    return after_paren[close_brace + 1..].trim().to_string();
+                }
+            }
+            return after_paren.to_string();
+        }
+    }
+    body.to_string()
 }

@@ -90,6 +90,33 @@ pub async fn main() {
         });
         egui_macroquad::draw();
 
+        if app.pending_import {
+            app.pending_import = false;
+            match lambda_dx::simai_io::dialog_import() {
+                Ok(import) => {
+                    let n = import.chart.notes.len();
+                    app.import_levels = import.levels.clone();
+                    app.imported_simai = Some(import.simai_file);
+                    app.import_selected_level = import.levels.iter()
+                        .map(|(lv, _)| *lv).max().unwrap_or(0);
+                    app.set_chart(import.chart);
+                    app.set_selected_note(None);
+                    app.set_editing_slide_path(None);
+                    if let (Some(bytes), Some(ext)) = (&import.audio_bytes, &import.audio_ext) {
+                        if let Some(pcm) = lambda_dx::app::audio::load_audio_from_bytes(bytes, ext) {
+                            app.audio_source_name = Some(import.title.clone());
+                            app.audio_wav_pcm = Some(pcm);
+                            app.audio_cache.clear();
+                            app.request_audio_start();
+                        }
+                    }
+                    app.set_status(format!("Opened {} ({n} notes)", import.title));
+                }
+                Err(e) if e == "cancelled" => {}
+                Err(e) => app.set_status(format!("Import: {e}")),
+            }
+        }
+
         next_frame().await;
     }
 }
