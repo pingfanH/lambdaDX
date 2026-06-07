@@ -122,28 +122,40 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                 });
             }
             SimaiNote::Slide { measure, start, end, pattern, reflect, duration, delay, is_break, is_ex, is_tapless, chain, .. } => {
-                // Build chain segments: first arc + chain arcs, each as a SlideSegment.
-                let mut segments = Vec::new();
+                let mut slides: Vec<Slide> = Vec::new();
+                let mut cur_segments: Vec<SlideSegment> = Vec::new();
                 let first_pts = simai_pattern_to_points(*start, *end, *pattern, *reflect);
-                segments.push(SlideSegment {
+                cur_segments.push(SlideSegment {
                     points: first_pts,
                     shape: simai_pattern_to_shape(*pattern),
                 });
                 let mut prev_end = *end;
-                for (cp, ce, cr) in chain {
+                for (cp, ce, cr, is_star) in chain {
                     let chain_pts = simai_pattern_to_points(prev_end, *ce, *cp, *cr);
-                    segments.push(SlideSegment {
+                    if *is_star {
+                        // Flush current segments as a Slide, start new one
+                        slides.push(Slide {
+                            segments: std::mem::take(&mut cur_segments),
+                            slide_duration: (*delay + *duration).max(0.0),
+                            slide_start_delay: delay.max(0.0),
+                            slide_is_break: *is_break,
+                        });
+                    }
+                    cur_segments.push(SlideSegment {
                         points: chain_pts,
                         shape: simai_pattern_to_shape(*cp),
                     });
                     prev_end = *ce;
                 }
-                let slide_obj = Slide {
-                    segments,
-                    slide_duration: (*delay + *duration).max(0.0),
-                    slide_start_delay: delay.max(0.0),
-                    slide_is_break: *is_break,
-                };
+                // Flush remaining
+                if !cur_segments.is_empty() {
+                    slides.push(Slide {
+                        segments: cur_segments,
+                        slide_duration: (*delay + *duration).max(0.0),
+                        slide_start_delay: delay.max(0.0),
+                        slide_is_break: *is_break,
+                    });
+                }
                 // Look for a star Tap at the same measure+button to get
                 // the star head's break/ex flags.
                 let q = quantize(*measure);
@@ -160,7 +172,7 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     is_break: sb,
                     is_ex: se,
                     is_tapless: *is_tapless,
-                    slide: vec![slide_obj],
+                    slide: slides,
                     ..Default::default()
                 });
             }
@@ -556,11 +568,11 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         _ => (None, 0),
                     };
                     // Build chain from additional segments.
-                    let chain: Vec<(SlidePattern, u8, Option<u8>)> = sl.segments.iter().skip(1)
+                    let chain: Vec<(SlidePattern, u8, Option<u8>, bool)> = sl.segments.iter().skip(1)
                         .map(|seg| {
                             let cp = shape_to_simai_pattern(Some(seg.shape));
                             let ce = seg.points.last().map(|p| p.zone.to_id().saturating_sub(1)).unwrap_or(0);
-                            (cp, ce, None)
+                            (cp, ce, None, false)
                         })
                         .collect();
                     let delay_meas = snap_measure(sl.slide_start_delay.max(0.0));
