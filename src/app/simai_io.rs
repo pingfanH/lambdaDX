@@ -53,10 +53,9 @@ pub fn simai_file_to_chart_doc(
     };
     let _ = num;
     let mut doc = simai_chart_to_chart_doc(&chart);
-    // Apply the `&first` offset: it specifies how many seconds into the
-    // audio the first beat occurs. We store it in `audio_offset` so that
-    // audio playback is shifted accordingly.
     doc.audio_offset = file.first;
+    doc.artist = file.artist.clone();
+    doc.simai_level = num;
     if doc.title.is_empty() {
         doc.title = if file.title.is_empty() {
             "Imported Simai".to_string()
@@ -211,6 +210,8 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
     ChartDoc {
         version: "0.3.0-measure".to_string(),
         title: String::new(),
+        artist: String::new(),
+        simai_level: 0,
         bpm: bpm0,
         bpms: bpm_changes,
         audio_offset: 0.0,
@@ -473,12 +474,13 @@ fn lane_to_touch(lane: u8) -> (char, u8) {
 
 pub fn chart_doc_to_simai_file(doc: &ChartDoc) -> SimaiFile {
     let chart = chart_doc_to_simai_chart(doc);
+    let lv = if doc.simai_level > 0 { doc.simai_level } else { 6 };
     SimaiFile {
         title: doc.title.clone(),
-        artist: String::new(),
+        artist: doc.artist.clone(),
         first: doc.audio_offset,
-        levels: vec![(6, "?".to_string())],
-        charts: vec![(6, chart)],
+        levels: vec![(lv, "?".to_string())],
+        charts: vec![(lv, chart)],
         wholebpm: Some(doc.bpm),
     }
 }
@@ -572,7 +574,12 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         .map(|seg| {
                             let cp = shape_to_simai_pattern(Some(seg.shape));
                             let ce = seg.points.last().map(|p| p.zone.to_id().saturating_sub(1)).unwrap_or(0);
-                            (cp, ce, None, false)
+                            let cr = if matches!(cp, SlidePattern::BigV) {
+                                seg.points.first().map(|p| p.zone.to_id().saturating_sub(1))
+                            } else {
+                                None
+                            };
+                            (cp, ce, cr, false)
                         })
                         .collect();
                     let delay_meas = snap_measure(sl.slide_start_delay.max(0.0));

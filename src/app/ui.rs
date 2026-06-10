@@ -20,6 +20,7 @@ use super::types::{
     TOUCH_DISAPPEAR_TIME, SLIDE_TILE_SPACING, SLIDE_TILE_SIZE, SLIDE_TILE_SCALE, SLIDE_TRAVEL_TIME, STAR_SIZE,
     HIT_WINDOW,
     PAD_ROTATION_RAD, TAP_RING_OFFSET, GRID_DIVISION, NoteType, SlideShape, TAP_SIZE, HOLD_WIDTH, TOUCH_SIZE,
+    FIXED_SLIDE_FADE_IN,
     note_secs, measure_to_secs, secs_to_measure, mdur_to_secs, snap_measure, bpm_at,
 };
 use super::pad_svg;
@@ -797,7 +798,7 @@ fn draw_timeline_panel(app: &AppState, rect: RectF) {
         Mode::Idle => app.timeline_view_time,
     };
     let bpms = &app.chart.bpms;
-    let scroll_speed = SCROLL_SPEED * app.timeline_zoom;
+    let scroll_speed = SCROLL_SPEED * app.timeline_zoom / app.play_speed.max(0.1);
 
     // BPM-based grid lines (cover full track height)
     let beat_s = 60.0 / app.chart.bpm;
@@ -1913,6 +1914,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         Mode::Playing | Mode::Recording => app.song_time(),
         Mode::Idle => app.timeline_view_time,
     };
+    let speed_scale = app.play_speed.max(0.1);
 
     // ── Trajectory edit overlay ──
     // 编辑时显示 slide 路径的折线和路点圆点
@@ -2025,11 +2027,13 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         let zone = sanitize_note_zone(note.note_type, note.lane);
         let ns = note_secs(note, bpms);
         let dt = ns - current_t;
+        let dt_scaled = dt / speed_scale;
         let tail_dt = if matches!(note.note_type, NoteType::Hold) {
             hold_tail_time(note, bpms) - current_t
         } else {
             dt
         };
+        let tail_dt_scaled = tail_dt / speed_scale;
 
         let lead_time = if zone <= 8 {
             if matches!(note.note_type, NoteType::Hold) { HOLD_FLY_TIME }
@@ -2062,7 +2066,11 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             if let Some(ref svg) = app.pad_svg {
                 for sl in &note.slide {
                     let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
-                    let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
+                    let fade_in_s = if let Some(t) = FIXED_SLIDE_FADE_IN {
+                        t
+                    } else {
+                        mdur_to_secs(sl.slide_start_delay, note.time, bpms)
+                    }
                         .max(0.0).min(slide_dur_s - 0.001).max(0.001);
 
                     let dbl = note.is_star;
@@ -2094,7 +2102,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         note, sl,
                         current_t, ns, slide_dur_s, fade_in_s,
                         &pad, svg, scale, spawn_center, outer_r,
-                        &tex, false,
+                        &tex, false, speed_scale,
                     );
                 }
             }
@@ -2116,7 +2124,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
             let dir = vec2(ang.cos(), ang.sin());
             let head_travel = if matches!(note.note_type, NoteType::Slide) { SLIDE_TRAVEL_TIME } else { TAP_TRAVEL_TIME };
-            let progress = ((head_travel - dt) / head_travel).clamp(0.0, 1.0);
+            let progress = ((head_travel - dt_scaled) / head_travel).clamp(0.0, 1.0);
             // Phase 1: grow from 0 to 1 at spawn point. Phase 2: fly at full size.
             let size_scale = if progress < TAP_GROW_FRAC {
                 progress / TAP_GROW_FRAC
@@ -2149,8 +2157,9 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 let head_r = (head_fly_r + hold_half).min(h_target_r);
                 // Tail lags at spawn, flies to target in last HOLD_TAIL_FLY_TIME seconds
                 let tail_dt = hold_tail_time(note, bpms) - current_t;
-                let tail_fly = if tail_dt <= HOLD_TAIL_FLY_TIME {
-                    (1.0 - tail_dt / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
+                let tail_dt_scaled = tail_dt / speed_scale;
+                let tail_fly = if tail_dt_scaled <= HOLD_TAIL_FLY_TIME {
+                    (1.0 - tail_dt_scaled / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
@@ -2229,7 +2238,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 NoteType::Hold => HOLD_TRAVEL_TIME,
                 _ => TOUCH_TRAVEL_TIME,
             };
-            let raw = (travel - dt) / travel;
+            let raw = (travel - dt_scaled) / travel;
             let progress = smoothstep(raw.clamp(0.0, 1.0));
             // Phase 1: fade in 0→255. Phase 2: animate movement.
             let alpha = if progress < TOUCH_GROW_FRAC {
@@ -2276,7 +2285,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
             if matches!(note.note_type, NoteType::Hold) {
                 // Touch hold: 4-texture cross rotated 45°, with progress border
-                let hold_progress = ((current_t - ns) / (hold_tail_time(note, bpms) - ns).max(0.01)).clamp(0.0, 1.0);
+                let hold_progress = (((current_t - ns) / speed_scale) / (hold_tail_time(note, bpms) - ns).max(0.01)).clamp(0.0, 1.0);
                 let hold_dist = (TOUCHHOLD_START_DIST + (TOUCHHOLD_END_DIST - TOUCHHOLD_START_DIST) * move_progress) * TOUCHHOLD_SCALE * scale;
                 let d = hold_dist * 0.707; // √2/2 for diagonal
                 // Cross rotated 45° CW from regular touch, starting top-right
@@ -2339,6 +2348,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     let zone = sanitize_note_zone(note.note_type, note.lane);
                     let ns = note_secs(note, bpms);
                     let dt = ns - current_t;
+                    let dt_scaled = dt / speed_scale;
                     let lead_time = if zone <= 8 {
                         if matches!(note.note_type, NoteType::Hold) { HOLD_FLY_TIME }
                         else if matches!(note.note_type, NoteType::Slide) { SLIDE_TRAVEL_TIME }
@@ -2390,7 +2400,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                                     note, sl,
                                     current_t, ns, slide_dur_s, fade_in_s,
                                     &pad, svg, scale, spawn_center, outer_r,
-                                    &tex, false,
+                                    &tex, false, speed_scale,
                                 );
                             }
                         }
@@ -2414,7 +2424,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         if matches!(note.note_type, NoteType::Hold) {
                             let h_spawn_r = outer_r * HOLD_SPAWN_FRAC;
                             let h_target_r = outer_r + HOLD_TARGET_OFFSET;
-                            let h_progress = ((HOLD_FLY_TIME - dt) / HOLD_FLY_TIME).clamp(0.0, 1.0);
+                let h_progress = ((HOLD_FLY_TIME - dt_scaled) / HOLD_FLY_TIME).clamp(0.0, 1.0);
                             let h_size_scale = if h_progress < TAP_GROW_FRAC { h_progress / TAP_GROW_FRAC } else { 1.0 };
                             let h_fly_progress = if h_progress < TAP_GROW_FRAC { 0.0 } else { (h_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };
                             let full_hold_len = (h_target_r - h_spawn_r) * HOLD_LENGTH_FRAC;
@@ -2422,8 +2432,9 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             let head_fly_r = h_spawn_r + (h_target_r - h_spawn_r) * h_fly_progress;
                             let head_r = (head_fly_r + hold_half).min(h_target_r);
                             let tail_dt_h = hold_tail_time(note, bpms) - current_t;
-                            let tail_fly = if tail_dt_h <= HOLD_TAIL_FLY_TIME {
-                                (1.0 - tail_dt_h / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
+                            let tail_dt_h_scaled = tail_dt_h / speed_scale;
+                            let tail_fly = if tail_dt_h_scaled <= HOLD_TAIL_FLY_TIME {
+                                (1.0 - tail_dt_h_scaled / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
                             } else { 0.0 };
                             let tail_base = h_spawn_r + (h_target_r - h_spawn_r) * tail_fly;
                             let tail_r = (tail_base - hold_half).max(h_spawn_r * 0.1);
@@ -2462,7 +2473,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             NoteType::Hold => HOLD_TRAVEL_TIME,
                             _ => TOUCH_TRAVEL_TIME,
                         };
-                        let raw = (travel - dt) / travel;
+                        let raw = (travel - dt_scaled) / travel;
                         let progress = smoothstep(raw.clamp(0.0, 1.0));
                         let alpha_val = if progress < TOUCH_GROW_FRAC {
                             (progress / TOUCH_GROW_FRAC * 220.0) as u8

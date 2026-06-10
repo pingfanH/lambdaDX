@@ -99,7 +99,7 @@ async fn main() {
                     &ps.note, &ps.slide,
                     current_t, ns, ps.dur_s, ps.delay_s,
                     &pad_geom, svg, scale, vec2(spawn_cx, spawn_cy), outer_r,
-                    &tex, show_full,
+                    &tex, show_full, 1.0,
                 );
             }
         }

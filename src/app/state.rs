@@ -554,6 +554,32 @@ impl AppState {
             self.mode_wall_anchor = get_time();
             self.hit_sounds_played.clear();
             self.playback_cursor = 0;
+            // Pre-mark notes before resume point as already played
+            let t_resume = self.mode_song_offset;
+            let bpms = &self.chart.bpms;
+            for (i, note) in self.chart.notes.iter().enumerate() {
+                let ns = note_secs(note, bpms);
+                if ns <= t_resume {
+                    self.hit_sounds_played.insert(i);
+                }
+                if matches!(note.note_type, NoteType::Hold)
+                    && hold_tail_time(note, bpms) <= t_resume
+                {
+                    self.hit_sounds_played.insert(i + self.chart.notes.len());
+                }
+                if matches!(note.note_type, NoteType::Slide) {
+                    for (si, sl) in note.slide.iter().enumerate() {
+                        let slide_key = i * 100 + si + self.chart.notes.len() * 3;
+                        let slide_end_key = i * 100 + si + self.chart.notes.len() * 4;
+                        if ns + mdur_to_secs(sl.slide_start_delay, note.time, bpms) <= t_resume {
+                            self.hit_sounds_played.insert(slide_key);
+                        }
+                        if ns + mdur_to_secs(sl.slide_duration, note.time, bpms) <= t_resume {
+                            self.hit_sounds_played.insert(slide_end_key);
+                        }
+                    }
+                }
+            }
             self.request_audio_start();
             self.set_status(format!("Resumed @ {:.1}x from {:.2}s", self.play_speed, self.mode_song_offset));
         }

@@ -619,7 +619,8 @@ impl PlayerState {
         let simai_text = maisimai::export_file(&simai_file);
         println!("[lnmai simai]\n{simai_text}");
 
-        let (loaded, _info): (Session<Loaded>, _) = match empty.load_chart_text(&simai_text, 6) {
+        let level = if self.chart.simai_level > 0 { self.chart.simai_level } else { 6 };
+        let (loaded, _info): (Session<Loaded>, _) = match empty.load_chart_text(&simai_text, level) {
             Ok(v) => v,
             Err(e) => { self.set_status(format!("lnmai load chart failed: {}", e.json)); return; }
         };
@@ -776,10 +777,44 @@ impl PlayerState {
     }
 
     fn process_audio_commands(&mut self, commands: &[serde_json::Value]) {
+        println!("[lnmai audio commands] {}", serde_json::to_string(&commands).unwrap_or_default());
         for cmd in commands {
             if let Some(obj) = cmd.as_object() {
                 if let Some(kind) = obj.keys().next() {
                     match kind.as_str() {
+                        "PlayJudgeSfx" => {
+                            let data = obj.get(kind);
+                            let note_kind = data.and_then(|d| d.get("kind")).and_then(|v| v.as_str()).unwrap_or("");
+                            let is_break = note_kind == "Break";
+                            let is_tap = note_kind == "Tap" || note_kind == "Hold";
+                            let is_touch = note_kind == "Touch";
+                            if is_break {
+                                if let Some(sfx) = &self.sfx_break {
+                                    if let Some(player) = &mut self.sfx_player {
+                                        player.play(sfx, 1.);
+                                    }
+                                }
+                            } else if is_tap {
+                                if let Some(sfx) = &self.sfx_tap {
+                                    if let Some(player) = &mut self.sfx_player {
+                                        player.play(sfx, 1.);
+                                    }
+                                }
+                            } else if is_touch {
+                                if let Some(sfx) = &self.sfx_touch {
+                                    if let Some(player) = &mut self.sfx_player {
+                                        player.play(sfx, 1.);
+                                    }
+                                }
+                            } else {
+                                // Slide judge sfx
+                                if let Some(sfx) = &self.sfx_slide {
+                                    if let Some(player) = &mut self.sfx_player {
+                                        player.play(sfx, 1.);
+                                    }
+                                }
+                            }
+                        }
                         "PlaySlideCue" => {
                             if let Some(sfx) = &self.sfx_slide {
                                 if let Some(player) = &mut self.sfx_player {
@@ -938,7 +973,8 @@ impl PlayerState {
     pub fn generate_autoplay_events(&mut self) {
         let simai_file = lambda_dx::simai_io::chart_doc_to_simai_file(&self.chart);
         let simai_text = maisimai::export_file(&simai_file);
-        match lnmai_core_ffi::api::parse_lowered_chart(&simai_text, 6)
+        let level = if self.chart.simai_level > 0 { self.chart.simai_level } else { 6 };
+        match lnmai_core_ffi::api::parse_lowered_chart(&simai_text, level)
             .and_then(|chart_spec| lnmai_core_ffi::api::default_tactic_from_chart(&chart_spec)) {
             Ok(tactic) => {
                 self.autoplay_events = tactic.events.iter().map(|e| {

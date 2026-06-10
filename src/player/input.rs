@@ -405,6 +405,11 @@ pub fn collect_lnmai_input_events(app: &mut PlayerState) {
             app.lnmai_input_events.push((t_us, json!({"buttonHold": {"tp": t_us, "zone": zone_str, "isDown": true}})));
             app.lnmai_input_events.push((t_us, json!({"buttonClick": {"tp": t_us, "zone": zone_str}})));
             app.push_feedback(PadZone::from(lane), 0.12);
+            if let Some(sfx) = &app.sfx_tap {
+                if let Some(player) = &mut app.sfx_player {
+                    player.play(sfx, 1.);
+                }
+            }
         }
         if is_key_released(key) {
             let zone_str = lane_to_lnmai_button_zone(lane);

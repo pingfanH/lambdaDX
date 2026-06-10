@@ -43,6 +43,7 @@ pub fn draw_slide(
     outer_r: f32,
     tex: &SlideTextures,
     show_full: bool,
+    speed_scale: f32,
 ) {
     let slide_end_s = ns + slide_dur_s;
     let dt = ns - current_t;
@@ -124,8 +125,9 @@ pub fn draw_slide(
                         draw_texture_ex(st, head_pt.x - ss * 0.5, head_pt.y - ss * 0.5, WHITE,
                             DrawTextureParams { dest_size: Some(vec2(ss, ss)), ..Default::default() });
                     }
-                } else if dt > 0.0 && dt < SLIDE_TRAVEL_TIME && !note.is_tapless {
-                    let head_progress = ((SLIDE_TRAVEL_TIME - dt) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
+                } else if current_t < ns + fade_in_s && !note.is_tapless {
+                    let dt_scaled = (ns - current_t) / speed_scale;
+                    let head_progress = ((SLIDE_TRAVEL_TIME - dt_scaled) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
                     let size_scale = if head_progress < TAP_GROW_FRAC { head_progress / TAP_GROW_FRAC } else { 1.0 };
                     let fly_progress = if head_progress < TAP_GROW_FRAC { 0.0 } else { (head_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };
 

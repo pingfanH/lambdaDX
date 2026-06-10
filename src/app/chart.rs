@@ -93,6 +93,8 @@ fn fallback_chart() -> ChartDoc {
     ChartDoc {
         version: "0.3.0-measure".to_string(),
         title: "Fallback Demo Chart".to_string(),
+        artist: String::new(),
+        simai_level: 0,
         bpm: 180.0,
         bpms: vec![BpmChange { measure: 1.0, bpm: 180.0 }],
         audio_offset: 0.0,

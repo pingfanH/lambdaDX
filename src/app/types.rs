@@ -67,6 +67,9 @@ pub const TAP_RING_OFFSET: f32 = 14.;
 pub const GRID_DIVISION: u32 = 64;
 pub const SCROLL_SPEED_FACTOR: f32 = 0.01;
 pub const SCROLL_INVERT: bool = true;
+/// Fixed slide fade-in seconds. When `Some(s)`, use constant s seconds; 
+/// when `None`, use beat-synced `slide_start_delay`.
+pub const FIXED_SLIDE_FADE_IN: Option<f32> = Some(0.3);
 
 pub const SLIDE_TILE_SPACING: f32 = 20.0;
 pub const SLIDE_TILE_SIZE: f32 = 40.0;
@@ -315,6 +318,11 @@ pub fn note_secs(note: &Note, bpms: &[BpmChange]) -> f32 {
 pub struct ChartDoc {
     pub version: String,
     pub title: String,
+    #[serde(default)]
+    pub artist: String,
+    /// Original Simai difficulty level number (e.g. 5 for &lv_5=).
+    #[serde(default)]
+    pub simai_level: u32,
     pub bpm: f32,
     /// Sorted list of BPM changes. First entry starts at measure 1.0.
     #[serde(default)]

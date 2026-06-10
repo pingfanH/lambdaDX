@@ -15,6 +15,10 @@ const TICKS_PER_BEAT: i32 = 96; // 4/4 time: 384/4
 pub struct SerChartDoc {
     pub version: String,
     pub title: String,
+    #[serde(default)]
+    pub artist: String,
+    #[serde(default)]
+    pub simai_level: u32,
     pub bpm: f32,
     #[serde(default)]
     pub bpms: Vec<BpmChange>,
@@ -176,6 +180,8 @@ pub fn chart_to_ser(chart: &ChartDoc) -> SerChartDoc {
     SerChartDoc {
         version: "0.4.0-beat".to_string(),
         title: chart.title.clone(),
+        artist: chart.artist.clone(),
+        simai_level: chart.simai_level,
         bpm: chart.bpm,
         bpms: chart.bpms.clone(),
         audio_offset: chart.audio_offset,
@@ -192,6 +198,8 @@ pub fn ser_to_chart(s: &SerChartDoc) -> ChartDoc {
     ChartDoc {
         version: s.version.clone(),
         title: s.title.clone(),
+        artist: s.artist.clone(),
+        simai_level: s.simai_level,
         bpm: s.bpm,
         bpms,
         audio_offset: s.audio_offset,
