@@ -3,10 +3,11 @@ use macroquad::prelude::{get_time, Vec2};
 use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
 use lambda_dx::app::types::zone::PadZone;
-use lnmai_core_rs::lnmai_core_ffi;
-use lnmai_core_ffi::session::{self, Session, Empty, Loaded};
-use lnmai_core_ffi::types::{TimedInputEvent, JudgeEvent};
+//use lnmai_core_rs::lnmai_core_ffi;
+use lnmai_core_rs::lnmai_core_ffi::session::*;
+use lnmai_core_rs::types::{TimedInputEvent, JudgeEvent};
 use serde_json::json;
+use lnmai_core_rs::{lnmai_core_ffi, session};
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 
