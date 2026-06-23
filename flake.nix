@@ -57,9 +57,22 @@
           cd "$repo_root"
           export CARGO_TARGET_DIR="$repo_root/target/nix"
 
-          echo "==> syncing submodules"
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          echo "==> syncing top-level submodules"
+          git submodule sync
+          git submodule update --init
+
+          for nested_submodule in \
+            "$repo_root/lnmai-core-rs/lnmai-core-ffi" \
+            "$repo_root/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
+          do
+            if [ -e "$nested_submodule/.git" ] || [ -f "$nested_submodule/.git" ]; then
+              echo "==> preserving nested submodule checkout $nested_submodule"
+            else
+              rel_path="''${nested_submodule#"$repo_root"/}"
+              echo "==> initializing nested submodule $rel_path"
+              git submodule update --init "$rel_path"
+            fi
+          done
 
           lean_project="$repo_root/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
           lean_toolchain_file="$lean_project/lean-toolchain"
