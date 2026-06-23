@@ -14,6 +14,7 @@ let
     xorg.libXinerama
     xorg.libXrandr
   ];
+  devLibs = map pkgs.lib.getDev libs;
 in
 pkgs.mkShell {
   packages = with pkgs; [
@@ -25,7 +26,7 @@ pkgs.mkShell {
     rustfmt
   ];
 
-  buildInputs = libs;
+  buildInputs = libs ++ devLibs;
 
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libs;
 

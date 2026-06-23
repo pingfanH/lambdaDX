@@ -28,6 +28,28 @@ Or with flakes enabled:
 nix develop
 ```
 
+One-command build from submodule sync through Lean FFI compile:
+
+```bash
+nix run .
+```
+
+That defaults to:
+
+```bash
+cargo build --bin lambda_dx_player
+```
+
+To pass custom Cargo build arguments through the Nix pipeline:
+
+```bash
+nix run . -- --bins
+nix run . -- --release --bin lambda_dx_editor
+```
+
+Nix builds are written to `target/nix` so they do not mix with host-built
+artifacts in `target/debug`.
+
 Build all binaries inside the shell:
 
 ```bash
@@ -39,6 +61,21 @@ cargo build --bins
 ```bash
 cargo run --manifest-path demo/macroquad_sim/Cargo.toml
 ```
+
+Run the player through the Nix pipeline:
+
+```bash
+nix run .#player
+```
+
+Pass runtime arguments through after `--`:
+
+```bash
+nix run .#player -- --help
+```
+
+If you build through Nix, prefer the binary under `target/nix/debug/` rather
+than `target/debug/`.
 
 ## Controls
 
