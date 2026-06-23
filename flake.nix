@@ -57,22 +57,42 @@
           cd "$repo_root"
           export CARGO_TARGET_DIR="$repo_root/target/nix"
 
+          ensure_submodule_checkout() {
+            owner_repo="$1"
+            submodule_path="$2"
+            checkout_probe="$3"
+            submodule_checkout="$owner_repo/$submodule_path"
+
+            if [ -n "$checkout_probe" ] && [ -f "$submodule_checkout/$checkout_probe" ]; then
+              echo "==> preserving nested submodule checkout $submodule_checkout"
+              return 0
+            fi
+
+            if [ -e "$submodule_checkout/.git" ] || [ -f "$submodule_checkout/.git" ]; then
+              echo "==> refreshing incomplete nested submodule checkout $submodule_checkout"
+            fi
+
+            if [ ! -f "$owner_repo/.gitmodules" ]; then
+              echo "==> no .gitmodules in $owner_repo, skipping $submodule_path"
+              return 0
+            fi
+
+            if ! git -C "$owner_repo" config -f .gitmodules --get "submodule.$submodule_path.path" >/dev/null 2>&1; then
+              echo "==> nested submodule $submodule_path not declared in $owner_repo/.gitmodules, skipping"
+              return 0
+            fi
+
+            echo "==> initializing nested submodule $submodule_checkout"
+            git -C "$owner_repo" submodule sync "$submodule_path"
+            git -C "$owner_repo" submodule update --init "$submodule_path"
+          }
+
           echo "==> syncing top-level submodules"
           git submodule sync
           git submodule update --init
 
-          for nested_submodule in \
-            "$repo_root/lnmai-core-rs/lnmai-core-ffi" \
-            "$repo_root/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
-          do
-            if [ -e "$nested_submodule/.git" ] || [ -f "$nested_submodule/.git" ]; then
-              echo "==> preserving nested submodule checkout $nested_submodule"
-            else
-              rel_path="''${nested_submodule#"$repo_root"/}"
-              echo "==> initializing nested submodule $rel_path"
-              git submodule update --init "$rel_path"
-            fi
-          done
+          ensure_submodule_checkout "$repo_root/lnmai-core-rs" "lnmai-core-ffi" "Cargo.toml"
+          ensure_submodule_checkout "$repo_root/lnmai-core-rs/lnmai-core-ffi" "lnmai-core" "lean-toolchain"
 
           lean_project="$repo_root/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
           lean_toolchain_file="$lean_project/lean-toolchain"
