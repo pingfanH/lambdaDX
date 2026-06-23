@@ -1,3 +1,6 @@
 [submodule "lnmai-core-rs"]
 	path = lnmai-core-rs
 	url = https://github.com/pingfanH/lnmai-core-rs
+[submodule "maisimai"]
+	path = maisimai
+	url = https://github.com/pingfanH/maisimai-rs
