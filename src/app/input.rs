@@ -13,8 +13,8 @@ use super::ui::{rect_contains, trigger_ui_action};
 fn gather_selected(app: &AppState) -> Vec<usize> {
     if !app.selected_notes.is_empty() {
         app.selected_notes.clone()
-    } else if let Some(i) = app.selected_note {
-        vec![i]
+    } else if let Some(id) = app.selected_note {
+        if let Some(i) = app.find_note_index(id) { vec![i] } else { vec![] }
     } else {
         vec![]
     }
@@ -60,7 +60,7 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
             let targets: Vec<u64> = if !app.selected_note_ids.is_empty() {
                 app.selected_note_ids.iter().copied().collect()
             } else if app.selected_note.is_some() {
-                app.selected_note.and_then(|i| app.chart.notes.get(i)).map(|n| n.id).into_iter().collect()
+                app.selected_note.into_iter().collect()
             } else {
                 vec![]
             };
@@ -150,16 +150,18 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
             app.selected_notes.clear();
             app.selected_note_ids.clear();
             app.set_status(format!("Deleted {} notes", to_remove.len()));
-        } else if let Some(i) = app.selected_note {
-            if i < app.chart.notes.len() && !app.is_note_in_template_instance(i) {
-                app.push_undo();
-                app.chart.notes.remove(i);
-                app.set_selected_note(None);
-                app.set_status(format!("Deleted note #{i}"));
-            } else if app.is_note_in_template_instance(i) {
-                app.set_status("Cannot delete template note here; enter isolation mode (Edit)".to_string());
+        } else if let Some(id) = app.selected_note {
+            if let Some(i) = app.find_note_index(id) {
+                if !app.is_note_in_template_instance(i) {
+                    app.push_undo();
+                    app.chart.notes.remove(i);
+                    app.set_selected_note(None);
+                    app.set_status(format!("Deleted note #{}", id));
+                } else if app.is_note_in_template_instance(i) {
+                    app.set_status("Cannot delete template note here; enter isolation mode (Edit)".to_string());
+                }
             }
-        }
+    }
     }
     let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
     let cmd = is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper);
@@ -175,8 +177,8 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
         eprintln!("[hotkey] copy sel={:?} multi={}", app.selected_note, app.selected_notes.len());
         app.clipboard.clear();
         if app.selected_notes.is_empty() {
-            if let Some(i) = app.selected_note {
-                if let Some(n) = app.chart.notes.get(i) {
+            if let Some(id) = app.selected_note {
+                if let Some(n) = app.chart.notes.iter().find(|n| n.id == id) {
                     app.clipboard.push(n.clone());
                 }
             }
@@ -206,14 +208,14 @@ pub fn handle_global_hotkeys(app: &mut AppState) {
         if app.editing_slide_path.is_some() {
             app.set_editing_slide_path(None);
             app.set_status("Trajectory edit: off".to_string());
-        } else if let Some(i) = app.selected_note {
-            if let Some(n) = app.chart.notes.get(i) {
-                if matches!(n.note_type, super::types::NoteType::Slide) {
-                    app.set_editing_slide_path(Some(i));
-                    app.editing_slide_idx = Some(0);
-                    app.set_status(format!(
-                        "Trajectory edit: click pad zones to append (Backspace=undo, Esc=exit). #{i}"
-                    ));
+        } else if let Some(id) = app.selected_note {
+            if let Some(i) = app.find_note_index(id) {
+                if let Some(n) = app.chart.notes.get(i) {
+                    if matches!(n.note_type, super::types::NoteType::Slide) {
+                        app.set_editing_slide_path(Some(i));
+                        app.editing_slide_idx = Some(0);
+                        app.set_status(format!("Trajectory edit: click pad zones to append (Backspace=undo, Esc=exit). #{id}"));
+                    }
                 } else {
                     app.set_status("Trajectory edit: select a Slide note first".to_string());
                 }
@@ -1032,9 +1034,9 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
             }
         }
         if let Some(i) = best {
-            app.set_selected_note(Some(i));
+            app.set_selected_note(Some(app.chart.notes[i].id));
             app.set_editing_slide_path(Some(i));
-            app.set_status(format!("Trajectory edit: click pad zones to modify (Backspace=undo, Esc=exit). #{i}"));
+            app.set_status(format!("Trajectory edit: click pad zones to modify (Backspace=undo, Esc=exit). #{}", app.chart.notes[i].id));
         }
     }
 
@@ -1160,7 +1162,7 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                 app.chart.notes[i].slide.push(new_slide);
                 let new_si = app.chart.notes[i].slide.len().saturating_sub(1);
                 app.chart.notes[i].is_tapless = false;
-                app.set_selected_note(Some(i));
+                app.set_selected_note(Some(app.chart.notes[i].id));
                 app.set_editing_slide_path(Some(i));
                 app.editing_slide_idx = Some(new_si);
                 app.set_status(format!("Appended slide #{new_si} on star #{i} — click pad zones to build path"));
@@ -1389,7 +1391,7 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
             let i = app.press_note_candidate.take().unwrap();
             if i < app.chart.notes.len() && !app.is_note_in_template_instance(i) {
                 app.push_undo();
-                app.set_selected_note(Some(i));
+                app.set_selected_note(Some(app.chart.notes[i].id));
                 app.dragging_note = Some(i);
                 app.drag_orig_note = app.chart.notes.get(i).cloned();
                 app.drag_multi_orig.clear();
@@ -1400,7 +1402,7 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                 }
             } else if app.is_note_in_template_instance(i) {
                 // Select the note but don't allow dragging.
-                app.set_selected_note(Some(i));
+                app.set_selected_note(Some(app.chart.notes[i].id));
                 app.set_status("Template note: enter isolation mode to edit".to_string());
             }
         }
@@ -1628,7 +1630,7 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                     app.selected_note_ids.insert(note.id);
                 }
             }
-            if !app.selected_notes.is_empty() { app.set_selected_note(Some(app.selected_notes[0])); }
+            if !app.selected_notes.is_empty() { app.set_selected_note(Some(app.chart.notes[app.selected_notes[0]].id)); }
             app.set_status(format!("Selected {} notes", app.selected_notes.len()));
         } else if !moved {
             // Simple click (no drag)
@@ -1642,7 +1644,7 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                     app.set_status(format!("Selected {} notes", app.selected_notes.len()));
                 } else if !shift {
                     // 单击：替换选择
-                    app.set_selected_note(Some(candidate));
+                    app.set_selected_note(Some(app.chart.notes[candidate].id));
                     app.selected_notes = vec![candidate];
                     app.selected_note_ids.clear();
                     if let Some(id) = cid { app.selected_note_ids.insert(id); }

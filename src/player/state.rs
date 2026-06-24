@@ -59,7 +59,7 @@ pub struct PlayerState {
     pub prev_pointer_pos: HashMap<u64, Vec2>,
     pub pad_feedback: Vec<PadFeedback>,
     pub playback_cursor: usize,
-    pub selected_note: Option<usize>,
+    pub selected_note: Option<u64>,
     pub dragging_note: Option<usize>,
     /// Note index detected under the mouse on press; selection is deferred
     /// until a drag threshold is exceeded.
@@ -367,11 +367,15 @@ impl PlayerState {
         self.chart = chart;
     }
 
-    pub fn set_selected_note(&mut self, sel: Option<usize>) {
+    pub fn set_selected_note(&mut self, sel: Option<u64>) {
         if self.selected_note != sel {
             println!("[AppState] selected_note: {:?} -> {:?}", self.selected_note, sel);
         }
         self.selected_note = sel;
+    }
+
+    pub fn find_note_index(&self, id: u64) -> Option<usize> {
+        self.chart.notes.iter().position(|n| n.id == id)
     }
 
     pub fn next_id(&mut self) -> u64 {

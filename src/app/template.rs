@@ -9,8 +9,8 @@ use super::types::{
 pub fn create_template(app: &mut AppState, name: &str) -> Result<String, String> {
     let indices = if !app.selected_notes.is_empty() {
         app.selected_notes.clone()
-    } else if let Some(i) = app.selected_note {
-        vec![i]
+    } else if let Some(id) = app.selected_note {
+        if let Some(i) = app.find_note_index(id) { vec![i] } else { return Err("Selected note not found".to_string()); }
     } else {
         return Err("No notes selected".to_string());
     };
