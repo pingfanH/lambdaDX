@@ -18,13 +18,246 @@
         "type": "github"
       }
     },
+    "lnmai-core": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782282477,
+        "narHash": "sha256-+Xm9wTNYtPRs25XzYMQ8gyamqELadaGF+NAFcW5ywlE=",
+        "ref": "main",
+        "rev": "21093b5ba233f6585874e7d21413682febe9fc9a",
+        "revCount": 77,
+        "type": "git",
+        "url": "ssh://git@github.com/Neuron-Group/lnmai-core"
+      },
+      "original": {
+        "ref": "main",
+        "type": "git",
+        "url": "ssh://git@github.com/Neuron-Group/lnmai-core"
+      }
+    },
+    "lnmai-core-ffi": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "lnmai-core": "lnmai-core_2",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782283530,
+        "narHash": "sha256-Lt3Eswp+Rma702a1bGvYbKMeYkZaWHJJVLhOMQDwHUo=",
+        "ref": "master",
+        "rev": "cf088f6ab8ea3a14dd65b9d2c5ba40ef49d8d5a6",
+        "revCount": 43,
+        "type": "git",
+        "url": "ssh://git@github.com/pingfanH/lnmai-core-ffi"
+      },
+      "original": {
+        "ref": "master",
+        "type": "git",
+        "url": "ssh://git@github.com/pingfanH/lnmai-core-ffi"
+      }
+    },
+    "lnmai-core-ffi_2": {
+      "inputs": {
+        "flake-utils": [
+          "lnmai-core-rs",
+          "flake-utils"
+        ],
+        "lnmai-core": "lnmai-core_4",
+        "nixpkgs": [
+          "lnmai-core-rs",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782283530,
+        "narHash": "sha256-Lt3Eswp+Rma702a1bGvYbKMeYkZaWHJJVLhOMQDwHUo=",
+        "owner": "pingfanH",
+        "repo": "lnmai-core-ffi",
+        "rev": "cf088f6ab8ea3a14dd65b9d2c5ba40ef49d8d5a6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pingfanH",
+        "ref": "master",
+        "repo": "lnmai-core-ffi",
+        "type": "github"
+      }
+    },
+    "lnmai-core-rs": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "lnmai-core": "lnmai-core_3",
+        "lnmai-core-ffi": "lnmai-core-ffi_2",
+        "maisimai": "maisimai",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782283603,
+        "narHash": "sha256-3ICBVeKuVRox2MMwoTYIpj+j4Id+jX0e2ezJkQmZjgk=",
+        "ref": "main",
+        "rev": "7e6ef459ccd8ec870462ba019d9371856a0cb7cd",
+        "revCount": 9,
+        "type": "git",
+        "url": "ssh://git@github.com/pingfanH/lnmai-core-rs"
+      },
+      "original": {
+        "ref": "main",
+        "type": "git",
+        "url": "ssh://git@github.com/pingfanH/lnmai-core-rs"
+      }
+    },
+    "lnmai-core_2": {
+      "inputs": {
+        "flake-utils": [
+          "lnmai-core-ffi",
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "lnmai-core-ffi",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782282477,
+        "narHash": "sha256-+Xm9wTNYtPRs25XzYMQ8gyamqELadaGF+NAFcW5ywlE=",
+        "owner": "Neuron-Group",
+        "repo": "lnmai-core",
+        "rev": "21093b5ba233f6585874e7d21413682febe9fc9a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Neuron-Group",
+        "ref": "main",
+        "repo": "lnmai-core",
+        "type": "github"
+      }
+    },
+    "lnmai-core_3": {
+      "inputs": {
+        "flake-utils": [
+          "lnmai-core-rs",
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "lnmai-core-rs",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782282477,
+        "narHash": "sha256-+Xm9wTNYtPRs25XzYMQ8gyamqELadaGF+NAFcW5ywlE=",
+        "owner": "Neuron-Group",
+        "repo": "lnmai-core",
+        "rev": "21093b5ba233f6585874e7d21413682febe9fc9a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Neuron-Group",
+        "ref": "main",
+        "repo": "lnmai-core",
+        "type": "github"
+      }
+    },
+    "lnmai-core_4": {
+      "inputs": {
+        "flake-utils": [
+          "lnmai-core-rs",
+          "lnmai-core-ffi",
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "lnmai-core-rs",
+          "lnmai-core-ffi",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782282477,
+        "narHash": "sha256-+Xm9wTNYtPRs25XzYMQ8gyamqELadaGF+NAFcW5ywlE=",
+        "owner": "Neuron-Group",
+        "repo": "lnmai-core",
+        "rev": "21093b5ba233f6585874e7d21413682febe9fc9a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Neuron-Group",
+        "ref": "main",
+        "repo": "lnmai-core",
+        "type": "github"
+      }
+    },
+    "maisimai": {
+      "inputs": {
+        "flake-utils": [
+          "lnmai-core-rs",
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "lnmai-core-rs",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782282477,
+        "narHash": "sha256-6ZOPIfNgSmcpRiB83iVGwNniGe0WdtLi+q6+wNuCHsw=",
+        "owner": "pingfanH",
+        "repo": "maisimai-rs",
+        "rev": "73a7eecbcc6b06459feeba19d91b0c1a8680ad05",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pingfanH",
+        "ref": "master",
+        "repo": "maisimai-rs",
+        "type": "github"
+      }
+    },
+    "maisimai_2": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782282477,
+        "narHash": "sha256-6ZOPIfNgSmcpRiB83iVGwNniGe0WdtLi+q6+wNuCHsw=",
+        "ref": "master",
+        "rev": "73a7eecbcc6b06459feeba19d91b0c1a8680ad05",
+        "revCount": 6,
+        "type": "git",
+        "url": "ssh://git@github.com/pingfanH/maisimai-rs"
+      },
+      "original": {
+        "ref": "master",
+        "type": "git",
+        "url": "ssh://git@github.com/pingfanH/maisimai-rs"
+      }
+    },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1779560665,
-        "narHash": "sha256-tpyBcxPpcQb8ukyNF7DoCwfSY3VPsxHoYwj00Cayv5o=",
+        "lastModified": 1781577229,
+        "narHash": "sha256-lrp67w8AulE9Ks53n27I45ADSzbOCn4H+CNW1Ck8B+8=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "64c08a7ca051951c8eae34e3e3cb1e202fe36786",
+        "rev": "567a49d1913ce81ac6e9582e3553dd90a955875f",
         "type": "github"
       },
       "original": {
@@ -37,6 +270,10 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
+        "lnmai-core": "lnmai-core",
+        "lnmai-core-ffi": "lnmai-core-ffi",
+        "lnmai-core-rs": "lnmai-core-rs",
+        "maisimai": "maisimai_2",
         "nixpkgs": "nixpkgs"
       }
     },
