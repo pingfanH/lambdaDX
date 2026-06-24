@@ -22,6 +22,7 @@ use macroquad::prelude::{clear_background, next_frame, Color};
 use state::AppState;
 
 pub use ui::window_conf;
+use crate::egui_ui::draw_editor;
 
 /// Main app loop.
 /// `bin` only keeps the macroquad entry function and delegates to here.
@@ -68,15 +69,19 @@ pub async fn run_app() {
 
     ui::load_note_textures(&mut app).await;
     // Prime egui state on first frame to avoid mouse event issues on macOS
-    egui_macroquad::ui(|egui_ctx| { egui_ctx.set_pixels_per_point(2.0); });
-    egui_macroquad::draw();
+    // egui_macroquad::ui(|egui_ctx| { egui_ctx.set_pixels_per_point(2.0); });
+    // egui_macroquad::draw();
     loop {
         clear_background(Color::from_rgba(30, 30, 30, 255));
 
         // Layout: timeline (left) + pad (right), below toolbar
         let layout = ui::compute_layout(&app);
-        let pad_geom = ui::compute_pad_geom(layout.pad);
+        // Pad touch geom centered in upper 60% of viewport (matches visual rendering)
+        let pad_area_h = layout.pad.h * 0.6;
+        let pad_area = types::RectF { x: layout.pad.x, y: layout.pad.y, w: layout.pad.w, h: pad_area_h };
+        let pad_geom = ui::compute_pad_geom(pad_area);
         let buttons: Vec<types::UiButton> = Vec::new(); // buttons via egui
+
 
         // Draw timeline + pad (native macroquad first)
         ui::draw_layout(&app, layout, pad_geom, &buttons);
@@ -95,8 +100,9 @@ pub async fn run_app() {
 
         // Egui on top (build UI + draw)
         egui_macroquad::ui(|egui_ctx| {
-            egui_ctx.set_pixels_per_point(2.0);
-            egui_ui::draw_egui_ui(egui_ctx, &mut app);
+            draw_editor(egui_ctx);
+            // egui_ctx.set_pixels_per_point(2.0);
+            // egui_ui::draw_egui_ui(egui_ctx, &mut app);
         });
         egui_macroquad::draw();
 
