@@ -812,17 +812,16 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
         app.timeline_view_time = now;
     }
 
-    let sidebar_w = super::types::TIMELINE_SIDEBAR_W;
-    let track_x = tl.x + 14.0 + sidebar_w;
-    let track_y = tl.y + 66.0;
-    let track_w = tl.w - 28.0 - sidebar_w;
+    let track_x = tl.x + 4.0;
+    let track_y = tl.y + 10.0;
+    let track_w = tl.w - 8.0;
     let progress_bar_h = 20.0_f32;
-    let track_h = tl.h - 80.0 - progress_bar_h;
-    let ruler_w = 64.0;
-    let lanes_w = track_w - ruler_w;
+    let track_h = tl.h - 20.0 - progress_bar_h;
+    let ruler_w = 0.0;
+    let lanes_w = track_w;
     let lane_w = lanes_w / LANE_COUNT as f32;
     let judge_y = track_y + track_h - 38.0;
-    let lanes_x = track_x + ruler_w;
+    let lanes_x = track_x;
 
     // ── Progress bar click/drag: seek to position ──
     {

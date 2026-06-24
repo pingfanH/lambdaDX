@@ -100,9 +100,7 @@ pub async fn run_app() {
 
         // Egui on top (build UI + draw)
         egui_macroquad::ui(|egui_ctx| {
-            draw_editor(egui_ctx);
-            // egui_ctx.set_pixels_per_point(2.0);
-            // egui_ui::draw_egui_ui(egui_ctx, &mut app);
+            draw_editor(egui_ctx, &mut app);
         });
         egui_macroquad::draw();
 
