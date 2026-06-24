@@ -2,16 +2,10 @@
 
 ## Clone
 
-Clone with submodules so `lnmai-core` is available:
+Clone normally:
 
 ```bash
-git clone --recurse-submodules git@github.com:pingfanH/lambdaDX.git
-```
-
-If you already cloned the repo:
-
-```bash
-git submodule update --init --recursive
+git clone git@github.com:pingfanH/lambdaDX.git
 ```
 
 ## Nix shell
@@ -28,7 +22,7 @@ Or with flakes enabled:
 nix develop
 ```
 
-One-command build from submodule sync through Lean FFI compile:
+One-command build from flake-pinned dependency sync through Lean FFI compile:
 
 ```bash
 nix run .
@@ -47,8 +41,11 @@ nix run . -- --bins
 nix run . -- --release --bin lambda_dx_editor
 ```
 
-Nix builds are written to `target/nix` so they do not mix with host-built
-artifacts in `target/debug`.
+Nix builds are written to `target/nix`. Each `nix run` stages a workspace under
+`target/nix/workspace/source`, replacing `lnmai-core-rs`, `lnmai-core-ffi`,
+`lnmai-core`, and `maisimai` with the revisions pinned in `flake.lock`, so
+rebuilds only happen when the staged source or locked dependency revisions
+change.
 
 Build all binaries inside the shell:
 
@@ -74,8 +71,8 @@ Pass runtime arguments through after `--`:
 nix run .#player -- --help
 ```
 
-If you build through Nix, prefer the binary under `target/nix/debug/` rather
-than `target/debug/`.
+If you build through Nix, prefer artifacts under `target/nix/` rather than
+`target/debug/`.
 
 ## Controls
 
