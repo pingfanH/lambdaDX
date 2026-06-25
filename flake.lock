@@ -150,7 +150,12 @@
     "lean4-nix_4": {
       "inputs": {
         "flake-parts": "flake-parts_4",
-        "nixpkgs": "nixpkgs_4"
+        "nixpkgs": [
+          "lnmai-core-rs",
+          "lnmai-core-ffi",
+          "lnmai-core",
+          "nixpkgs"
+        ]
       },
       "locked": {
         "lastModified": 1781539781,
@@ -229,11 +234,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782380085,
-        "narHash": "sha256-vCpzR7soVwvacEY4a8GByFRVGTjnmP/CW8qyHVZgOxI=",
+        "lastModified": 1782401744,
+        "narHash": "sha256-IySXc7kUt558TQ+p800EpuJVBhlIL2oOiCtu/npP3+s=",
         "owner": "pingfanH",
         "repo": "lnmai-core-ffi",
-        "rev": "0a3c44053f633057d89cf553802b7505db8ee628",
+        "rev": "4c5ee6b7ce1b3b00e034a23b201115a9002d9960",
         "type": "github"
       },
       "original": {
@@ -256,11 +261,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782380173,
-        "narHash": "sha256-K2AdyYjXvjF1PJ1ZxtB5VhC10lJl3ZvY4X8CkNpAwpE=",
+        "lastModified": 1782402043,
+        "narHash": "sha256-t4HFn/yYBGc5opFIthgE1eJ8tdsWzb5SkK5fcEmIFCw=",
         "ref": "master",
-        "rev": "abb52bedcb9f2e57bbd77d245fc3225ac2ec91ae",
-        "revCount": 12,
+        "rev": "d6566e64b20c29c179082a27b3e53da675a9df99",
+        "revCount": 14,
         "type": "git",
         "url": "ssh://git@github.com/pingfanH/lnmai-core-rs"
       },
@@ -339,11 +344,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782379828,
-        "narHash": "sha256-/RUEMpihqzsQUujI7btZBroTeznXTLTO1u2mn/DYUVc=",
+        "lastModified": 1782401599,
+        "narHash": "sha256-6mVgwEhxyoWnGQcfZiL3TLLHd7vv7mIEUqRhY0YzmB0=",
         "owner": "Neuron-Group",
         "repo": "lnmai-core",
-        "rev": "0bc3dfa669065aa0d934b999e707656929d328b9",
+        "rev": "2d3bbf1b9371fcfbf492f3c1d7d450e009962042",
         "type": "github"
       },
       "original": {
@@ -513,22 +518,6 @@
     },
     "nixpkgs_4": {
       "locked": {
-        "lastModified": 1765779637,
-        "narHash": "sha256-KJ2wa/BLSrTqDjbfyNx70ov/HdgNBCBBSQP3BIzKnv4=",
-        "owner": "nixos",
-        "repo": "nixpkgs",
-        "rev": "1306659b587dc277866c7b69eb97e5f07864d8c4",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nixos",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_5": {
-      "locked": {
         "lastModified": 1781577229,
         "narHash": "sha256-lrp67w8AulE9Ks53n27I45ADSzbOCn4H+CNW1Ck8B+8=",
         "owner": "NixOS",
@@ -550,7 +539,7 @@
         "lnmai-core-ffi": "lnmai-core-ffi",
         "lnmai-core-rs": "lnmai-core-rs",
         "maisimai": "maisimai_2",
-        "nixpkgs": "nixpkgs_5"
+        "nixpkgs": "nixpkgs_4"
       }
     },
     "systems": {
