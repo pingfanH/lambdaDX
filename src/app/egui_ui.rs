@@ -1,0 +1,259 @@
+use std::sync::{Arc, Once};
+use egui_macroquad::egui::{self, Color32, CornerRadius, FontData, FontDefinitions, FontId, FontFamily, Margin, Stroke, TopBottomPanel, Vec2};
+
+use super::chart;
+use super::simai_io;
+use super::state::AppState;
+use super::template;
+use super::types::Mode;
+
+const BG_DARK: Color32 = Color32::from_rgb(30, 30, 30);
+const BG_PANEL: Color32 = Color32::from_rgb(45, 45, 45);
+const BG_WIDGET: Color32 = Color32::from_rgb(60, 60, 60);
+const BG_HOVER: Color32 = Color32::from_rgb(72, 72, 72);
+const BG_ACTIVE: Color32 = Color32::from_rgb(74, 125, 170);
+const BORDER: Color32 = Color32::from_rgb(20, 20, 20);
+const BORDER_LIGHT: Color32 = Color32::from_rgb(60, 60, 60);
+const TEXT: Color32 = Color32::from_rgb(224, 224, 224);
+const TEXT_DIM: Color32 = Color32::from_rgb(144, 144, 144);
+const ACCENT_BLUE: Color32 = Color32::from_rgb(90, 141, 186);
+const ACCENT_ORANGE: Color32 = Color32::from_rgb(230, 149, 48);
+
+const CR2: CornerRadius = CornerRadius::same(2);
+static FONT_ONCE: Once = Once::new();
+
+fn load_system_font(ctx: &egui::Context) {
+    FONT_ONCE.call_once(|| {
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+        let mut font_candidates = vec![
+            "assets/Arial.ttf".to_string(),
+            "assets/arial.ttf".to_string(),
+            "assets/font.ttf".to_string(),
+        ];
+        if let Some(ref dir) = exe_dir {
+            font_candidates.push(dir.join("assets/Arial.ttf").to_string_lossy().to_string());
+        }
+        font_candidates.extend([
+            "/System/Library/Fonts/Helvetica.ttc".to_string(),
+            "/Library/Fonts/Arial.ttf".to_string(),
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf".to_string(),
+            "C:\\Windows\\Fonts\\segoeui.ttf".to_string(),
+        ]);
+
+        for path in &font_candidates {
+            if let Ok(data) = std::fs::read(path) {
+                let mut fonts = FontDefinitions::default();
+                fonts.font_data.insert("system".to_owned(), Arc::new(FontData::from_owned(data)));
+                if let Some(proportional) = fonts.families.get_mut(&FontFamily::Proportional) {
+                    proportional.insert(0, "system".to_owned());
+                }
+                ctx.set_fonts(fonts);
+                return;
+            }
+        }
+    });
+}
+
+pub fn apply_blender_style(ctx: &egui::Context) {
+    load_system_font(ctx);
+
+    let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = Vec2::new(4.0, 4.0);
+    style.spacing.button_padding = Vec2::new(6.0, 3.0);
+    style.spacing.window_margin = Margin::same(6);
+    style.text_styles = [
+        (egui::TextStyle::Heading, FontId::new(16.0, FontFamily::Proportional)),
+        (egui::TextStyle::Body, FontId::new(13.0, FontFamily::Proportional)),
+        (egui::TextStyle::Button, FontId::new(13.0, FontFamily::Proportional)),
+        (egui::TextStyle::Small, FontId::new(11.0, FontFamily::Proportional)),
+        (egui::TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace)),
+    ].into();
+
+    let mut visuals = egui::Visuals::dark();
+    visuals.dark_mode = true;
+    visuals.window_fill = BG_PANEL;
+    visuals.window_stroke = Stroke::new(1.0, BORDER);
+    visuals.window_corner_radius = CR2;
+    visuals.panel_fill = BG_DARK;
+    visuals.faint_bg_color = Color32::from_rgb(35, 35, 35);
+    visuals.extreme_bg_color = Color32::from_rgb(24, 24, 24);
+    visuals.selection.bg_fill = BG_ACTIVE;
+    visuals.selection.stroke = Stroke::new(1.0, Color32::from_rgb(120, 170, 220));
+    visuals.widgets.noninteractive.bg_fill = BG_DARK;
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.0, BORDER);
+    visuals.widgets.noninteractive.corner_radius = CR2;
+    visuals.widgets.inactive.bg_fill = BG_WIDGET;
+    visuals.widgets.inactive.weak_bg_fill = BG_WIDGET;
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER_LIGHT);
+    visuals.widgets.inactive.corner_radius = CR2;
+    visuals.widgets.hovered.bg_fill = BG_HOVER;
+    visuals.widgets.hovered.weak_bg_fill = BG_HOVER;
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT_BLUE);
+    visuals.widgets.hovered.corner_radius = CR2;
+    visuals.widgets.active.bg_fill = BG_ACTIVE;
+    visuals.widgets.active.weak_bg_fill = BG_ACTIVE;
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT_BLUE);
+    visuals.widgets.active.corner_radius = CR2;
+    visuals.widgets.open.bg_fill = BG_HOVER;
+    visuals.widgets.open.weak_bg_fill = BG_HOVER;
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0, TEXT);
+    visuals.widgets.open.bg_stroke = Stroke::new(1.0, ACCENT_BLUE);
+    visuals.widgets.open.corner_radius = CR2;
+
+    style.visuals = visuals;
+    ctx.set_style(style);
+}
+
+fn section_sep(ui: &mut egui::Ui) {
+    ui.add_space(2.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 16.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, CR2, BORDER_LIGHT);
+    ui.add_space(2.0);
+}
+
+fn section_label(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).color(TEXT_DIM).small());
+}
+
+fn toggle_btn(ui: &mut egui::Ui, label: &str, active: bool) -> bool {
+    let btn = egui::Button::new(egui::RichText::new(label).color(if active { Color32::WHITE } else { TEXT }))
+        .fill(if active { BG_ACTIVE } else { BG_WIDGET });
+    ui.add(btn).clicked()
+}
+
+fn step_btn(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let btn = egui::Button::new(egui::RichText::new(label).color(TEXT)).min_size(Vec2::new(20.0, 20.0));
+    ui.add(btn)
+}
+
+fn import_from_path(app: &mut AppState) {
+    let path = app.import_path_input.trim().to_string();
+    if path.is_empty() {
+        return;
+    }
+    match simai_io::import_from_file_path(&path) {
+        Ok(import) => {
+            let n = import.chart.notes.len();
+            app.set_chart(import.chart);
+            app.set_selected_note(None);
+            app.set_editing_slide_path(None);
+            if let (Some(bytes), Some(ext)) = (&import.audio_bytes, &import.audio_ext) {
+                if let Some(pcm) = super::audio::load_audio_from_bytes(bytes, ext) {
+                    app.audio_source_name = Some(import.title.clone());
+                    app.audio_wav_pcm = Some(pcm);
+                    app.audio_cache.clear();
+                    app.request_audio_start();
+                }
+            }
+            app.set_status(format!("Opened {} ({n} notes)", import.title));
+        }
+        Err(e) => app.set_status(format!("Import: {e}")),
+    }
+}
+
+pub fn draw_egui_ui(ctx: &egui::Context, app: &mut AppState) {
+    apply_blender_style(ctx);
+
+    TopBottomPanel::top("toolbar")
+        .frame(egui::Frame::none().fill(BG_DARK).inner_margin(Margin::symmetric(8, 4)).stroke(Stroke::new(1.0, BORDER)))
+        .show(ctx, |ui| {
+            ui.horizontal_centered(|ui| {
+                ui.label(egui::RichText::new("LambdaDX Demo").font(FontId::new(16.0, FontFamily::Proportional)).color(ACCENT_ORANGE).strong());
+                section_sep(ui);
+
+                let (mode_text, mode_color) = match app.mode {
+                    Mode::Idle => ("IDLE", TEXT_DIM),
+                    Mode::Recording => ("REC", ACCENT_ORANGE),
+                    Mode::Playing => ("PLAY", ACCENT_BLUE),
+                };
+                ui.label(egui::RichText::new(mode_text).font(FontId::new(13.0, FontFamily::Monospace)).color(mode_color).strong());
+                section_sep(ui);
+
+                section_label(ui, "Transport");
+                if toggle_btn(ui, "Play", app.mode == Mode::Playing) { app.toggle_play(); }
+                if toggle_btn(ui, "Rec", app.mode == Mode::Recording) { app.toggle_record(); }
+                section_sep(ui);
+
+                section_label(ui, "File");
+                if ui.button(egui::RichText::new("Save").color(TEXT)).clicked() {
+                    match chart::save_recording_doc(app) {
+                        Ok(p) => app.set_status(format!("Saved {}", p.display())),
+                        Err(e) => app.set_status(format!("Save: {e}")),
+                    }
+                }
+                if ui.button(egui::RichText::new("Load").color(TEXT)).clicked() {
+                    match chart::load_latest_saved_chart() {
+                        Ok(c) => { let n = c.notes.len(); app.set_chart(c); app.set_status(format!("{n} notes")); }
+                        Err(e) => app.set_status(format!("Load: {e}")),
+                    }
+                }
+                if ui.button(egui::RichText::new("Open...").color(TEXT)).clicked() {
+                    app.pending_import = true;
+                }
+                ui.add_space(2.0);
+                ui.label(egui::RichText::new("Path:").color(TEXT_DIM));
+                let resp = ui.add(egui::TextEdit::singleline(&mut app.import_path_input).desired_width(140.0));
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui_macroquad::egui::Key::Enter)) {
+                    import_from_path(app);
+                }
+                if ui.button(egui::RichText::new("Import").color(TEXT)).clicked() {
+                    import_from_path(app);
+                }
+                section_sep(ui);
+
+                if ui.button(egui::RichText::new("Clear").color(TEXT)).clicked() {
+                    app.recording_hits.clear();
+                    app.recording_notes.clear();
+                    app.active_record_holds.clear();
+                    app.active_pointer_zones.clear();
+                    app.prev_pointer_pos.clear();
+                    app.set_status("Cleared".to_string());
+                }
+                if toggle_btn(ui, "Grid", app.record_snap_grid) {
+                    app.record_snap_grid = !app.record_snap_grid;
+                }
+                section_sep(ui);
+
+                section_label(ui, "Speed");
+                ui.label(egui::RichText::new("Rec").color(TEXT_DIM));
+                if step_btn(ui, "-").clicked() { app.set_record_speed((app.record_speed - 0.1).max(0.1)); }
+                ui.label(egui::RichText::new(format!("{:.1}x", app.record_speed)).color(TEXT));
+                if step_btn(ui, "+").clicked() { app.set_record_speed((app.record_speed + 0.1).min(3.0)); }
+
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Play").color(TEXT_DIM));
+                if step_btn(ui, "-").clicked() { app.set_play_speed((app.play_speed - 0.1).max(0.1)); }
+                ui.label(egui::RichText::new(format!("{:.1}x", app.play_speed)).color(TEXT));
+                if step_btn(ui, "+").clicked() { app.set_play_speed((app.play_speed + 0.1).min(3.0)); }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new(&app.status).color(TEXT_DIM).small());
+                });
+            });
+        });
+}
+
+pub mod draw_timeline {
+    use super::*;
+    use crate::app::types::RectF;
+
+    pub fn draw_timeline_panel(app: &AppState, timeline: RectF) {
+        if let Some(timeline) = Some(timeline) {
+            let s = 1.0;
+            macroquad::prelude::draw_text(
+                &format!("Wave threshold: {:.2}  [/] keys", app.waveform_threshold),
+                timeline.x + 14.0 * s,
+                timeline.y + 24.0 * s,
+                16.0 * s,
+                macroquad::color::Color::from_rgba(140, 140, 140, 200),
+            );
+        }
+    }
+}
