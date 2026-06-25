@@ -47,6 +47,95 @@ Nix builds are written to `target/nix`. Each `nix run` stages a workspace under
 rebuilds only happen when the staged source or locked dependency revisions
 change.
 
+## Flake input update workflow
+
+This repo uses a flake-pinned dependency chain:
+
+- `lambdaDX` -> `lnmai-core-rs`, `lnmai-core-ffi`, `lnmai-core`, `maisimai`
+- `lnmai-core-rs` -> `lnmai-core-ffi`, `lnmai-core`, `maisimai`
+- `lnmai-core-ffi` -> `lnmai-core`
+
+If you modify one of those input repos and already pushed the change to GitHub,
+do not edit the staged workspace under `target/nix/workspace/source`. Update
+the nearest parent flake lock that consumes that repo, commit that lock change,
+push it, and then continue outward to the next parent.
+
+Preferred command form:
+
+```bash
+nix flake update <input-name>
+```
+
+For multiple inputs:
+
+```bash
+nix flake update <input-a> <input-b>
+```
+
+Examples for the current repo chain:
+
+If `lnmai-core` changed and is already pushed:
+
+```bash
+cd lnmai-core-rs/lnmai-core-ffi
+nix flake update lnmai-core
+git add flake.lock lnmai-core
+git commit -m "Update lnmai-core"
+git push
+
+cd ../
+nix flake update lnmai-core lnmai-core-ffi
+git add flake.lock lnmai-core-ffi
+git commit -m "Update lnmai-core chain"
+git push
+
+cd ../
+nix flake update lnmai-core lnmai-core-ffi lnmai-core-rs
+git add flake.lock lnmai-core-rs
+git commit -m "Update lnmai-core chain"
+git push
+```
+
+If `lnmai-core-ffi` changed and is already pushed:
+
+```bash
+cd lnmai-core-rs
+nix flake update lnmai-core-ffi
+git add flake.lock lnmai-core-ffi
+git commit -m "Update lnmai-core-ffi"
+git push
+
+cd ../
+nix flake update lnmai-core-ffi lnmai-core-rs
+git add flake.lock lnmai-core-rs
+git commit -m "Update lnmai-core-ffi chain"
+git push
+```
+
+If `lnmai-core-rs` changed and is already pushed:
+
+```bash
+nix flake update lnmai-core-rs
+git add flake.lock lnmai-core-rs
+git commit -m "Update lnmai-core-rs"
+git push
+```
+
+If `maisimai` changed and is already pushed:
+
+```bash
+nix flake update maisimai
+git add flake.lock
+git commit -m "Update maisimai"
+git push
+```
+
+After a lock refresh, rebuild through the flake entrypoint:
+
+```bash
+nix run .
+```
+
 Build all binaries inside the shell:
 
 ```bash
