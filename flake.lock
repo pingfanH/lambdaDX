@@ -177,11 +177,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782367601,
-        "narHash": "sha256-Pm0JVl7haruFUtTDUmj5LrcT3vKUQUSU/3ysVLxn52I=",
+        "lastModified": 1782379828,
+        "narHash": "sha256-/RUEMpihqzsQUujI7btZBroTeznXTLTO1u2mn/DYUVc=",
         "ref": "main",
-        "rev": "9194a9af4cb723efdd159f819441726e981ff5a6",
-        "revCount": 78,
+        "rev": "0bc3dfa669065aa0d934b999e707656929d328b9",
+        "revCount": 79,
         "type": "git",
         "url": "ssh://git@github.com/Neuron-Group/lnmai-core"
       },
@@ -202,11 +202,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782367830,
-        "narHash": "sha256-Bk1YFY63jrC3V5Zqqm6brBb6E2xTdufRPXQsTMmw4RU=",
+        "lastModified": 1782380085,
+        "narHash": "sha256-vCpzR7soVwvacEY4a8GByFRVGTjnmP/CW8qyHVZgOxI=",
         "ref": "master",
-        "rev": "b4b5a5770bbe0dc6cdf8569f4410e151f1a8ecf6",
-        "revCount": 44,
+        "rev": "0a3c44053f633057d89cf553802b7505db8ee628",
+        "revCount": 46,
         "type": "git",
         "url": "ssh://git@github.com/pingfanH/lnmai-core-ffi"
       },
@@ -229,11 +229,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782367830,
-        "narHash": "sha256-Bk1YFY63jrC3V5Zqqm6brBb6E2xTdufRPXQsTMmw4RU=",
+        "lastModified": 1782380085,
+        "narHash": "sha256-vCpzR7soVwvacEY4a8GByFRVGTjnmP/CW8qyHVZgOxI=",
         "owner": "pingfanH",
         "repo": "lnmai-core-ffi",
-        "rev": "b4b5a5770bbe0dc6cdf8569f4410e151f1a8ecf6",
+        "rev": "0a3c44053f633057d89cf553802b7505db8ee628",
         "type": "github"
       },
       "original": {
@@ -256,16 +256,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1782367874,
-        "narHash": "sha256-5InrkJUH94cBp3b8/m/42zCbyipgxAZZHm/E6MpokcE=",
-        "ref": "main",
-        "rev": "95d9cef7fd3c48a094f86f0589a78fbee55bbdd8",
-        "revCount": 10,
+        "lastModified": 1782380173,
+        "narHash": "sha256-K2AdyYjXvjF1PJ1ZxtB5VhC10lJl3ZvY4X8CkNpAwpE=",
+        "ref": "master",
+        "rev": "abb52bedcb9f2e57bbd77d245fc3225ac2ec91ae",
+        "revCount": 12,
         "type": "git",
         "url": "ssh://git@github.com/pingfanH/lnmai-core-rs"
       },
       "original": {
-        "ref": "main",
+        "ref": "master",
         "type": "git",
         "url": "ssh://git@github.com/pingfanH/lnmai-core-rs"
       }
@@ -283,11 +283,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782367601,
-        "narHash": "sha256-Pm0JVl7haruFUtTDUmj5LrcT3vKUQUSU/3ysVLxn52I=",
+        "lastModified": 1782379828,
+        "narHash": "sha256-/RUEMpihqzsQUujI7btZBroTeznXTLTO1u2mn/DYUVc=",
         "owner": "Neuron-Group",
         "repo": "lnmai-core",
-        "rev": "9194a9af4cb723efdd159f819441726e981ff5a6",
+        "rev": "0bc3dfa669065aa0d934b999e707656929d328b9",
         "type": "github"
       },
       "original": {
@@ -310,11 +310,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782367601,
-        "narHash": "sha256-Pm0JVl7haruFUtTDUmj5LrcT3vKUQUSU/3ysVLxn52I=",
+        "lastModified": 1782379828,
+        "narHash": "sha256-/RUEMpihqzsQUujI7btZBroTeznXTLTO1u2mn/DYUVc=",
         "owner": "Neuron-Group",
         "repo": "lnmai-core",
-        "rev": "9194a9af4cb723efdd159f819441726e981ff5a6",
+        "rev": "0bc3dfa669065aa0d934b999e707656929d328b9",
         "type": "github"
       },
       "original": {
@@ -339,11 +339,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782367601,
-        "narHash": "sha256-Pm0JVl7haruFUtTDUmj5LrcT3vKUQUSU/3ysVLxn52I=",
+        "lastModified": 1782379828,
+        "narHash": "sha256-/RUEMpihqzsQUujI7btZBroTeznXTLTO1u2mn/DYUVc=",
         "owner": "Neuron-Group",
         "repo": "lnmai-core",
-        "rev": "9194a9af4cb723efdd159f819441726e981ff5a6",
+        "rev": "0bc3dfa669065aa0d934b999e707656929d328b9",
         "type": "github"
       },
       "original": {
