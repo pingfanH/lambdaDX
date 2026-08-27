@@ -42,19 +42,15 @@ macroquad = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hound = "3"
+image = { version = "0.24.9", default-features = false, features = ["jpeg"] }
 minimp3 = "0.5"
 roxmltree = "0.20"
 rustfft = "6"
 egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
-lnmai_core_rs = { package = "lnmai-core-rs", path = "lnmai-core-rs", features = ["ffi"] }
-#lnmai_core_rs = { package = "lnmai-core", path = "./lnmai-core-rs/lnmai-core-ffi/lnmai-core/lnmai-core-rs" }
 maisimai = { version = "0.1.0", path = "maisimai" }
 tinyfiledialogs = "3.9"
 tokio = {version = "1.52.3",features = ["sync"]}
-
-[build-dependencies]
-lnmai_core_rs = { package = "lnmai-core-rs", path = "lnmai-core-rs", features = ["ffi"] }
 
 [package.metadata.android]
 package_name = "com.mai2chart.macroquad_sim"

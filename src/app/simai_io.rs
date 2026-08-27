@@ -15,22 +15,18 @@
 
 use std::path::PathBuf;
 
-use maisimai::{
-    self as ms,
-    Bpm, SimaiChart, SimaiFile, SimaiNote, SlidePattern,
-};
+use maisimai::{self as ms, Bpm, SimaiChart, SimaiFile, SimaiNote, SlidePattern};
 use serde::de;
 
 use super::platform;
-use super::types::{ChartDoc, Note, NoteType, Slide, SlideSegment, SlidePoint, SlideShape, BpmChange, snap_measure};
 use super::types::zone::PadZone;
+use super::types::{
+    BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape, snap_measure,
+};
 
 /// Pick a chart from a Simai file (highest difficulty by default) and convert
 /// it to a `ChartDoc`. Returns `Err` if the file has no charts.
-pub fn simai_file_to_chart_doc(
-    file: &SimaiFile,
-    prefer: Option<u32>,
-) -> Result<ChartDoc, String> {
+pub fn simai_file_to_chart_doc(file: &SimaiFile, prefer: Option<u32>) -> Result<ChartDoc, String> {
     if file.charts.is_empty() {
         return Err("Simai file contains no &inote_N= charts".to_string());
     }
@@ -86,15 +82,24 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
             .unwrap_or(false);
 
         match sn {
-            SimaiNote::Tap { measure, button, is_star, is_break, is_ex, .. } => {
+            SimaiNote::Tap {
+                measure,
+                button,
+                is_star,
+                is_break,
+                is_ex,
+                ..
+            } => {
                 // Skip star-Taps emitted by the parser as the head of a
                 // Slide on the same (button, measure): the Slide note
                 // already renders its own star head.
                 if *is_star {
                     let q = quantize(*measure);
-                    let has_slide = chart.notes.iter().any(|m| matches!(m,
+                    let has_slide = chart.notes.iter().any(|m| {
+                        matches!(m,
                         SimaiNote::Slide { measure: ms, start, .. }
-                            if quantize(*ms) == q && start == button));
+                            if quantize(*ms) == q && start == button)
+                    });
                     if has_slide {
                         // Star Tap's break/ex will be applied to Slide notes below.
                         continue;
@@ -110,7 +115,13 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     ..Default::default()
                 });
             }
-            SimaiNote::Hold { measure, button, duration, is_ex, .. } => {
+            SimaiNote::Hold {
+                measure,
+                button,
+                duration,
+                is_ex,
+                ..
+            } => {
                 notes.push(Note {
                     time: *measure,
                     lane: button + 1,
@@ -120,7 +131,20 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     ..Default::default()
                 });
             }
-            SimaiNote::Slide { measure, start, end, pattern, reflect, duration, delay, is_break, is_ex, is_tapless, chain, .. } => {
+            SimaiNote::Slide {
+                measure,
+                start,
+                end,
+                pattern,
+                reflect,
+                duration,
+                delay,
+                is_break,
+                is_ex,
+                is_tapless,
+                chain,
+                ..
+            } => {
                 let mut slides: Vec<Slide> = Vec::new();
                 let mut cur_segments: Vec<SlideSegment> = Vec::new();
                 let first_pts = simai_pattern_to_points(*start, *end, *pattern, *reflect);
@@ -158,11 +182,21 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                 // Look for a star Tap at the same measure+button to get
                 // the star head's break/ex flags.
                 let q = quantize(*measure);
-                let (sb, se) = chart.notes.iter().find_map(|m| match m {
-                    SimaiNote::Tap { measure: tm, button: tb, is_star: true, is_break: tb_brk, is_ex: tb_ex, .. }
-                        if quantize(*tm) == q && *tb == *start => Some((*tb_brk, *tb_ex)),
-                    _ => None,
-                }).unwrap_or((false, false));
+                let (sb, se) = chart
+                    .notes
+                    .iter()
+                    .find_map(|m| match m {
+                        SimaiNote::Tap {
+                            measure: tm,
+                            button: tb,
+                            is_star: true,
+                            is_break: tb_brk,
+                            is_ex: tb_ex,
+                            ..
+                        } if quantize(*tm) == q && *tb == *start => Some((*tb_brk, *tb_ex)),
+                        _ => None,
+                    })
+                    .unwrap_or((false, false));
                 notes.push(Note {
                     time: *measure,
                     lane: start + 1,
@@ -175,7 +209,12 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     ..Default::default()
                 });
             }
-            SimaiNote::TouchTap { measure, region, position, .. } => {
+            SimaiNote::TouchTap {
+                measure,
+                region,
+                position,
+                ..
+            } => {
                 if let Some(lane) = touch_to_lane(*region, *position) {
                     notes.push(Note {
                         time: *measure,
@@ -186,7 +225,13 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     });
                 }
             }
-            SimaiNote::TouchHold { measure, region, position, duration, .. } => {
+            SimaiNote::TouchHold {
+                measure,
+                region,
+                position,
+                duration,
+                ..
+            } => {
                 if let Some(lane) = touch_to_lane(*region, *position) {
                     notes.push(Note {
                         time: *measure,
@@ -201,10 +246,18 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
         }
     }
 
-    notes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+    notes.sort_by(|a, b| {
+        a.time
+            .partial_cmp(&b.time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
-    let bpm_changes: Vec<BpmChange> = bpms.iter()
-        .map(|b| BpmChange { measure: b.measure, bpm: b.bpm })
+    let bpm_changes: Vec<BpmChange> = bpms
+        .iter()
+        .map(|b| BpmChange {
+            measure: b.measure,
+            bpm: b.bpm,
+        })
         .collect();
 
     ChartDoc {
@@ -223,9 +276,19 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
 
 fn ensure_initial_bpm(bpms: &[Bpm], fallback: f32) -> Vec<Bpm> {
     let mut out: Vec<Bpm> = bpms.to_vec();
-    out.sort_by(|a, b| a.measure.partial_cmp(&b.measure).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        a.measure
+            .partial_cmp(&b.measure)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     if out.first().map(|b| b.measure > 1.0001).unwrap_or(true) {
-        out.insert(0, Bpm { measure: 1.0, bpm: fallback });
+        out.insert(
+            0,
+            Bpm {
+                measure: 1.0,
+                bpm: fallback,
+            },
+        );
     }
     out
 }
@@ -233,7 +296,6 @@ fn ensure_initial_bpm(bpms: &[Bpm], fallback: f32) -> Vec<Bpm> {
 fn quantize(measure: f32) -> i64 {
     (measure * 100_000.0).round() as i64
 }
-
 
 /// Map a Simai slide pattern into our discrete `SlideShape` enum.
 fn simai_pattern_to_shape(p: SlidePattern) -> SlideShape {
@@ -278,10 +340,18 @@ pub fn shape_to_simai_pattern(shape: Option<SlideShape>) -> SlidePattern {
 ///
 /// Zone numbering: A1-A8 = 1-8 (outer ring), B1-B8 = 9-16 (inner ring),
 /// C = 17 (center).
-pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
+pub fn simai_pattern_to_points(
+    start: u8,
+    end: u8,
+    pattern: SlidePattern,
+    reflect: Option<u8>,
+) -> Vec<SlidePoint> {
     let s = start + 1; // 1-indexed zone
     let e = end + 1;
-    let sp = |z: u8| SlidePoint { zone: PadZone::from(z), beat_offset: 0.0 };
+    let sp = |z: u8| SlidePoint {
+        zone: PadZone::from(z),
+        beat_offset: 0.0,
+    };
     match pattern {
         SlidePattern::Line => {
             // Straight line through center; endpoint only.
@@ -301,17 +371,17 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
             // let ccw = ring_ccw(s, e);
             // let route = if cw.len() <= ccw.len() { cw } else { ccw };
             // route.into_iter().map(sp).collect()
-            return  vec![sp(e)];
+            return vec![sp(e)];
         }
         SlidePattern::Right => {
             // > = CCW arc around the outer ring.
-           // ring_ccw(s, e).into_iter().map(sp).collect()
-            return  vec![sp(e)];
+            // ring_ccw(s, e).into_iter().map(sp).collect()
+            return vec![sp(e)];
         }
         SlidePattern::Left => {
             // < = CW arc around the outer ring.
-           // ring_cw(s, e).into_iter().map(sp).collect()
-            return  vec![sp(e)];
+            // ring_cw(s, e).into_iter().map(sp).collect()
+            return vec![sp(e)];
         }
         SlidePattern::LowerV => {
             // V-shape through center.
@@ -326,7 +396,7 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
             //     .collect();
             // pts.push(sp(e));
             // pts
-            return  vec![sp(e)];
+            return vec![sp(e)];
         }
         SlidePattern::Q => {
             // CCW half-circle through inner ring.
@@ -337,7 +407,7 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
             //     .collect();
             // pts.push(sp(e));
             // pts
-            return  vec![sp(e)];
+            return vec![sp(e)];
         }
         SlidePattern::PP => {
             // Full CW circle (inner ring) then to end.
@@ -346,7 +416,7 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
             // // After the full loop, go from last inner zone outward to end.
             // pts.push(sp(e));
             // pts
-            return  vec![sp(e)];
+            return vec![sp(e)];
         }
         SlidePattern::QQ => {
             // Full CCW circle (inner ring) then to end.
@@ -354,17 +424,17 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
             // let mut pts: Vec<SlidePoint> = full.iter().map(|&z| sp(a_to_b(z))).collect();
             // pts.push(sp(e));
             // pts
-            return  vec![sp(e)];
+            return vec![sp(e)];
         }
         SlidePattern::S => {
             // S-curve: CW first half → center → CCW second half.
-           // s_curve_waypoints(s, e, false).into_iter().map(sp).collect()
-            return  vec![sp(e)];
+            // s_curve_waypoints(s, e, false).into_iter().map(sp).collect()
+            return vec![sp(e)];
         }
         SlidePattern::Z => {
             // Z-curve: CCW first half → center → CW second half.
-           // s_curve_waypoints(s, e, true).into_iter().map(sp).collect()
-            return  vec![sp(e)];
+            // s_curve_waypoints(s, e, true).into_iter().map(sp).collect()
+            return vec![sp(e)];
         }
         SlidePattern::Wifi => {
             // Fan shape — just the endpoint (wifi is visually 3 lanes but
@@ -375,7 +445,9 @@ pub fn simai_pattern_to_points(start: u8, end: u8, pattern: SlidePattern, reflec
 }
 
 /// A-zone (1-8) → corresponding B-zone (9-16).
-fn a_to_b(a: u8) -> u8 { a + 8 }
+fn a_to_b(a: u8) -> u8 {
+    a + 8
+}
 
 /// CW traversal around the outer ring from `start` to `end` (both 1-indexed),
 /// excluding start, including end.
@@ -385,7 +457,9 @@ fn ring_cw(start: u8, end: u8) -> Vec<u8> {
     for _ in 0..8 {
         cur = if cur == 8 { 1 } else { cur + 1 };
         pts.push(cur);
-        if cur == end { break; }
+        if cur == end {
+            break;
+        }
     }
     pts
 }
@@ -397,7 +471,9 @@ fn ring_ccw(start: u8, end: u8) -> Vec<u8> {
     for _ in 0..8 {
         cur = if cur == 1 { 8 } else { cur - 1 };
         pts.push(cur);
-        if cur == end { break; }
+        if cur == end {
+            break;
+        }
     }
     pts
 }
@@ -474,7 +550,11 @@ fn lane_to_touch(lane: u8) -> (char, u8) {
 
 pub fn chart_doc_to_simai_file(doc: &ChartDoc) -> SimaiFile {
     let chart = chart_doc_to_simai_chart(doc);
-    let lv = if doc.simai_level > 0 { doc.simai_level } else { 6 };
+    let lv = if doc.simai_level > 0 {
+        doc.simai_level
+    } else {
+        6
+    };
     SimaiFile {
         title: doc.title.clone(),
         artist: doc.artist.clone(),
@@ -488,9 +568,18 @@ pub fn chart_doc_to_simai_file(doc: &ChartDoc) -> SimaiFile {
 pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
     let bpms: Vec<Bpm> = if doc.bpms.is_empty() {
         let bpm0 = if doc.bpm > 0.0 { doc.bpm } else { 120.0 };
-        vec![Bpm { measure: 1.0, bpm: bpm0 }]
+        vec![Bpm {
+            measure: 1.0,
+            bpm: bpm0,
+        }]
     } else {
-        doc.bpms.iter().map(|b| Bpm { measure: b.measure, bpm: b.bpm }).collect()
+        doc.bpms
+            .iter()
+            .map(|b| Bpm {
+                measure: b.measure,
+                bpm: b.bpm,
+            })
+            .collect()
     };
 
     let mut notes: Vec<SimaiNote> = Vec::with_capacity(doc.notes.len());
@@ -508,12 +597,22 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                     });
                 } else {
                     let (region, position) = lane_to_touch(n.lane);
-                    notes.push(SimaiNote::TouchTap { measure, region, position, is_firework: false });
+                    notes.push(SimaiNote::TouchTap {
+                        measure,
+                        region,
+                        position,
+                        is_firework: false,
+                    });
                 }
             }
             NoteType::Touch => {
                 let (region, position) = lane_to_touch(n.lane);
-                notes.push(SimaiNote::TouchTap { measure, region, position, is_firework: false });
+                notes.push(SimaiNote::TouchTap {
+                    measure,
+                    region,
+                    position,
+                    is_firework: false,
+                });
             }
             NoteType::Hold => {
                 let dur_meas = snap_measure(n.hold_duration.max(0.0));
@@ -541,9 +640,11 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                 }
                 // Emit a star Tap for the slide head (carries star break/ex).
                 // Only emit once per (measure, lane) group.
-                let already_emitted = notes.iter().any(|sn| matches!(sn,
+                let already_emitted = notes.iter().any(|sn| {
+                    matches!(sn,
                     SimaiNote::Tap { measure: m, button: b, is_star: true, .. }
-                        if (*m - measure).abs() < 0.0001 && *b == n.lane - 1));
+                        if (*m - measure).abs() < 0.0001 && *b == n.lane - 1)
+                });
                 if !already_emitted {
                     notes.push(SimaiNote::Tap {
                         measure,
@@ -557,23 +658,31 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                 for sl in &n.slide {
                     // First segment determines the primary pattern and end point.
                     let first_seg = sl.segments.first();
-                    let first_shape = first_seg
-                        .map(|seg| seg.shape)
-                        .unwrap_or(SlideShape::Line);
+                    let first_shape = first_seg.map(|seg| seg.shape).unwrap_or(SlideShape::Line);
                     let first_pts: Vec<&SlidePoint> = first_seg
                         .map(|seg| seg.points.iter().collect())
                         .unwrap_or_default();
                     let pattern = shape_to_simai_pattern(Some(first_shape));
                     let (reflect, end) = match (pattern, first_pts.as_slice()) {
-                        (SlidePattern::BigV, [r, e, ..]) => (Some(r.zone.to_id().saturating_sub(1)), e.zone.to_id().saturating_sub(1)),
+                        (SlidePattern::BigV, [r, e, ..]) => (
+                            Some(r.zone.to_id().saturating_sub(1)),
+                            e.zone.to_id().saturating_sub(1),
+                        ),
                         (_, [.., last]) => (None, last.zone.to_id().saturating_sub(1)),
                         _ => (None, 0),
                     };
                     // Build chain from additional segments.
-                    let chain: Vec<(SlidePattern, u8, Option<u8>, bool)> = sl.segments.iter().skip(1)
+                    let chain: Vec<(SlidePattern, u8, Option<u8>, bool)> = sl
+                        .segments
+                        .iter()
+                        .skip(1)
                         .map(|seg| {
                             let cp = shape_to_simai_pattern(Some(seg.shape));
-                            let ce = seg.points.last().map(|p| p.zone.to_id().saturating_sub(1)).unwrap_or(0);
+                            let ce = seg
+                                .points
+                                .last()
+                                .map(|p| p.zone.to_id().saturating_sub(1))
+                                .unwrap_or(0);
                             let cr = if matches!(cp, SlidePattern::BigV) {
                                 seg.points.first().map(|p| p.zone.to_id().saturating_sub(1))
                             } else {
@@ -616,7 +725,14 @@ pub fn import_from_simai_path(name: &str) -> Result<ChartDoc, String> {
     } else {
         // Treat the whole file as a bare chart body.
         let chart = ms::parse_chart_text(&text).map_err(|e| format!("simai parse: {e}"))?;
-        SimaiFile { title: String::new(), artist: String::new(), first: 0.0, levels: Vec::new(), charts: vec![(0, chart)], wholebpm: None }
+        SimaiFile {
+            title: String::new(),
+            artist: String::new(),
+            first: 0.0,
+            levels: Vec::new(),
+            charts: vec![(0, chart)],
+            wholebpm: None,
+        }
     };
     simai_file_to_chart_doc(&parsed, None)
 }
@@ -644,8 +760,7 @@ pub struct DialogImport {
 
 /// Open native file dialog to import a chart and its background music.
 pub fn dialog_import() -> Result<DialogImport, String> {
-    let path_str = native_open_file_dialog()
-        .ok_or_else(|| "cancelled".to_string())?;
+    let path_str = native_open_file_dialog().ok_or_else(|| "cancelled".to_string())?;
     import_from_file_path(&path_str)
 }
 
@@ -653,8 +768,7 @@ pub fn dialog_import() -> Result<DialogImport, String> {
 pub fn import_from_file_path(path_str: &str) -> Result<DialogImport, String> {
     let file = PathBuf::from(path_str);
     let base_dir = file.parent().map(|p| p.to_path_buf());
-    let chart_text = std::fs::read_to_string(&file)
-        .map_err(|e| format!("read file: {e}"))?;
+    let chart_text = std::fs::read_to_string(&file).map_err(|e| format!("read file: {e}"))?;
 
     let parsed = if chart_text.contains("&inote_") || chart_text.contains("&title=") {
         ms::parse_file(&chart_text)
@@ -671,45 +785,69 @@ pub fn import_from_file_path(path_str: &str) -> Result<DialogImport, String> {
     } else {
         let chart = ms::parse_chart_text(&chart_text).map_err(|e| format!("simai parse: {e}"))?;
         SimaiFile {
-            title: String::new(), artist: String::new(), first: 0.0,
-            levels: Vec::new(), charts: vec![(0, chart)], wholebpm: None,
+            title: String::new(),
+            artist: String::new(),
+            first: 0.0,
+            levels: Vec::new(),
+            charts: vec![(0, chart)],
+            wholebpm: None,
         }
     };
 
-    let chart = simai_file_to_chart_doc(&parsed, None)
-        .map_err(|e| format!("chart convert: {e}"))?;
+    let chart =
+        simai_file_to_chart_doc(&parsed, None).map_err(|e| format!("chart convert: {e}"))?;
     let title = chart.title.clone();
 
     // Build level list from charts + level labels
-    let mut levels: Vec<(u32, String)> = parsed.charts.iter().map(|(lv, _)| {
-        let label = parsed.levels.iter()
-            .find(|(n, _)| n == lv)
-            .map(|(_, s)| s.clone())
-            .unwrap_or_else(|| format!("Lv.{lv}"));
-        (*lv, label)
-    }).collect();
+    let mut levels: Vec<(u32, String)> = parsed
+        .charts
+        .iter()
+        .map(|(lv, _)| {
+            let label = parsed
+                .levels
+                .iter()
+                .find(|(n, _)| n == lv)
+                .map(|(_, s)| s.clone())
+                .unwrap_or_else(|| format!("Lv.{lv}"));
+            (*lv, label)
+        })
+        .collect();
     levels.sort_by_key(|(lv, _)| *lv);
 
     let (audio_bytes, audio_ext) = if let Some(dir) = base_dir {
-        let result = ["track.mp3", "track.wav", "music.mp3", "music.wav"].iter().find_map(|name| {
-            let path = dir.join(name);
-            match std::fs::read(&path) {
-                Ok(b) => {
-                    println!("[dialog_import] found audio: {} ({} bytes)", path.display(), b.len());
-                    Some((b, name.rsplit('.').next().unwrap_or("").to_string()))
+        let result = ["track.mp3", "track.wav", "music.mp3", "music.wav"]
+            .iter()
+            .find_map(|name| {
+                let path = dir.join(name);
+                match std::fs::read(&path) {
+                    Ok(b) => {
+                        println!(
+                            "[dialog_import] found audio: {} ({} bytes)",
+                            path.display(),
+                            b.len()
+                        );
+                        Some((b, name.rsplit('.').next().unwrap_or("").to_string()))
+                    }
+                    Err(_) => None,
                 }
-                Err(_) => None,
-            }
-        });
+            });
         if result.is_none() {
             println!("[dialog_import] no audio found in {:?}", dir);
         }
         result
     } else {
         None
-    }.unzip();
+    }
+    .unzip();
 
-    Ok(DialogImport { chart, title, audio_bytes, audio_ext, levels, simai_file: parsed })
+    Ok(DialogImport {
+        chart,
+        title,
+        audio_bytes,
+        audio_ext,
+        levels,
+        simai_file: parsed,
+    })
 }
 
 /// Re-convert a specific level from an already-parsed Simai file.
@@ -726,7 +864,10 @@ fn native_open_file_dialog() -> Option<String> {
         .ok()?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    println!("[dialog] osascript stdout={stdout:?} stderr={stderr:?} status={}", output.status);
+    println!(
+        "[dialog] osascript stdout={stdout:?} stderr={stderr:?} status={}",
+        output.status
+    );
     if output.status.success() && !stdout.is_empty() {
         Some(stdout)
     } else {
@@ -736,11 +877,7 @@ fn native_open_file_dialog() -> Option<String> {
 
 #[cfg(not(target_os = "macos"))]
 fn native_open_file_dialog() -> Option<String> {
-    tinyfiledialogs::open_file_dialog(
-        "Open Chart",
-        "",
-        Some((&["*.txt", "*.map"], "Chart files")),
-    )
+    tinyfiledialogs::open_file_dialog("Open Chart", "", Some((&["*.txt", "*.map"], "Chart files")))
 }
 
 /// Extract the note body from a simai file and strip leading BPM marker.

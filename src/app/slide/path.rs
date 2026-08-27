@@ -1,11 +1,17 @@
-use macroquad::math::{vec2, Vec2};
 use crate::app::pad_svg::PadSvgDef;
-use crate::app::types::{Note, PadGeom, SlideSegment, SlideShape, PAD_ROTATION_RAD, SLIDE_TILE_SPACING, TAP_TARGET_OFFSET};
 use crate::app::types::zone::PadZone;
+use crate::app::types::{
+    Note, PAD_ROTATION_RAD, PadGeom, SLIDE_TILE_SPACING, SlideSegment, SlideShape,
+    TAP_TARGET_OFFSET,
+};
+use macroquad::math::{Vec2, vec2};
 
 // ── Direction ──
 
-enum ArcDir { CCW, CW }
+enum ArcDir {
+    CCW,
+    CW,
+}
 
 // ── Helpers ──
 
@@ -13,7 +19,10 @@ fn a_ring_pos(zone: PadZone, outer_r: f32, spawn_cx: Vec2) -> Vec2 {
     let idx = (zone.to_id() - 1) as f32;
     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
     let target_r = outer_r + TAP_TARGET_OFFSET;
-    vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+    vec2(
+        spawn_cx.x + ang.cos() * target_r,
+        spawn_cx.y + ang.sin() * target_r,
+    )
 }
 
 fn b_centroid(i: u8, svg: &PadSvgDef, pad: &PadGeom) -> Vec2 {
@@ -23,7 +32,8 @@ fn a_centroid(i: u8, svg: &PadSvgDef, pad: &PadGeom) -> Vec2 {
     svg.zone_screen_centroid(PadZone::from(i), pad).unwrap()
 }
 fn d_centroid(i: u8, svg: &PadSvgDef, pad: &PadGeom) -> Vec2 {
-    svg.zone_screen_centroid(PadZone::from(17 + i), pad).unwrap()
+    svg.zone_screen_centroid(PadZone::from(17 + i), pad)
+        .unwrap()
 }
 
 fn b_ring(svg: &PadSvgDef, pad: &PadGeom) -> (Vec2, f32) {
@@ -39,8 +49,9 @@ fn a_ring(svg: &PadSvgDef, pad: &PadGeom) -> (Vec2, f32) {
     (center, radius)
 }
 
-
-fn wrap(x: i32) -> u8 { ((x - 1).rem_euclid(8) + 1) as u8 }
+fn wrap(x: i32) -> u8 {
+    ((x - 1).rem_euclid(8) + 1) as u8
+}
 
 fn b_perm_idx(zone: PadZone) -> Option<i32> {
     let zid = zone.to_id();
@@ -63,7 +74,13 @@ fn ad_perm_idx(zone: PadZone) -> Option<i32> {
     }
 }
 
-fn ad_ring_pos(zone: PadZone, svg: &PadSvgDef, pad: &PadGeom, outer_r: f32, spawn_cx: Vec2) -> Option<Vec2> {
+fn ad_ring_pos(
+    zone: PadZone,
+    svg: &PadSvgDef,
+    pad: &PadGeom,
+    outer_r: f32,
+    spawn_cx: Vec2,
+) -> Option<Vec2> {
     let zid = zone.to_id();
     if (1..=8).contains(&zid) {
         Some(a_ring_pos(zone, outer_r, spawn_cx))
@@ -88,35 +105,22 @@ fn ad_ring(svg: &PadSvgDef, pad: &PadGeom, outer_r: f32, spawn_cx: Vec2) -> (Vec
 /// 生成弧线上的采样点并推入 path
 fn push_arc(path: &mut Vec<Vec2>, bp: f32, ep: f32, b_center: Vec2, b_radius: f32, spacing: f32) {
     let arc_len = b_radius * (ep - bp).abs();
-    if arc_len < 1.0 { return; }
+    if arc_len < 1.0 {
+        return;
+    }
     let steps = ((arc_len / spacing).ceil() as usize).max(8);
     for i in 1..=steps {
         let ang = bp + (ep - bp) * i as f32 / steps as f32;
         path.push(b_center + vec2(ang.cos(), ang.sin()) * b_radius);
     }
 }
-fn push_corner_bezier(
-
-    path: &mut Vec<Vec2>,
-
-    corner: Vec2,
-
-    next: Vec2,
-
-    radius: f32,
-
-    spacing: f32,
-
-) {
-
+fn push_corner_bezier(path: &mut Vec<Vec2>, corner: Vec2, next: Vec2, radius: f32, spacing: f32) {
     if path.is_empty() {
-
         path.push(corner);
 
         path.push(next);
 
         return;
-
     }
 
     let prev = *path.last().unwrap();
@@ -130,13 +134,11 @@ fn push_corner_bezier(
     let len2 = v2.length();
 
     if len1 < 1e-3 || len2 < 1e-3 {
-
         path.push(corner);
 
         path.push(next);
 
         return;
-
     }
 
     let d1 = v1 / len1;
@@ -164,25 +166,16 @@ fn push_corner_bezier(
     let steps = ((approx_len / spacing).ceil() as usize).max(6);
 
     for i in 1..=steps {
-
         let t = i as f32 / steps as f32;
 
         let u = 1.0 - t;
 
-        let p =
-
-            p0 * (u * u)
-
-                + ctrl * (2.0 * u * t)
-
-                + p2 * (t * t);
+        let p = p0 * (u * u) + ctrl * (2.0 * u * t) + p2 * (t * t);
 
         path.push(p);
-
     }
 
     path.push(next);
-
 }
 // ── Shape builders ──
 
@@ -215,37 +208,38 @@ fn build_arc(
     let end_zone = start_zone + span;
 
     let start_pos = b_centroid(wrap(start_zone), svg, pad);
-    let end_pos   = b_centroid(wrap(end_zone),   svg, pad);
+    let end_pos = b_centroid(wrap(end_zone), svg, pad);
 
     let bp = (start_pos.y - b_center.y).atan2(start_pos.x - b_center.x);
     let mut ep = (end_pos.y - b_center.y).atan2(end_pos.x - b_center.x);
     match dir {
-        ArcDir::CCW => { if ep <= bp { ep += std::f32::consts::TAU; } }
-        ArcDir::CW  => { if ep >= bp { ep -= std::f32::consts::TAU; } }
+        ArcDir::CCW => {
+            if ep <= bp {
+                ep += std::f32::consts::TAU;
+            }
+        }
+        ArcDir::CW => {
+            if ep >= bp {
+                ep -= std::f32::consts::TAU;
+            }
+        }
     }
 
-    if start_zone==end_zone {
+    if start_zone == end_zone {
         push_corner_bezier(
-
             path,
-
             start_pos,
-
             end,
-
             20.0 * scale,
-
             SLIDE_TILE_SPACING * scale,
-
         );
         // path.push(start_pos);
         // path.push(end);
-    }else{
+    } else {
         path.push(start_pos);
         push_arc(path, bp, ep, b_center, b_radius, SLIDE_TILE_SPACING * scale);
         path.push(end);
     }
-
 }
 /// PP：与 QQ 相反（CW 弧），同用 AD 环固定圆
 fn build_pp_arc(
@@ -290,7 +284,14 @@ fn build_pp_arc(
     let ep = bp - arc_span;
 
     path.push(c_pos);
-    push_arc(path, bp, ep, arc_center, arc_radius, SLIDE_TILE_SPACING * scale);
+    push_arc(
+        path,
+        bp,
+        ep,
+        arc_center,
+        arc_radius,
+        SLIDE_TILE_SPACING * scale,
+    );
     path.push(target_end);
 }
 
@@ -348,7 +349,7 @@ fn build_edge_arc(
 
     // 弧长：target=lane+5 → 100%，+4→90%，+3→80%... 单向递减
     let ideal = ((note.lane as i32 + 4) % 8 + 1); // lane+5 wrapped to 1..8
-    let dist = (ideal - target + 8) % 8;           // 0=ideal, 1..7 递减
+    let dist = (ideal - target + 8) % 8; // 0=ideal, 1..7 递减
     let arc_fraction = 1.0 - 0.1 * dist as f32;
     let arc_span = std::f32::consts::TAU * arc_fraction;
 
@@ -359,7 +360,14 @@ fn build_edge_arc(
     // note.lane → C（直线，note 起点已在 path 中）
     path.push(c_pos);
     // C → 圆弧
-    push_arc(path, bp, ep, arc_center, arc_radius, SLIDE_TILE_SPACING * scale);
+    push_arc(
+        path,
+        bp,
+        ep,
+        arc_center,
+        arc_radius,
+        SLIDE_TILE_SPACING * scale,
+    );
     // AD 环 → 目标终点（直线）
     path.push(target_end);
 }
@@ -385,19 +393,29 @@ fn build_a_ring_arc(
     let end = a_ring_pos(sp.zone, outer_r, spawn_cx);
 
     // A 环圆心/半径：8 个 tap 圆点反算
-    let ring_dots: Vec<Vec2> = (1..=8).map(|i| a_ring_pos(PadZone::from(i), outer_r, spawn_cx)).collect();
+    let ring_dots: Vec<Vec2> = (1..=8)
+        .map(|i| a_ring_pos(PadZone::from(i), outer_r, spawn_cx))
+        .collect();
     let a_center = ring_dots.iter().sum::<Vec2>() / 8.0;
     let a_radius = ring_dots.iter().map(|c| c.distance(a_center)).sum::<f32>() / 8.0;
 
     // 弧起/止：note.lane 的 tap 圆点 → target 的 tap 圆点
     let start_pos = a_ring_pos(PadZone::from(note.lane), outer_r, spawn_cx);
-    let end_pos   = end;
+    let end_pos = end;
 
     let bp = (start_pos.y - a_center.y).atan2(start_pos.x - a_center.x);
     let mut ep = (end_pos.y - a_center.y).atan2(end_pos.x - a_center.x);
     match dir {
-        ArcDir::CCW => { if ep <= bp { ep += std::f32::consts::TAU; } }
-        ArcDir::CW  => { if ep >= bp { ep -= std::f32::consts::TAU; } }
+        ArcDir::CCW => {
+            if ep <= bp {
+                ep += std::f32::consts::TAU;
+            }
+        }
+        ArcDir::CW => {
+            if ep >= bp {
+                ep -= std::f32::consts::TAU;
+            }
+        }
     }
 
     push_arc(path, bp, ep, a_center, a_radius, SLIDE_TILE_SPACING * scale);
@@ -414,23 +432,41 @@ fn build_caret_arc(
     outer_r: f32,
     spawn_cx: Vec2,
 ) {
-   let sp = note.lane as i32;
+    let sp = note.lane as i32;
     let ep = seg.points.first().unwrap().zone.to_id() as i32;
-    if sort_cw(sp,ep,8) {
-        build_a_ring_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, -1, ArcDir::CW);
-    }else{
-        build_a_ring_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, 1, ArcDir::CCW);
+    if sort_cw(sp, ep, 8) {
+        build_a_ring_arc(
+            path,
+            note,
+            seg,
+            svg,
+            pad,
+            scale,
+            outer_r,
+            spawn_cx,
+            -1,
+            ArcDir::CW,
+        );
+    } else {
+        build_a_ring_arc(
+            path,
+            note,
+            seg,
+            svg,
+            pad,
+            scale,
+            outer_r,
+            spawn_cx,
+            1,
+            ArcDir::CCW,
+        );
     }
-    }
+}
 fn sort_cw(a: i32, b: i32, n: i32) -> bool {
     let cw = (b - a + n) % n;
     let ccw = (a - b + n) % n;
 
-    if cw < ccw {
-        false
-    } else {
-        true
-    }
+    if cw < ccw { false } else { true }
 }
 
 fn build_z_arc(
@@ -442,7 +478,7 @@ fn build_z_arc(
     scale: f32,
     outer_r: f32,
     spawn_cx: Vec2,
-    slide_type:SlideShape
+    slide_type: SlideShape,
 ) {
     let sp = match seg.points.first() {
         Some(p) if seg.points.len() == 1 => p,
@@ -458,13 +494,17 @@ fn build_z_arc(
     // C 区中心
     let c_pos = svg.zone_screen_centroid(PadZone::C, pad).unwrap();
 
-    let b1 =    svg.zone_screen_centroid(PadZone::num_to_b(note.lane as i8+2),pad).unwrap();
-    let b2 =    svg.zone_screen_centroid(PadZone::num_to_b(note.lane as i8-2),pad).unwrap();
+    let b1 = svg
+        .zone_screen_centroid(PadZone::num_to_b(note.lane as i8 + 2), pad)
+        .unwrap();
+    let b2 = svg
+        .zone_screen_centroid(PadZone::num_to_b(note.lane as i8 - 2), pad)
+        .unwrap();
 
-    if matches!(slide_type,SlideShape::Z) {
+    if matches!(slide_type, SlideShape::Z) {
         path.push(b1);
         path.push(b2);
-    }else if  matches!(slide_type,SlideShape::S) {
+    } else if matches!(slide_type, SlideShape::S) {
         path.push(b2);
         path.push(b1);
     }
@@ -474,62 +514,218 @@ fn build_z_arc(
 }
 
 pub fn slide_shape_q(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
-) { build_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, 2, ArcDir::CCW); }
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+) {
+    build_arc(
+        path,
+        note,
+        seg,
+        svg,
+        pad,
+        scale,
+        outer_r,
+        spawn_cx,
+        2,
+        ArcDir::CCW,
+    );
+}
 pub fn slide_shape_qq(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
-) { build_edge_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, 1, ArcDir::CCW); }
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+) {
+    build_edge_arc(
+        path,
+        note,
+        seg,
+        svg,
+        pad,
+        scale,
+        outer_r,
+        spawn_cx,
+        1,
+        ArcDir::CCW,
+    );
+}
 
 pub fn slide_shape_p(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
-) { build_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, -2, ArcDir::CW); }
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+) {
+    build_arc(
+        path,
+        note,
+        seg,
+        svg,
+        pad,
+        scale,
+        outer_r,
+        spawn_cx,
+        -2,
+        ArcDir::CW,
+    );
+}
 
 pub fn slide_shape_pp(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
-) { build_pp_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx); }
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+) {
+    build_pp_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx);
+}
 
 pub fn slide_shape_left(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
-) { build_a_ring_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, -1, if   note.lane < 7 && note.lane > 2 { ArcDir::CCW }else{ArcDir::CW });}
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+) {
+    build_a_ring_arc(
+        path,
+        note,
+        seg,
+        svg,
+        pad,
+        scale,
+        outer_r,
+        spawn_cx,
+        -1,
+        if note.lane < 7 && note.lane > 2 {
+            ArcDir::CCW
+        } else {
+            ArcDir::CW
+        },
+    );
+}
 
 pub fn slide_shape_right(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
 ) {
-
-    build_a_ring_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, 1, if note.lane < 7 && note.lane > 2 { ArcDir::CW} else{ArcDir::CCW});}
+    build_a_ring_arc(
+        path,
+        note,
+        seg,
+        svg,
+        pad,
+        scale,
+        outer_r,
+        spawn_cx,
+        1,
+        if note.lane < 7 && note.lane > 2 {
+            ArcDir::CW
+        } else {
+            ArcDir::CCW
+        },
+    );
+}
 
 pub fn slide_shape_caret(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
 ) {
-    build_caret_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx); }
+    build_caret_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx);
+}
 
 pub fn slide_shape_z(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
 ) {
-    build_z_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, SlideShape::Z);
+    build_z_arc(
+        path,
+        note,
+        seg,
+        svg,
+        pad,
+        scale,
+        outer_r,
+        spawn_cx,
+        SlideShape::Z,
+    );
 }
 pub fn slide_shape_s(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, scale: f32,
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
 ) {
-    build_z_arc(path, note, seg, svg, pad, scale, outer_r, spawn_cx, SlideShape::S);
+    build_z_arc(
+        path,
+        note,
+        seg,
+        svg,
+        pad,
+        scale,
+        outer_r,
+        spawn_cx,
+        SlideShape::S,
+    );
 }
 
 /// 直线连接 segment 的各个 waypoint
 pub fn slide_shape_line(
-    path: &mut Vec<Vec2>, note: &Note, seg: &SlideSegment,
-    outer_r: f32, spawn_cx: Vec2, pad: &PadGeom, svg: &PadSvgDef, _scale: f32,
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    seg: &SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    _scale: f32,
 ) {
     for sp in &seg.points {
-        if sp.zone == note.lane && path.len() == 1 { continue; }
+        if sp.zone == note.lane && path.len() == 1 {
+            continue;
+        }
         let zid = sp.zone.to_id();
         let c = if zid >= 1 && zid <= 8 {
             Some(a_ring_pos(sp.zone, outer_r, spawn_cx))
@@ -543,4 +739,3 @@ pub fn slide_shape_line(
         }
     }
 }
-

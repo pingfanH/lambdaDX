@@ -1,6 +1,6 @@
 use super::state::{AppState, SavedPlaybackState};
 use super::types::{
-    Note, NoteTemplateSource, SceneRef, TemplateDef, TemplateInstance, snap_measure, Mode,
+    Mode, Note, NoteTemplateSource, SceneRef, TemplateDef, TemplateInstance, snap_measure,
 };
 
 /// Create a new template from the currently selected notes.
@@ -8,9 +8,16 @@ use super::types::{
 /// NO expanded notes are stored in chart.notes — the instance is rendered virtually.
 pub fn create_template(app: &mut AppState, name: &str) -> Result<String, String> {
     let indices = if !app.selected_notes.is_empty() {
-        app.selected_notes.clone()
+        app.selected_notes
+            .iter()
+            .filter_map(|&id| app.find_note_index(id))
+            .collect()
     } else if let Some(id) = app.selected_note {
-        if let Some(i) = app.find_note_index(id) { vec![i] } else { return Err("Selected note not found".to_string()); }
+        if let Some(i) = app.find_note_index(id) {
+            vec![i]
+        } else {
+            return Err("Selected note not found".to_string());
+        }
     } else {
         return Err("No notes selected".to_string());
     };
@@ -46,7 +53,8 @@ pub fn create_template(app: &mut AppState, name: &str) -> Result<String, String>
         .iter()
         .map(|n| {
             let dur = n.hold_duration.max(
-                n.slide.iter()
+                n.slide
+                    .iter()
                     .map(|s| s.slide_duration)
                     .fold(0.0_f32, f32::max),
             );
@@ -139,7 +147,11 @@ pub fn create_new_template(app: &mut AppState, name: &str) -> Result<String, Str
 }
 
 /// Rename an existing template.
-pub fn rename_template(app: &mut AppState, template_idx: usize, new_name: &str) -> Result<(), String> {
+pub fn rename_template(
+    app: &mut AppState,
+    template_idx: usize,
+    new_name: &str,
+) -> Result<(), String> {
     let tpl = app
         .chart
         .templates
@@ -182,9 +194,17 @@ pub fn insert_instance(app: &mut AppState, template_idx: usize) -> Result<(), St
         anchor_time,
     };
 
-    let tpl_name = app.chart.templates.get(template_idx).map(|t| t.name.clone()).unwrap_or_default();
+    let tpl_name = app
+        .chart
+        .templates
+        .get(template_idx)
+        .map(|t| t.name.clone())
+        .unwrap_or_default();
     app.chart.template_instances.push(instance);
-    app.set_status(format!("Inserted template '{}' at {:.2}", tpl_name, anchor_time));
+    app.set_status(format!(
+        "Inserted template '{}' at {:.2}",
+        tpl_name, anchor_time
+    ));
 
     Ok(())
 }
@@ -204,10 +224,7 @@ pub fn current_anchor_time(app: &AppState) -> f32 {
 
 /// Expand a template instance into concrete notes for rendering.
 /// These are NOT stored — they're generated on-the-fly for display/playback.
-pub fn expand_instance(
-    instance: &TemplateInstance,
-    template: &TemplateDef,
-) -> Vec<Note> {
+pub fn expand_instance(instance: &TemplateInstance, template: &TemplateDef) -> Vec<Note> {
     let offset = instance.anchor_time - 1.0;
 
     template
@@ -232,7 +249,12 @@ pub fn expand_instance(
 pub fn all_expanded_notes(app: &AppState) -> Vec<Note> {
     let mut result = Vec::new();
     for inst in &app.chart.template_instances {
-        if let Some(tpl) = app.chart.templates.iter().find(|t| t.id == inst.template_id) {
+        if let Some(tpl) = app
+            .chart
+            .templates
+            .iter()
+            .find(|t| t.id == inst.template_id)
+        {
             result.extend(expand_instance(inst, tpl));
         }
     }
@@ -301,11 +323,17 @@ pub fn enter_isolation(app: &mut AppState, template_idx: usize) -> Result<(), St
 /// Enter isolation mode for a specific template instance on the timeline.
 /// Double-click on a template block calls this.
 pub fn enter_instance_isolation(app: &mut AppState, instance_idx: usize) -> Result<(), String> {
-    let inst = app.chart.template_instances.get(instance_idx)
+    let inst = app
+        .chart
+        .template_instances
+        .get(instance_idx)
         .ok_or("Instance not found")?
         .clone();
 
-    let tpl_idx = app.chart.templates.iter()
+    let tpl_idx = app
+        .chart
+        .templates
+        .iter()
         .position(|t| t.id == inst.template_id)
         .ok_or("Template not found for instance")?;
 
@@ -332,11 +360,15 @@ pub fn enter_instance_isolation(app: &mut AppState, instance_idx: usize) -> Resu
     // Load template notes, offset by instance anchor so they appear at their timeline position.
     let tpl = app.chart.templates.get(tpl_idx).unwrap();
     let offset = inst.anchor_time - 1.0;
-    let offset_notes: Vec<Note> = tpl.notes.iter().map(|n| {
-        let mut cn = n.clone();
-        cn.time = n.time + offset;
-        cn
-    }).collect();
+    let offset_notes: Vec<Note> = tpl
+        .notes
+        .iter()
+        .map(|n| {
+            let mut cn = n.clone();
+            cn.time = n.time + offset;
+            cn
+        })
+        .collect();
     app.chart.notes = offset_notes;
 
     app.active_scene = SceneRef::Template {
@@ -366,15 +398,22 @@ pub fn exit_isolation(app: &mut AppState) -> Result<(), String> {
 
     match current_scene {
         SceneRef::Main => return Err("Already on Main scene".to_string()),
-        SceneRef::Template { ref template_id, instance_anchor } => {
+        SceneRef::Template {
+            ref template_id,
+            instance_anchor,
+        } => {
             // If editing via instance, un-offset the notes before saving.
             let notes_to_save = if let Some(anchor) = instance_anchor {
                 let offset = anchor - 1.0;
-                app.chart.notes.iter().map(|n| {
-                    let mut cn = n.clone();
-                    cn.time = n.time - offset;
-                    cn
-                }).collect()
+                app.chart
+                    .notes
+                    .iter()
+                    .map(|n| {
+                        let mut cn = n.clone();
+                        cn.time = n.time - offset;
+                        cn
+                    })
+                    .collect()
             } else {
                 app.chart.notes.clone()
             };
@@ -429,7 +468,12 @@ pub fn exit_isolation(app: &mut AppState) -> Result<(), String> {
                 // expanded notes (in case they leaked into chart.notes).
                 let mut template_note_times: Vec<(f32, u8)> = Vec::new();
                 for inst in &app.chart.template_instances {
-                    if let Some(tpl) = app.chart.templates.iter().find(|t| t.id == inst.template_id) {
+                    if let Some(tpl) = app
+                        .chart
+                        .templates
+                        .iter()
+                        .find(|t| t.id == inst.template_id)
+                    {
                         let offset = inst.anchor_time - 1.0;
                         for n in &tpl.notes {
                             template_note_times.push((snap_measure(n.time + offset), n.lane));
@@ -438,7 +482,9 @@ pub fn exit_isolation(app: &mut AppState) -> Result<(), String> {
                 }
                 app.chart.notes.retain(|n| {
                     let ns = snap_measure(n.time);
-                    !template_note_times.iter().any(|(t, l)| (*t - ns).abs() < 0.003 && *l == n.lane)
+                    !template_note_times
+                        .iter()
+                        .any(|(t, l)| (*t - ns).abs() < 0.003 && *l == n.lane)
                 });
             }
 
@@ -529,13 +575,10 @@ pub fn instance_time_range(app: &AppState, inst: &TemplateInstance) -> (f32, f32
 
 /// Find the template instance index at a given measure time, if any.
 pub fn instance_at_time(app: &AppState, time: f32) -> Option<usize> {
-    app.chart
-        .template_instances
-        .iter()
-        .position(|inst| {
-            let (start, end) = instance_time_range(app, inst);
-            time >= start && time < end
-        })
+    app.chart.template_instances.iter().position(|inst| {
+        let (start, end) = instance_time_range(app, inst);
+        time >= start && time < end
+    })
 }
 
 /// Move a template instance to a new anchor time.
@@ -553,7 +596,8 @@ pub fn update_template_duration(app: &mut AppState, template_id: &str) {
             .iter()
             .map(|n| {
                 let dur = n.hold_duration.max(
-                    n.slide.iter()
+                    n.slide
+                        .iter()
                         .map(|s| s.slide_duration)
                         .fold(0.0_f32, f32::max),
                 );

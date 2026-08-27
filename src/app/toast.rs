@@ -171,7 +171,7 @@ impl ToastManager {
             let text_color = Color::new(0.9, 0.9, 0.9, alpha);
             let text_x = start_x + padding + 24.0;
             let max_text_w = toast_w - padding * 2.0 - 24.0;
-            
+
             // Truncate text if too long
             let display_text = truncate_text(&toast.message, max_text_w, 14.0);
             draw_text(&display_text, text_x, y + toast_h * 0.65, 14.0, text_color);
@@ -185,7 +185,13 @@ impl ToastManager {
                 toast.level.color().b,
                 0.5 * alpha,
             );
-            draw_rectangle(start_x, y + toast_h - 3.0, toast_w * progress, 3.0, bar_color);
+            draw_rectangle(
+                start_x,
+                y + toast_h - 3.0,
+                toast_w * progress,
+                3.0,
+                bar_color,
+            );
 
             y += toast_h + 8.0;
         }

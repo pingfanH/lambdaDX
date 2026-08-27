@@ -1,0 +1,84 @@
+{
+  "created_at_epoch_ms": 1780413085965,
+  "source": "macroquad_sim",
+  "chart": {
+    "version": "0.4.0-beat",
+    "title": "Fallback Demo Chart",
+    "bpm": 210.0,
+    "bpms": [
+      {
+        "measure": 1.0,
+        "bpm": 210.0
+      }
+    ],
+    "audio_offset": 0.0,
+    "notes": [
+      {
+        "measure": 1,
+        "beat": 2,
+        "division": 1,
+        "offset": 0,
+        "lane": 4,
+        "note_type": "slide",
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A8",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "line"
+              },
+              {
+                "points": [
+                  {
+                    "zone": "A2",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "right"
+              }
+            ],
+            "slide_duration": 0.5,
+            "slide_start_delay": 0.25
+          }
+        ]
+      },
+      {
+        "measure": 2,
+        "beat": 1,
+        "division": 4,
+        "offset": 1,
+        "lane": 5,
+        "note_type": "slide",
+        "slide": [
+          {
+            "segments": [
+              {
+                "points": [
+                  {
+                    "zone": "A1",
+                    "beat_offset": 0.0
+                  },
+                  {
+                    "zone": "A4",
+                    "beat_offset": 0.0
+                  }
+                ],
+                "shape": "v_shape"
+              }
+            ],
+            "slide_duration": 0.59375,
+            "slide_start_delay": 0.375
+          }
+        ]
+      }
+    ]
+  },
+  "hits": [],
+  "record_speed": 1.0,
+  "play_speed": 1.0000007
+}

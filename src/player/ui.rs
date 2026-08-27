@@ -534,34 +534,6 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         }
     }
 
-    // Render judgment texts
-    for jt in &app.judge_texts {
-        let remaining = jt.until - macroquad::prelude::get_time();
-        if remaining <= 0.0 { continue; }
-        let alpha = if remaining < 0.2 { (remaining / 0.2 * 255.0) as u8 } else { 255u8 };
-        let color = match jt.grade.as_str() {
-            "Perfect" => Color::from_rgba(255, 215, 0, alpha),
-            "Great" => Color::from_rgba(0, 255, 0, alpha),
-            "Good" => Color::from_rgba(255, 255, 255, alpha),
-            _ => Color::from_rgba(255, 255, 255, alpha),
-        };
-        let pos = if jt.zone.to_id() <= 8 {
-            let idx = (jt.zone.to_id() - 1) as f32;
-            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-            let dir = vec2(ang.cos(), ang.sin());
-            let target_r = outer_r + TAP_TARGET_OFFSET;
-            vec2(spawn_cx.x + dir.x * target_r, spawn_cx.y + dir.y * target_r)
-        } else {
-            app.pad_svg.as_ref()
-                .and_then(|svg| svg.zone_screen_centroid(jt.zone, &pad))
-                .unwrap_or(vec2(pad.cx, pad.cy))
-        };
-        let text = jt.grade.to_uppercase();
-        let font_size = 24.0 * scale;
-        let dims = measure_text(&text, None, font_size as u16, 1.0);
-        draw_text(&text, pos.x - dims.width * 0.5, pos.y, font_size, color);
-    }
-
 
     // draw_text(
     //     "Pad zones: A1~A8(Outer) + B1~B8(Inner) + C1(Center) + D1~8(Left) + E1~8(Right)",

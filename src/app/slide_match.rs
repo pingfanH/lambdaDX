@@ -57,11 +57,14 @@ pub fn match_slide_shape(start_lane: u8, slide_points: &[SlidePoint]) -> Option<
 
 #[cfg(test)]
 mod tests {
-    use crate::app::types::zone::PadZone;
     use super::*;
+    use crate::app::types::zone::PadZone;
 
     fn sp(zone: u8) -> SlidePoint {
-        SlidePoint { zone:PadZone::from(zone), beat_offset: 0.0 }
+        SlidePoint {
+            zone: PadZone::from(zone),
+            beat_offset: 0.0,
+        }
     }
 
     #[test]
@@ -85,7 +88,10 @@ mod tests {
     #[test]
     fn dedup_collapses_repeats() {
         // Repeated start zone in slide_points should be deduplicated.
-        assert_eq!(match_slide_shape(1, &[sp(1), sp(5)]), Some(SlideShape::Line));
+        assert_eq!(
+            match_slide_shape(1, &[sp(1), sp(5)]),
+            Some(SlideShape::Line)
+        );
         // Repeated middle should collapse to a 3-point V.
         assert_eq!(
             match_slide_shape(1, &[sp(3), sp(3), sp(5)]),
@@ -95,14 +101,8 @@ mod tests {
 
     #[test]
     fn four_or_more_points_unclassified() {
-        assert_eq!(
-            match_slide_shape(1, &[sp(3), sp(5), sp(7)]),
-            None,
-        );
-        assert_eq!(
-            match_slide_shape(2, &[sp(4), sp(6), sp(8)]),
-            None,
-        );
+        assert_eq!(match_slide_shape(1, &[sp(3), sp(5), sp(7)]), None,);
+        assert_eq!(match_slide_shape(2, &[sp(4), sp(6), sp(8)]), None,);
     }
 
     #[test]
@@ -120,6 +120,9 @@ mod tests {
         // Same start and end with no via.
         assert_eq!(match_slide_shape(1, &[sp(1)]), None);
         // 3-point with collapsed mid (a == m) is treated as 2-point Line by dedup.
-        assert_eq!(match_slide_shape(1, &[sp(1), sp(5)]), Some(SlideShape::Line));
+        assert_eq!(
+            match_slide_shape(1, &[sp(1), sp(5)]),
+            Some(SlideShape::Line)
+        );
     }
 }

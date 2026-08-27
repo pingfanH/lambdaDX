@@ -1,0 +1,2782 @@
+{
+  "version": "2.15",
+  "children": [
+    {
+      "type": "frame",
+      "id": "CJ1Yo",
+      "x": 1640,
+      "y": 112,
+      "name": "Editor / Chart Authoring",
+      "clip": true,
+      "width": 1570,
+      "height": 856,
+      "fill": "#202020",
+      "layout": "none",
+      "children": [
+        {
+          "type": "frame",
+          "id": "sObXZ",
+          "x": -1,
+          "y": 0,
+          "name": "Top Command Bar",
+          "width": 1570,
+          "height": 42,
+          "fill": "$editor-bg",
+          "stroke": "#3A3A40",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "layout": "none",
+          "children": [
+            {
+              "type": "text",
+              "id": "wmquO",
+              "x": 7,
+              "y": 24,
+              "name": "App Brand",
+              "fill": "$editor-text",
+              "content": "Lambda DX",
+              "fontFamily": "$font-ui",
+              "fontSize": 10.5,
+              "fontWeight": "500"
+            },
+            {
+              "type": "rectangle",
+              "id": "zUkd9",
+              "x": 73,
+              "y": 24,
+              "name": "Brand Divider",
+              "fill": "#6A6A70",
+              "width": 1,
+              "height": 14
+            },
+            {
+              "type": "rectangle",
+              "id": "n9xd6",
+              "x": 0,
+              "y": 0,
+              "name": "Native Title Strip",
+              "fill": "#3B3B39",
+              "width": 1600,
+              "height": 18,
+              "stroke": "#1F1F21"
+            },
+            {
+              "type": "ellipse",
+              "id": "Zaxdv",
+              "x": 7,
+              "y": 5,
+              "name": "Window Close",
+              "fill": "#FF5F57",
+              "width": 8,
+              "height": 8
+            },
+            {
+              "type": "ellipse",
+              "id": "lnOsi",
+              "x": 21,
+              "y": 5,
+              "name": "Window Minimize",
+              "fill": "#FFBD2E",
+              "width": 8,
+              "height": 8
+            },
+            {
+              "type": "ellipse",
+              "id": "HxPAr",
+              "x": 35,
+              "y": 5,
+              "name": "Window Zoom",
+              "fill": "#28C840",
+              "width": 8,
+              "height": 8
+            },
+            {
+              "type": "text",
+              "id": "yWAJI",
+              "x": 660,
+              "y": 1,
+              "name": "Window Title",
+              "fill": "#B8B8B6",
+              "textGrowth": "fixed-width-height",
+              "width": 280,
+              "height": 16,
+              "content": "LambdaDX Editor",
+              "textAlign": "center",
+              "textAlignVertical": "middle",
+              "fontFamily": "$font-ui",
+              "fontSize": 9,
+              "fontWeight": "600"
+            },
+            {
+              "type": "group",
+              "id": "evceX",
+              "x": 77,
+              "y": 22,
+              "children": [
+                {
+                  "id": "bDbY4",
+                  "type": "ref",
+                  "ref": "x5Wv2",
+                  "name": "Audio Button",
+                  "x": 206,
+                  "y": 0,
+                  "width": 42,
+                  "height": 18,
+                  "descendants": {
+                    "D24vFJ": {
+                      "name": "Audio Label",
+                      "content": "Audio",
+                      "fill": "#D0D0D4"
+                    }
+                  }
+                },
+                {
+                  "id": "I3YTRo",
+                  "type": "ref",
+                  "ref": "x5Wv2",
+                  "name": "Grid Button",
+                  "x": 168,
+                  "y": 0,
+                  "width": 36,
+                  "height": 18,
+                  "descendants": {
+                    "D24vFJ": {
+                      "name": "Grid Label",
+                      "content": "Grid",
+                      "fill": "#D0D0D4"
+                    }
+                  }
+                },
+                {
+                  "id": "CQr9v",
+                  "type": "ref",
+                  "ref": "x5Wv2",
+                  "name": "Export Button",
+                  "x": 120,
+                  "y": 0,
+                  "width": 46,
+                  "height": 18,
+                  "descendants": {
+                    "D24vFJ": {
+                      "name": "Export Label",
+                      "content": "Export",
+                      "fill": "#D0D0D4"
+                    }
+                  }
+                },
+                {
+                  "id": "uYLjC",
+                  "type": "ref",
+                  "ref": "x5Wv2",
+                  "name": "Open Button",
+                  "x": 80,
+                  "y": 0,
+                  "width": 38,
+                  "height": 18,
+                  "descendants": {
+                    "D24vFJ": {
+                      "name": "Open Label",
+                      "content": "Open",
+                      "fill": "#D0D0D4"
+                    }
+                  }
+                },
+                {
+                  "id": "ym3xu",
+                  "type": "ref",
+                  "ref": "x5Wv2",
+                  "name": "Load Button",
+                  "x": 40,
+                  "y": 0,
+                  "width": 38,
+                  "height": 18,
+                  "descendants": {
+                    "D24vFJ": {
+                      "name": "Load Label",
+                      "content": "Load",
+                      "fill": "#D0D0D4"
+                    }
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "x5Wv2",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Save Button",
+                  "reusable": true,
+                  "width": 38,
+                  "height": 18,
+                  "fill": "#00000000",
+                  "cornerRadius": 2,
+                  "stroke": "#00000000",
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "D24vFJ",
+                      "name": "Save Label",
+                      "fill": "$editor-text",
+                      "content": "Save",
+                      "lineHeight": 0.9,
+                      "fontFamily": "$font-ui",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "fvCBA",
+          "x": 0,
+          "y": 42,
+          "name": "Chart Timeline",
+          "clip": true,
+          "width": 526,
+          "height": 814,
+          "fill": "#1D1D1E",
+          "layout": "none",
+          "children": [
+            {
+              "type": "rectangle",
+              "id": "aUtgm",
+              "x": 65.63985374771482,
+              "y": 16,
+              "name": "Major Grid 0",
+              "fill": "#39393D",
+              "width": 1,
+              "height": 752
+            },
+            {
+              "type": "group",
+              "id": "BDhLX",
+              "x": -1,
+              "y": 67,
+              "name": "Group",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "FsfhQ",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Minor Horizontal Grid 0",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "J0cHNZ",
+                  "x": 0,
+                  "y": 676,
+                  "name": "Minor Horizontal Grid 13",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "jZyrm",
+                  "x": 0,
+                  "y": 624,
+                  "name": "Minor Horizontal Grid 12",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "hnUGd",
+                  "x": 0,
+                  "y": 572,
+                  "name": "Minor Horizontal Grid 11",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "LMwcD",
+                  "x": 0,
+                  "y": 520,
+                  "name": "Minor Horizontal Grid 10",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "VeMUa",
+                  "x": 0,
+                  "y": 468,
+                  "name": "Minor Horizontal Grid 9",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "c12MDl",
+                  "x": 0,
+                  "y": 416,
+                  "name": "Minor Horizontal Grid 8",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "XskhL",
+                  "x": 0,
+                  "y": 364,
+                  "name": "Minor Horizontal Grid 7",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "swuxN",
+                  "x": 0,
+                  "y": 312,
+                  "name": "Minor Horizontal Grid 6",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "VrBLu",
+                  "x": 0,
+                  "y": 260,
+                  "name": "Minor Horizontal Grid 5",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "dg62p",
+                  "x": 0,
+                  "y": 208,
+                  "name": "Minor Horizontal Grid 4",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "X54Ili",
+                  "x": 0,
+                  "y": 156,
+                  "name": "Minor Horizontal Grid 3",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "L49t2x",
+                  "x": 0,
+                  "y": 104,
+                  "name": "Minor Horizontal Grid 2",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "XEojt",
+                  "x": 0,
+                  "y": 52,
+                  "name": "Minor Horizontal Grid 1",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "id": "zEqXu",
+              "x": -1,
+              "y": 55,
+              "name": "Group",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "BhOpR",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Minor Horizontal Grid 0",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "I3V1O",
+                  "x": 0,
+                  "y": 676,
+                  "name": "Minor Horizontal Grid 13",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "J3185",
+                  "x": 0,
+                  "y": 624,
+                  "name": "Minor Horizontal Grid 12",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "L7c6Tj",
+                  "x": 0,
+                  "y": 572,
+                  "name": "Minor Horizontal Grid 11",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "aHi37",
+                  "x": 0,
+                  "y": 520,
+                  "name": "Minor Horizontal Grid 10",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "f1gOG7",
+                  "x": 0,
+                  "y": 468,
+                  "name": "Minor Horizontal Grid 9",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "LJ6GI",
+                  "x": 0,
+                  "y": 416,
+                  "name": "Minor Horizontal Grid 8",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "M6m3b",
+                  "x": 0,
+                  "y": 364,
+                  "name": "Minor Horizontal Grid 7",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "I4wOT",
+                  "x": 0,
+                  "y": 312,
+                  "name": "Minor Horizontal Grid 6",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "LY47m",
+                  "x": 0,
+                  "y": 260,
+                  "name": "Minor Horizontal Grid 5",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "e4IGs",
+                  "x": 0,
+                  "y": 208,
+                  "name": "Minor Horizontal Grid 4",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "ZOlvM",
+                  "x": 0,
+                  "y": 156,
+                  "name": "Minor Horizontal Grid 3",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "UaKbL",
+                  "x": 0,
+                  "y": 104,
+                  "name": "Minor Horizontal Grid 2",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "BDcsx",
+                  "x": 0,
+                  "y": 52,
+                  "name": "Minor Horizontal Grid 1",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "id": "kee3q",
+              "x": 0,
+              "y": 80,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "MTKyM",
+                  "x": 0,
+                  "y": 676,
+                  "name": "Minor Horizontal Grid 13",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "K202HZ",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Minor Horizontal Grid 0",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "PgzKw",
+                  "x": 0,
+                  "y": 624,
+                  "name": "Minor Horizontal Grid 12",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "tAkFY",
+                  "x": 0,
+                  "y": 572,
+                  "name": "Minor Horizontal Grid 11",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "potQ8",
+                  "x": 0,
+                  "y": 520,
+                  "name": "Minor Horizontal Grid 10",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "nkaUA",
+                  "x": 0,
+                  "y": 468,
+                  "name": "Minor Horizontal Grid 9",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "Dfgbl",
+                  "x": 0,
+                  "y": 416,
+                  "name": "Minor Horizontal Grid 8",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "cegNo",
+                  "x": 0,
+                  "y": 364,
+                  "name": "Minor Horizontal Grid 7",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "htBDi",
+                  "x": 0,
+                  "y": 312,
+                  "name": "Minor Horizontal Grid 6",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "w5D20j",
+                  "x": 0,
+                  "y": 260,
+                  "name": "Minor Horizontal Grid 5",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "f91NS",
+                  "x": 0,
+                  "y": 208,
+                  "name": "Minor Horizontal Grid 4",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "GfIDN",
+                  "x": 0,
+                  "y": 156,
+                  "name": "Minor Horizontal Grid 3",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "SWkT5",
+                  "x": 0,
+                  "y": 104,
+                  "name": "Minor Horizontal Grid 2",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "v9t6l",
+                  "x": 0,
+                  "y": 52,
+                  "name": "Minor Horizontal Grid 1",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "TypIf",
+                  "x": 0,
+                  "y": 687,
+                  "name": "Minor Horizontal Grid 13",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "id": "gXSZ2",
+              "x": -1,
+              "y": 67,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "uYcFc",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Minor Horizontal Grid 0",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "mN79S",
+                  "x": 0,
+                  "y": 676,
+                  "name": "Minor Horizontal Grid 13",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "Mto9H",
+                  "x": 0,
+                  "y": 624,
+                  "name": "Minor Horizontal Grid 12",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "hPRub",
+                  "x": 0,
+                  "y": 572,
+                  "name": "Minor Horizontal Grid 11",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "JTC7V",
+                  "x": 0,
+                  "y": 520,
+                  "name": "Minor Horizontal Grid 10",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "j2mMT",
+                  "x": 0,
+                  "y": 468,
+                  "name": "Minor Horizontal Grid 9",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "dKnpV",
+                  "x": 0,
+                  "y": 416,
+                  "name": "Minor Horizontal Grid 8",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "S52spw",
+                  "x": 0,
+                  "y": 364,
+                  "name": "Minor Horizontal Grid 7",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "UHgvE",
+                  "x": 0,
+                  "y": 312,
+                  "name": "Minor Horizontal Grid 6",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "J168Cw",
+                  "x": 0,
+                  "y": 260,
+                  "name": "Minor Horizontal Grid 5",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "MwmKK",
+                  "x": 0,
+                  "y": 208,
+                  "name": "Minor Horizontal Grid 4",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "rgPNG",
+                  "x": 0,
+                  "y": 156,
+                  "name": "Minor Horizontal Grid 3",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "z224x",
+                  "x": 0,
+                  "y": 104,
+                  "name": "Minor Horizontal Grid 2",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                },
+                {
+                  "type": "rectangle",
+                  "id": "z9K2t5",
+                  "x": 0,
+                  "y": 52,
+                  "name": "Minor Horizontal Grid 1",
+                  "fill": "#28282B",
+                  "width": 526,
+                  "height": 1
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "eefPd",
+              "x": 96.92321755027433,
+              "y": 14,
+              "name": "Measure 2",
+              "fill": "#B6B6BB",
+              "textGrowth": "fixed-width",
+              "width": 3,
+              "content": "2",
+              "fontFamily": "$font-data",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "rectangle",
+              "id": "i1RFZu",
+              "x": 131.2340036563071,
+              "y": 19.02008032128515,
+              "name": "Major Grid 1",
+              "fill": "#39393D",
+              "width": 1,
+              "height": 749
+            },
+            {
+              "type": "text",
+              "id": "pM9CB",
+              "x": 162.5173674588666,
+              "y": 14,
+              "name": "Measure 3",
+              "fill": "#B6B6BB",
+              "textGrowth": "fixed-width",
+              "width": 3,
+              "content": "3",
+              "fontFamily": "$font-data",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "rectangle",
+              "id": "jrmZY",
+              "x": 196.82815356489937,
+              "y": 19.02008032128515,
+              "name": "Major Grid 2",
+              "fill": "#39393D",
+              "width": 1,
+              "height": 749
+            },
+            {
+              "type": "text",
+              "id": "hfu6f",
+              "x": 228.11151736745887,
+              "y": 14,
+              "name": "Measure 4",
+              "fill": "#B6B6BB",
+              "textGrowth": "fixed-width",
+              "width": 3,
+              "content": "4",
+              "fontFamily": "$font-data",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "rectangle",
+              "id": "v65SVC",
+              "x": 262.42230347349187,
+              "y": 19,
+              "name": "Major Grid 3",
+              "fill": "#66666C",
+              "width": 1,
+              "height": 744
+            },
+            {
+              "type": "text",
+              "id": "l0VVc",
+              "x": 293.70566727605114,
+              "y": 14,
+              "name": "Measure 5",
+              "fill": "#B6B6BB",
+              "textGrowth": "fixed-width",
+              "width": 3,
+              "content": "5",
+              "fontFamily": "$font-data",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "rectangle",
+              "id": "ib3aP",
+              "x": 328.01645338208414,
+              "y": 19.02008032128515,
+              "name": "Major Grid 4",
+              "fill": "#39393D",
+              "width": 1,
+              "height": 749
+            },
+            {
+              "type": "text",
+              "id": "lNHgu",
+              "x": 359.2998171846434,
+              "y": 14,
+              "name": "Measure 6",
+              "fill": "#B6B6BB",
+              "textGrowth": "fixed-width",
+              "width": 3,
+              "content": "6",
+              "fontFamily": "$font-data",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "rectangle",
+              "id": "suUND",
+              "x": 393.6106032906764,
+              "y": 19.02008032128515,
+              "name": "Major Grid 5",
+              "fill": "#39393D",
+              "width": 1,
+              "height": 749
+            },
+            {
+              "type": "text",
+              "id": "YCnkv",
+              "x": 424.8939670932359,
+              "y": 14,
+              "name": "Measure 7",
+              "fill": "#B6B6BB",
+              "textGrowth": "fixed-width",
+              "width": 3,
+              "content": "7",
+              "fontFamily": "$font-data",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "rectangle",
+              "id": "S1sMx9",
+              "x": 459.2047531992689,
+              "y": 19.02008032128515,
+              "name": "Major Grid 6",
+              "fill": "#39393D",
+              "width": 1,
+              "height": 749
+            },
+            {
+              "type": "text",
+              "id": "gHTlF",
+              "x": 490.48811700182796,
+              "y": 14,
+              "name": "Measure 8",
+              "fill": "#B6B6BB",
+              "textGrowth": "fixed-width",
+              "width": 3,
+              "content": "8",
+              "fontFamily": "$font-data",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "rectangle",
+              "id": "Ac2ww",
+              "x": 525,
+              "y": 19.02008032128515,
+              "name": "Major Grid 7",
+              "fill": "#39393D",
+              "width": 1,
+              "height": 749
+            },
+            {
+              "type": "rectangle",
+              "id": "OMm3p",
+              "x": 0.04570383912255238,
+              "y": 42,
+              "name": "Minor Horizontal Grid 0",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "o2edpH",
+              "x": 0.04570383912255238,
+              "y": 94,
+              "name": "Minor Horizontal Grid 1",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "nP0iO",
+              "x": 0.04570383912255238,
+              "y": 146,
+              "name": "Minor Horizontal Grid 2",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "DQAyM",
+              "x": 2,
+              "y": 250,
+              "name": "Major Horizontal Grid 1",
+              "fill": "#5A5A5F",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "Em5DX",
+              "x": 1,
+              "y": 146,
+              "name": "Major Horizontal Grid 1",
+              "fill": "#5A5A5F",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "fEbZ8",
+              "x": 0.04570383912255238,
+              "y": 198,
+              "name": "Minor Horizontal Grid 3",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "gAXSc",
+              "x": 0.04570383912255238,
+              "y": 250,
+              "name": "Minor Horizontal Grid 4",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "b6OstD",
+              "x": 0.04570383912255238,
+              "y": 302,
+              "name": "Minor Horizontal Grid 5",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "uMUi0",
+              "x": 0.04570383912255238,
+              "y": 354,
+              "name": "Minor Horizontal Grid 6",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "CmQSt",
+              "x": 0.04570383912255238,
+              "y": 406,
+              "name": "Minor Horizontal Grid 7",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "dDxnH",
+              "x": 0.04570383912255238,
+              "y": 510,
+              "name": "Minor Horizontal Grid 9",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "n9jAK",
+              "x": 0.04570383912255238,
+              "y": 614,
+              "name": "Minor Horizontal Grid 11",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "psu8N",
+              "x": 0.04570383912255238,
+              "y": 666,
+              "name": "Minor Horizontal Grid 12",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "f5rImw",
+              "x": 0.04570383912255238,
+              "y": 718,
+              "name": "Minor Horizontal Grid 13",
+              "fill": "#28282B",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "rHtzf",
+              "x": 0,
+              "y": 562,
+              "name": "Major Horizontal Grid 1",
+              "fill": "#5A5A5F",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "SuzEX",
+              "x": 0.04570383912255238,
+              "y": 19,
+              "name": "Timeline Left Boundary",
+              "fill": "#333337",
+              "width": 1,
+              "height": 744
+            },
+            {
+              "type": "rectangle",
+              "id": "R6y7Ox",
+              "x": 262.42230347349187,
+              "y": 19.02008032128515,
+              "name": "Timeline Playhead",
+              "fill": "#77777D",
+              "width": 1,
+              "height": 749
+            },
+            {
+              "type": "path",
+              "id": "KASLB",
+              "x": 0,
+              "y": 761,
+              "name": "Playback Arrow",
+              "geometry": "M0 0l9 6-9 6z",
+              "viewBox": [
+                0,
+                0,
+                9,
+                12
+              ],
+              "fill": "$editor-red",
+              "width": 6,
+              "height": 13
+            },
+            {
+              "type": "rectangle",
+              "id": "k06ajO",
+              "x": 7,
+              "y": 767,
+              "name": "Playback Progress",
+              "fill": "$editor-red",
+              "width": 519,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "fJJVg",
+              "x": 0.04570383912255238,
+              "y": 791,
+              "name": "Horizontal Scroll Track",
+              "fill": "#2B2B2D",
+              "width": 525,
+              "height": 10
+            },
+            {
+              "type": "rectangle",
+              "id": "bOP8Z",
+              "x": 0.04570383912255238,
+              "y": 791,
+              "name": "Horizontal Scroll Position",
+              "fill": "$editor-red",
+              "width": 1,
+              "height": 10
+            },
+            {
+              "type": "text",
+              "id": "Rv59E",
+              "x": 429,
+              "y": 792,
+              "name": "Timeline Readout",
+              "fill": "#77777D",
+              "textGrowth": "fixed-width",
+              "width": 91,
+              "content": "0.0s / 143.4s  (x1.0)",
+              "fontFamily": "$font-data",
+              "fontSize": 7,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "BeHHh",
+              "x": 29.81535648994509,
+              "y": 14,
+              "name": "Measure 2",
+              "fill": "#B6B6BB",
+              "textGrowth": "fixed-width",
+              "width": 3,
+              "content": "1",
+              "fontFamily": "$font-data",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "CP3oT",
+              "x": 1076,
+              "y": 14,
+              "name": "Collapse Right Panel",
+              "enabled": false,
+              "width": 16,
+              "height": 30,
+              "fill": "#3E3E44",
+              "cornerRadius": 3,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "edZBB",
+                  "name": "Collapse Icon",
+                  "width": 10,
+                  "height": 10,
+                  "icon": "chevron-left",
+                  "library": "lucide",
+                  "fill": "#C9C9CD"
+                }
+              ]
+            },
+            {
+              "type": "rectangle",
+              "id": "AI1at",
+              "x": -5,
+              "y": 665,
+              "name": "Major Horizontal Grid 1",
+              "fill": "#5A5A5F",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "zfl65",
+              "x": 0,
+              "y": 457,
+              "name": "Major Horizontal Grid 1",
+              "fill": "#5A5A5F",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "rectangle",
+              "id": "KHbzm",
+              "x": -3,
+              "y": 458,
+              "name": "Major Horizontal Grid 1",
+              "fill": "#5A5A5F",
+              "width": 526,
+              "height": 1
+            },
+            {
+              "type": "frame",
+              "id": "p9BZ0Q",
+              "x": 12,
+              "y": 72,
+              "name": "Floating Timeline Tools",
+              "width": 38,
+              "fill": "$floating-toolbar",
+              "cornerRadius": 4,
+              "stroke": "$floating-toolbar-border",
+              "strokeWidth": 1,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000066",
+                "offset": {
+                  "x": 0,
+                  "y": 3
+                },
+                "blur": 8
+              },
+              "layout": "vertical",
+              "gap": 2,
+              "padding": 4,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Nb3eW",
+                  "name": "Timeline Tool Button",
+                  "reusable": true,
+                  "width": 30,
+                  "height": 30,
+                  "fill": "$floating-tool-active",
+                  "cornerRadius": 3,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "bT6gV",
+                      "name": "Timeline Tool Icon",
+                      "width": 15,
+                      "height": 15,
+                      "icon": "mouse-pointer-2",
+                      "library": "lucide",
+                      "fill": "$floating-tool-icon"
+                    }
+                  ]
+                },
+                {
+                  "id": "kSQqR",
+                  "type": "ref",
+                  "ref": "Nb3eW",
+                  "name": "Cursor Tool",
+                  "fill": "$floating-tool",
+                  "descendants": {
+                    "bT6gV": {
+                      "name": "Cursor Tool Icon",
+                      "icon": "crosshair"
+                    }
+                  }
+                },
+                {
+                  "id": "sRx3D",
+                  "type": "ref",
+                  "ref": "Nb3eW",
+                  "name": "Move Tool",
+                  "fill": "$floating-tool",
+                  "descendants": {
+                    "bT6gV": {
+                      "name": "Move Tool Icon",
+                      "icon": "move-horizontal"
+                    }
+                  }
+                },
+                {
+                  "id": "bGI24",
+                  "type": "ref",
+                  "ref": "Nb3eW",
+                  "name": "Draw Tool",
+                  "fill": "$floating-tool",
+                  "descendants": {
+                    "bT6gV": {
+                      "name": "Draw Tool Icon",
+                      "icon": "pencil"
+                    }
+                  }
+                },
+                {
+                  "type": "rectangle",
+                  "id": "vysEM",
+                  "name": "Edit Tools Divider",
+                  "fill": "#515158",
+                  "width": 26,
+                  "height": 1
+                },
+                {
+                  "id": "z80537",
+                  "type": "ref",
+                  "ref": "Nb3eW",
+                  "name": "Cut Tool",
+                  "fill": "$floating-tool",
+                  "descendants": {
+                    "bT6gV": {
+                      "name": "Cut Tool Icon",
+                      "icon": "scissors"
+                    }
+                  }
+                },
+                {
+                  "id": "tLAZI",
+                  "type": "ref",
+                  "ref": "Nb3eW",
+                  "name": "Snap Tool",
+                  "fill": "$floating-tool",
+                  "descendants": {
+                    "bT6gV": {
+                      "name": "Snap Tool Icon",
+                      "icon": "magnet"
+                    }
+                  }
+                },
+                {
+                  "type": "rectangle",
+                  "id": "p5zGOs",
+                  "name": "View Tools Divider",
+                  "fill": "#515158",
+                  "width": 26,
+                  "height": 1
+                },
+                {
+                  "id": "aF60g",
+                  "type": "ref",
+                  "ref": "Nb3eW",
+                  "name": "Zoom Tool",
+                  "fill": "$floating-tool",
+                  "descendants": {
+                    "bT6gV": {
+                      "name": "Zoom Tool Icon",
+                      "icon": "zoom-in"
+                    }
+                  }
+                },
+                {
+                  "id": "Gp6SX",
+                  "type": "ref",
+                  "ref": "Nb3eW",
+                  "name": "Fit View Tool",
+                  "fill": "$floating-tool",
+                  "descendants": {
+                    "bT6gV": {
+                      "name": "Fit View Tool Icon",
+                      "icon": "maximize-2"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "rectangle",
+              "id": "x6g1Ds",
+              "x": 72,
+              "y": 638,
+              "fill": {
+                "type": "image",
+                "enabled": true,
+                "url": "tap.png",
+                "mode": "fill"
+              },
+              "width": 54,
+              "height": 54
+            },
+            {
+              "type": "rectangle",
+              "id": "YSOnj",
+              "x": 5,
+              "y": 42,
+              "name": "Major Horizontal Grid 1",
+              "fill": "#5A5A5F",
+              "width": 526,
+              "height": 1
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "lEeOi",
+          "x": 1101,
+          "y": 42,
+          "name": "Lane Map and Properties",
+          "width": 468,
+          "height": 686,
+          "fill": "$editor-panel",
+          "stroke": "#333338",
+          "strokeWidth": {
+            "left": 1
+          },
+          "layout": "none",
+          "children": [
+            {
+              "type": "frame",
+              "id": "nV4ts",
+              "x": 0,
+              "y": 0,
+              "name": "Circular Lane Map",
+              "width": 468,
+              "height": 454,
+              "layout": "none",
+              "children": [
+                {
+                  "type": "path",
+                  "id": "QPchp",
+                  "x": 54.50631950196339,
+                  "y": 45.4951007277954,
+                  "name": "Pad Artwork Background",
+                  "rotation": -0.1609406780976278,
+                  "geometry": "M180 0c99.411 0 180 80.589 180 180 0 99.411-80.589 180-180 180-99.411 0-180-80.589-180-180 0-99.411 80.589-180 180-180z",
+                  "fill": {
+                    "type": "image",
+                    "opacity": 0.9,
+                    "enabled": true,
+                    "url": "assets/pad-background.jpg",
+                    "mode": "fill"
+                  },
+                  "width": 360,
+                  "height": 360,
+                  "stroke": "#515157",
+                  "strokeWidth": 1
+                },
+                {
+                  "type": "path",
+                  "id": "tEnFo",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad A1",
+                  "opacity": 0.58,
+                  "geometry": "M470.35 39.53l-15.45 107.77 20.01 20.01 38.44 16.23 28.32 1.4 66.76-88.15-65.97-37.45z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-a",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "JSCjl",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad A2",
+                  "opacity": 0.58,
+                  "geometry": "M673.28 163.42l-87.13 65.28 0 28.29 15.7 38.67 19.04 21.01 109.54-15.13-20.17-73.12z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-a",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "G1ksdM",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad A3",
+                  "opacity": 0.58,
+                  "geometry": "M730.21 393.15l-107.76-15.45-20.01 20.01-16.24 38.44-1.39 28.32 88.15 66.76 37.44-65.97z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-a",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "d5Pb7r",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad A4",
+                  "opacity": 0.58,
+                  "geometry": "M608.14 596.19l-65.28-87.12-28.29 0-38.66 15.7-21.02 19.03 15.13 109.55 73.12-20.18z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-a",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "FxKgO",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad A5",
+                  "opacity": 0.58,
+                  "geometry": "M377.56 653.91l15.45-107.77-20.01-20.01-38.44-16.23-28.32-1.4-66.76 88.16 65.97 37.44z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-a",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "Xnrzu",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad A6",
+                  "opacity": 0.58,
+                  "geometry": "M174.64 530.02l87.13-65.28 0-28.29-15.71-38.66-19.03-21.01-109.54 15.12 20.17 73.12z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-a",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "I9VlKj",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad A7",
+                  "opacity": 0.58,
+                  "geometry": "M117.7 300.29l107.77 15.45 20.01-20.01 16.23-38.44 1.4-28.32-88.16-66.76-37.44 65.97z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-a",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "KZlMH",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad A8",
+                  "opacity": 0.58,
+                  "geometry": "M239.77 97.25l65.28 87.13 28.3 0 38.66-15.71 21.01-19.03-15.13-109.54-73.12 20.17z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-a",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "obtLP",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad B1",
+                  "opacity": 0.58,
+                  "geometry": "M458.71 184.42l54.01 23.11 0.8 44.38-16.51 16.51-39.35-0.79-30.12-30.12-0.39-21.53z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-b",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "m08hIZ",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad B2",
+                  "opacity": 0.58,
+                  "geometry": "M562.59 257.64l21.86 54.53-30.82 31.94-23.35 0-27.27-28.38 0-42.59 14.94-15.5z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-b",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "OQn9d",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad B3",
+                  "opacity": 0.58,
+                  "geometry": "M585.33 381.51l-23.12 54.01-44.37 0.8-16.51-16.51 0.79-39.35 30.12-30.12 21.52-0.39z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-b",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "OYM9r",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad B4",
+                  "opacity": 0.58,
+                  "geometry": "M513.96 485.89l-54.54 21.85-31.94-30.82 0-23.34 28.38-27.27 42.59 0 15.51 14.94z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-b",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "C16SA",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad B5",
+                  "opacity": 0.58,
+                  "geometry": "M389.2 509.02l-54.01-23.11-0.79-44.37 16.51-16.51 39.35 0.79 30.11 30.11 0.4 21.53z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-b",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "M9PjWy",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad B6",
+                  "opacity": 0.58,
+                  "geometry": "M285.32 435.8l-21.85-54.53 30.82-31.94 23.34 0 27.27 28.38 0 42.59-14.94 15.5z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-b",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "OC6zv",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad B7",
+                  "opacity": 0.58,
+                  "geometry": "M262.59 311.93l23.11-54.01 44.37-0.79 16.51 16.5-0.79 39.36-30.11 30.11-21.53 0.4z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-b",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "A7EtjO",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad B8",
+                  "opacity": 0.58,
+                  "geometry": "M333.96 207.55l54.54-21.85 31.93 30.82 0 23.35-28.38 27.26-42.59 0-15.5-14.94z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-b",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "hnO5n",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad D1",
+                  "opacity": 0.58,
+                  "geometry": "M399.27 142.08l24.69-23.72 24.25 23.72 15.31-102.54-79.37-1.12z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-d",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "F3XslA",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad D2",
+                  "opacity": 0.58,
+                  "geometry": "M551.78 184.75l34.23 0.69 0.37 33.91 83.34-61.67-55.34-56.92z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-d",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "oEHYm",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad D3",
+                  "opacity": 0.58,
+                  "geometry": "M629.77 322.13l23.72 24.69-23.72 24.24 102.53 15.32 1.12-79.38z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-d",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "jN2tC",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad D4",
+                  "opacity": 0.58,
+                  "geometry": "M585.99 474.38l-0.69 34.23-33.91 0.37 61.67 83.33 56.92-55.33z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-d",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "M4iun",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad D5",
+                  "opacity": 0.58,
+                  "geometry": "M448.39 552.36l-24.69 23.72-24.24-23.72-15.32 102.54 79.38 1.12z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-d",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "OdZb2",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad D6",
+                  "opacity": 0.58,
+                  "geometry": "M296.15 508.37l-34.23-0.69-0.37-33.92-83.34 61.68 55.34 56.92z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-d",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "FbHKE",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad D7",
+                  "opacity": 0.58,
+                  "geometry": "M218.7 370.43l-23.72-24.69 23.72-24.25-102.54-15.31-1.12 79.38z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-d",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "QdQ8g",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad D8",
+                  "opacity": 0.58,
+                  "geometry": "M261.6 218.74l0.69-34.23 33.91-0.37-61.67-83.34-56.92 55.34z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-d",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "kVzuD",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad E1",
+                  "opacity": 0.58,
+                  "geometry": "M423.96 127.04l41.63 41.63-41.63 41.63-41.63-41.63z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-e",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "Y4CobI",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad E2",
+                  "opacity": 0.58,
+                  "geometry": "M520.23 191.97l58.88 0 0 58.88-58.88 0z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-e",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "QbvjI",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad E3",
+                  "opacity": 0.58,
+                  "geometry": "M602.35 304.93l41.63 41.63-41.63 41.63-41.63-41.63z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-e",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "vXLPm",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad E4",
+                  "opacity": 0.58,
+                  "geometry": "M519.89 442.83l58.88 0 0 58.88-58.88 0z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-e",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "JiquU",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad E5",
+                  "opacity": 0.58,
+                  "geometry": "M423.96 483.32l41.63 41.63-41.63 41.63-41.63-41.63z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-e",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "bYarc",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad E6",
+                  "opacity": 0.58,
+                  "geometry": "M268.82 442.27l58.88 0 0 58.88-58.88 0z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-e",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "Q4wFM",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad E7",
+                  "opacity": 0.58,
+                  "geometry": "M246.11 304.37l41.63 41.63-41.63 41.63-41.63-41.63z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-e",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "ZZxbQ",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad E8",
+                  "opacity": 0.58,
+                  "geometry": "M268.82 191.41l58.88 0 0 58.88-58.88 0z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-e",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                },
+                {
+                  "type": "path",
+                  "id": "BY88E",
+                  "x": -10,
+                  "y": 26,
+                  "name": "Pad C",
+                  "opacity": 0.58,
+                  "geometry": "M447.78 286.74l-49.78 0-35.19 35.37 0 50.02 35.19 35.37 49.78 0 35.18-35.37 0-50.02z",
+                  "viewBox": [
+                    0,
+                    0,
+                    845.81,
+                    721.75
+                  ],
+                  "fill": "$pad-c",
+                  "width": 487,
+                  "height": 416,
+                  "stroke": "$pad-key-border",
+                  "strokeWidth": 0.9
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "OPx1p",
+              "x": 454,
+              "y": 343,
+              "name": "Right Edge Handle",
+              "width": 12,
+              "height": 28,
+              "fill": "#45454A",
+              "cornerRadius": [
+                3,
+                0,
+                0,
+                3
+              ],
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "hqgMv",
+                  "name": "Right Edge Handle Icon",
+                  "width": 8,
+                  "height": 8,
+                  "icon": "chevron-left",
+                  "library": "lucide",
+                  "fill": "#CFCFD3"
+                }
+              ]
+            },
+            {
+              "type": "group",
+              "id": "hwcMP",
+              "x": 12,
+              "y": 453,
+              "name": "Group",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "snh43",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Properties Divider",
+                  "fill": "#2A2A2D",
+                  "width": 444,
+                  "height": 1
+                },
+                {
+                  "type": "text",
+                  "id": "g91x3w",
+                  "x": 2,
+                  "y": 152,
+                  "name": "Chart Title",
+                  "fill": "$editor-muted",
+                  "content": "Title",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "FEYXY",
+                  "x": 2,
+                  "y": 126,
+                  "name": "Chart Info Header",
+                  "fill": "$editor-text",
+                  "content": "Chart Info",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 11,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "rectangle",
+                  "id": "tVPqR",
+                  "x": 2,
+                  "y": 116,
+                  "name": "Chart Info Divider",
+                  "fill": "#9A9A9E",
+                  "width": 440,
+                  "height": 1
+                },
+                {
+                  "type": "text",
+                  "id": "l8NlB7",
+                  "x": 432,
+                  "y": 95,
+                  "name": "Note Duration Value",
+                  "fill": "#BDBDC2",
+                  "content": "-",
+                  "fontFamily": "$font-data",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "SHnit",
+                  "x": 2,
+                  "y": 95,
+                  "name": "Note Duration",
+                  "fill": "$editor-muted",
+                  "content": "Duration",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "kS3c1",
+                  "x": 432,
+                  "y": 76,
+                  "name": "Note Lane Value",
+                  "fill": "#BDBDC2",
+                  "content": "-",
+                  "fontFamily": "$font-data",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "mZt5q",
+                  "x": 2,
+                  "y": 76,
+                  "name": "Note Lane",
+                  "fill": "$editor-muted",
+                  "content": "Lane",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "kbrfA",
+                  "x": 432,
+                  "y": 57,
+                  "name": "Note Time Value",
+                  "fill": "#BDBDC2",
+                  "content": "-",
+                  "fontFamily": "$font-data",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "hWgqe",
+                  "x": 2,
+                  "y": 57,
+                  "name": "Note Time",
+                  "fill": "$editor-muted",
+                  "content": "Time",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "NWicN",
+                  "x": 432,
+                  "y": 38,
+                  "name": "Note Type Value",
+                  "fill": "#BDBDC2",
+                  "content": "-",
+                  "fontFamily": "$font-data",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "l0MLn",
+                  "x": 2,
+                  "y": 38,
+                  "name": "Note Type",
+                  "fill": "$editor-muted",
+                  "content": "Type",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "icon",
+                  "id": "s7lbSG",
+                  "x": 434,
+                  "y": 13,
+                  "name": "Note Properties Toggle",
+                  "width": 8,
+                  "height": 8,
+                  "icon": "square",
+                  "library": "lucide",
+                  "fill": "#8D8D94"
+                },
+                {
+                  "type": "text",
+                  "id": "UdFBC",
+                  "x": 2,
+                  "y": 12,
+                  "name": "Note Properties Header",
+                  "fill": "$editor-text",
+                  "content": "Note Properties",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 11,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "text",
+                  "id": "wVOGN",
+                  "x": 318,
+                  "y": 172,
+                  "name": "Chart Artist Value",
+                  "fill": "$editor-text",
+                  "textGrowth": "fixed-width-height",
+                  "width": 124,
+                  "height": 14,
+                  "content": "Pingfanh",
+                  "textAlign": "right",
+                  "textAlignVertical": "middle",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "j6Z5Ow",
+                  "x": 2,
+                  "y": 172,
+                  "name": "Chart Artist",
+                  "fill": "$editor-muted",
+                  "content": "Artist",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "phDxm",
+                  "x": 318,
+                  "y": 152,
+                  "name": "Chart Title Value",
+                  "fill": "$editor-text",
+                  "textGrowth": "fixed-width-height",
+                  "width": 124,
+                  "height": 14,
+                  "content": "小石disc",
+                  "textAlign": "right",
+                  "textAlignVertical": "middle",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "EGX5S",
+                  "x": 2,
+                  "y": 192,
+                  "name": "Chart BPM",
+                  "fill": "$editor-muted",
+                  "content": "BPM",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "X22p4",
+                  "x": 318,
+                  "y": 192,
+                  "name": "Chart BPM Value",
+                  "fill": "$editor-text",
+                  "textGrowth": "fixed-width-height",
+                  "width": 124,
+                  "height": 14,
+                  "content": "127.0",
+                  "textAlign": "right",
+                  "textAlignVertical": "middle",
+                  "fontFamily": "$font-data",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "qWraY",
+                  "x": 318,
+                  "y": 212,
+                  "name": "Chart Offset Value",
+                  "fill": "$editor-text",
+                  "textGrowth": "fixed-width-height",
+                  "width": 124,
+                  "height": 14,
+                  "content": "0.000s",
+                  "textAlign": "right",
+                  "textAlignVertical": "middle",
+                  "fontFamily": "$font-data",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "ht9oY",
+                  "x": 2,
+                  "y": 212,
+                  "name": "Chart Offset",
+                  "fill": "$editor-muted",
+                  "content": "Offset",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "W9Rwnf",
+              "x": 0,
+              "y": 686,
+              "name": "Bottom Status Bar",
+              "width": 468,
+              "height": 22,
+              "fill": "#202020",
+              "stroke": "#36363A",
+              "strokeWidth": {
+                "top": 1
+              },
+              "layout": "none",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "drEPZ",
+                  "x": 347,
+                  "y": 5,
+                  "name": "Status Summary",
+                  "fill": "$editor-muted",
+                  "content": "330 notes | BPM: 127 | 1.0x",
+                  "fontFamily": "$font-ui",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "rectangle",
+          "id": "V29nIt",
+          "x": 136,
+          "y": 645,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "hold_each.png",
+            "mode": "fill"
+          },
+          "width": 54,
+          "height": 87
+        },
+        {
+          "type": "group",
+          "id": "k93AAF",
+          "x": 477.2443486020229,
+          "y": 693.2443486020226,
+          "children": [
+            {
+              "type": "rectangle",
+              "id": "PCNco",
+              "x": 15.603212373586757,
+              "y": 31.206424747174424,
+              "rotation": 90,
+              "fill": {
+                "type": "image",
+                "enabled": true,
+                "url": "touch.png",
+                "mode": "fill"
+              },
+              "width": 31.206424747174335,
+              "height": 22.84756097560978
+            },
+            {
+              "type": "rectangle",
+              "id": "nbLLc",
+              "x": 31.20642474717397,
+              "y": 15.603212373587212,
+              "rotation": -180,
+              "fill": {
+                "type": "image",
+                "enabled": true,
+                "url": "touch.png",
+                "mode": "fill"
+              },
+              "width": 31.206424747174335,
+              "height": 22.84756097560978
+            },
+            {
+              "type": "rectangle",
+              "id": "Bgx9j",
+              "x": 0,
+              "y": 15.603212373587212,
+              "fill": {
+                "type": "image",
+                "enabled": true,
+                "url": "touch.png",
+                "mode": "fill"
+              },
+              "width": 31.206424747174335,
+              "height": 22.84756097560978
+            },
+            {
+              "type": "rectangle",
+              "id": "gBSay",
+              "x": 15.603212373586757,
+              "y": 0,
+              "rotation": -90,
+              "fill": {
+                "type": "image",
+                "enabled": true,
+                "url": "touch.png",
+                "mode": "fill"
+              },
+              "width": 31.206424747174335,
+              "height": 22.84756097560978
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variables": {
+    "editor-bg": {
+      "type": "color",
+      "value": "#202020"
+    },
+    "editor-top": {
+      "type": "color",
+      "value": "#2C2C32"
+    },
+    "editor-rail": {
+      "type": "color",
+      "value": "#2A2A30"
+    },
+    "editor-panel": {
+      "type": "color",
+      "value": "#222222"
+    },
+    "editor-grid": {
+      "type": "color",
+      "value": "#343438"
+    },
+    "editor-grid-strong": {
+      "type": "color",
+      "value": "#5B5B60"
+    },
+    "editor-control": {
+      "type": "color",
+      "value": "#414147"
+    },
+    "editor-control-hover": {
+      "type": "color",
+      "value": "#505057"
+    },
+    "editor-text": {
+      "type": "color",
+      "value": "#D0D0D4"
+    },
+    "editor-muted": {
+      "type": "color",
+      "value": "#8D8D94"
+    },
+    "editor-accent": {
+      "type": "color",
+      "value": "#1697E8"
+    },
+    "editor-pink": {
+      "type": "color",
+      "value": "#FF62AF"
+    },
+    "editor-red": {
+      "type": "color",
+      "value": "#FF3B50"
+    },
+    "editor-amber": {
+      "type": "color",
+      "value": "#F4A900"
+    },
+    "font-ui": {
+      "type": "string",
+      "value": "Geist"
+    },
+    "font-data": {
+      "type": "string",
+      "value": "IBM Plex Mono"
+    },
+    "lane-surface": {
+      "type": "color",
+      "value": "#3A3A3B"
+    },
+    "lane-surface-alt": {
+      "type": "color",
+      "value": "#353536"
+    },
+    "lane-border": {
+      "type": "color",
+      "value": "#56565A"
+    },
+    "lane-label": {
+      "type": "color",
+      "value": "#9A9A9F"
+    },
+    "pad-background": {
+      "type": "color",
+      "value": "#666666"
+    },
+    "pad-key": {
+      "type": "color",
+      "value": "#454548"
+    },
+    "pad-key-border": {
+      "type": "color",
+      "value": "#4A4A4F"
+    },
+    "pad-a": {
+      "type": "color",
+      "value": "#3A3A3D"
+    },
+    "pad-d": {
+      "type": "color",
+      "value": "#353538"
+    },
+    "pad-b": {
+      "type": "color",
+      "value": "#303033"
+    },
+    "pad-e": {
+      "type": "color",
+      "value": "#2C2C2F"
+    },
+    "pad-c": {
+      "type": "color",
+      "value": "#38383B"
+    },
+    "floating-toolbar": {
+      "type": "color",
+      "value": "#252529E8"
+    },
+    "floating-toolbar-border": {
+      "type": "color",
+      "value": "#4A4A50"
+    },
+    "floating-tool": {
+      "type": "color",
+      "value": "#303035"
+    },
+    "floating-tool-hover": {
+      "type": "color",
+      "value": "#414147"
+    },
+    "floating-tool-active": {
+      "type": "color",
+      "value": "#477DAD"
+    },
+    "floating-tool-icon": {
+      "type": "color",
+      "value": "#D3D3D6"
+    }
+  },
+  "fileToken": "e49f19da-3382-4594-be6a-395ee82fb5ac"
+}

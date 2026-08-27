@@ -1,0 +1,45 @@
+{
+  "created_at_epoch_ms": 1780598923624,
+  "source": "macroquad_sim",
+  "chart": {
+    "version": "0.4.0-beat",
+    "title": "Fallback Demo Chart",
+    "bpm": 210.0,
+    "bpms": [
+      {
+        "measure": 1.0,
+        "bpm": 210.0
+      }
+    ],
+    "audio_offset": 0.0,
+    "notes": [
+      {
+        "measure": 1,
+        "beat": 2,
+        "division": 1,
+        "offset": 0,
+        "lane": 3,
+        "note_type": "tap"
+      },
+      {
+        "measure": 1,
+        "beat": 3,
+        "division": 16,
+        "offset": 1,
+        "lane": 3,
+        "note_type": "tap"
+      },
+      {
+        "measure": 1,
+        "beat": 4,
+        "division": 16,
+        "offset": 1,
+        "lane": 3,
+        "note_type": "tap"
+      }
+    ]
+  },
+  "hits": [],
+  "record_speed": 1.0,
+  "play_speed": 1.0
+}

@@ -1,5 +1,5 @@
-use macroquad::prelude::{draw_line, draw_triangle, Color, Vec2, vec2};
-use crate::app::types::zone::{svg_id_to_zone, PadZone};
+use crate::app::types::zone::{PadZone, svg_id_to_zone};
+use macroquad::prelude::{Color, Vec2, draw_line, draw_triangle, vec2};
 
 // SVG pad geometry constants (from the viewBox and bg circle)
 const SVG_BG_CX: f32 = 422.9;
@@ -25,8 +25,8 @@ pub struct PadSvgDef {
 
 impl PadSvgDef {
     pub fn from_svg_str(svg_xml: &str) -> Result<Self, String> {
-        let doc = roxmltree::Document::parse(svg_xml)
-            .map_err(|e| format!("XML parse error: {e}"))?;
+        let doc =
+            roxmltree::Document::parse(svg_xml).map_err(|e| format!("XML parse error: {e}"))?;
 
         // Find the <g id="touch"> element
         let touch_group = doc
@@ -49,7 +49,9 @@ impl PadSvgDef {
             .find(|n| n.is_element() && n.attribute("id") == Some("center"))
         {
             for child in center_group.children() {
-                if !child.is_element() { continue; }
+                if !child.is_element() {
+                    continue;
+                }
                 let cid = child.attribute("id");
                 // c-D7 → D7, c-A1 → A1
                 let zone_id = cid.and_then(|s| s.strip_prefix("c-"));
@@ -72,9 +74,18 @@ impl PadSvgDef {
         self.zones.iter().find(|z| z.zone == zone)
     }
 
-    pub fn zone_screen_verts(&self, zone: PadZone, pad: &super::types::PadGeom) -> Option<Vec<Vec2>> {
+    pub fn zone_screen_verts(
+        &self,
+        zone: PadZone,
+        pad: &super::types::PadGeom,
+    ) -> Option<Vec<Vec2>> {
         let def = self.zone_def(zone)?;
-        Some(def.svg_verts.iter().map(|&v| svg_to_screen(v, pad)).collect())
+        Some(
+            def.svg_verts
+                .iter()
+                .map(|&v| svg_to_screen(v, pad))
+                .collect(),
+        )
     }
 
     pub fn zone_screen_centroid(&self, zone: PadZone, pad: &super::types::PadGeom) -> Option<Vec2> {
@@ -89,7 +100,10 @@ impl PadSvgDef {
 
     /// Transform a single ZoneDef's vertices and centroid to screen coordinates.
     pub fn def_screen_verts(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec<Vec2> {
-        def.svg_verts.iter().map(|&v| svg_to_screen(v, pad)).collect()
+        def.svg_verts
+            .iter()
+            .map(|&v| svg_to_screen(v, pad))
+            .collect()
     }
 
     pub fn def_screen_centroid(&self, def: &ZoneDef, pad: &super::types::PadGeom) -> Vec2 {
@@ -194,9 +208,7 @@ fn parse_zone_element_with_id(node: roxmltree::Node, id: Option<&str>) -> Option
 
     // Compute centroid
     let centroid = {
-        let sum = svg_verts
-            .iter()
-            .fold(vec2(0.0, 0.0), |acc, &v| acc + v);
+        let sum = svg_verts.iter().fold(vec2(0.0, 0.0), |acc, &v| acc + v);
         sum / svg_verts.len() as f32
     };
 
@@ -294,10 +306,7 @@ fn apply_rect_transform(transform_str: &str, corners: &[Vec2; 4]) -> [Vec2; 4] {
                 }
                 XfCmd::Rotate(rad) => {
                     let (s, c) = (rad.sin(), rad.cos());
-                    result = vec2(
-                        result.x * c - result.y * s,
-                        result.x * s + result.y * c,
-                    );
+                    result = vec2(result.x * c - result.y * s, result.x * s + result.y * c);
                 }
             }
         }
@@ -518,6 +527,8 @@ pub fn draw_polygon_lines(verts: &[Vec2], thickness: f32, color: Color) {
     }
     for i in 0..verts.len() {
         let j = (i + 1) % verts.len();
-        draw_line(verts[i].x, verts[i].y, verts[j].x, verts[j].y, thickness, color);
+        draw_line(
+            verts[i].x, verts[i].y, verts[j].x, verts[j].y, thickness, color,
+        );
     }
 }

@@ -1,17 +1,45 @@
-use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 /// Pad Touch Zone
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PadZone {
-    A1, A2, A3, A4, A5, A6, A7, A8,
-    B1, B2, B3, B4, B5, B6, B7, B8,
+    A1,
+    A2,
+    A3,
+    A4,
+    A5,
+    A6,
+    A7,
+    A8,
+    B1,
+    B2,
+    B3,
+    B4,
+    B5,
+    B6,
+    B7,
+    B8,
     C,
-    D1, D2, D3, D4, D5, D6, D7, D8,
-    E1, E2, E3, E4, E5, E6, E7, E8,
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+    D7,
+    D8,
+    E1,
+    E2,
+    E3,
+    E4,
+    E5,
+    E6,
+    E7,
+    E8,
 }
 impl PadZone {
-    pub fn to_id(self)->u8{
+    pub fn to_id(self) -> u8 {
         zone_to_id(self)
     }
     pub fn num_to_b(zone: i8) -> Self {
@@ -24,7 +52,7 @@ impl PadZone {
     }
 
     pub fn num_to_e(zone: i8) -> Self {
-        PadZone::from((zone - 1).rem_euclid(8)  as u8+ 26)
+        PadZone::from((zone - 1).rem_euclid(8) as u8 + 26)
     }
 }
 
@@ -39,7 +67,7 @@ impl From<&str> for PadZone {
     }
 }
 impl From<u8> for PadZone {
-    fn from(value:u8) -> Self {
+    fn from(value: u8) -> Self {
         id_to_zone(value).unwrap()
     }
 }
@@ -126,37 +154,84 @@ pub fn svg_id_to_zone(id: &str) -> Option<PadZone> {
         _ => {
             println!("Unknown SVG ID: {}", id);
             None
-        },
+        }
     }
 }
 pub fn id_to_zone(id: u8) -> Option<PadZone> {
     match id {
-        1 => Some(PadZone::A1), 2 => Some(PadZone::A2), 3 => Some(PadZone::A3), 4 => Some(PadZone::A4),
-        5 => Some(PadZone::A5), 6 => Some(PadZone::A6), 7 => Some(PadZone::A7), 8 => Some(PadZone::A8),
-        9 => Some(PadZone::B1), 10 => Some(PadZone::B2), 11 => Some(PadZone::B3), 12 => Some(PadZone::B4),
-        13 => Some(PadZone::B5), 14 => Some(PadZone::B6), 15 => Some(PadZone::B7), 16 => Some(PadZone::B8),
+        1 => Some(PadZone::A1),
+        2 => Some(PadZone::A2),
+        3 => Some(PadZone::A3),
+        4 => Some(PadZone::A4),
+        5 => Some(PadZone::A5),
+        6 => Some(PadZone::A6),
+        7 => Some(PadZone::A7),
+        8 => Some(PadZone::A8),
+        9 => Some(PadZone::B1),
+        10 => Some(PadZone::B2),
+        11 => Some(PadZone::B3),
+        12 => Some(PadZone::B4),
+        13 => Some(PadZone::B5),
+        14 => Some(PadZone::B6),
+        15 => Some(PadZone::B7),
+        16 => Some(PadZone::B8),
         17 => Some(PadZone::C),
-        18 => Some(PadZone::D1), 19 => Some(PadZone::D2), 20 => Some(PadZone::D3), 21 => Some(PadZone::D4),
-        22 => Some(PadZone::D5), 23 => Some(PadZone::D6), 24 => Some(PadZone::D7), 25 => Some(PadZone::D8),
-        26 => Some(PadZone::E1), 27 => Some(PadZone::E2), 28 => Some(PadZone::E3), 29 => Some(PadZone::E4),
-        30 => Some(PadZone::E5), 31 => Some(PadZone::E6), 32 => Some(PadZone::E7), 33 => Some(PadZone::E8),
+        18 => Some(PadZone::D1),
+        19 => Some(PadZone::D2),
+        20 => Some(PadZone::D3),
+        21 => Some(PadZone::D4),
+        22 => Some(PadZone::D5),
+        23 => Some(PadZone::D6),
+        24 => Some(PadZone::D7),
+        25 => Some(PadZone::D8),
+        26 => Some(PadZone::E1),
+        27 => Some(PadZone::E2),
+        28 => Some(PadZone::E3),
+        29 => Some(PadZone::E4),
+        30 => Some(PadZone::E5),
+        31 => Some(PadZone::E6),
+        32 => Some(PadZone::E7),
+        33 => Some(PadZone::E8),
         _ => None,
     }
 }
 pub fn zone_to_id(zone: PadZone) -> u8 {
     match zone {
-        PadZone::A1 => 1, PadZone::A2 => 2, PadZone::A3 => 3, PadZone::A4 => 4,
-        PadZone::A5 => 5, PadZone::A6 => 6, PadZone::A7 => 7, PadZone::A8 => 8,
-        PadZone::B1 => 9, PadZone::B2 => 10, PadZone::B3 => 11, PadZone::B4 => 12,
-        PadZone::B5 => 13, PadZone::B6 => 14, PadZone::B7 => 15, PadZone::B8 => 16,
+        PadZone::A1 => 1,
+        PadZone::A2 => 2,
+        PadZone::A3 => 3,
+        PadZone::A4 => 4,
+        PadZone::A5 => 5,
+        PadZone::A6 => 6,
+        PadZone::A7 => 7,
+        PadZone::A8 => 8,
+        PadZone::B1 => 9,
+        PadZone::B2 => 10,
+        PadZone::B3 => 11,
+        PadZone::B4 => 12,
+        PadZone::B5 => 13,
+        PadZone::B6 => 14,
+        PadZone::B7 => 15,
+        PadZone::B8 => 16,
         PadZone::C => 17,
-        PadZone::D1 => 18, PadZone::D2 => 19, PadZone::D3 => 20, PadZone::D4 => 21,
-        PadZone::D5 => 22, PadZone::D6 => 23, PadZone::D7 => 24, PadZone::D8 => 25,
-        PadZone::E1 => 26, PadZone::E2 => 27, PadZone::E3 => 28, PadZone::E4 => 29,
-        PadZone::E5 => 30, PadZone::E6 => 31, PadZone::E7 => 32, PadZone::E8 => 33,
+        PadZone::D1 => 18,
+        PadZone::D2 => 19,
+        PadZone::D3 => 20,
+        PadZone::D4 => 21,
+        PadZone::D5 => 22,
+        PadZone::D6 => 23,
+        PadZone::D7 => 24,
+        PadZone::D8 => 25,
+        PadZone::E1 => 26,
+        PadZone::E2 => 27,
+        PadZone::E3 => 28,
+        PadZone::E4 => 29,
+        PadZone::E5 => 30,
+        PadZone::E6 => 31,
+        PadZone::E7 => 32,
+        PadZone::E8 => 33,
     }
 }
-
 
 // ==================== Partia ====================
 macro_rules! impl_cmp_for_zone {
@@ -197,9 +272,9 @@ macro_rules! impl_cmp_for_zone {
     };
 }
 
-impl_cmp_for_zone!(u8, u16, u32, u64, usize, i32, i64,i8, i16);
+impl_cmp_for_zone!(u8, u16, u32, u64, usize, i32, i64, i8, i16);
 
-use std::ops::{Add, Sub, Mul, Div, AddAssign, SubAssign, MulAssign, DivAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 macro_rules! impl_arithmetic_for_zone {
     ($($t:ty),*) => {

@@ -1,5 +1,5 @@
-use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use rodio::buffer::SamplesBuffer;
+use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -51,17 +51,19 @@ impl SfxPlayer {
 
     /// Play a one-shot sound at the given volume (0.0–1.0) via play_raw (no Sink overhead).
     pub fn play(&self, buf: &SfxBuffer, volume: f32) {
-        let source = SamplesBuffer::new(buf.channels, buf.sample_rate, buf.samples.as_ref().clone())
-            .amplify(volume);
+        let source =
+            SamplesBuffer::new(buf.channels, buf.sample_rate, buf.samples.as_ref().clone())
+                .amplify(volume);
         let _ = self.handle.play_raw(source.convert_samples());
     }
 
     /// Start looping a sound. Only one riser can be active at a time.
     pub fn play_looped(&mut self, buf: &SfxBuffer, volume: f32) {
         self.stop_looped();
-        let source = SamplesBuffer::new(buf.channels, buf.sample_rate, buf.samples.as_ref().clone())
-            .amplify(volume)
-            .repeat_infinite();
+        let source =
+            SamplesBuffer::new(buf.channels, buf.sample_rate, buf.samples.as_ref().clone())
+                .amplify(volume)
+                .repeat_infinite();
         let sink = Sink::try_new(&self.handle).unwrap();
         sink.append(source);
         self.riser_sink = Some(sink);

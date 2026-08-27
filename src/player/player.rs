@@ -56,36 +56,31 @@ pub async fn main() {
     }
 
     ui::load_note_textures(&mut app).await;
-    app.init_lnmai();
-    // Prime egui state on first frame to avoid mouse event issues on macOS
-    egui_macroquad::ui(|egui_ctx| { egui_ctx.set_pixels_per_point(2.0); });
+    // Prime egui state on first frame to avoid mouse event issues on macOS.
+    egui_macroquad::ui(|_| {});
     egui_macroquad::draw();
     loop {
         clear_background(Color::from_rgba(30, 30, 30, 255));
 
-        // Layout: timeline (left) + pad (right), below toolbar
         let layout = player_layout::compute_layout(&app);
         let pad_geom = ui::compute_pad_geom(layout.pad);
         let buttons: Vec<types::UiButton> = Vec::new(); // buttons via egui
+        let show_gameplay = app.player_ui.shows_gameplay_background();
 
-        // Draw timeline + pad (native macroquad first)
-        player_layout::draw_layout(&app, layout, pad_geom, &buttons);
+        if show_gameplay {
+            player_layout::draw_layout(&app, layout, pad_geom, &buttons);
+        }
 
-        // Input
         input::handle_global_hotkeys(&mut app);
-        input::handle_lane_input(&mut app);
-        let pointer_events = lambda_dx::app::input::collect_pointer_events();
-        input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
+        if app.player_ui.page == state::PlayerPage::Gameplay {
+            input::handle_lane_input(&mut app);
+            let pointer_events = lambda_dx::app::input::collect_pointer_events();
+            input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
+        }
         audio::service_audio(&mut app).await;
-        input::collect_lnmai_input_events(&mut app);
-        app.advance_lnmai_frame();
-        app.tick_judge_texts();
         app.tick_feedback();
-        //lambda_dx::app::input::handle_timeline_editing(&mut app, layout.timeline);
 
-        // Egui on top (build UI + draw)
         egui_macroquad::ui(|egui_ctx| {
-            egui_ctx.set_pixels_per_point(2.0);
             egui::draw_egui_ui(egui_ctx, &mut app);
         });
         egui_macroquad::draw();
@@ -93,25 +88,7 @@ pub async fn main() {
         if app.pending_import {
             app.pending_import = false;
             match lambda_dx::simai_io::dialog_import() {
-                Ok(import) => {
-                    let n = import.chart.notes.len();
-                    app.import_levels = import.levels.clone();
-                    app.imported_simai = Some(import.simai_file);
-                    app.import_selected_level = import.levels.iter()
-                        .map(|(lv, _)| *lv).max().unwrap_or(0);
-                    app.set_chart(import.chart);
-                    app.set_selected_note(None);
-                    app.set_editing_slide_path(None);
-                    if let (Some(bytes), Some(ext)) = (&import.audio_bytes, &import.audio_ext) {
-                        if let Some(pcm) = lambda_dx::app::audio::load_audio_from_bytes(bytes, ext) {
-                            app.audio_source_name = Some(import.title.clone());
-                            app.audio_wav_pcm = Some(pcm);
-                            app.audio_cache.clear();
-                            app.request_audio_start();
-                        }
-                    }
-                    app.set_status(format!("Opened {} ({n} notes)", import.title));
-                }
+                Ok(import) => egui::finish_dialog_import(&mut app, import),
                 Err(e) if e == "cancelled" => {}
                 Err(e) => app.set_status(format!("Import: {e}")),
             }

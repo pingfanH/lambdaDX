@@ -3,8 +3,8 @@
 //! Internal representation stays as float measures; this module handles
 //! conversion to/from the beat-based JSON format for save/load.
 
+use super::types::{BpmChange, ChartDoc, HitEvent, Note, NoteType, RecordingDoc, Slide};
 use serde::{Deserialize, Serialize};
-use super::types::{ChartDoc, HitEvent, Note, NoteType, RecordingDoc, Slide, BpmChange};
 
 const TICKS_PER_MEASURE: i32 = 384;
 const TICKS_PER_BEAT: i32 = 96; // 4/4 time: 384/4
@@ -64,7 +64,9 @@ pub struct SerRecordingDoc {
     pub play_speed: f32,
 }
 
-fn default_division() -> i32 { 1 }
+fn default_division() -> i32 {
+    1
+}
 
 // ─── Conversion: Internal → Serialized ──────────────────────────────
 
@@ -115,7 +117,9 @@ fn duration_to_fraction(dur: f32) -> [i32; 2] {
 
 /// Convert [numerator, denominator] beats fraction → duration in measures.
 fn fraction_to_duration(frac: [i32; 2]) -> f32 {
-    if frac[1] == 0 { return 0.0; }
+    if frac[1] == 0 {
+        return 0.0;
+    }
     let ticks = frac[0] * TICKS_PER_BEAT / frac[1];
     ticks as f32 / TICKS_PER_MEASURE as f32
 }
@@ -124,7 +128,11 @@ fn fraction_to_duration(frac: [i32; 2]) -> f32 {
 fn beat_pos_to_measure(measure: i32, beat: i32, division: i32, offset: i32) -> f32 {
     let tick = (measure - 1) * TICKS_PER_MEASURE
         + (beat - 1) * TICKS_PER_BEAT
-        + if division > 0 { offset * TICKS_PER_BEAT / division } else { 0 };
+        + if division > 0 {
+            offset * TICKS_PER_BEAT / division
+        } else {
+            0
+        };
     1.0 + tick as f32 / TICKS_PER_MEASURE as f32
 }
 
@@ -191,7 +199,10 @@ pub fn chart_to_ser(chart: &ChartDoc) -> SerChartDoc {
 
 pub fn ser_to_chart(s: &SerChartDoc) -> ChartDoc {
     let bpms = if s.bpms.is_empty() && s.bpm > 0.0 {
-        vec![BpmChange { measure: 1.0, bpm: s.bpm }]
+        vec![BpmChange {
+            measure: 1.0,
+            bpm: s.bpm,
+        }]
     } else {
         s.bpms.clone()
     };

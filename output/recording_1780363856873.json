@@ -1,0 +1,219 @@
+{
+  "created_at_epoch_ms": 1780363856873,
+  "source": "macroquad_sim",
+  "chart": {
+    "version": "0.4.0-beat",
+    "title": "Fallback Demo Chart",
+    "bpm": 210.0,
+    "bpms": [
+      {
+        "measure": 1.0,
+        "bpm": 210.0
+      }
+    ],
+    "audio_offset": 0.0,
+    "notes": [
+      {
+        "measure": 2,
+        "beat": 1,
+        "division": 1,
+        "offset": 0,
+        "lane": 7,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 1,
+        "division": 8,
+        "offset": 3,
+        "lane": 1,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 1,
+        "division": 16,
+        "offset": 7,
+        "lane": 6,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 1,
+        "division": 2,
+        "offset": 1,
+        "lane": 7,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 1,
+        "division": 4,
+        "offset": 3,
+        "lane": 2,
+        "note_type": "tap",
+        "is_each": true
+      },
+      {
+        "measure": 2,
+        "beat": 1,
+        "division": 4,
+        "offset": 3,
+        "lane": 4,
+        "note_type": "tap",
+        "is_each": true
+      },
+      {
+        "measure": 2,
+        "beat": 2,
+        "division": 1,
+        "offset": 0,
+        "lane": 6,
+        "note_type": "tap",
+        "is_each": true
+      },
+      {
+        "measure": 2,
+        "beat": 2,
+        "division": 1,
+        "offset": 0,
+        "lane": 5,
+        "note_type": "tap",
+        "is_each": true
+      },
+      {
+        "measure": 2,
+        "beat": 2,
+        "division": 16,
+        "offset": 1,
+        "lane": 7,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 2,
+        "division": 16,
+        "offset": 3,
+        "lane": 4,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 2,
+        "division": 16,
+        "offset": 5,
+        "lane": 5,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 2,
+        "division": 8,
+        "offset": 5,
+        "lane": 3,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 3,
+        "division": 16,
+        "offset": 1,
+        "lane": 5,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 3,
+        "division": 16,
+        "offset": 7,
+        "lane": 6,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 3,
+        "division": 8,
+        "offset": 7,
+        "lane": 1,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 4,
+        "division": 4,
+        "offset": 1,
+        "lane": 1,
+        "note_type": "tap"
+      },
+      {
+        "measure": 2,
+        "beat": 4,
+        "division": 8,
+        "offset": 3,
+        "lane": 2,
+        "note_type": "tap",
+        "is_each": true
+      },
+      {
+        "measure": 2,
+        "beat": 4,
+        "division": 8,
+        "offset": 3,
+        "lane": 3,
+        "note_type": "tap",
+        "is_each": true
+      },
+      {
+        "measure": 2,
+        "beat": 4,
+        "division": 4,
+        "offset": 3,
+        "lane": 5,
+        "note_type": "tap",
+        "is_each": true
+      },
+      {
+        "measure": 2,
+        "beat": 4,
+        "division": 4,
+        "offset": 3,
+        "lane": 4,
+        "note_type": "tap",
+        "is_each": true
+      },
+      {
+        "measure": 3,
+        "beat": 1,
+        "division": 16,
+        "offset": 3,
+        "lane": 7,
+        "note_type": "tap",
+        "is_break": true
+      }
+    ]
+  },
+  "hits": [
+    {
+      "time": 0.14999993,
+      "lane": 1
+    },
+    {
+      "time": 0.14999993,
+      "lane": 2
+    },
+    {
+      "time": 0.14999993,
+      "lane": 3
+    },
+    {
+      "time": 0.14999993,
+      "lane": 4
+    },
+    {
+      "time": 0.14999993,
+      "lane": 5
+    }
+  ],
+  "record_speed": 1.0,
+  "play_speed": 1.1
+}

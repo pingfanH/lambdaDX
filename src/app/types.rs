@@ -1,8 +1,8 @@
 pub mod zone;
 
+use crate::app::types::zone::PadZone;
 use macroquad::prelude::{TouchPhase, Vec2};
 use serde::{Deserialize, Serialize};
-use crate::app::types::zone::PadZone;
 
 pub const LANE_COUNT: usize = 9;
 pub const LANE_LABELS: [&str; LANE_COUNT] = ["1", "2", "3", "4", "5", "6", "7", "8", "T"];
@@ -67,7 +67,7 @@ pub const TAP_RING_OFFSET: f32 = 14.;
 pub const GRID_DIVISION: u32 = 64;
 pub const SCROLL_SPEED_FACTOR: f32 = 0.01;
 pub const SCROLL_INVERT: bool = true;
-/// Fixed slide fade-in seconds. When `Some(s)`, use constant s seconds; 
+/// Fixed slide fade-in seconds. When `Some(s)`, use constant s seconds;
 /// when `None`, use beat-synced `slide_start_delay`.
 pub const FIXED_SLIDE_FADE_IN: Option<f32> = Some(0.3);
 
@@ -131,21 +131,27 @@ pub fn validate_slide_shape(shape: SlideShape, start_lane: u8, end_lane: u8) -> 
     if end_lane < 1 || end_lane > 8 {
         return Err(format!("结束位置 {} 无效，必须是 1-8", end_lane));
     }
-    
+
     // Calculate relative end position (1-indexed, wrapping around 8 positions)
     let rel_end = ((end_lane as i32 - start_lane as i32 + 8) % 8) + 1;
-    
+
     match shape {
         SlideShape::S | SlideShape::Z => {
             // S and Z must end at position 5 (opposite side)
             if rel_end != 5 {
-                return Err(format!("{:?} 形状必须结束在对面位置（相对位置5），当前相对位置是 {}", shape, rel_end));
+                return Err(format!(
+                    "{:?} 形状必须结束在对面位置（相对位置5），当前相对位置是 {}",
+                    shape, rel_end
+                ));
             }
         }
         SlideShape::Wifi => {
             // Wifi must end at position 5 (opposite side)
             if rel_end != 5 {
-                return Err(format!("Wifi 形状必须结束在对面位置（相对位置5），当前相对位置是 {}", rel_end));
+                return Err(format!(
+                    "Wifi 形状必须结束在对面位置（相对位置5），当前相对位置是 {}",
+                    rel_end
+                ));
             }
         }
         SlideShape::VShape => {
@@ -165,18 +171,21 @@ pub fn validate_slide_shape(shape: SlideShape, start_lane: u8, end_lane: u8) -> 
             // Other shapes are generally valid
         }
     }
-    
+
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize,Copy)]
+#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 pub struct SlidePoint {
     pub zone: PadZone,
     pub beat_offset: f32,
 }
 impl From<PadZone> for SlidePoint {
     fn from(value: PadZone) -> Self {
-        SlidePoint { zone:value,beat_offset:0.0 }
+        SlidePoint {
+            zone: value,
+            beat_offset: 0.0,
+        }
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,7 +213,7 @@ fn is_zero_f32(v: &f32) -> bool {
 /// Note times and durations are stored in **measures** (where measure 1.0 =
 /// the first beat of the song).  Use `measure_to_secs` / `mdur_to_secs` to
 /// convert to wall-clock seconds for playback and rendering.
-#[derive(Debug, Clone, Serialize, Deserialize,Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Note {
     /// 唯一 ID，插入删除后不变
     #[serde(default)]
@@ -297,7 +306,9 @@ pub fn sdur_to_mdur(d: f32, start_secs: f32, bpms: &[BpmChange]) -> f32 {
 pub fn bpm_at(m: f32, bpms: &[BpmChange]) -> f32 {
     let mut bpm = bpms.first().map(|b| b.bpm).unwrap_or(120.0);
     for b in bpms {
-        if b.measure > m + 0.0001 { break; }
+        if b.measure > m + 0.0001 {
+            break;
+        }
         bpm = b.bpm;
     }
     bpm
@@ -439,11 +450,20 @@ pub struct PointerEvent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DragPart { Head, Body, Tail, SlideDelayEnd }
+pub enum DragPart {
+    Head,
+    Body,
+    Tail,
+    SlideDelayEnd,
+}
 
 /// Currently selected tool in the timeline-left sidebar (Blender-style N-panel).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlaceTool { Tap, Hold, Star }
+pub enum PlaceTool {
+    Tap,
+    Hold,
+    Star,
+}
 
 /// Multi-step placement state machine driven by clicks on the timeline.
 /// Tap is single-shot, so it has no in-progress state.
@@ -451,11 +471,21 @@ pub enum PlaceTool { Tap, Hold, Star }
 pub enum PlacementState {
     Idle,
     /// First click of a Hold has been made; cursor preview shows the tail.
-    HoldPending { anchor_t: f32, lane: u8 },
+    HoldPending {
+        anchor_t: f32,
+        lane: u8,
+    },
     /// First click of a Star (head) has been made; preview a dashed line.
-    StarHead { head_t: f32, lane: u8 },
+    StarHead {
+        head_t: f32,
+        lane: u8,
+    },
     /// Second click confirmed slide_start_delay; preview the slide bar.
-    StarDelay { head_t: f32, lane: u8, delay_end_t: f32 },
+    StarDelay {
+        head_t: f32,
+        lane: u8,
+        delay_end_t: f32,
+    },
 }
 
 /// Width of the tool sidebar inside the timeline panel (in screen pixels,
@@ -472,9 +502,36 @@ pub fn timeline_sidebar_buttons(tl: &RectF) -> [(RectF, PlaceTool, &'static str)
     let w = TIMELINE_SIDEBAR_W - pad * 2.0;
     let y0 = tl.y + 66.0;
     [
-        (RectF { x, y: y0,                       w, h: btn_h }, PlaceTool::Tap,  "Tap"),
-        (RectF { x, y: y0 + (btn_h + 6.0),       w, h: btn_h }, PlaceTool::Hold, "Hold"),
-        (RectF { x, y: y0 + (btn_h + 6.0) * 2.0, w, h: btn_h }, PlaceTool::Star, "Star"),
+        (
+            RectF {
+                x,
+                y: y0,
+                w,
+                h: btn_h,
+            },
+            PlaceTool::Tap,
+            "Tap",
+        ),
+        (
+            RectF {
+                x,
+                y: y0 + (btn_h + 6.0),
+                w,
+                h: btn_h,
+            },
+            PlaceTool::Hold,
+            "Hold",
+        ),
+        (
+            RectF {
+                x,
+                y: y0 + (btn_h + 6.0) * 2.0,
+                w,
+                h: btn_h,
+            },
+            PlaceTool::Star,
+            "Star",
+        ),
     ]
 }
 
@@ -486,7 +543,7 @@ pub struct PadFeedback {
 
 /// Hold tail time in seconds (note fields are in measures).
 pub fn hold_tail_time(note: &Note, bpms: &[BpmChange]) -> f32 {
-    let dur_s = mdur_to_secs(note.hold_duration, note.time, bpms).max(0.15);
+    let dur_s = mdur_to_secs(note.hold_duration, note.time, bpms).max(0.0);
     note_secs(note, bpms) + dur_s
 }
 
@@ -500,7 +557,9 @@ pub fn is_touch_zone(zone: u8) -> bool {
 
 /// Slide end time in seconds — takes the longest slide's duration.
 pub fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
-    let max_dur = note.slide.iter()
+    let max_dur = note
+        .slide
+        .iter()
         .map(|s| s.slide_duration)
         .fold(0.0_f32, f32::max);
     let dur_s = mdur_to_secs(max_dur, note.time, bpms).max(0.3);

@@ -1,28 +1,30 @@
 pub mod audio;
 mod beat_format;
 pub mod chart;
+pub mod egui_components;
+pub mod egui_style;
 pub mod egui_ui;
 pub mod input;
 pub mod pad_svg;
 pub mod platform;
 pub mod sfx;
-pub mod slide_render;
 pub mod simai_io;
+pub mod slide;
 pub mod slide_match;
+pub mod slide_render;
 pub mod state;
 pub mod template;
 pub mod toast;
 pub mod types;
 pub mod ui;
-pub mod slide;
 
 use macroquad::file::set_pc_assets_folder;
-use macroquad::prelude::{clear_background, next_frame, Color};
+use macroquad::prelude::{Color, clear_background, next_frame};
 
 use state::AppState;
 
-pub use ui::window_conf;
 use crate::egui_ui::draw_editor;
+pub use ui::window_conf;
 
 /// Main app loop.
 /// `bin` only keeps the macroquad entry function and delegates to here.
@@ -48,15 +50,25 @@ pub async fn run_app() {
     match sfx::SfxPlayer::new() {
         Ok(player) => {
             app.sfx_player = Some(player);
-            app.sfx_tap = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/tap_perfect.wav"));
-            app.sfx_touch = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/touch.wav"));
-            app.sfx_slide = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/slide.wav"));
-            app.sfx_touch_riser = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/touch_Hold_riser.wav"));
-            app.sfx_break = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break.wav"));
-            app.sfx_break_tap = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break_tap.wav"));
-            app.sfx_tap_ex = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/tap_ex.wav"));
-            app.sfx_slide_break_start = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/slide_break_start.wav"));
-            app.sfx_break_slide = sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break_slide.wav"));
+            app.sfx_tap =
+                sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/tap_perfect.wav"));
+            app.sfx_touch =
+                sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/touch.wav"));
+            app.sfx_slide =
+                sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/slide.wav"));
+            app.sfx_touch_riser =
+                sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/touch_Hold_riser.wav"));
+            app.sfx_break =
+                sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break.wav"));
+            app.sfx_break_tap =
+                sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break_tap.wav"));
+            app.sfx_tap_ex =
+                sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/tap_ex.wav"));
+            app.sfx_slide_break_start = sfx::SfxBuffer::from_bytes(include_bytes!(
+                "../../assets/Sfx/slide_break_start.wav"
+            ));
+            app.sfx_break_slide =
+                sfx::SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/break_slide.wav"));
         }
         Err(e) => app.set_status(format!("SFX init failed: {e}")),
     }
@@ -78,10 +90,14 @@ pub async fn run_app() {
         let layout = ui::compute_layout(&app);
         // Pad touch geom centered in upper 60% of viewport (matches visual rendering)
         let pad_area_h = layout.pad.h * 0.6;
-        let pad_area = types::RectF { x: layout.pad.x, y: layout.pad.y, w: layout.pad.w, h: pad_area_h };
+        let pad_area = types::RectF {
+            x: layout.pad.x,
+            y: layout.pad.y,
+            w: layout.pad.w,
+            h: pad_area_h,
+        };
         let pad_geom = ui::compute_pad_geom(pad_area);
         let buttons: Vec<types::UiButton> = Vec::new(); // buttons via egui
-
 
         // Draw timeline + pad (native macroquad first)
         ui::draw_layout(&app, layout, pad_geom, &buttons);
@@ -113,8 +129,8 @@ pub async fn run_app() {
                     app.import_levels = import.levels.clone();
                     app.imported_simai = Some(import.simai_file);
                     // Find default (max) level
-                    app.import_selected_level = import.levels.iter()
-                        .map(|(lv, _)| *lv).max().unwrap_or(0);
+                    app.import_selected_level =
+                        import.levels.iter().map(|(lv, _)| *lv).max().unwrap_or(0);
                     app.set_chart(import.chart);
                     app.set_selected_note(None);
                     app.set_editing_slide_path(None);
@@ -142,7 +158,7 @@ pub async fn run_app() {
 }
 
 pub fn load_mask_material() -> Result<macroquad::material::Material, String> {
-    use macroquad::material::{load_material, MaterialParams};
+    use macroquad::material::{MaterialParams, load_material};
     use macroquad::prelude::{ShaderSource, UniformDesc, UniformType};
 
     let vertex = r#"#version 100
@@ -169,8 +185,12 @@ void main() {
             pipeline_params: macroquad::miniquad::PipelineParams {
                 color_blend: Some(macroquad::miniquad::BlendState::new(
                     macroquad::miniquad::Equation::Add,
-                    macroquad::miniquad::BlendFactor::Value(macroquad::miniquad::BlendValue::SourceAlpha),
-                    macroquad::miniquad::BlendFactor::OneMinusValue(macroquad::miniquad::BlendValue::SourceAlpha),
+                    macroquad::miniquad::BlendFactor::Value(
+                        macroquad::miniquad::BlendValue::SourceAlpha,
+                    ),
+                    macroquad::miniquad::BlendFactor::OneMinusValue(
+                        macroquad::miniquad::BlendValue::SourceAlpha,
+                    ),
                 )),
                 ..Default::default()
             },

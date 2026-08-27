@@ -1,10 +1,12 @@
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::app::types::zone::PadZone;
 use super::beat_format;
 use super::platform;
 use super::state::AppState;
-use super::types::{ChartDoc, Note, NoteType, RecordingDoc, BpmChange, secs_to_measure, sdur_to_mdur};
+use super::types::{
+    BpmChange, ChartDoc, Note, NoteType, RecordingDoc, sdur_to_mdur, secs_to_measure,
+};
+use crate::app::types::zone::PadZone;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub async fn load_generated_chart() -> ChartDoc {
     // Try latest saved chart first, then generated_chart, then fallback
@@ -61,7 +63,10 @@ fn migrate_to_measures(chart: &mut ChartDoc) {
     }
     // Ensure bpms is populated for old charts
     if chart.bpms.is_empty() && chart.bpm > 0.0 {
-        chart.bpms = vec![BpmChange { measure: 1.0, bpm: chart.bpm }];
+        chart.bpms = vec![BpmChange {
+            measure: 1.0,
+            bpm: chart.bpm,
+        }];
     }
     let bpms = &chart.bpms;
     for note in &mut chart.notes {
@@ -81,41 +86,117 @@ fn migrate_to_measures(chart: &mut ChartDoc) {
 }
 
 fn fallback_chart() -> ChartDoc {
-    use super::types::{Slide, SlideSegment, SlidePoint, SlideShape};
+    use super::types::{Slide, SlidePoint, SlideSegment, SlideShape};
     // All times/durations in measures (1.0 = first beat, 0.25 = one beat at 4/4).
     let mk_slide = |pts: Vec<SlidePoint>, dur: f32, delay: f32| -> Vec<Slide> {
         vec![Slide {
-            segments: vec![SlideSegment { points: pts, shape: SlideShape::Line }],
-            slide_duration: dur, slide_start_delay: delay, slide_is_break: false,
+            segments: vec![SlideSegment {
+                points: pts,
+                shape: SlideShape::Line,
+            }],
+            slide_duration: dur,
+            slide_start_delay: delay,
+            slide_is_break: false,
         }]
     };
-    let sp = |z: u8| SlidePoint { zone: PadZone::from(z), beat_offset: 0.0 };
+    let sp = |z: u8| SlidePoint {
+        zone: PadZone::from(z),
+        beat_offset: 0.0,
+    };
     ChartDoc {
         version: "0.3.0-measure".to_string(),
         title: "Fallback Demo Chart".to_string(),
         artist: String::new(),
         simai_level: 0,
         bpm: 180.0,
-        bpms: vec![BpmChange { measure: 1.0, bpm: 180.0 }],
+        bpms: vec![BpmChange {
+            measure: 1.0,
+            bpm: 180.0,
+        }],
         audio_offset: 0.0,
         notes: vec![
-            Note { time: 2.0,  lane: 1, ..Default::default() },
-            Note { time: 2.25, lane: 3, ..Default::default() },
-            Note { time: 2.5,  lane: 5, ..Default::default() },
-            Note { time: 2.75, lane: 8, ..Default::default() },
-            Note { time: 3.0,  lane: 9, note_type: NoteType::Touch, ..Default::default() },
-            Note { time: 3.5,  lane: 6, note_type: NoteType::Hold, hold_duration: 0.5, ..Default::default() },
+            Note {
+                time: 2.0,
+                lane: 1,
+                ..Default::default()
+            },
+            Note {
+                time: 2.25,
+                lane: 3,
+                ..Default::default()
+            },
+            Note {
+                time: 2.5,
+                lane: 5,
+                ..Default::default()
+            },
+            Note {
+                time: 2.75,
+                lane: 8,
+                ..Default::default()
+            },
+            Note {
+                time: 3.0,
+                lane: 9,
+                note_type: NoteType::Touch,
+                ..Default::default()
+            },
+            Note {
+                time: 3.5,
+                lane: 6,
+                note_type: NoteType::Hold,
+                hold_duration: 0.5,
+                ..Default::default()
+            },
             // Slide 1: A1 -> A5
-            Note { time: 5.0, lane: 1, note_type: NoteType::Slide, slide: mk_slide(vec![sp(5)], 0.5, 0.0625), ..Default::default() },
+            Note {
+                time: 5.0,
+                lane: 1,
+                note_type: NoteType::Slide,
+                slide: mk_slide(vec![sp(5)], 0.5, 0.0625),
+                ..Default::default()
+            },
             // Slide 2: A3 -> A7
-            Note { time: 6.0, lane: 3, note_type: NoteType::Slide, slide: mk_slide(vec![sp(7)], 0.5, 0.125), ..Default::default() },
+            Note {
+                time: 6.0,
+                lane: 3,
+                note_type: NoteType::Slide,
+                slide: mk_slide(vec![sp(7)], 0.5, 0.125),
+                ..Default::default()
+            },
             // Slide 3: A1 -> A3 -> A5
-            Note { time: 7.0, lane: 1, note_type: NoteType::Slide, slide: mk_slide(vec![sp(3), sp(5)], 0.75, 0.0625), ..Default::default() },
+            Note {
+                time: 7.0,
+                lane: 1,
+                note_type: NoteType::Slide,
+                slide: mk_slide(vec![sp(3), sp(5)], 0.75, 0.0625),
+                ..Default::default()
+            },
             // Slide 4: A2 -> A4 -> A6 -> A8
-            Note { time: 8.5, lane: 2, note_type: NoteType::Slide, slide: mk_slide(vec![sp(4), sp(6), sp(8)], 1.0, 0.25), ..Default::default() },
+            Note {
+                time: 8.5,
+                lane: 2,
+                note_type: NoteType::Slide,
+                slide: mk_slide(vec![sp(4), sp(6), sp(8)], 1.0, 0.25),
+                ..Default::default()
+            },
             // Each pair: two simultaneous slides
-            Note { time: 10.0, lane: 1, note_type: NoteType::Slide, is_each: true, slide: mk_slide(vec![sp(5)], 0.5, 0.125), ..Default::default() },
-            Note { time: 10.0, lane: 5, note_type: NoteType::Slide, is_each: true, slide: mk_slide(vec![sp(1)], 0.5, 0.125), ..Default::default() },
+            Note {
+                time: 10.0,
+                lane: 1,
+                note_type: NoteType::Slide,
+                is_each: true,
+                slide: mk_slide(vec![sp(5)], 0.5, 0.125),
+                ..Default::default()
+            },
+            Note {
+                time: 10.0,
+                lane: 5,
+                note_type: NoteType::Slide,
+                is_each: true,
+                slide: mk_slide(vec![sp(1)], 0.5, 0.125),
+                ..Default::default()
+            },
         ],
         templates: Vec::new(),
         template_instances: Vec::new(),

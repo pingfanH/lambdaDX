@@ -1,19 +1,18 @@
-use macroquad::material::Material;
-use macroquad::prelude::{get_time, Vec2};
-use macroquad::texture::Texture2D;
-use std::collections::{HashMap, HashSet};
-use crate::app::types::zone::PadZone;
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
+use crate::app::types::zone::PadZone;
+use macroquad::material::Material;
+use macroquad::prelude::{Vec2, get_time};
+use macroquad::texture::Texture2D;
+use std::collections::{HashMap, HashSet};
 
 use super::template;
 use super::toast::ToastManager;
 use super::types::{
-    ActiveRecordHold, ChartDoc, HitEvent, Mode, Note, NoteType, PadFeedback, RecordInputId,
-    SceneRef, SlidePoint, TemplateInstance, WavPcm, DragPart, HIT_WINDOW,
-    HOLD_RECORD_MIN_DURATION, SPEED_MAX, SPEED_MIN, TOUCH_DISAPPEAR_TIME, SLIDE_MIN_POINTS,
-    hold_tail_time, is_touch_zone, sanitize_note_zone, note_secs, secs_to_measure, mdur_to_secs,
-    sdur_to_mdur, snap_measure,
+    ActiveRecordHold, ChartDoc, DragPart, HIT_WINDOW, HOLD_RECORD_MIN_DURATION, HitEvent, Mode,
+    Note, NoteType, PadFeedback, RecordInputId, SLIDE_MIN_POINTS, SPEED_MAX, SPEED_MIN, SceneRef,
+    SlidePoint, TOUCH_DISAPPEAR_TIME, TemplateInstance, WavPcm, hold_tail_time, is_touch_zone,
+    mdur_to_secs, note_secs, sanitize_note_zone, sdur_to_mdur, secs_to_measure, snap_measure,
 };
 
 /// Saved playback state for restoring after exiting isolation mode.
@@ -41,10 +40,10 @@ pub struct AppState {
     pub pad_feedback: Vec<PadFeedback>,
     pub playback_cursor: usize,
     pub selected_note: Option<u64>,
-    pub dragging_note: Option<usize>,
-    /// Note index detected under the mouse on press; selection is deferred
+    pub dragging_note: Option<u64>,
+    /// Note id detected under the mouse on press; selection is deferred
     /// until a drag threshold is exceeded.
-    pub press_note_candidate: Option<usize>,
+    pub press_note_candidate: Option<u64>,
     pub drag_part: Option<DragPart>,
     pub drag_start_pos: Option<Vec2>,
     pub drag_start_time: f32,
@@ -52,7 +51,7 @@ pub struct AppState {
     /// Cursor's chart time at the moment of click. Used so dragging tracks the
     /// mouse's absolute position even if the user scrolls the timeline mid-drag.
     pub drag_cursor_anchor_t: f32,
-    pub drag_multi_orig: Vec<(usize, f32, u8)>,
+    pub drag_multi_orig: Vec<(u64, f32, u8)>,
     /// For slide tail/delay dragging, which sub-slide in `note.slide` is active.
     pub drag_slide_idx: Option<usize>,
     pub box_start: Option<Vec2>,
@@ -78,19 +77,19 @@ pub struct AppState {
     pub waveform_max_val: f32,
     pub waveform_threshold: f32,
     pub record_snap_grid: bool,
-    pub selected_notes: Vec<usize>,
+    pub selected_notes: Vec<u64>,
     pub selected_note_ids: HashSet<u64>,
     pub drag_orig_note: Option<super::types::Note>,
     /// When true, mouse Y controls time-scaling of selected notes.
     pub scaling_notes: bool,
-    /// Original (index, time, lane) snapshot of selected notes at scale start.
-    pub scale_orig_notes: Vec<(usize, f32, u8)>,
+    /// Original (note id, time, lane) snapshot of selected notes at scale start.
+    pub scale_orig_notes: Vec<(u64, f32, u8)>,
     /// Mouse Y position at the moment scale mode was entered.
     pub scale_anchor_y: f32,
     /// When true, selected notes follow cursor (grab & move).
     pub grabbing_notes: bool,
-    /// Original (index, time, lane) snapshot of selected notes at grab start.
-    pub grab_orig_notes: Vec<(usize, f32, u8)>,
+    /// Original (note id, time, lane) snapshot of selected notes at grab start.
+    pub grab_orig_notes: Vec<(u64, f32, u8)>,
     /// Cursor time at the moment grab mode was entered.
     pub grab_anchor_time: f32,
     pub timeline_view_time: f32,
@@ -103,7 +102,7 @@ pub struct AppState {
     pub editing_star: bool,
     /// Timestamp of last left-click for double-click detection.
     pub last_click_time: f64,
-    pub last_click_note: Option<usize>,
+    pub last_click_note: Option<u64>,
 
     pub record_speed: f32,
     pub play_speed: f32,
@@ -198,7 +197,7 @@ pub struct AppState {
     pub import_levels: Vec<(u32, String)>,
     /// Currently selected import level.
     pub import_selected_level: u32,
-    
+
     /// Toast notification system
     pub toasts: ToastManager,
 }
@@ -210,7 +209,9 @@ impl AppState {
         audio_wav_pcm: Option<WavPcm>,
     ) -> Self {
         let mobile_ui = cfg!(any(target_os = "android", target_os = "ios"))
-            || std::env::var("MAI2_MOBILE_UI").map(|v| v == "1").unwrap_or(false);
+            || std::env::var("MAI2_MOBILE_UI")
+                .map(|v| v == "1")
+                .unwrap_or(false);
 
         let ui_scale_override = std::env::var("MAI2_UI_SCALE")
             .ok()
@@ -291,7 +292,9 @@ impl AppState {
             touchhold_border_tex: None,
             slide_tex: None,
             slide_each_tex: None,
-            wifi_tex: [None, None, None, None, None, None, None, None, None, None, None],
+            wifi_tex: [
+                None, None, None, None, None, None, None, None, None, None, None,
+            ],
             star_tex: None,
             star_each_tex: None,
             star_break_tex: None,
@@ -347,20 +350,41 @@ impl AppState {
     // ── Setters with logging ──────────────────────────────────────────
 
     pub fn set_chart(&mut self, mut chart: ChartDoc) {
-        for note in &mut chart.notes { if note.id == 0 { note.id = self.next_id(); } }
+        for note in &mut chart.notes {
+            if note.id == 0 {
+                note.id = self.next_id();
+            }
+        }
         let n = chart.notes.len();
-        let slides: Vec<_> = chart.notes.iter().enumerate()
+        let slides: Vec<_> = chart
+            .notes
+            .iter()
+            .enumerate()
             .filter(|(_, n)| matches!(n.note_type, NoteType::Slide))
             .collect();
         println!("[AppState] set_chart: {n} notes, {} slides", slides.len());
         for (i, note) in &slides {
-            println!("  slide #{i}: lane={} slides={} tapless={} star={}",
-                note.lane, note.slide.len(), note.is_tapless, note.is_star);
+            println!(
+                "  slide #{i}: lane={} slides={} tapless={} star={}",
+                note.lane,
+                note.slide.len(),
+                note.is_tapless,
+                note.is_star
+            );
             for (si, sl) in note.slide.iter().enumerate() {
-                let shapes: Vec<_> = sl.segments.iter().map(|seg| format!("{:?}", seg.shape)).collect();
+                let shapes: Vec<_> = sl
+                    .segments
+                    .iter()
+                    .map(|seg| format!("{:?}", seg.shape))
+                    .collect();
                 let pt_count: usize = sl.segments.iter().map(|seg| seg.points.len()).sum();
-                println!("    slide[{si}]: shapes=[{}] pts={pt_count} dur={:.3} delay={:.3} break={}",
-                    shapes.join(","), sl.slide_duration, sl.slide_start_delay, sl.slide_is_break);
+                println!(
+                    "    slide[{si}]: shapes=[{}] pts={pt_count} dur={:.3} delay={:.3} break={}",
+                    shapes.join(","),
+                    sl.slide_duration,
+                    sl.slide_start_delay,
+                    sl.slide_is_break
+                );
             }
         }
         self.chart = chart;
@@ -368,7 +392,10 @@ impl AppState {
 
     pub fn set_selected_note(&mut self, sel: Option<u64>) {
         if self.selected_note != sel {
-            println!("[AppState] selected_note: {:?} -> {:?}", self.selected_note, sel);
+            println!(
+                "[AppState] selected_note: {:?} -> {:?}",
+                self.selected_note, sel
+            );
         }
         self.selected_note = sel;
     }
@@ -383,7 +410,9 @@ impl AppState {
         id
     }
     pub fn push_note(&mut self, mut note: Note) {
-        if note.id == 0 { note.id = self.next_id(); }
+        if note.id == 0 {
+            note.id = self.next_id();
+        }
         self.chart.notes.push(note);
     }
 
@@ -397,7 +426,10 @@ impl AppState {
 
     pub fn set_editing_slide_path(&mut self, v: Option<usize>) {
         if self.editing_slide_path != v {
-            println!("[AppState] editing_slide_path: {:?} -> {:?}", self.editing_slide_path, v);
+            println!(
+                "[AppState] editing_slide_path: {:?} -> {:?}",
+                self.editing_slide_path, v
+            );
         }
         self.editing_slide_path = v;
         if v.is_none() {
@@ -431,7 +463,10 @@ impl AppState {
     }
 
     /// Get the TemplateDef for a given template instance.
-    pub fn template_def_for_instance(&self, inst: &TemplateInstance) -> Option<(usize, &super::types::TemplateDef)> {
+    pub fn template_def_for_instance(
+        &self,
+        inst: &TemplateInstance,
+    ) -> Option<(usize, &super::types::TemplateDef)> {
         self.chart
             .templates
             .iter()
@@ -520,7 +555,9 @@ impl AppState {
 
     pub fn push_undo(&mut self) {
         self.undo_stack.push(self.chart.clone());
-        if self.undo_stack.len() > 64 { self.undo_stack.remove(0); }
+        if self.undo_stack.len() > 64 {
+            self.undo_stack.remove(0);
+        }
     }
 
     pub fn undo(&mut self) {
@@ -535,7 +572,12 @@ impl AppState {
         let len = self.chart.notes.len();
         for i in 0..len {
             let m = self.chart.notes[i].time;
-            let has_sibling = self.chart.notes.iter().enumerate().any(|(j, n)| i != j && (n.time - m).abs() < 0.002);
+            let has_sibling = self
+                .chart
+                .notes
+                .iter()
+                .enumerate()
+                .any(|(j, n)| i != j && (n.time - m).abs() < 0.002);
             self.chart.notes[i].is_each = has_sibling;
         }
     }
@@ -547,7 +589,9 @@ impl AppState {
             self.mode = Mode::Idle;
             self.mode_wall_anchor = get_time();
             self.stop_audio_if_any();
-            if let Some(player) = &mut self.sfx_player { player.stop_looped(); }
+            if let Some(player) = &mut self.sfx_player {
+                player.stop_looped();
+            }
             self.touch_riser_playing = false;
             self.timeline_view_time = self.mode_song_offset;
             self.set_status(format!("Paused at {:.2}s", self.mode_song_offset));
@@ -585,14 +629,17 @@ impl AppState {
                 }
             }
             self.request_audio_start();
-            self.set_status(format!("Resumed @ {:.1}x from {:.2}s", self.play_speed, self.mode_song_offset));
+            self.set_status(format!(
+                "Resumed @ {:.1}x from {:.2}s",
+                self.play_speed, self.mode_song_offset
+            ));
         }
     }
     pub fn toggle_replay(&mut self) {
         self.mode = Mode::Playing;
-        self.timeline_view_time =0.;
+        self.timeline_view_time = 0.;
         self.mode_song_offset = 0.;
-        self.audio_seek_offset=Some(0.);
+        self.audio_seek_offset = Some(0.);
         self.hit_sounds_played.clear();
         self.recording_hits.clear();
         self.recording_notes.clear();
@@ -607,7 +654,8 @@ impl AppState {
             self.flush_active_record_holds();
             self.set_mode(Mode::Idle);
             self.stop_audio_if_any();
-            self.recording_notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+            self.recording_notes
+                .sort_by(|a, b| a.time.total_cmp(&b.time));
             self.chart.notes = self.recording_notes.clone();
             self.set_status(format!(
                 "Record stopped: {} notes @ {:.1}x",
@@ -635,7 +683,10 @@ impl AppState {
 
         while self.playback_cursor < self.chart.notes.len() {
             // 跳过隐藏的 note
-            if self.hidden_notes.contains(&self.chart.notes[self.playback_cursor].id) {
+            if self
+                .hidden_notes
+                .contains(&self.chart.notes[self.playback_cursor].id)
+            {
                 self.playback_cursor += 1;
                 continue;
             }
@@ -647,19 +698,29 @@ impl AppState {
         }
 
         let total_dur = if let Some(ref wav) = self.audio_wav_pcm {
-            (wav.samples.len() as f32 / (wav.sample_rate as f32 * wav.channels as f32).max(1.0)).max(1.0)
+            (wav.samples.len() as f32 / (wav.sample_rate as f32 * wav.channels as f32).max(1.0))
+                .max(1.0)
         } else {
-            self.chart.notes.last().map(|n| {
-                let ns = note_secs(n, bpms);
-                match n.note_type {
-                    NoteType::Hold => hold_tail_time(n, bpms),
-                    NoteType::Slide => {
-                        let max_d = n.slide.iter().map(|s| s.slide_duration).fold(0.0_f32, f32::max);
-                        ns + mdur_to_secs(max_d, n.time, bpms)
+            self.chart
+                .notes
+                .last()
+                .map(|n| {
+                    let ns = note_secs(n, bpms);
+                    match n.note_type {
+                        NoteType::Hold => hold_tail_time(n, bpms),
+                        NoteType::Slide => {
+                            let max_d = n
+                                .slide
+                                .iter()
+                                .map(|s| s.slide_duration)
+                                .fold(0.0_f32, f32::max);
+                            ns + mdur_to_secs(max_d, n.time, bpms)
+                        }
+                        _ => ns,
                     }
-                    _ => ns,
-                }
-            }).unwrap_or(1.0).max(1.0)
+                })
+                .unwrap_or(1.0)
+                .max(1.0)
         };
         if t >= total_dur {
             self.mode_song_offset = 0.0;
@@ -763,13 +824,20 @@ impl AppState {
         // --- Template instance hit sounds (key offset by 100000 to avoid conflicts) ---
         let tpl_key_offset = 100000usize;
         for (inst_idx, inst) in self.chart.template_instances.iter().enumerate() {
-            if let Some(tpl) = self.chart.templates.iter().find(|tp| tp.id == inst.template_id) {
+            if let Some(tpl) = self
+                .chart
+                .templates
+                .iter()
+                .find(|tp| tp.id == inst.template_id)
+            {
                 let expanded = template::expand_instance(inst, tpl);
                 for (i, note) in expanded.iter().enumerate() {
                     let ns = note_secs(note, bpms);
                     let hit_time = if matches!(note.note_type, NoteType::Touch) {
                         ns + TOUCH_DISAPPEAR_TIME
-                    } else { ns };
+                    } else {
+                        ns
+                    };
                     let key = tpl_key_offset + inst_idx * 10000 + i;
                     if !self.hit_sounds_played.contains(&key) && hit_time <= t {
                         if matches!(note.note_type, NoteType::Touch) {
@@ -781,7 +849,10 @@ impl AppState {
                         } else if !matches!(note.note_type, NoteType::Slide) {
                             tap_count += 1;
                         }
-                        if matches!(note.note_type, NoteType::Slide) && !note.is_break && !note.is_ex {
+                        if matches!(note.note_type, NoteType::Slide)
+                            && !note.is_break
+                            && !note.is_ex
+                        {
                             tap_count += 1;
                         }
                         self.hit_sounds_played.insert(key);
@@ -790,10 +861,15 @@ impl AppState {
                     if matches!(note.note_type, NoteType::Slide) {
                         for (si, sl) in note.slide.iter().enumerate() {
                             let slide_key = key * 100 + si;
-                            let slide_move_time = ns + mdur_to_secs(sl.slide_start_delay, note.time, bpms);
-                            if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t {
-                                if sl.slide_is_break { slide_break_start_count += 1; }
-                                else { slide_count += 1; }
+                            let slide_move_time =
+                                ns + mdur_to_secs(sl.slide_start_delay, note.time, bpms);
+                            if !self.hit_sounds_played.contains(&slide_key) && slide_move_time <= t
+                            {
+                                if sl.slide_is_break {
+                                    slide_break_start_count += 1;
+                                } else {
+                                    slide_count += 1;
+                                }
                                 self.hit_sounds_played.insert(slide_key);
                             }
                         }
@@ -865,10 +941,16 @@ impl AppState {
         }
 
         // Touch hold riser: play while any touch hold is active
-        let active_th = self.chart.notes.iter()
-            .filter(|n| matches!(n.note_type, NoteType::Hold)
-                && is_touch_zone(sanitize_note_zone(n.note_type, n.lane))
-                && note_secs(n, bpms) <= t && hold_tail_time(n, bpms) > t)
+        let active_th = self
+            .chart
+            .notes
+            .iter()
+            .filter(|n| {
+                matches!(n.note_type, NoteType::Hold)
+                    && is_touch_zone(sanitize_note_zone(n.note_type, n.lane))
+                    && note_secs(n, bpms) <= t
+                    && hold_tail_time(n, bpms) > t
+            })
             .count();
         if active_th > 0 && !self.touch_riser_playing {
             if let Some(buf) = &self.sfx_touch_riser {
@@ -892,7 +974,14 @@ impl AppState {
         let start_time = self.song_time();
         self.active_record_holds
             .entry(input_id)
-            .or_insert(ActiveRecordHold { lane: lane.to_id(), start_time, slide_zones: vec![SlidePoint { zone: lane, beat_offset: 0.0 }] });
+            .or_insert(ActiveRecordHold {
+                lane: lane.to_id(),
+                start_time,
+                slide_zones: vec![SlidePoint {
+                    zone: lane,
+                    beat_offset: 0.0,
+                }],
+            });
     }
 
     pub fn finish_record_hold_input(&mut self, input_id: RecordInputId) {
@@ -907,7 +996,8 @@ impl AppState {
             return;
         }
         let end_time = self.song_time();
-        let active: Vec<ActiveRecordHold> = self.active_record_holds.drain().map(|(_, v)| v).collect();
+        let active: Vec<ActiveRecordHold> =
+            self.active_record_holds.drain().map(|(_, v)| v).collect();
         for item in active {
             self.push_recorded_note(item, end_time);
         }
@@ -916,9 +1006,16 @@ impl AppState {
     pub fn record_slide_zone(&mut self, input_id: RecordInputId, zone: PadZone) {
         let t = self.song_time();
         if let Some(active) = self.active_record_holds.get_mut(&input_id) {
-            let last_zone = active.slide_zones.last().map(|sp| sp.zone.to_id()).unwrap_or(active.lane);
+            let last_zone = active
+                .slide_zones
+                .last()
+                .map(|sp| sp.zone.to_id())
+                .unwrap_or(active.lane);
             if zone != last_zone {
-                active.slide_zones.push(SlidePoint { zone, beat_offset: t - active.start_time });
+                active.slide_zones.push(SlidePoint {
+                    zone,
+                    beat_offset: t - active.start_time,
+                });
             }
         }
     }
@@ -957,7 +1054,11 @@ impl AppState {
 
         let slide_points = active.slide_zones.clone();
 
-        let slide_dur = if matches!(note_type, NoteType::Slide) { dur_measure } else { 0.0 };
+        let slide_dur = if matches!(note_type, NoteType::Slide) {
+            dur_measure
+        } else {
+            0.0
+        };
         let default_delay = sdur_to_mdur(0.12, active.start_time, bpms);
 
         // Phase 4: classify the recorded trajectory against known shape templates.
@@ -982,8 +1083,14 @@ impl AppState {
         };
 
         self.chart.notes.push(Note {
-            time: start_measure, lane: active.lane, note_type,
-            hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
+            time: start_measure,
+            lane: active.lane,
+            note_type,
+            hold_duration: if matches!(note_type, NoteType::Hold) {
+                dur_measure
+            } else {
+                0.0
+            },
             slide: slide_vec.clone(),
             ..Default::default()
         });
@@ -991,8 +1098,14 @@ impl AppState {
         self.recompute_each();
 
         self.recording_notes.push(Note {
-            time: start_measure, lane: active.lane, note_type,
-            hold_duration: if matches!(note_type, NoteType::Hold) { dur_measure } else { 0.0 },
+            time: start_measure,
+            lane: active.lane,
+            note_type,
+            hold_duration: if matches!(note_type, NoteType::Hold) {
+                dur_measure
+            } else {
+                0.0
+            },
             slide: slide_vec,
             ..Default::default()
         });

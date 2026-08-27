@@ -13,7 +13,9 @@ pub async fn load_asset_bytes(name: &str) -> Result<Vec<u8>, String> {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let fallbacks = [
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(name),
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("assets")
+                .join(name),
             Path::new(env!("CARGO_MANIFEST_DIR")).join(name),
             Path::new(name).to_path_buf(),
             Path::new("assets").join(name),
