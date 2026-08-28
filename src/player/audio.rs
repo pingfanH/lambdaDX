@@ -1,9 +1,9 @@
 use minimp3::{Decoder as Mp3Decoder, Frame as Mp3Frame};
 use std::io::Cursor;
 
-use lambda_dx::platform;
 use super::state::PlayerState;
-use lambda_dx::types::{WavPcm, SPEED_MAX, SPEED_MIN};
+use lambda_dx::platform;
+use lambda_dx::types::{SPEED_MAX, SPEED_MIN, WavPcm};
 
 fn load_wav_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
     let mut reader = hound::WavReader::new(Cursor::new(bytes.to_vec()))
@@ -52,11 +52,11 @@ fn load_mp3_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
     loop {
         match decoder.next_frame() {
             Ok(Mp3Frame {
-                   data,
-                   sample_rate: sr,
-                   channels: ch,
-                   ..
-               }) => {
+                data,
+                sample_rate: sr,
+                channels: ch,
+                ..
+            }) => {
                 if sample_rate.is_none() {
                     sample_rate = Some(sr as u32);
                 }
@@ -206,10 +206,12 @@ pub async fn service_audio(app: &mut PlayerState) {
     }
 
     if let Some(src) = &app.audio_source_name {
-        app.set_status(format!("Audio source loaded: {src} @ {:.1}x", app.current_speed()));
+        app.set_status(format!(
+            "Audio source loaded: {src} @ {:.1}x",
+            app.current_speed()
+        ));
     } else {
-        app.set_status(
-            "Audio disabled: put demo.wav or demo.mp3 in assets/".to_string());
+        app.set_status("Audio disabled: put demo.wav or demo.mp3 in assets/".to_string());
     }
 }
 
@@ -291,15 +293,16 @@ fn pcm_to_wav_bytes(samples: &[i16], channels: u16, sample_rate: u32) -> Vec<u8>
     buf.extend_from_slice(b"data");
     buf.extend_from_slice(&data_size.to_le_bytes());
     // Safety: i16 slice → u8 slice (same alignment, known layout)
-    let sample_bytes = unsafe {
-        std::slice::from_raw_parts(samples.as_ptr() as *const u8, data_size as usize)
-    };
+    let sample_bytes =
+        unsafe { std::slice::from_raw_parts(samples.as_ptr() as *const u8, data_size as usize) };
     buf.extend_from_slice(sample_bytes);
     buf
 }
 
 pub fn build_waveform(app: &mut super::state::PlayerState) {
-    let Some(pcm) = &app.audio_wav_pcm else { return };
+    let Some(pcm) = &app.audio_wav_pcm else {
+        return;
+    };
     let ch = pcm.channels.max(1) as usize;
     let sr = pcm.sample_rate.max(1) as usize;
     let total_frames = pcm.samples.len() / ch;
@@ -309,9 +312,9 @@ pub fn build_waveform(app: &mut super::state::PlayerState) {
     let mut planner = rustfft::FftPlanner::new();
     let fft = planner.plan_fft_forward(fft_size);
 
-    let mut window: Vec<f32> = (0..fft_size).map(|i| {
-        0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (fft_size - 1) as f32).cos()
-    }).collect();
+    let mut window: Vec<f32> = (0..fft_size)
+        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (fft_size - 1) as f32).cos())
+        .collect();
 
     let time_bins = (total_frames.saturating_sub(fft_size)) / hop + 1;
     let freq_bins = fft_size / 2; // positive frequencies only
@@ -319,14 +322,19 @@ pub fn build_waveform(app: &mut super::state::PlayerState) {
     // Store as flat array: time_bin * freq_bins
     let mut pos = 0;
     while pos + fft_size <= total_frames {
-        let mut real: Vec<f32> = (0..fft_size).map(|i| {
-            let s = pcm.samples[(pos + i) * ch] as f32 / 32768.0;
-            s * window[i]
-        }).collect();
+        let mut real: Vec<f32> = (0..fft_size)
+            .map(|i| {
+                let s = pcm.samples[(pos + i) * ch] as f32 / 32768.0;
+                s * window[i]
+            })
+            .collect();
         let mut imag = vec![0.0_f32; fft_size];
         // interleave to complex
-        let mut complex: Vec<rustfft::num_complex::Complex<f32>> = real.iter().zip(imag.iter())
-            .map(|(&r, &i)| rustfft::num_complex::Complex::new(r, i)).collect();
+        let mut complex: Vec<rustfft::num_complex::Complex<f32>> = real
+            .iter()
+            .zip(imag.iter())
+            .map(|(&r, &i)| rustfft::num_complex::Complex::new(r, i))
+            .collect();
         fft.process(&mut complex);
         // Magnitudes (positive frequencies only)
         for i in 0..freq_bins {
@@ -338,7 +346,12 @@ pub fn build_waveform(app: &mut super::state::PlayerState) {
     // Store metadata for rendering
     app.waveform_freq_bins = freq_bins as u32;
     app.waveform_time_res = hop as f32 / sr as f32;
-    app.waveform_max_val = app.waveform_data.iter().cloned().fold(0.0_f32, f32::max).max(0.1);
+    app.waveform_max_val = app
+        .waveform_data
+        .iter()
+        .cloned()
+        .fold(0.0_f32, f32::max)
+        .max(0.1);
 }
 
 /// Build speed-adjusted raw PCM i16 samples.  Returns (samples, channels).

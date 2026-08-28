@@ -84,6 +84,7 @@ fn draw_settings(ui: &mut egui::Ui, app: &mut PlayerState) {
         if widgets::command_button(ui, "恢复默认设置", widgets::ButtonKind::Quiet).clicked() {
             app.audio_enabled = true;
             app.play_speed = 1.0;
+            app.autoplay = true;
             app.waveform_threshold = 0.3;
             app.mobile_ui = false;
             app.ui_scale_override = None;
@@ -124,9 +125,16 @@ fn draw_gameplay(ui: &mut egui::Ui, app: &mut PlayerState) {
             .text("阈值"),
     );
     ui.add_space(12.0);
+    setting_toggle(
+        ui,
+        "Slide 自动判定",
+        "移动星星经过每个分段时自动完成并隐藏该段。",
+        &mut app.autoplay,
+    );
+    ui.add_space(4.0);
     ui.label(RichText::new("快捷键").strong());
     ui.label(
-        RichText::new("1–8 / T 触发触摸区域 · Space 播放 / 暂停 · R 重播")
+        RichText::new("1–8 / T 触发触摸区域 · A 自动判定 · Space 播放 / 暂停 · R 重播")
             .color(theme::TEXT_SECONDARY),
     );
 }

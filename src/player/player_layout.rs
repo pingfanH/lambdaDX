@@ -1,8 +1,8 @@
-use macroquad::prelude::{screen_height, screen_width};
-use lambda_dx::state::AppState;
-use lambda_dx::types::{Layout, PadGeom, RectF, UiButton};
 use crate::state::PlayerState;
 use crate::ui::draw_pad_panel;
+use lambda_dx::state::AppState;
+use lambda_dx::types::{Layout, PadGeom, RectF, UiButton};
+use macroquad::prelude::{screen_height, screen_width};
 
 pub fn ui_scale(app: &PlayerState) -> f32 {
     if let Some(v) = app.ui_scale_override {

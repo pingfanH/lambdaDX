@@ -27,6 +27,9 @@ pub const HOLD_LENGTH_FRAC: f32 = 0.6;
 pub const HOLD_SPAWN_FRAC: f32 = 0.5;
 pub const HOLD_TARGET_OFFSET: f32 = 40.0;
 pub const TAP_TARGET_OFFSET: f32 = 15.;
+pub const NOTE_OUTER_DISTANCE: f32 = 4.8;
+pub const NOTE_LOCK_DISTANCE: f32 = 1.225;
+pub const NOTE_VISIBLE_DISTANCE: f32 = -1.275;
 // touch: base values (multiplied by TOUCH_SCALE in code)
 pub const TOUCH_CROSS_SIZE: f32 = 50.0;
 pub const TOUCH_START_DIST: f32 = 30.0;
@@ -89,6 +92,41 @@ pub const MOUSE_POINTER_ID: u64 = u64::MAX;
 pub const PAD_B_START: u8 = 9;
 pub const PAD_C_ZONE: u8 = 17;
 pub const PAD_ZONE_MAX: u8 = 33;
+
+#[derive(Debug, Clone, Copy)]
+pub struct NoteMotion {
+    pub radius: f32,
+    pub scale: f32,
+    pub progress: f32,
+}
+
+/// Convert time-until-hit into the MajdataView radial fly-out state.
+/// Notes grow while locked at the inner radius, then travel to the outer ring.
+pub fn note_radial_motion(
+    time_until_hit: f32,
+    travel_time: f32,
+    outer_r: f32,
+    target_offset: f32,
+) -> Option<NoteMotion> {
+    let speed = NOTE_OUTER_DISTANCE / travel_time.max(0.001);
+    let distance = NOTE_OUTER_DISTANCE - time_until_hit * speed;
+    if distance < NOTE_VISIBLE_DISTANCE {
+        return None;
+    }
+
+    let scale = (distance * 0.4 + 0.51).clamp(0.0, 1.0);
+    let progress = ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE))
+        .clamp(0.0, 1.0);
+    let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
+    let target_r = outer_r + target_offset;
+    let radius = lock_r + (target_r - lock_r) * progress;
+
+    Some(NoteMotion {
+        radius,
+        scale,
+        progress,
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -541,6 +579,15 @@ pub struct PadFeedback {
     pub until: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct JudgeFeedback {
+    pub zone: PadZone,
+    pub label: String,
+    pub color: macroquad::prelude::Color,
+    pub started: f64,
+    pub until: f64,
+}
+
 /// Hold tail time in seconds (note fields are in measures).
 pub fn hold_tail_time(note: &Note, bpms: &[BpmChange]) -> f32 {
     let dur_s = mdur_to_secs(note.hold_duration, note.time, bpms).max(0.0);
@@ -562,8 +609,13 @@ pub fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
         .iter()
         .map(|s| s.slide_duration)
         .fold(0.0_f32, f32::max);
+    let delay_s = note
+        .slide
+        .iter()
+        .map(|s| mdur_to_secs(s.slide_start_delay, note.time, bpms))
+        .fold(0.0_f32, f32::max);
     let dur_s = mdur_to_secs(max_dur, note.time, bpms).max(0.3);
-    note_secs(note, bpms) + dur_s
+    note_secs(note, bpms) + delay_s + dur_s
 }
 
 // ─── Template system ──────────────────────────────────────────────
@@ -601,6 +653,42 @@ pub struct TemplateInstance {
     pub template_version: u32,
     /// Measure position in parent scene where this instance is anchored.
     pub anchor_time: f32,
+}
+
+#[cfg(test)]
+mod note_motion_tests {
+    use super::{NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, note_radial_motion};
+
+    #[test]
+    fn note_reaches_outer_ring_at_hit_time() {
+        let motion = note_radial_motion(0.0, 1.0, 100.0, 15.0).expect("visible note");
+        assert!((motion.radius - 115.0).abs() < 0.001);
+        assert_eq!(motion.scale, 1.0);
+        assert_eq!(motion.progress, 1.0);
+    }
+
+    #[test]
+    fn note_grows_at_the_inner_lock_radius() {
+        let motion = note_radial_motion(1.0, 1.0, 100.0, 15.0).expect("visible note");
+        let expected_radius = 100.0 * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
+        assert!((motion.radius - expected_radius).abs() < 0.001);
+        assert!((motion.scale - 0.51).abs() < 0.001);
+        assert_eq!(motion.progress, 0.0);
+    }
+
+    #[test]
+    fn note_becomes_fixed_size_when_it_leaves_the_lock_radius() {
+        let until_lock = (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / NOTE_OUTER_DISTANCE;
+        let motion = note_radial_motion(until_lock, 1.0, 100.0, 15.0).expect("visible note");
+        assert!((motion.radius - 100.0 * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE).abs() < 0.001);
+        assert!((motion.scale - 1.0).abs() < 0.001);
+        assert_eq!(motion.progress, 0.0);
+    }
+
+    #[test]
+    fn note_is_hidden_before_the_visible_distance() {
+        assert!(note_radial_motion(2.0, 1.0, 100.0, 15.0).is_none());
+    }
 }
 
 /// Metadata attached to expanded notes linking them back to their source instance.

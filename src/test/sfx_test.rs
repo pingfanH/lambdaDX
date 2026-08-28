@@ -16,7 +16,11 @@ const TICKS_PER_BEAT: i32 = 96;
 fn beat_pos_to_measure(measure: i32, beat: i32, division: i32, offset: i32) -> f32 {
     let tick = (measure - 1) * TICKS_PER_MEASURE
         + (beat - 1) * TICKS_PER_BEAT
-        + if division > 0 { offset * TICKS_PER_BEAT / division } else { 0 };
+        + if division > 0 {
+            offset * TICKS_PER_BEAT / division
+        } else {
+            0
+        };
     1.0 + tick as f32 / TICKS_PER_MEASURE as f32
 }
 
@@ -27,7 +31,12 @@ fn decode_mp3(bytes: &[u8]) -> (Vec<i16>, u32) {
     let mut sr = 44100u32;
     loop {
         match decoder.next_frame() {
-            Ok(Mp3Frame { data, sample_rate, channels, .. }) => {
+            Ok(Mp3Frame {
+                data,
+                sample_rate,
+                channels,
+                ..
+            }) => {
                 sr = sample_rate as u32;
                 let ch = channels.max(1) as usize;
                 if ch == 2 {
@@ -183,7 +192,10 @@ fn play_test(
     }
 
     bgm_sink.stop();
-    println!("  Played {} clicks with offset={:.3}s", played, audio_offset);
+    println!(
+        "  Played {} clicks with offset={:.3}s",
+        played, audio_offset
+    );
 }
 
 fn main() {
@@ -194,7 +206,11 @@ fn main() {
 
     println!("Decoding MP3...");
     let (pcm, src_rate) = decode_mp3(mp3_bytes);
-    println!("  MP3 decoded: {} stereo samples, {}Hz", pcm.len() / 2, src_rate);
+    println!(
+        "  MP3 decoded: {} stereo samples, {}Hz",
+        pcm.len() / 2,
+        src_rate
+    );
 
     let pcm44 = resample_to_44100(&pcm, src_rate);
     let bgm_duration = pcm44.len() as f32 / 2.0 / 44100.0;
@@ -202,8 +218,11 @@ fn main() {
 
     let (bpm, _chart_offset, note_times) = load_note_times(chart_json);
     println!("Chart: bpm={}, {} unique note times", bpm, note_times.len());
-    println!("  First note at {:.3}s, last at {:.3}s",
-        note_times.first().unwrap_or(&0.0), note_times.last().unwrap_or(&0.0));
+    println!(
+        "  First note at {:.3}s, last at {:.3}s",
+        note_times.first().unwrap_or(&0.0),
+        note_times.last().unwrap_or(&0.0)
+    );
 
     // Detect actual audio onset
     let onset = detect_onset(&pcm44, 44100);
@@ -229,11 +248,24 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if let Some(offset_str) = args.get(1) {
         // Single test with explicit offset
-        let offset: f32 = offset_str.parse().expect("usage: sfx_test <offset_seconds>");
-        println!("\n=== Testing with audio_offset = {:.3}s (full song) ===", offset);
+        let offset: f32 = offset_str
+            .parse()
+            .expect("usage: sfx_test <offset_seconds>");
+        println!(
+            "\n=== Testing with audio_offset = {:.3}s (full song) ===",
+            offset
+        );
         println!("Ctrl+C to stop\n");
-        play_test(&handle, &bgm_wav, tap_ch, tap_sr, &tap_samples,
-            &note_times, offset, bgm_duration);
+        play_test(
+            &handle,
+            &bgm_wav,
+            tap_ch,
+            tap_sr,
+            &tap_samples,
+            &note_times,
+            offset,
+            bgm_duration,
+        );
     } else {
         // Auto-scan: try offsets near the onset
         let test_duration = 15.0; // play 15s per test
@@ -247,12 +279,27 @@ fn main() {
         ];
         for (i, &offset) in candidates.iter().enumerate() {
             let offset = offset.max(0.0);
-            println!("\n=== Test {} / {}: audio_offset = {:.3}s ===",
-                i + 1, candidates.len(), offset);
-            println!("  (first {}s, listen if clicks land on beats)", test_duration);
+            println!(
+                "\n=== Test {} / {}: audio_offset = {:.3}s ===",
+                i + 1,
+                candidates.len(),
+                offset
+            );
+            println!(
+                "  (first {}s, listen if clicks land on beats)",
+                test_duration
+            );
             thread::sleep(Duration::from_millis(800));
-            play_test(&handle, &bgm_wav, tap_ch, tap_sr, &tap_samples,
-                &note_times, offset, test_duration);
+            play_test(
+                &handle,
+                &bgm_wav,
+                tap_ch,
+                tap_sr,
+                &tap_samples,
+                &note_times,
+                offset,
+                test_duration,
+            );
             thread::sleep(Duration::from_millis(1500));
         }
         println!("\n========================================");

@@ -1,5 +1,5 @@
-use egui_macroquad::egui::{self, Vec2, Color32, CornerRadius, Stroke, Pos2};
 use crate::ui_prototype::style::*;
+use egui_macroquad::egui::{self, Color32, CornerRadius, Pos2, Stroke, Vec2};
 
 /// Vertical timeline on the left side
 pub fn draw_vertical(ui: &mut egui::Ui) {
@@ -27,8 +27,16 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
                 // });
 
                 // Time display
-                ui.label(egui::RichText::new("0:04.230").color(TEXT_SECONDARY).size(FONT_SMALL));
-                ui.label(egui::RichText::new("/ 1:23.456").color(TEXT_DIM).size(FONT_SMALL));
+                ui.label(
+                    egui::RichText::new("0:04.230")
+                        .color(TEXT_SECONDARY)
+                        .size(FONT_SMALL),
+                );
+                ui.label(
+                    egui::RichText::new("/ 1:23.456")
+                        .color(TEXT_DIM)
+                        .size(FONT_SMALL),
+                );
 
                 ui.add_space(SPACING);
             });
@@ -38,10 +46,7 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
             let ruler_h = available.y - BUTTON_HEIGHT * 5.0;
 
             let ruler_rect = ui.allocate_rect(
-                egui::Rect::from_min_size(
-                    ui.cursor().left_top(),
-                    Vec2::new(available.x, ruler_h),
-                ),
+                egui::Rect::from_min_size(ui.cursor().left_top(), Vec2::new(available.x, ruler_h)),
                 egui::Sense::hover(),
             );
 
@@ -50,7 +55,8 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
                 Pos2::new(ruler_left, ruler_rect.rect.top()),
                 Vec2::new(ruler_w, ruler_h),
             );
-            ui.painter().rect_filled(ruler_bg, CornerRadius::same(3), BG_RULER);
+            ui.painter()
+                .rect_filled(ruler_bg, CornerRadius::same(3), BG_RULER);
 
             // Draw ruler ticks (vertical)
             let measure_count = 16;
@@ -58,8 +64,10 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
             for i in 0..measure_count {
                 let y = ruler_rect.rect.top() + measure_h * i as f32;
                 ui.painter().line_segment(
-                    [egui::pos2(ruler_left + ruler_w - SPACING, y),
-                     egui::pos2(ruler_left + ruler_w, y)],
+                    [
+                        egui::pos2(ruler_left + ruler_w - SPACING, y),
+                        egui::pos2(ruler_left + ruler_w, y),
+                    ],
                     Stroke::new(1.0_f32, TEXT_DIM),
                 );
 
@@ -78,8 +86,10 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
                 for sub in 1..4 {
                     let sy = y + measure_h * sub as f32 / 4.0;
                     ui.painter().line_segment(
-                        [egui::pos2(ruler_left + ruler_w - SPACING * 0.5, sy),
-                         egui::pos2(ruler_left + ruler_w, sy)],
+                        [
+                            egui::pos2(ruler_left + ruler_w - SPACING * 0.5, sy),
+                            egui::pos2(ruler_left + ruler_w, sy),
+                        ],
                         Stroke::new(1.0_f32, Color32::from_rgb(50, 50, 50)),
                     );
                 }
@@ -100,14 +110,20 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
                 let nx = ruler_left + ruler_w * 0.5;
                 let r = ruler_w * 0.35;
                 ui.painter().circle_filled(Pos2::new(nx, ny), r, *color);
-                ui.painter().circle_stroke(Pos2::new(nx, ny), r, Stroke::new(UI_SCALE * 0.5, Color32::WHITE));
+                ui.painter().circle_stroke(
+                    Pos2::new(nx, ny),
+                    r,
+                    Stroke::new(UI_SCALE * 0.5, Color32::WHITE),
+                );
             }
 
             // Playhead (horizontal line)
             let playhead_y = ruler_rect.rect.top() + ruler_h * 0.3;
             ui.painter().line_segment(
-                [egui::pos2(ruler_left - SPACING, playhead_y),
-                 egui::pos2(ruler_left + ruler_w + SPACING, playhead_y)],
+                [
+                    egui::pos2(ruler_left - SPACING, playhead_y),
+                    egui::pos2(ruler_left + ruler_w + SPACING, playhead_y),
+                ],
                 Stroke::new(UI_SCALE * 1.5, ACCENT_YELLOW),
             );
 
@@ -117,22 +133,28 @@ pub fn draw_vertical(ui: &mut egui::Ui) {
                 let bar_h = FONT_SMALL;
                 let desired = Vec2::new(bar_w, bar_h + SPACING * 2.0);
                 let resp = ui.allocate_response(desired, egui::Sense::hover());
-                let bar_rect = egui::Rect::from_center_size(resp.rect.center(), Vec2::new(bar_w, bar_h));
+                let bar_rect =
+                    egui::Rect::from_center_size(resp.rect.center(), Vec2::new(bar_w, bar_h));
 
                 // Track
-                ui.painter().rect_filled(bar_rect, CornerRadius::same(2), BG_RULER);
+                ui.painter()
+                    .rect_filled(bar_rect, CornerRadius::same(2), BG_RULER);
 
                 // Fill (30% demo)
                 let fill_rect = egui::Rect::from_min_size(
                     bar_rect.left_top(),
                     Vec2::new(bar_rect.width(), bar_h),
                 );
-                ui.painter().rect_filled(fill_rect, CornerRadius::same(2), ACCENT_BLUE);
+                ui.painter()
+                    .rect_filled(fill_rect, CornerRadius::same(2), ACCENT_BLUE);
 
                 // Handle
                 let handle_x = bar_rect.left() + bar_rect.width();
                 ui.painter().rect_filled(
-                    egui::Rect::from_center_size(Pos2::new(handle_x, bar_rect.center().y), Vec2::new(SPACING, bar_h + SPACING)),
+                    egui::Rect::from_center_size(
+                        Pos2::new(handle_x, bar_rect.center().y),
+                        Vec2::new(SPACING, bar_h + SPACING),
+                    ),
                     CornerRadius::same(1),
                     Color32::WHITE,
                 );

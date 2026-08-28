@@ -159,7 +159,7 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                         // Flush current segments as a Slide, start new one
                         slides.push(Slide {
                             segments: std::mem::take(&mut cur_segments),
-                            slide_duration: (*delay + *duration).max(0.0),
+                            slide_duration: (*duration).max(0.0),
                             slide_start_delay: delay.max(0.0),
                             slide_is_break: *is_break,
                         });
@@ -174,7 +174,7 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                 if !cur_segments.is_empty() {
                     slides.push(Slide {
                         segments: cur_segments,
-                        slide_duration: (*delay + *duration).max(0.0),
+                        slide_duration: (*duration).max(0.0),
                         slide_start_delay: delay.max(0.0),
                         slide_is_break: *is_break,
                     });

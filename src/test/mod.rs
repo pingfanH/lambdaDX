@@ -1,7 +1,7 @@
 mod ffi_test;
 
-use macroquad::prelude::*;
 use lambda_dx::app::types::zone::PadZone;
+use macroquad::prelude::*;
 
 #[macroquad::main("Mask")]
 async fn main() {
@@ -36,19 +36,21 @@ async fn main() {
             pipeline_params: macroquad::miniquad::PipelineParams {
                 color_blend: Some(macroquad::miniquad::BlendState::new(
                     macroquad::miniquad::Equation::Add,
-                    macroquad::miniquad::BlendFactor::Value(macroquad::miniquad::BlendValue::SourceAlpha),
-                    macroquad::miniquad::BlendFactor::OneMinusValue(macroquad::miniquad::BlendValue::SourceAlpha),
+                    macroquad::miniquad::BlendFactor::Value(
+                        macroquad::miniquad::BlendValue::SourceAlpha,
+                    ),
+                    macroquad::miniquad::BlendFactor::OneMinusValue(
+                        macroquad::miniquad::BlendValue::SourceAlpha,
+                    ),
                 )),
                 ..Default::default()
             },
-            uniforms: vec![
-                UniformDesc::new("progress", UniformType::Float1),
-            ],
+            uniforms: vec![UniformDesc::new("progress", UniformType::Float1)],
             textures: vec![],
             ..Default::default()
         },
     )
-        .unwrap();
+    .unwrap();
 
     let mut progress = 0.0f32;
 
@@ -105,8 +107,8 @@ async fn main() {
 
 #[test]
 fn test() {
-    let zone:i8 = 3;
-    let fin = (zone - 1).rem_euclid(8) as u8 +9;
-    let zone =  PadZone::num_to_b(zone);
+    let zone: i8 = 3;
+    let fin = (zone - 1).rem_euclid(8) as u8 + 9;
+    let zone = PadZone::num_to_b(zone);
     println!("{}", zone);
 }

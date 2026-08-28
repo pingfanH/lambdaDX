@@ -1,6 +1,10 @@
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 use lambda_dx::app::types::zone::PadZone;
+use lambda_dx::app::types::{FIXED_SLIDE_FADE_IN, PadGeom, SLIDE_TILE_SPACING};
+use lambda_dx::pad_svg::PadSvgDef;
+use lambda_dx::slide::segmentation;
+use lambda_dx::slide_render;
 use macroquad::material::Material;
 use macroquad::prelude::{Vec2, get_time};
 use macroquad::texture::Texture2D;
@@ -8,11 +12,19 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use super::types::{
-    ActiveRecordHold, ChartDoc, DragPart, HIT_WINDOW, HOLD_RECORD_MIN_DURATION, HitEvent, Mode,
-    Note, NoteType, PadFeedback, RecordInputId, SLIDE_MIN_POINTS, SPEED_MAX, SPEED_MIN, SlidePoint,
-    TOUCH_DISAPPEAR_TIME, WavPcm, hold_tail_time, is_touch_zone, mdur_to_secs, note_secs,
-    sanitize_note_zone, sdur_to_mdur, secs_to_measure, snap_measure,
+    ActiveRecordHold, ChartDoc, DragPart, HIT_WINDOW, HOLD_RECORD_MIN_DURATION, HitEvent,
+    JudgeFeedback, Mode, Note, NoteType, PadFeedback, RecordInputId, SLIDE_MIN_POINTS, SPEED_MAX,
+    SPEED_MIN, SlidePoint, TOUCH_DISAPPEAR_TIME, WavPcm, hold_tail_time, is_touch_zone,
+    mdur_to_secs, note_secs, sanitize_note_zone, sdur_to_mdur, secs_to_measure, snap_measure,
 };
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SlideProgress {
+    /// Number of visual/judgment areas already completed.
+    pub completed_areas: usize,
+    /// Whether the current non-final area has seen an initial press.
+    area_on: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct LibrarySong {
@@ -122,6 +134,7 @@ pub struct PlayerState {
     pub active_sensor_holds: HashMap<u64, PadZone>,
     pub prev_pointer_pos: HashMap<u64, Vec2>,
     pub pad_feedback: Vec<PadFeedback>,
+    pub judge_feedback: Vec<JudgeFeedback>,
     pub playback_cursor: usize,
     pub selected_note: Option<u64>,
     pub dragging_note: Option<u64>,
@@ -243,6 +256,9 @@ pub struct PlayerState {
     pub hit_sounds_played: HashSet<usize>,
     pub next_note_id: u64,
     pub hidden_notes: HashSet<u64>,
+    pub autoplay: bool,
+    /// Per-note, per-sub-slide progress used to hide completed trail areas.
+    pub slide_progress: HashMap<(u64, usize), SlideProgress>,
 
     pub status: String,
 
@@ -288,6 +304,7 @@ impl PlayerState {
             active_sensor_holds: HashMap::new(),
             prev_pointer_pos: HashMap::new(),
             pad_feedback: Vec::new(),
+            judge_feedback: Vec::new(),
             playback_cursor: 0,
             selected_note: None,
             dragging_note: None,
@@ -387,6 +404,8 @@ impl PlayerState {
             hit_sounds_played: HashSet::new(),
             next_note_id: 1,
             hidden_notes: HashSet::new(),
+            autoplay: true,
+            slide_progress: HashMap::new(),
             status: "Ready".to_string(),
             import_path_input: String::new(),
             pending_import: false,
@@ -437,6 +456,7 @@ impl PlayerState {
             }
         }
         self.chart = chart;
+        self.slide_progress.clear();
     }
 
     pub fn set_selected_note(&mut self, sel: Option<u64>) {
@@ -612,6 +632,9 @@ impl PlayerState {
             self.touch_riser_playing = false;
             self.timeline_view_time = self.mode_song_offset;
             self.active_sensor_holds.clear();
+            for progress in self.slide_progress.values_mut() {
+                progress.area_on = false;
+            }
             self.set_status(format!("Paused at {:.2}s", self.mode_song_offset));
         } else {
             // Resume with audio seek
@@ -639,7 +662,146 @@ impl PlayerState {
         self.active_pointer_zones.clear();
         self.active_sensor_holds.clear();
         self.prev_pointer_pos.clear();
+        self.slide_progress.clear();
         self.request_audio_start();
+    }
+
+    /// Advance Slide judge areas from the currently held pad sensors.
+    ///
+    /// Each consecutive zone run is one area. Intermediate areas need an
+    /// On->Off transition; the final area completes on On, matching
+    /// MajdataView's `Area.IsLast` behavior.
+    pub fn update_slide_judgment(
+        &mut self,
+        pad: PadGeom,
+        svg: &PadSvgDef,
+        scale: f32,
+        spawn_center: macroquad::prelude::Vec2,
+    ) {
+        if self.mode != Mode::Playing {
+            return;
+        }
+
+        let now = self.song_time();
+        let autoplay = self.autoplay;
+        let active: HashSet<PadZone> = self.active_sensor_holds.values().copied().collect();
+        let bpms = self.chart.bpms.clone();
+
+        if autoplay {
+            let auto_judgements: Vec<(usize, PadZone)> = self
+                .chart
+                .notes
+                .iter()
+                .enumerate()
+                .filter_map(|(index, note)| {
+                    if self.hit_sounds_played.contains(&index) {
+                        return None;
+                    }
+                    let note_time = note_secs(note, &bpms);
+                    if now >= note_time {
+                        Some((
+                            index,
+                            PadZone::from(sanitize_note_zone(note.note_type, note.lane)),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for (index, zone) in auto_judgements {
+                self.hit_sounds_played.insert(index);
+                self.push_judgement(zone, "PERFECT", 0.32);
+            }
+        }
+
+        let slide_notes: Vec<(u64, usize, f32, f32, Vec<(PadZone, usize)>, usize)> = self
+            .chart
+            .notes
+            .iter()
+            .filter(|note| matches!(note.note_type, NoteType::Slide))
+            .flat_map(|note| {
+                let head_time = note_secs(note, &bpms);
+                let slide_bpms = bpms.clone();
+                note.slide
+                    .iter()
+                    .enumerate()
+                    .map(move |(slide_idx, slide)| {
+                        let path = slide_render::build_slide_path(
+                            note,
+                            slide,
+                            &pad,
+                            svg,
+                            scale,
+                            spawn_center,
+                            pad.outer_r,
+                        );
+                        let visual =
+                            segmentation::build(&path, SLIDE_TILE_SPACING * scale, svg, &pad);
+                        let areas = visual
+                            .judge_segments
+                            .iter()
+                            .map(|segment| (segment.zone, segment.end_bar))
+                            .collect();
+                        (
+                            note.id,
+                            slide_idx,
+                            head_time
+                                + mdur_to_secs(slide.slide_start_delay, note.time, &slide_bpms),
+                            head_time
+                                + mdur_to_secs(slide.slide_start_delay, note.time, &slide_bpms)
+                                + mdur_to_secs(slide.slide_duration, note.time, &slide_bpms),
+                            areas,
+                            visual.bars.len(),
+                        )
+                    })
+            })
+            .collect();
+
+        for (note_id, slide_idx, start_time, end_time, areas, bar_count) in slide_notes {
+            if now < start_time || now > end_time + 0.6 || areas.is_empty() || bar_count == 0 {
+                continue;
+            }
+            let progress = self.slide_progress.entry((note_id, slide_idx)).or_default();
+            if autoplay {
+                let process =
+                    ((now - start_time) / (end_time - start_time).max(0.001)).clamp(0.0, 1.0);
+                let mut completed_zones = Vec::new();
+                while progress.completed_areas < areas.len() {
+                    let area_index = progress.completed_areas;
+                    let segment_end = areas[area_index].1 as f32 / bar_count as f32;
+                    if segment_end > process {
+                        break;
+                    }
+                    progress.completed_areas += 1;
+                    progress.area_on = false;
+                    completed_zones.push(areas[area_index].0);
+                }
+                for zone in completed_zones {
+                    self.push_judgement(zone, "SLIDE", 0.26);
+                }
+                continue;
+            }
+            while progress.completed_areas < areas.len() {
+                let is_last = progress.completed_areas + 1 == areas.len();
+                let zone = areas[progress.completed_areas].0;
+                if is_last {
+                    if active.contains(&zone) {
+                        progress.completed_areas += 1;
+                    }
+                    break;
+                }
+                if progress.area_on {
+                    if !active.contains(&zone) {
+                        progress.completed_areas += 1;
+                        progress.area_on = false;
+                        continue;
+                    }
+                } else if active.contains(&zone) {
+                    progress.area_on = true;
+                }
+                break;
+            }
+        }
     }
 
     pub fn toggle_record(&mut self) {
@@ -677,6 +839,52 @@ impl PlayerState {
         self.pad_feedback.push(PadFeedback {
             zone,
             until: get_time() + duration,
+        });
+    }
+
+    pub fn judge_input(&mut self, zone: PadZone) {
+        if self.mode != Mode::Playing {
+            return;
+        }
+        let now = self.song_time();
+        let best = self
+            .chart
+            .notes
+            .iter()
+            .filter(|note| sanitize_note_zone(note.note_type, note.lane) == zone.to_id())
+            .map(|note| (note_secs(note, &self.chart.bpms) - now).abs())
+            .min_by(f32::total_cmp);
+        let Some(diff) = best else {
+            self.push_judgement(zone, "MISS", 0.24);
+            return;
+        };
+        let (label, duration) = if diff <= 0.06 {
+            ("PERFECT", 0.32)
+        } else if diff <= 0.14 {
+            ("GREAT", 0.28)
+        } else if diff <= 0.24 {
+            ("GOOD", 0.24)
+        } else {
+            ("MISS", 0.24)
+        };
+        self.push_judgement(zone, label, duration);
+    }
+
+    pub fn push_judgement(&mut self, zone: PadZone, label: &str, duration: f64) {
+        let color = match label {
+            "PERFECT" => macroquad::prelude::Color::from_rgba(250, 204, 21, 255),
+            "GREAT" => macroquad::prelude::Color::from_rgba(52, 211, 153, 255),
+            "GOOD" => macroquad::prelude::Color::from_rgba(96, 165, 250, 255),
+            "SLIDE" => macroquad::prelude::Color::from_rgba(232, 121, 249, 255),
+            _ => macroquad::prelude::Color::from_rgba(248, 113, 113, 255),
+        };
+        let started = get_time();
+        self.judge_feedback.push(JudgeFeedback {
+            zone,
+            label: label.to_string(),
+            color,
+            started,
+            until: started + duration,
         });
     }
 
@@ -791,8 +999,10 @@ impl PlayerState {
         } else {
             vec![]
         };
+        let note_id = self.next_id();
 
         self.chart.notes.push(Note {
+            id: note_id,
             time: start_measure,
             lane: active.lane,
             note_type,
@@ -808,6 +1018,7 @@ impl PlayerState {
         self.recompute_each();
 
         self.recording_notes.push(Note {
+            id: note_id,
             time: start_measure,
             lane: active.lane,
             note_type,

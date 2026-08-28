@@ -1,6 +1,6 @@
-use egui_macroquad::egui::{self, Vec2, Color32, CornerRadius, Stroke, StrokeKind, Pos2};
 use super::button::*;
 use crate::ui_prototype::style::*;
+use egui_macroquad::egui::{self, Color32, CornerRadius, Pos2, Stroke, StrokeKind, Vec2};
 
 static mut DRAWER_OPEN: bool = false;
 static mut ANIM: f32 = 0.0; // 0.0 = closed, 1.0 = open
@@ -26,14 +26,27 @@ pub fn draw_toggle_button(ui: &mut egui::Ui, viewport_rect: egui::Rect) {
     let btn_w = BUTTON_HEIGHT * 0.6;
     let btn_h = ICON_SIZE * 2.0;
     let btn_rect = egui::Rect::from_center_size(
-        Pos2::new(viewport_rect.right() - btn_w * 0.5, viewport_rect.center().y),
+        Pos2::new(
+            viewport_rect.right() - btn_w * 0.5,
+            viewport_rect.center().y,
+        ),
         Vec2::new(btn_w, btn_h),
     );
 
     let resp = ui.allocate_rect(btn_rect, egui::Sense::click());
-    let bg = if resp.hovered() { BG_BUTTON_HOVER } else { BG_BUTTON };
-    ui.painter().rect_filled(btn_rect, CornerRadius::same(4), bg);
-    ui.painter().rect_stroke(btn_rect, CornerRadius::same(4), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+    let bg = if resp.hovered() {
+        BG_BUTTON_HOVER
+    } else {
+        BG_BUTTON
+    };
+    ui.painter()
+        .rect_filled(btn_rect, CornerRadius::same(4), bg);
+    ui.painter().rect_stroke(
+        btn_rect,
+        CornerRadius::same(4),
+        Stroke::new(1.0_f32, BUTTON_BORDER),
+        StrokeKind::Outside,
+    );
 
     ui.painter().text(
         btn_rect.center(),
@@ -44,7 +57,9 @@ pub fn draw_toggle_button(ui: &mut egui::Ui, viewport_rect: egui::Rect) {
     );
 
     if resp.clicked() {
-        unsafe { DRAWER_OPEN = true; }
+        unsafe {
+            DRAWER_OPEN = true;
+        }
     }
 }
 
@@ -52,8 +67,14 @@ pub fn draw_toggle_button(ui: &mut egui::Ui, viewport_rect: egui::Rect) {
 fn tick_animation(ctx: &egui::Context) {
     let now = ctx.input(|i| i.time);
     let last = unsafe { LAST_TIME };
-    let dt = if last < 0.0 { 0.016 } else { (now - last).min(0.1) as f32 };
-    unsafe { LAST_TIME = now; }
+    let dt = if last < 0.0 {
+        0.016
+    } else {
+        (now - last).min(0.1) as f32
+    };
+    unsafe {
+        LAST_TIME = now;
+    }
 
     let target = if unsafe { DRAWER_OPEN } { 1.0 } else { 0.0 };
     let anim = unsafe { ANIM };
@@ -70,7 +91,9 @@ fn tick_animation(ctx: &egui::Context) {
         }
         .clamp(0.0, 1.0)
     };
-    unsafe { ANIM = new_anim; }
+    unsafe {
+        ANIM = new_anim;
+    }
 
     // Request repaint while animating
     if (new_anim - target).abs() > 0.001 {
@@ -89,7 +112,11 @@ pub fn draw_drawer(ctx: &egui::Context, screen_rect: egui::Rect) {
 
     let drawer_w = RIGHT_PANEL_WIDTH + PADDING * 2.0;
     // Open: ease_out (fast start, slow end). Close: mirror so speed profile is same but reversed.
-    let eased = if unsafe { DRAWER_OPEN } { ease_out(anim) } else { 1.0 - ease_out(1.0 - anim) };
+    let eased = if unsafe { DRAWER_OPEN } {
+        ease_out(anim)
+    } else {
+        1.0 - ease_out(1.0 - anim)
+    };
 
     // Slide in from right: x offset from drawer_w (hidden) to 0 (visible)
     let x_offset = drawer_w * (1.0 - eased);
@@ -109,7 +136,11 @@ pub fn draw_drawer(ctx: &egui::Context, screen_rect: egui::Rect) {
         Pos2::new(drawer_rect.left(), drawer_rect.center().y),
         Vec2::new(btn_w, btn_h),
     );
-    let hit_rect = if unsafe { DRAWER_OPEN } { drawer_rect.union(btn_rect) } else { drawer_rect };
+    let hit_rect = if unsafe { DRAWER_OPEN } {
+        drawer_rect.union(btn_rect)
+    } else {
+        drawer_rect
+    };
 
     egui::Area::new(egui::Id::new("templates_drawer"))
         .fixed_pos(drawer_rect.left_top())
@@ -130,9 +161,19 @@ pub fn draw_drawer(ctx: &egui::Context, screen_rect: egui::Rect) {
             // Only show while drawer is fully open; hide immediately on click
             if unsafe { DRAWER_OPEN } {
                 let resp = ui.allocate_rect(btn_rect, egui::Sense::click());
-                let bg = if resp.hovered() { BG_BUTTON_HOVER } else { BG_BUTTON };
-                ui.painter().rect_filled(btn_rect, CornerRadius::same(4), bg);
-                ui.painter().rect_stroke(btn_rect, CornerRadius::same(4), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+                let bg = if resp.hovered() {
+                    BG_BUTTON_HOVER
+                } else {
+                    BG_BUTTON
+                };
+                ui.painter()
+                    .rect_filled(btn_rect, CornerRadius::same(4), bg);
+                ui.painter().rect_stroke(
+                    btn_rect,
+                    CornerRadius::same(4),
+                    Stroke::new(1.0_f32, BUTTON_BORDER),
+                    StrokeKind::Outside,
+                );
                 ui.painter().text(
                     btn_rect.center(),
                     egui::Align2::CENTER_CENTER,
@@ -141,7 +182,9 @@ pub fn draw_drawer(ctx: &egui::Context, screen_rect: egui::Rect) {
                     TEXT_PRIMARY,
                 );
                 if resp.clicked() {
-                    unsafe { DRAWER_OPEN = false; }
+                    unsafe {
+                        DRAWER_OPEN = false;
+                    }
                 }
             }
 
@@ -149,14 +192,22 @@ pub fn draw_drawer(ctx: &egui::Context, screen_rect: egui::Rect) {
             let input = ui.input(|i| (i.pointer.primary_clicked(), i.pointer.latest_pos()));
             if let (true, Some(pos)) = input {
                 if !hit_rect.contains(pos) {
-                    unsafe { DRAWER_OPEN = false; }
+                    unsafe {
+                        DRAWER_OPEN = false;
+                    }
                 }
             }
 
             // ── Content (offset by half button width since it protrudes) ──
             let content_rect = egui::Rect::from_min_size(
-                Pos2::new(drawer_rect.left() + btn_w * 0.5 + PADDING, drawer_rect.top()),
-                Vec2::new(drawer_rect.width() - btn_w * 0.5 - PADDING * 2.0, drawer_rect.height()),
+                Pos2::new(
+                    drawer_rect.left() + btn_w * 0.5 + PADDING,
+                    drawer_rect.top(),
+                ),
+                Vec2::new(
+                    drawer_rect.width() - btn_w * 0.5 - PADDING * 2.0,
+                    drawer_rect.height(),
+                ),
             );
 
             let mut child_ui = ui.new_child(
@@ -175,18 +226,36 @@ pub fn draw_drawer(ctx: &egui::Context, screen_rect: egui::Rect) {
                 template_item(ui, "Hold Sequence", 1, false);
 
                 ui.add_space(SPACING);
-                Button::new("+ New Template", ButtonKind::Normal, Vec2::new(ui.available_width(), BUTTON_HEIGHT)).show(ui);
+                Button::new(
+                    "+ New Template",
+                    ButtonKind::Normal,
+                    Vec2::new(ui.available_width(), BUTTON_HEIGHT),
+                )
+                .show(ui);
             });
         });
 }
 
 fn template_item(ui: &mut egui::Ui, name: &str, instance_count: usize, selected: bool) {
-    let bg = if selected { Color32::from_rgb(46, 71, 115) } else { BG_PANEL };
+    let bg = if selected {
+        Color32::from_rgb(46, 71, 115)
+    } else {
+        BG_PANEL
+    };
     let item_h = BUTTON_HEIGHT * 1.3;
 
-    let btn = ui.allocate_response(Vec2::new(ui.available_width(), item_h), egui::Sense::click());
-    ui.painter().rect_filled(btn.rect, CornerRadius::same(6), bg);
-    ui.painter().rect_stroke(btn.rect, CornerRadius::same(6), Stroke::new(1.0_f32, BORDER_LIGHT), StrokeKind::Outside);
+    let btn = ui.allocate_response(
+        Vec2::new(ui.available_width(), item_h),
+        egui::Sense::click(),
+    );
+    ui.painter()
+        .rect_filled(btn.rect, CornerRadius::same(6), bg);
+    ui.painter().rect_stroke(
+        btn.rect,
+        CornerRadius::same(6),
+        Stroke::new(1.0_f32, BORDER_LIGHT),
+        StrokeKind::Outside,
+    );
 
     ui.painter().text(
         egui::pos2(btn.rect.left() + PADDING, btn.rect.center().y),
@@ -225,9 +294,19 @@ pub fn draw_scene_toggle_button(ui: &mut egui::Ui, timeline_rect: egui::Rect) {
     );
 
     let resp = ui.allocate_rect(btn_rect, egui::Sense::click());
-    let bg = if resp.hovered() { BG_BUTTON_HOVER } else { BG_BUTTON };
-    ui.painter().rect_filled(btn_rect, CornerRadius::same(4), bg);
-    ui.painter().rect_stroke(btn_rect, CornerRadius::same(4), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+    let bg = if resp.hovered() {
+        BG_BUTTON_HOVER
+    } else {
+        BG_BUTTON
+    };
+    ui.painter()
+        .rect_filled(btn_rect, CornerRadius::same(4), bg);
+    ui.painter().rect_stroke(
+        btn_rect,
+        CornerRadius::same(4),
+        Stroke::new(1.0_f32, BUTTON_BORDER),
+        StrokeKind::Outside,
+    );
     ui.painter().text(
         btn_rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -237,17 +316,29 @@ pub fn draw_scene_toggle_button(ui: &mut egui::Ui, timeline_rect: egui::Rect) {
     );
 
     if resp.clicked() {
-        unsafe { SCENE_DRAWER_OPEN = true; }
+        unsafe {
+            SCENE_DRAWER_OPEN = true;
+        }
     }
 }
 
 fn tick_scene_animation(ctx: &egui::Context) {
     let now = ctx.input(|i| i.time);
     let last = unsafe { SCENE_LAST_TIME };
-    let dt = if last < 0.0 { 0.016 } else { (now - last).min(0.1) as f32 };
-    unsafe { SCENE_LAST_TIME = now; }
+    let dt = if last < 0.0 {
+        0.016
+    } else {
+        (now - last).min(0.1) as f32
+    };
+    unsafe {
+        SCENE_LAST_TIME = now;
+    }
 
-    let target = if unsafe { SCENE_DRAWER_OPEN } { 1.0 } else { 0.0 };
+    let target = if unsafe { SCENE_DRAWER_OPEN } {
+        1.0
+    } else {
+        0.0
+    };
     let anim = unsafe { SCENE_ANIM };
     let new_anim = if (anim - target).abs() < 0.005 {
         target
@@ -261,7 +352,9 @@ fn tick_scene_animation(ctx: &egui::Context) {
         }
         .clamp(0.0, 1.0)
     };
-    unsafe { SCENE_ANIM = new_anim; }
+    unsafe {
+        SCENE_ANIM = new_anim;
+    }
 
     if (new_anim - target).abs() > 0.001 {
         ctx.request_repaint();
@@ -279,11 +372,18 @@ pub fn draw_scene_drawer(ctx: &egui::Context, timeline_rect: egui::Rect) {
 
     let drawer_w = timeline_rect.width() / 3.0;
     let drawer_h = timeline_rect.height() * 0.6;
-    let eased = if unsafe { SCENE_DRAWER_OPEN } { ease_out(anim) } else { 1.0 - ease_out(1.0 - anim) };
+    let eased = if unsafe { SCENE_DRAWER_OPEN } {
+        ease_out(anim)
+    } else {
+        1.0 - ease_out(1.0 - anim)
+    };
 
     let x_offset = drawer_w * (1.0 - eased);
     let drawer_rect = egui::Rect::from_min_size(
-        Pos2::new(timeline_rect.right() - drawer_w + x_offset, timeline_rect.top()),
+        Pos2::new(
+            timeline_rect.right() - drawer_w + x_offset,
+            timeline_rect.top(),
+        ),
         Vec2::new(drawer_w, drawer_h),
     );
 
@@ -296,7 +396,11 @@ pub fn draw_scene_drawer(ctx: &egui::Context, timeline_rect: egui::Rect) {
         Pos2::new(drawer_rect.left(), drawer_rect.center().y),
         Vec2::new(btn_w, btn_h),
     );
-    let hit_rect = if unsafe { SCENE_DRAWER_OPEN } { drawer_rect.union(btn_rect) } else { drawer_rect };
+    let hit_rect = if unsafe { SCENE_DRAWER_OPEN } {
+        drawer_rect.union(btn_rect)
+    } else {
+        drawer_rect
+    };
 
     egui::Area::new(egui::Id::new("scene_drawer"))
         .fixed_pos(drawer_rect.left_top())
@@ -316,9 +420,19 @@ pub fn draw_scene_drawer(ctx: &egui::Context, timeline_rect: egui::Rect) {
             // Pull-back button protruding from left edge
             if unsafe { SCENE_DRAWER_OPEN } {
                 let resp = ui.allocate_rect(btn_rect, egui::Sense::click());
-                let bg = if resp.hovered() { BG_BUTTON_HOVER } else { BG_BUTTON };
-                ui.painter().rect_filled(btn_rect, CornerRadius::same(4), bg);
-                ui.painter().rect_stroke(btn_rect, CornerRadius::same(4), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+                let bg = if resp.hovered() {
+                    BG_BUTTON_HOVER
+                } else {
+                    BG_BUTTON
+                };
+                ui.painter()
+                    .rect_filled(btn_rect, CornerRadius::same(4), bg);
+                ui.painter().rect_stroke(
+                    btn_rect,
+                    CornerRadius::same(4),
+                    Stroke::new(1.0_f32, BUTTON_BORDER),
+                    StrokeKind::Outside,
+                );
                 ui.painter().text(
                     btn_rect.center(),
                     egui::Align2::CENTER_CENTER,
@@ -327,7 +441,9 @@ pub fn draw_scene_drawer(ctx: &egui::Context, timeline_rect: egui::Rect) {
                     TEXT_PRIMARY,
                 );
                 if resp.clicked() {
-                    unsafe { SCENE_DRAWER_OPEN = false; }
+                    unsafe {
+                        SCENE_DRAWER_OPEN = false;
+                    }
                 }
             }
 
@@ -335,14 +451,22 @@ pub fn draw_scene_drawer(ctx: &egui::Context, timeline_rect: egui::Rect) {
             let input = ui.input(|i| (i.pointer.primary_clicked(), i.pointer.latest_pos()));
             if let (true, Some(pos)) = input {
                 if !hit_rect.contains(pos) {
-                    unsafe { SCENE_DRAWER_OPEN = false; }
+                    unsafe {
+                        SCENE_DRAWER_OPEN = false;
+                    }
                 }
             }
 
             // Content (offset by half button width since it protrudes)
             let content_rect = egui::Rect::from_min_size(
-                Pos2::new(drawer_rect.left() + btn_w * 0.5 + PADDING, drawer_rect.top()),
-                Vec2::new(drawer_rect.width() - btn_w * 0.5 - PADDING * 2.0, drawer_rect.height()),
+                Pos2::new(
+                    drawer_rect.left() + btn_w * 0.5 + PADDING,
+                    drawer_rect.top(),
+                ),
+                Vec2::new(
+                    drawer_rect.width() - btn_w * 0.5 - PADDING * 2.0,
+                    drawer_rect.height(),
+                ),
             );
             let mut child_ui = ui.new_child(
                 egui::UiBuilder::new()
@@ -367,16 +491,25 @@ pub fn draw_scene_drawer(ctx: &egui::Context, timeline_rect: egui::Rect) {
 }
 
 fn scene_tree_item(ui: &mut egui::Ui, icon: &str, name: &str, selected: bool, indent: usize) {
-    let bg = if selected { Color32::from_rgb(39, 62, 93) } else { Color32::TRANSPARENT };
+    let bg = if selected {
+        Color32::from_rgb(39, 62, 93)
+    } else {
+        Color32::TRANSPARENT
+    };
     let h = BUTTON_HEIGHT * 1.0;
     let indent_w = indent as f32 * SPACING * 3.0;
 
     let btn = ui.allocate_response(Vec2::new(ui.available_width(), h), egui::Sense::click());
     if bg != Color32::TRANSPARENT {
-        ui.painter().rect_filled(btn.rect, CornerRadius::same(3), bg);
+        ui.painter()
+            .rect_filled(btn.rect, CornerRadius::same(3), bg);
     }
     if btn.hovered() && !selected {
-        ui.painter().rect_filled(btn.rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(255, 255, 255, 8));
+        ui.painter().rect_filled(
+            btn.rect,
+            CornerRadius::same(3),
+            Color32::from_rgba_premultiplied(255, 255, 255, 8),
+        );
     }
 
     ui.painter().text(

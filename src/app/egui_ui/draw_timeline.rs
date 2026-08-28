@@ -1378,11 +1378,7 @@ pub fn draw_timeline_panel(app: &AppState, rect: RectF) {
                 if let Some(t2) = cursor_t {
                     let by = t_to_y(t2);
                     let hw = HOLD_WIDTH * scale;
-                    let (head_y, tail_y) = if ay > by {
-                        (ay, by)
-                    } else {
-                        (by, ay)
-                    };
+                    let (head_y, tail_y) = if ay > by { (ay, by) } else { (by, ay) };
                     if let Some(tex) = app.hold_texture.as_ref() {
                         draw_hold_9slice_vertical(tex, cx, head_y, tail_y, hw);
                     } else {

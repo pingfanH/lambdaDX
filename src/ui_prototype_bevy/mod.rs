@@ -1,9 +1,9 @@
-pub mod style;
 pub mod components;
+pub mod style;
 
+use components::*;
 use egui_macroquad::egui;
 use style::*;
-use components::*;
 
 pub fn draw_editor(egui_ctx: &egui::Context) {
     let mut visuals = egui::Visuals::dark();
@@ -58,8 +58,7 @@ pub fn draw_editor(egui_ctx: &egui::Context) {
         });
 
     // Central viewport
-    egui::CentralPanel::default()
-        .show(egui_ctx, |ui| {
-            viewport::draw(ui);
-        });
+    egui::CentralPanel::default().show(egui_ctx, |ui| {
+        viewport::draw(ui);
+    });
 }

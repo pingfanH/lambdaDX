@@ -1,6 +1,6 @@
-use egui_macroquad::egui::{self, Vec2, Stroke};
 use super::button::*;
 use crate::ui_prototype::style::*;
+use egui_macroquad::egui::{self, Stroke, Vec2};
 
 /// Top toolbar matching Bevy Editor SVG layout
 pub fn draw(ui: &mut egui::Ui) {
@@ -13,7 +13,12 @@ pub fn draw(ui: &mut egui::Ui) {
                 ui.spacing_mut().item_spacing.x = SPACING;
 
                 // App title
-                ui.label(egui::RichText::new("Lambda DX").color(TEXT_PRIMARY).size(FONT_HEADER).strong());
+                ui.label(
+                    egui::RichText::new("Lambda DX")
+                        .color(TEXT_PRIMARY)
+                        .size(FONT_HEADER)
+                        .strong(),
+                );
                 ui.add_space(SPACING * 1.5);
 
                 // File section
@@ -38,11 +43,19 @@ pub fn draw(ui: &mut egui::Ui) {
                     //separator(ui);
 
                     // Zoom label
-                    ui.label(egui::RichText::new("1.0x").color(TEXT_SECONDARY).size(FONT_BODY));
+                    ui.label(
+                        egui::RichText::new("1.0x")
+                            .color(TEXT_SECONDARY)
+                            .size(FONT_BODY),
+                    );
                     //separator(ui);
 
                     // BPM display
-                    ui.label(egui::RichText::new("BPM: 180").color(TEXT_SECONDARY).size(FONT_BODY));
+                    ui.label(
+                        egui::RichText::new("BPM: 180")
+                            .color(TEXT_SECONDARY)
+                            .size(FONT_BODY),
+                    );
                     //separator(ui);
 
                     // Transport controls

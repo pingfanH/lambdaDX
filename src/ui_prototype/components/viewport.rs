@@ -1,6 +1,6 @@
-use egui_macroquad::egui::{self, Vec2, Color32, CornerRadius, Stroke, Pos2};
 use super::button::*;
 use crate::ui_prototype::style::*;
+use egui_macroquad::egui::{self, Color32, CornerRadius, Pos2, Stroke, Vec2};
 
 /// Center viewport with pad visualization matching Bevy Editor SVG
 pub fn draw(ui: &mut egui::Ui) {
@@ -24,16 +24,26 @@ pub fn draw(ui: &mut egui::Ui) {
 
             let cx = pad_rect.rect.center().x;
             let cy = pad_rect.rect.center().y;
-            let pad_r = (pad_rect.rect.width().min(pad_rect.rect.height()) * 0.35).min(ICON_SIZE * 8.0);
+            let pad_r =
+                (pad_rect.rect.width().min(pad_rect.rect.height()) * 0.35).min(ICON_SIZE * 8.0);
 
             // Outer ring
-            ui.painter().circle_stroke(Pos2::new(cx, cy), pad_r, Stroke::new(UI_SCALE, RING_OUTER));
+            ui.painter()
+                .circle_stroke(Pos2::new(cx, cy), pad_r, Stroke::new(UI_SCALE, RING_OUTER));
 
             // Inner ring
-            ui.painter().circle_stroke(Pos2::new(cx, cy), pad_r * 0.55, Stroke::new(UI_SCALE * 0.8, RING_INNER));
+            ui.painter().circle_stroke(
+                Pos2::new(cx, cy),
+                pad_r * 0.55,
+                Stroke::new(UI_SCALE * 0.8, RING_INNER),
+            );
 
             // Center circle
-            ui.painter().circle_stroke(Pos2::new(cx, cy), pad_r * 0.15, Stroke::new(UI_SCALE * 0.8, RING_OUTER));
+            ui.painter().circle_stroke(
+                Pos2::new(cx, cy),
+                pad_r * 0.15,
+                Stroke::new(UI_SCALE * 0.8, RING_OUTER),
+            );
 
             // Button positions (A1-A8) - outer ring
             for i in 0..8 {
@@ -41,8 +51,13 @@ pub fn draw(ui: &mut egui::Ui) {
                 let bx = cx + angle.cos() * pad_r;
                 let by = cy + angle.sin() * pad_r;
                 let btn_r = pad_r * 0.13;
-                ui.painter().circle_filled(Pos2::new(bx, by), btn_r, BG_BUTTON);
-                ui.painter().circle_stroke(Pos2::new(bx, by), btn_r, Stroke::new(UI_SCALE * 0.8, Color32::from_rgb(100, 100, 110)));
+                ui.painter()
+                    .circle_filled(Pos2::new(bx, by), btn_r, BG_BUTTON);
+                ui.painter().circle_stroke(
+                    Pos2::new(bx, by),
+                    btn_r,
+                    Stroke::new(UI_SCALE * 0.8, Color32::from_rgb(100, 100, 110)),
+                );
 
                 // Label
                 let label = format!("A{}", i + 1);
@@ -59,17 +74,28 @@ pub fn draw(ui: &mut egui::Ui) {
 
             // D1-D8 (inner ring)
             for i in 0..8 {
-                let angle = -std::f32::consts::FRAC_PI_2 + (i as f32 + 0.5) * std::f32::consts::TAU / 8.0;
+                let angle =
+                    -std::f32::consts::FRAC_PI_2 + (i as f32 + 0.5) * std::f32::consts::TAU / 8.0;
                 let bx = cx + angle.cos() * pad_r * 0.55;
                 let by = cy + angle.sin() * pad_r * 0.55;
                 let btn_r = pad_r * 0.09;
-                ui.painter().circle_filled(Pos2::new(bx, by), btn_r, BG_BUTTON);
-                ui.painter().circle_stroke(Pos2::new(bx, by), btn_r, Stroke::new(UI_SCALE * 0.5, Color32::from_rgb(90, 90, 100)));
+                ui.painter()
+                    .circle_filled(Pos2::new(bx, by), btn_r, BG_BUTTON);
+                ui.painter().circle_stroke(
+                    Pos2::new(bx, by),
+                    btn_r,
+                    Stroke::new(UI_SCALE * 0.5, Color32::from_rgb(90, 90, 100)),
+                );
             }
 
             // Center zone (C)
-            ui.painter().circle_filled(Pos2::new(cx, cy), pad_r * 0.15, BG_BUTTON);
-            ui.painter().circle_stroke(Pos2::new(cx, cy), pad_r * 0.15, Stroke::new(UI_SCALE * 0.8, Color32::from_rgb(90, 90, 100)));
+            ui.painter()
+                .circle_filled(Pos2::new(cx, cy), pad_r * 0.15, BG_BUTTON);
+            ui.painter().circle_stroke(
+                Pos2::new(cx, cy),
+                pad_r * 0.15,
+                Stroke::new(UI_SCALE * 0.8, Color32::from_rgb(90, 90, 100)),
+            );
             ui.painter().text(
                 Pos2::new(cx, cy),
                 egui::Align2::CENTER_CENTER,
@@ -104,7 +130,11 @@ pub fn draw(ui: &mut egui::Ui) {
                 let angle = start_angle + (end_angle - start_angle) * t;
                 let x = cx + angle.cos() * r;
                 let y = cy + angle.sin() * r;
-                ui.painter().circle_filled(Pos2::new(x, y), UI_SCALE * 2.5, Color32::from_rgba_premultiplied(255, 255, 255, 180));
+                ui.painter().circle_filled(
+                    Pos2::new(x, y),
+                    UI_SCALE * 2.5,
+                    Color32::from_rgba_premultiplied(255, 255, 255, 180),
+                );
             }
 
             // ── Note Properties & Chart Info area ──
@@ -117,13 +147,16 @@ pub fn draw(ui: &mut egui::Ui) {
 
             // Draw border between pad and props
             ui.painter().line_segment(
-                [Pos2::new(props_ui_rect.left(), props_ui_rect.top()),
-                 Pos2::new(props_ui_rect.right(), props_ui_rect.top())],
+                [
+                    Pos2::new(props_ui_rect.left(), props_ui_rect.top()),
+                    Pos2::new(props_ui_rect.right(), props_ui_rect.top()),
+                ],
                 Stroke::new(1.0_f32, BORDER_LIGHT),
             );
 
             // Fill background
-            ui.painter().rect_filled(props_ui_rect, CornerRadius::ZERO, BG_DARK);
+            ui.painter()
+                .rect_filled(props_ui_rect, CornerRadius::ZERO, BG_DARK);
 
             // Draw content using a child ui
             let mut child_ui = ui.new_child(
@@ -148,7 +181,11 @@ pub fn draw(ui: &mut egui::Ui) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = SPACING * 0.5;
                     for (i, flag) in ["Break", "Ex", "Star", "Tapless"].iter().enumerate() {
-                        let btn = Button::new(flag, ButtonKind::Toggle(i == 0), Vec2::new(ICON_SIZE * 3.0, BUTTON_HEIGHT * 0.9));
+                        let btn = Button::new(
+                            flag,
+                            ButtonKind::Toggle(i == 0),
+                            Vec2::new(ICON_SIZE * 3.0, BUTTON_HEIGHT * 0.9),
+                        );
                         btn.show(ui);
                     }
                 });
@@ -158,8 +195,10 @@ pub fn draw(ui: &mut egui::Ui) {
             // Horizontal separator
             let sep_rect = child_ui.available_rect_before_wrap();
             child_ui.painter().line_segment(
-                [Pos2::new(sep_rect.left(), sep_rect.top()),
-                 Pos2::new(sep_rect.right(), sep_rect.top())],
+                [
+                    Pos2::new(sep_rect.left(), sep_rect.top()),
+                    Pos2::new(sep_rect.right(), sep_rect.top()),
+                ],
                 Stroke::new(1.0_f32, SEPARATOR),
             );
             child_ui.add_space(SPACING);
@@ -182,10 +221,13 @@ pub fn draw(ui: &mut egui::Ui) {
                 Pos2::new(props_ui_rect.left(), props_ui_rect.bottom()),
                 Vec2::new(available.x, status_h),
             );
-            ui.painter().rect_filled(status_rect, CornerRadius::ZERO, BG_DARK);
+            ui.painter()
+                .rect_filled(status_rect, CornerRadius::ZERO, BG_DARK);
             ui.painter().line_segment(
-                [Pos2::new(status_rect.left(), status_rect.top()),
-                 Pos2::new(status_rect.right(), status_rect.top())],
+                [
+                    Pos2::new(status_rect.left(), status_rect.top()),
+                    Pos2::new(status_rect.right(), status_rect.top()),
+                ],
                 Stroke::new(1.0_f32, BORDER_LIGHT),
             );
 

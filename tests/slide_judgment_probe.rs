@@ -1,15 +1,19 @@
 use std::sync::{Mutex, OnceLock};
 
 use lambda_dx::simai_io;
-use lambda_dx::types::{BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape};
 use lambda_dx::types::zone::PadZone;
+use lambda_dx::types::{
+    BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
+};
 use lnmai_core_ffi::api;
 use lnmai_core_ffi::session::{self, Empty, Session};
 use lnmai_core_ffi::types::{JudgeEvent, JudgeEventKind, JudgeGrade, TimedInputBatch};
 
 fn test_guard() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|poison| poison.into_inner())
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
 }
 
 fn ensure_runtime() {
@@ -22,7 +26,10 @@ fn sample_slide_chart_text() -> String {
         version: "1.0".to_string(),
         title: "slide-probe".to_string(),
         bpm: 120.0,
-        bpms: vec![BpmChange { measure: 1.0, bpm: 120.0 }],
+        bpms: vec![BpmChange {
+            measure: 1.0,
+            bpm: 120.0,
+        }],
         audio_offset: 0.0,
         notes: vec![Note {
             time: 1.0,
@@ -60,8 +67,16 @@ fn parsed_slide_chart_has_real_runtime_queues() {
         "[probe] parsed lowered: slide_heads={} slides={} first_queue_tracks={} first_total_queue_len={}",
         lowered.slide_heads.len(),
         lowered.slides.len(),
-        lowered.slides.first().map(|slide| slide.judge_queues.len()).unwrap_or(0),
-        lowered.slides.first().map(|slide| slide.total_judge_queue_len).unwrap_or(0),
+        lowered
+            .slides
+            .first()
+            .map(|slide| slide.judge_queues.len())
+            .unwrap_or(0),
+        lowered
+            .slides
+            .first()
+            .map(|slide| slide.total_judge_queue_len)
+            .unwrap_or(0),
     );
 
     assert_eq!(lowered.slide_heads.len(), 1);

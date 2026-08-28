@@ -1,6 +1,6 @@
-use egui_macroquad::egui::{self, Stroke};
 use super::button::*;
 use crate::ui_prototype::style::*;
+use egui_macroquad::egui::{self, Stroke};
 
 /// Left sidebar with tool icons matching Bevy Editor SVG
 pub fn draw(ui: &mut egui::Ui) {
@@ -31,17 +31,16 @@ pub fn draw(ui: &mut egui::Ui) {
                 let rect = ui.available_rect_before_wrap();
                 let y = rect.top();
                 ui.painter().line_segment(
-                    [egui::pos2(rect.left() + SPACING, y), egui::pos2(rect.right() - SPACING, y)],
+                    [
+                        egui::pos2(rect.left() + SPACING, y),
+                        egui::pos2(rect.right() - SPACING, y),
+                    ],
                     Stroke::new(1.0_f32, SEPARATOR),
                 );
                 ui.add_space(SPACING * 1.5);
 
                 // Utility icons (matching SVG)
-                let utils = [
-                    ("⚡", "Snap"),
-                    ("📏", "Grid"),
-                    ("🔊", "Audio"),
-                ];
+                let utils = [("⚡", "Snap"), ("📏", "Grid"), ("🔊", "Audio")];
 
                 for (icon, _tooltip) in &utils {
                     icon_button(ui, icon, false);

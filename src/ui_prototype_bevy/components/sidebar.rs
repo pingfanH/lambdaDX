@@ -1,6 +1,6 @@
-use egui_macroquad::egui::{self, Stroke};
 use super::button::*;
 use crate::ui_prototype_bevy::style::*;
+use egui_macroquad::egui::{self, Stroke};
 
 pub fn draw(ui: &mut egui::Ui) {
     egui::Frame::new()
@@ -30,7 +30,10 @@ pub fn draw(ui: &mut egui::Ui) {
                 let rect = ui.available_rect_before_wrap();
                 let y = rect.top();
                 ui.painter().line_segment(
-                    [egui::pos2(rect.left() + 6.0, y), egui::pos2(rect.right() - 6.0, y)],
+                    [
+                        egui::pos2(rect.left() + 6.0, y),
+                        egui::pos2(rect.right() - 6.0, y),
+                    ],
                     Stroke::new(1.0_f32, SEPARATOR),
                 );
                 ui.add_space(8.0);

@@ -1,5 +1,5 @@
-use egui_macroquad::egui::{self, Color32, Vec2, CornerRadius, Stroke, Align2, FontId, StrokeKind};
 use crate::ui_prototype_bevy::style::*;
+use egui_macroquad::egui::{self, Align2, Color32, CornerRadius, FontId, Stroke, StrokeKind, Vec2};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonKind {
@@ -24,13 +24,13 @@ impl<'a> Button<'a> {
 
     pub fn show(self, ui: &mut egui::Ui) -> bool {
         if self.kind == ButtonKind::Separator {
-            let (rect, _) = ui.allocate_exact_size(
-                Vec2::new(1.0, self.size.y),
-                egui::Sense::hover(),
-            );
+            let (rect, _) =
+                ui.allocate_exact_size(Vec2::new(1.0, self.size.y), egui::Sense::hover());
             ui.painter().line_segment(
-                [egui::pos2(rect.center().x, rect.top() + 4.0),
-                 egui::pos2(rect.center().x, rect.bottom() - 4.0)],
+                [
+                    egui::pos2(rect.center().x, rect.top() + 4.0),
+                    egui::pos2(rect.center().x, rect.bottom() - 4.0),
+                ],
                 Stroke::new(1.0_f32, SEPARATOR),
             );
             return false;
@@ -55,11 +55,20 @@ impl<'a> Button<'a> {
 
         if bg != Color32::TRANSPARENT {
             ui.painter().rect_filled(rect, CornerRadius::same(4), bg);
-            ui.painter().rect_stroke(rect, CornerRadius::same(4), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+            ui.painter().rect_stroke(
+                rect,
+                CornerRadius::same(4),
+                Stroke::new(1.0_f32, BUTTON_BORDER),
+                StrokeKind::Outside,
+            );
         }
 
         if btn.hovered() {
-            ui.painter().rect_filled(rect, CornerRadius::same(4), Color32::from_rgba_premultiplied(255, 255, 255, 10));
+            ui.painter().rect_filled(
+                rect,
+                CornerRadius::same(4),
+                Color32::from_rgba_premultiplied(255, 255, 255, 10),
+            );
         }
 
         ui.painter().text(
@@ -82,13 +91,26 @@ pub fn icon_button(ui: &mut egui::Ui, icon: &str, active: bool) -> bool {
     let rect = btn.rect;
 
     ui.painter().rect_filled(rect, CornerRadius::same(5), bg);
-    ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+    ui.painter().rect_stroke(
+        rect,
+        CornerRadius::same(5),
+        Stroke::new(1.0_f32, BUTTON_BORDER),
+        StrokeKind::Outside,
+    );
 
     if btn.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(5), Color32::from_rgba_premultiplied(255, 255, 255, 10));
+        ui.painter().rect_filled(
+            rect,
+            CornerRadius::same(5),
+            Color32::from_rgba_premultiplied(255, 255, 255, 10),
+        );
     }
 
-    let text_color = if active { Color32::WHITE } else { TEXT_SECONDARY };
+    let text_color = if active {
+        Color32::WHITE
+    } else {
+        TEXT_SECONDARY
+    };
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,
@@ -108,13 +130,26 @@ pub fn small_icon_button(ui: &mut egui::Ui, icon: &str, active: bool) -> bool {
     let rect = btn.rect;
 
     ui.painter().rect_filled(rect, CornerRadius::same(5), bg);
-    ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+    ui.painter().rect_stroke(
+        rect,
+        CornerRadius::same(5),
+        Stroke::new(1.0_f32, BUTTON_BORDER),
+        StrokeKind::Outside,
+    );
 
     if btn.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(5), Color32::from_rgba_premultiplied(255, 255, 255, 10));
+        ui.painter().rect_filled(
+            rect,
+            CornerRadius::same(5),
+            Color32::from_rgba_premultiplied(255, 255, 255, 10),
+        );
     }
 
-    let text_color = if active { Color32::WHITE } else { TEXT_SECONDARY };
+    let text_color = if active {
+        Color32::WHITE
+    } else {
+        TEXT_SECONDARY
+    };
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,

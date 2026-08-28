@@ -1,6 +1,6 @@
-use egui_macroquad::egui::{self, Vec2, Stroke};
 use super::button::*;
 use crate::ui_prototype_bevy::style::*;
+use egui_macroquad::egui::{self, Stroke, Vec2};
 
 pub fn draw(ui: &mut egui::Ui) {
     egui::Frame::new()
@@ -61,7 +61,11 @@ pub fn draw(ui: &mut egui::Ui) {
                     Button::new("", ButtonKind::Separator, sep_size).show(ui);
 
                     // BPM
-                    ui.label(egui::RichText::new("BPM: 180").color(TEXT_SECONDARY).size(12.0));
+                    ui.label(
+                        egui::RichText::new("BPM: 180")
+                            .color(TEXT_SECONDARY)
+                            .size(12.0),
+                    );
                 });
             });
         });

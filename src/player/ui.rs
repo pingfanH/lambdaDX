@@ -1,15 +1,30 @@
-use macroquad::color::{Color, WHITE};
-use macroquad::math::{vec2, Vec2};
-use macroquad::miniquad::FilterMode;
-use macroquad::prelude::{draw_circle, draw_circle_lines, draw_line, draw_rectangle, draw_text, draw_texture_ex, load_texture, measure_text, DrawTextureParams};
-use lambda_dx::{pad_svg, slide_render};
-use lambda_dx::slide::path::{slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp, slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z};
-use lambda_dx::state::AppState;
-use lambda_dx::types::{hold_tail_time, mdur_to_secs, note_secs, sanitize_note_zone, slide_end_time, Mode, NoteType, PadGeom, RectF, SlideShape, HIT_WINDOW, HOLD_FLY_TIME, HOLD_LENGTH_FRAC, HOLD_SPAWN_FRAC, HOLD_TAIL_FLY_TIME, HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, PAD_ROTATION_RAD, SLIDE_TRAVEL_TIME, TAP_GROW_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_SPAWN_FRAC, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME};
-use lambda_dx::types::zone::PadZone;
-use lambda_dx::ui::draw_hold_9slice_segment;
-use crate::state::PlayerState;
 use crate::player_layout::*;
+use crate::state::PlayerState;
+use lambda_dx::slide::path::{
+    slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp,
+    slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z,
+};
+use lambda_dx::state::AppState;
+use lambda_dx::types::zone::PadZone;
+use lambda_dx::types::{
+    HIT_WINDOW, HOLD_FLY_TIME, HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, Mode,
+    NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType, PAD_ROTATION_RAD, PadGeom, RectF,
+    SLIDE_TRAVEL_TIME, SlideShape, TAP_RING_OFFSET, TAP_SIZE, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME,
+    TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE,
+    TOUCH_START_DIST, TOUCH_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE,
+    TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST,
+    hold_tail_time, mdur_to_secs, note_radial_motion, note_secs, sanitize_note_zone,
+    slide_end_time,
+};
+use lambda_dx::ui::draw_hold_9slice_segment;
+use lambda_dx::{pad_svg, slide_render};
+use macroquad::color::{Color, WHITE};
+use macroquad::math::{Vec2, vec2};
+use macroquad::miniquad::FilterMode;
+use macroquad::prelude::{
+    DrawTextureParams, draw_circle, draw_circle_lines, draw_line, draw_rectangle, draw_text,
+    draw_texture_ex, load_texture, measure_text,
+};
 pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
     let scale = ui_scale(app);
     draw_rectangle(
@@ -31,17 +46,64 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
     let cy = pad.cy;
     let outer_r = pad.outer_r;
     // Tap spawn center: C zone centroid for alignment
-    let spawn_cx = app.pad_svg.as_ref()
+    let spawn_cx = app
+        .pad_svg
+        .as_ref()
         .and_then(|svg| svg.pad_visual_center(&pad))
         .unwrap_or(vec2(cx, cy));
 
     draw_circle(cx, cy, outer_r, Color::from_rgba(35, 35, 35, 255));
 
     // Tap spawn point indicator
-    draw_circle(spawn_cx.x, spawn_cx.y, 3.0 * scale, Color::from_rgba(255, 255, 255, 180));
+    draw_circle(
+        spawn_cx.x,
+        spawn_cx.y,
+        3.0 * scale,
+        Color::from_rgba(255, 255, 255, 180),
+    );
 
     let active_zones: Vec<PadZone> = app.active_pointer_zones.values().copied().collect();
     let feedback_zones: Vec<PadZone> = app.pad_feedback.iter().map(|fb| fb.zone).collect();
+
+    let now = macroquad::prelude::get_time();
+    for feedback in &app.judge_feedback {
+        let center = app
+            .pad_svg
+            .as_ref()
+            .and_then(|svg| svg.zone_screen_centroid(feedback.zone, &pad))
+            .unwrap_or(vec2(cx, cy));
+        let age = (now - feedback.started) as f32;
+        let life = (feedback.until - feedback.started) as f32;
+        let progress = (age / life.max(0.001)).clamp(0.0, 1.0);
+        let radius = (22.0 + progress * 28.0) * scale;
+        let alpha = ((1.0 - progress) * 220.0) as u8;
+        draw_circle_lines(
+            center.x,
+            center.y,
+            radius,
+            3.0 * scale,
+            Color::from_rgba(
+                (feedback.color.r * 255.0) as u8,
+                (feedback.color.g * 255.0) as u8,
+                (feedback.color.b * 255.0) as u8,
+                alpha,
+            ),
+        );
+        let text_size = 18.0 * scale;
+        let dims = measure_text(&feedback.label, None, text_size as _, 1.0);
+        draw_text(
+            &feedback.label,
+            center.x - dims.width * 0.5,
+            center.y - radius - 8.0 * scale,
+            text_size,
+            Color::from_rgba(
+                (feedback.color.r * 255.0) as u8,
+                (feedback.color.g * 255.0) as u8,
+                (feedback.color.b * 255.0) as u8,
+                alpha,
+            ),
+        );
+    }
 
     if let Some(ref pad_svg) = app.pad_svg {
         for def in &pad_svg.zones {
@@ -92,14 +154,23 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         let dot_r = outer_r + TAP_RING_OFFSET * scale;
         let mut a_dots: Vec<Vec2> = Vec::new();
         for i in 0..8 {
-            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
-            a_dots.push(vec2(spawn_cx.x + ang.cos() * dot_r, spawn_cx.y + ang.sin() * dot_r));
+            let ang = -std::f32::consts::FRAC_PI_2
+                + PAD_ROTATION_RAD
+                + i as f32 * std::f32::consts::TAU / 8.0;
+            a_dots.push(vec2(
+                spawn_cx.x + ang.cos() * dot_r,
+                spawn_cx.y + ang.sin() * dot_r,
+            ));
         }
         // 圆弧连接 8 个 tap 圆点
         let arc_steps = 8;
         for i in 0..8 {
-            let a0 = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + i as f32 * std::f32::consts::TAU / 8.0;
-            let a1 = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + (i + 1) as f32 * std::f32::consts::TAU / 8.0;
+            let a0 = -std::f32::consts::FRAC_PI_2
+                + PAD_ROTATION_RAD
+                + i as f32 * std::f32::consts::TAU / 8.0;
+            let a1 = -std::f32::consts::FRAC_PI_2
+                + PAD_ROTATION_RAD
+                + (i + 1) as f32 * std::f32::consts::TAU / 8.0;
             for j in 0..arc_steps {
                 let t0 = j as f32 / arc_steps as f32;
                 let t1 = (j + 1) as f32 / arc_steps as f32;
@@ -116,7 +187,12 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             }
         }
         for dot in &a_dots {
-            draw_circle(dot.x, dot.y, 5.0 * scale, Color::from_rgba(255, 255, 255, 220));
+            draw_circle(
+                dot.x,
+                dot.y,
+                5.0 * scale,
+                Color::from_rgba(255, 255, 255, 220),
+            );
         }
     }
 
@@ -139,23 +215,46 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                 for sl in &note.slide {
                     for seg in &sl.segments {
                         match seg.shape {
-                            SlideShape::Q => slide_shape_q(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
-                            SlideShape::QQ => slide_shape_qq(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
-                            SlideShape::P => slide_shape_p(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
-                            SlideShape::PP => slide_shape_pp(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
-                            SlideShape::Left => slide_shape_left(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
-                            SlideShape::Right => slide_shape_right(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
-                            SlideShape::Caret => slide_shape_caret(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
-                            SlideShape::Z => slide_shape_z(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
-                            SlideShape::S => slide_shape_s(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            SlideShape::Q => slide_shape_q(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
+                            SlideShape::QQ => slide_shape_qq(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
+                            SlideShape::P => slide_shape_p(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
+                            SlideShape::PP => slide_shape_pp(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
+                            SlideShape::Left => slide_shape_left(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
+                            SlideShape::Right => slide_shape_right(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
+                            SlideShape::Caret => slide_shape_caret(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
+                            SlideShape::Z => slide_shape_z(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
+                            SlideShape::S => slide_shape_s(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
                             SlideShape::Wifi => {
                                 // Build three separate Wifi lines for editor preview
                                 // Calculate start position
                                 let start_pos = {
                                     let idx = (note.lane - 1) as f32;
-                                    let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                    let ang = -std::f32::consts::FRAC_PI_2
+                                        + PAD_ROTATION_RAD
+                                        + idx * std::f32::consts::TAU / 8.0;
                                     let target_r = outer_r + TAP_TARGET_OFFSET;
-                                    vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+                                    vec2(
+                                        spawn_cx.x + ang.cos() * target_r,
+                                        spawn_cx.y + ang.sin() * target_r,
+                                    )
                                 };
 
                                 // Calculate target positions (1-8环形排列)
@@ -164,23 +263,38 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                                     {
                                         let z = ((lane_i + 3 - 1).rem_euclid(8) + 1) as u8;
                                         let idx = (z - 1) as f32;
-                                        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                        let ang = -std::f32::consts::FRAC_PI_2
+                                            + PAD_ROTATION_RAD
+                                            + idx * std::f32::consts::TAU / 8.0;
                                         let target_r = outer_r + TAP_TARGET_OFFSET;
-                                        vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+                                        vec2(
+                                            spawn_cx.x + ang.cos() * target_r,
+                                            spawn_cx.y + ang.sin() * target_r,
+                                        )
                                     },
                                     {
                                         let z = ((lane_i + 4 - 1).rem_euclid(8) + 1) as u8;
                                         let idx = (z - 1) as f32;
-                                        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                        let ang = -std::f32::consts::FRAC_PI_2
+                                            + PAD_ROTATION_RAD
+                                            + idx * std::f32::consts::TAU / 8.0;
                                         let target_r = outer_r + TAP_TARGET_OFFSET;
-                                        vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+                                        vec2(
+                                            spawn_cx.x + ang.cos() * target_r,
+                                            spawn_cx.y + ang.sin() * target_r,
+                                        )
                                     },
                                     {
                                         let z = ((lane_i + 5 - 1).rem_euclid(8) + 1) as u8;
                                         let idx = (z - 1) as f32;
-                                        let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                                        let ang = -std::f32::consts::FRAC_PI_2
+                                            + PAD_ROTATION_RAD
+                                            + idx * std::f32::consts::TAU / 8.0;
                                         let target_r = outer_r + TAP_TARGET_OFFSET;
-                                        vec2(spawn_cx.x + ang.cos() * target_r, spawn_cx.y + ang.sin() * target_r)
+                                        vec2(
+                                            spawn_cx.x + ang.cos() * target_r,
+                                            spawn_cx.y + ang.sin() * target_r,
+                                        )
                                     },
                                 ];
 
@@ -189,9 +303,11 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                                     path.push(start_pos);
                                     path.push(target);
                                 }
-                            },
+                            }
 
-                            _ => slide_shape_line(&mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale),
+                            _ => slide_shape_line(
+                                &mut path, &curr_note, seg, outer_r, spawn_cx, &pad, svg, scale,
+                            ),
                         }
                         if let Some(last_sp) = seg.points.last() {
                             curr_note.lane = last_sp.zone.to_id();
@@ -207,10 +323,20 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                 // Waypoint dots
                 for (k, pt) in path.iter().enumerate() {
                     let is_endpoint = k == 0 || k == path.len() - 1;
-                    let r = if is_endpoint { 5.0 * scale } else { 3.5 * scale };
+                    let r = if is_endpoint {
+                        5.0 * scale
+                    } else {
+                        3.5 * scale
+                    };
                     draw_circle(pt.x, pt.y, r, Color::from_rgba(255, 220, 50, 200));
                     if is_endpoint {
-                        draw_circle_lines(pt.x, pt.y, r, 1.2 * scale, Color::from_rgba(255, 255, 255, 150));
+                        draw_circle_lines(
+                            pt.x,
+                            pt.y,
+                            r,
+                            1.2 * scale,
+                            Color::from_rgba(255, 255, 255, 150),
+                        );
                     }
                 }
                 let edit_idx = app.editing_slide_idx.unwrap_or(0);
@@ -219,19 +345,28 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                     i, edit_idx
                 );
                 draw_rectangle(
-                    rect.x + 8.0 * scale, rect.y + 36.0 * scale,
-                    (rect.w - 16.0 * scale).max(10.0), 24.0 * scale,
+                    rect.x + 8.0 * scale,
+                    rect.y + 36.0 * scale,
+                    (rect.w - 16.0 * scale).max(10.0),
+                    24.0 * scale,
                     Color::from_rgba(250, 204, 21, 60),
                 );
-                draw_text(&banner, rect.x + 14.0 * scale, rect.y + 53.0 * scale,
-                          16.0 * scale, Color::from_rgba(250, 204, 21, 255));
+                draw_text(
+                    &banner,
+                    rect.x + 14.0 * scale,
+                    rect.y + 53.0 * scale,
+                    16.0 * scale,
+                    Color::from_rgba(250, 204, 21, 255),
+                );
             }
         }
     }
 
     let bpms = &app.chart.bpms;
     for (_p_idx, note) in app.chart.notes.iter().enumerate() {
-        if app.hidden_notes.contains(&note.id) { continue; }
+        if app.hidden_notes.contains(&note.id) {
+            continue;
+        }
         let zone = sanitize_note_zone(note.note_type, note.lane);
         let ns = note_secs(note, bpms);
         let dt = ns - current_t;
@@ -244,9 +379,13 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         let tail_dt_scaled = tail_dt / speed_scale;
 
         let lead_time = if zone <= 8 {
-            if matches!(note.note_type, NoteType::Hold) { HOLD_FLY_TIME }
-            else if matches!(note.note_type, NoteType::Slide) { SLIDE_TRAVEL_TIME }
-            else { TAP_TRAVEL_TIME }
+            if matches!(note.note_type, NoteType::Hold) {
+                HOLD_FLY_TIME
+            } else if matches!(note.note_type, NoteType::Slide) {
+                SLIDE_TRAVEL_TIME
+            } else {
+                TAP_TRAVEL_TIME
+            }
         } else {
             match note.note_type {
                 NoteType::Hold => HOLD_TRAVEL_TIME,
@@ -259,43 +398,73 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         } else {
             tail_dt
         };
-        let disappear_time = if matches!(note.note_type, NoteType::Touch) { TOUCH_DISAPPEAR_TIME }
-        else if matches!(note.note_type, NoteType::Slide) { 0.3 }
-        else { 0.18 };
-        if slide_tail_dt < -disappear_time || dt > lead_time {
+        let disappear_time = if matches!(note.note_type, NoteType::Touch) {
+            TOUCH_DISAPPEAR_TIME
+        } else if matches!(note.note_type, NoteType::Slide) {
+            0.3
+        } else {
+            0.18
+        };
+        if slide_tail_dt < -disappear_time || dt_scaled > lead_time {
             continue;
         }
 
         // ── Slide rendering (shared via slide_render module) ──
         if matches!(note.note_type, NoteType::Slide) && !note.slide.is_empty() {
-            let spawn_center = app.pad_svg.as_ref()
+            let spawn_center = app
+                .pad_svg
+                .as_ref()
                 .and_then(|svg| svg.pad_visual_center(&pad))
                 .unwrap_or(vec2(cx, cy));
             if let Some(ref svg) = app.pad_svg {
-                for sl in &note.slide {
+                for (si, sl) in note.slide.iter().enumerate() {
                     let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
-                    let fade_in_s = if let Some(t) = lambda_dx::types::FIXED_SLIDE_FADE_IN {
-                        t
-                    } else {
-                        mdur_to_secs(sl.slide_start_delay, note.time, bpms)
-                    }
-                        .max(0.0).min(slide_dur_s - 0.001).max(0.001);
+                    let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
+                        .max(0.0)
+                        .min(slide_dur_s - 0.001)
+                        .max(0.001);
 
                     let dbl = note.is_star;
-                    let trail_tex = if sl.slide_is_break { app.slide_break_tex.as_ref() }
-                    else if note.is_each { app.slide_each_tex.as_ref() }
-                    else { app.slide_tex.as_ref() };
-                    let star_variant = if note.is_break {
-                        if dbl { app.star_double_break_tex.as_ref() } else { app.star_break_tex.as_ref() }
+                    let trail_tex = if sl.slide_is_break {
+                        app.slide_break_tex.as_ref()
                     } else if note.is_each {
-                        if dbl { app.star_double_each_tex.as_ref() } else { app.star_each_tex.as_ref() }
+                        app.slide_each_tex.as_ref()
                     } else {
-                        if dbl { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() }
+                        app.slide_tex.as_ref()
                     };
-                    let star_fb = if dbl { app.star_double_tex.as_ref() } else { app.star_tex.as_ref() };
+                    let star_variant = if note.is_break {
+                        if dbl {
+                            app.star_double_break_tex.as_ref()
+                        } else {
+                            app.star_break_tex.as_ref()
+                        }
+                    } else if note.is_each {
+                        if dbl {
+                            app.star_double_each_tex.as_ref()
+                        } else {
+                            app.star_each_tex.as_ref()
+                        }
+                    } else {
+                        if dbl {
+                            app.star_double_tex.as_ref()
+                        } else {
+                            app.star_tex.as_ref()
+                        }
+                    };
+                    let star_fb = if dbl {
+                        app.star_double_tex.as_ref()
+                    } else {
+                        app.star_tex.as_ref()
+                    };
                     let ex_variant = if note.is_ex {
-                        if dbl { app.star_double_ex_tex.as_ref() } else { app.star_ex_tex.as_ref() }
-                    } else { None };
+                        if dbl {
+                            app.star_double_ex_tex.as_ref()
+                        } else {
+                            app.star_ex_tex.as_ref()
+                        }
+                    } else {
+                        None
+                    };
 
                     let tex = slide_render::SlideTextures {
                         trail: trail_tex,
@@ -307,10 +476,24 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                     };
 
                     slide_render::draw_slide(
-                        note, sl,
-                        current_t, ns, slide_dur_s, fade_in_s,
-                        &pad, svg, scale, spawn_center, outer_r,
-                        &tex, false, speed_scale,
+                        note,
+                        sl,
+                        current_t,
+                        ns,
+                        slide_dur_s,
+                        fade_in_s,
+                        &pad,
+                        svg,
+                        scale,
+                        spawn_center,
+                        outer_r,
+                        &tex,
+                        false,
+                        speed_scale,
+                        app.slide_progress
+                            .get(&(note.id, si))
+                            .map(|progress| progress.completed_areas)
+                            .unwrap_or(0),
                     );
                 }
             }
@@ -318,55 +501,43 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
 
         if zone <= 8 {
             let idx = (zone - 1) as f32;
-            let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+            let ang =
+                -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
             let dir = vec2(ang.cos(), ang.sin());
-            let head_travel = if matches!(note.note_type, NoteType::Slide) { SLIDE_TRAVEL_TIME } else { TAP_TRAVEL_TIME };
-            let progress = ((head_travel - dt_scaled) / head_travel).clamp(0.0, 1.0);
-            // Phase 1: grow from 0 to 1 at spawn point. Phase 2: fly at full size.
-            let size_scale = if progress < TAP_GROW_FRAC {
-                progress / TAP_GROW_FRAC
+            let head_travel = if matches!(note.note_type, NoteType::Slide) {
+                SLIDE_TRAVEL_TIME
             } else {
-                1.0
+                TAP_TRAVEL_TIME
             };
-            let fly_progress = if progress < TAP_GROW_FRAC {
-                0.0
-            } else {
-                (progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
+            let Some(motion) =
+                note_radial_motion(dt_scaled, head_travel, outer_r, TAP_TARGET_OFFSET)
+            else {
+                continue;
             };
-            let spawn_r = outer_r * TAP_SPAWN_FRAC;
-            let target_r = outer_r + TAP_TARGET_OFFSET;
-            // r = midpoint (grow: fixed at spawn, fly: moves to target)
-            let r = spawn_r + (target_r - spawn_r) * fly_progress;
-            let px = spawn_cx.x + dir.x * r;
-            let py = spawn_cx.y + dir.y * r;
+            let px = spawn_cx.x + dir.x * motion.radius;
+            let py = spawn_cx.y + dir.y * motion.radius;
 
             if matches!(note.note_type, NoteType::Hold) {
-                let h_spawn_r = outer_r * HOLD_SPAWN_FRAC;
-                let h_target_r = outer_r + HOLD_TARGET_OFFSET;
-                let h_progress = ((HOLD_FLY_TIME - dt_scaled) / HOLD_FLY_TIME).clamp(0.0, 1.0);
-                let h_size_scale = if h_progress < TAP_GROW_FRAC { h_progress / TAP_GROW_FRAC } else { 1.0 };
-                let h_fly_progress = if h_progress < TAP_GROW_FRAC { 0.0 } else { (h_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC) };
-                let full_hold_len = (h_target_r - h_spawn_r) * HOLD_LENGTH_FRAC;
-                // Uniform scale: length and width both scale 0→1 during grow
-                let hold_half = (full_hold_len * h_size_scale * 0.5).max(2.0);
-                // Head flies during fly phase using hold's own fly time
-                let head_fly_r = h_spawn_r + (h_target_r - h_spawn_r) * h_fly_progress;
-                let head_r = (head_fly_r + hold_half).min(h_target_r);
-                // Tail lags at spawn, flies to target in last HOLD_TAIL_FLY_TIME seconds
-                let tail_dt = hold_tail_time(note, bpms) - current_t;
-                let tail_fly = if tail_dt_scaled <= HOLD_TAIL_FLY_TIME {
-                    (1.0 - tail_dt_scaled / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                let tail_base = h_spawn_r + (h_target_r - h_spawn_r) * tail_fly;
-                let tail_r = (tail_base - hold_half).max(h_spawn_r * 0.1);
-                let hx = spawn_cx.x + dir.x * head_r;
-                let hy = spawn_cx.y + dir.y * head_r;
+                let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
+                let head_motion =
+                    note_radial_motion(dt_scaled, HOLD_FLY_TIME, outer_r, HOLD_TARGET_OFFSET)
+                        .unwrap_or(lambda_dx::types::NoteMotion {
+                            radius: lock_r,
+                            scale: 0.0,
+                            progress: 0.0,
+                        });
+                let tail_r =
+                    note_radial_motion(tail_dt_scaled, HOLD_FLY_TIME, outer_r, HOLD_TARGET_OFFSET)
+                        .map(|motion| motion.radius)
+                        .unwrap_or(lock_r)
+                        .min(head_motion.radius);
+                let hx = spawn_cx.x + dir.x * head_motion.radius;
+                let hy = spawn_cx.y + dir.y * head_motion.radius;
                 let tx = spawn_cx.x + dir.x * tail_r;
                 let ty = spawn_cx.y + dir.y * tail_r;
-                // Width scales 0→1 during grow, body length stays full
-                let hold_w = HOLD_WIDTH * scale * h_size_scale;
+                // During generation Majdata scales the whole Hold until the
+                // head reaches the lock radius, then keeps the size fixed.
+                let hold_w = HOLD_WIDTH * scale * head_motion.scale;
                 let hold_tex = if note.is_break {
                     app.hold_break_tex.as_ref()
                 } else if note.is_each {
@@ -375,21 +546,45 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                     app.hold_texture.as_ref()
                 };
                 if let Some(tex) = hold_tex.or(app.hold_texture.as_ref()) {
-                    draw_hold_9slice_segment(tex, vec2(hx, hy), vec2(tx, ty), hold_w.max(1.0), Color::from_rgba(255, 255, 255, 255));
+                    draw_hold_9slice_segment(
+                        tex,
+                        vec2(hx, hy),
+                        vec2(tx, ty),
+                        hold_w.max(1.0),
+                        Color::from_rgba(255, 255, 255, 255),
+                    );
                     if note.is_ex {
                         if let Some(ex_tex) = app.hold_ex_tex.as_ref() {
-                            draw_hold_9slice_segment(ex_tex, vec2(hx, hy), vec2(tx, ty), hold_w.max(1.0), Color::from_rgba(255, 255, 255, 255));
+                            draw_hold_9slice_segment(
+                                ex_tex,
+                                vec2(hx, hy),
+                                vec2(tx, ty),
+                                hold_w.max(1.0),
+                                Color::from_rgba(255, 255, 255, 255),
+                            );
                         }
                     }
                 } else {
-                    draw_line(hx, hy, tx, ty, HOLD_WIDTH * 0.233 * scale * h_size_scale, Color::from_rgba(251, 113, 133, 200));
-                    draw_circle(tx, ty, HOLD_WIDTH * 0.167 * scale * h_size_scale, Color::from_rgba(253, 164, 175, 255));
+                    draw_line(
+                        hx,
+                        hy,
+                        tx,
+                        ty,
+                        HOLD_WIDTH * 0.233 * scale * head_motion.scale,
+                        Color::from_rgba(251, 113, 133, 200),
+                    );
+                    draw_circle(
+                        tx,
+                        ty,
+                        HOLD_WIDTH * 0.167 * scale * head_motion.scale,
+                        Color::from_rgba(253, 164, 175, 255),
+                    );
                 }
             }
 
             // Slide head star is now drawn inside slide_render::draw_slide
             if !matches!(note.note_type, NoteType::Hold | NoteType::Slide) {
-                let ts = TAP_SIZE * scale * size_scale;
+                let ts = TAP_SIZE * scale * motion.scale;
                 let tap_tex = if note.is_break {
                     app.tap_break_tex.as_ref()
                 } else if note.is_each {
@@ -398,21 +593,33 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                     app.tap_texture.as_ref()
                 };
                 if let Some(tex) = tap_tex.or(app.tap_texture.as_ref()) {
-                    draw_texture_ex(tex, px - ts * 0.5, py - ts * 0.5, WHITE, DrawTextureParams {
-                        dest_size: Some(vec2(ts, ts)),
-                        ..Default::default()
-                    });
+                    draw_texture_ex(
+                        tex,
+                        px - ts * 0.5,
+                        py - ts * 0.5,
+                        WHITE,
+                        DrawTextureParams {
+                            dest_size: Some(vec2(ts, ts)),
+                            ..Default::default()
+                        },
+                    );
                     // Ex overlay on top, same size
                     if note.is_ex {
                         if let Some(ex_tex) = app.tap_ex_tex.as_ref() {
-                            draw_texture_ex(ex_tex, px - ts * 0.5, py - ts * 0.5, WHITE, DrawTextureParams {
-                                dest_size: Some(vec2(ts, ts)),
-                                ..Default::default()
-                            });
+                            draw_texture_ex(
+                                ex_tex,
+                                px - ts * 0.5,
+                                py - ts * 0.5,
+                                WHITE,
+                                DrawTextureParams {
+                                    dest_size: Some(vec2(ts, ts)),
+                                    ..Default::default()
+                                },
+                            );
                         }
                     }
                 } else {
-                    let tr = TAP_SIZE * 0.375 * scale * size_scale;
+                    let tr = TAP_SIZE * 0.375 * scale * motion.scale;
                     draw_circle(px, py, tr, Color::from_rgba(17, 24, 39, 255));
                     draw_circle_lines(px, py, tr, tr * 0.25, Color::from_rgba(244, 114, 182, 255));
                     draw_circle(px, py, tr * 0.317, Color::from_rgba(249, 168, 212, 255));
@@ -420,7 +627,13 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             }
 
             if dt.abs() <= HIT_WINDOW {
-                draw_circle_lines(px, py, TAP_SIZE * 0.53 * scale, 2.0 * scale, Color::from_rgba(255, 255, 255, 220));
+                draw_circle_lines(
+                    px,
+                    py,
+                    TAP_SIZE * 0.53 * scale,
+                    2.0 * scale,
+                    Color::from_rgba(255, 255, 255, 220),
+                );
             }
         } else {
             let Some(center) = app
@@ -447,20 +660,34 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             } else {
                 (progress - TOUCH_GROW_FRAC) / (1.0 - TOUCH_GROW_FRAC)
             };
-            let dist = (TOUCH_START_DIST + (TOUCH_END_DIST - TOUCH_START_DIST) * move_progress) * TOUCH_SCALE * scale;
+            let dist = (TOUCH_START_DIST + (TOUCH_END_DIST - TOUCH_START_DIST) * move_progress)
+                * TOUCH_SCALE
+                * scale;
             let ts = TOUCH_CROSS_SIZE * TOUCH_SCALE * scale;
 
             // Regular touch cross (skip for hold)
             if !matches!(note.note_type, NoteType::Hold) {
-                let tri_tex = if note.is_each { app.touch_tri_each_tex.as_ref() } else { app.touch_tri_tex.as_ref() };
+                let tri_tex = if note.is_each {
+                    app.touch_tri_each_tex.as_ref()
+                } else {
+                    app.touch_tri_tex.as_ref()
+                };
                 if let Some(tex) = tri_tex {
                     let ratio = tex.width() / tex.height();
                     let tw = ts;
                     let th = ts / ratio;
                     let draw_tri = |cx: f32, cy: f32, rot: f32| {
-                        draw_texture_ex(tex, cx - tw * 0.5, cy - th * 0.5,
-                                        Color::from_rgba(255, 255, 255, alpha),
-                                        DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: rot, ..Default::default() });
+                        draw_texture_ex(
+                            tex,
+                            cx - tw * 0.5,
+                            cy - th * 0.5,
+                            Color::from_rgba(255, 255, 255, alpha),
+                            DrawTextureParams {
+                                dest_size: Some(vec2(tw, th)),
+                                rotation: rot,
+                                ..Default::default()
+                            },
+                        );
                     };
                     draw_tri(center.x, center.y + dist, 0.0);
                     draw_tri(center.x, center.y - dist, std::f32::consts::PI);
@@ -470,70 +697,130 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             }
             // Center dot (for non-hold; hold draws it later on top)
             if !matches!(note.note_type, NoteType::Hold) {
-                let pt_tex = if note.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() };
+                let pt_tex = if note.is_each {
+                    app.touch_point_each_tex.as_ref()
+                } else {
+                    app.touch_point_tex.as_ref()
+                };
                 if let Some(tex) = pt_tex {
                     let ps = ts * 0.4;
-                    draw_texture_ex(tex, center.x - ps * 0.5, center.y - ps * 0.5,
-                                    Color::from_rgba(255, 255, 255, alpha),
-                                    DrawTextureParams { dest_size: Some(vec2(ps, ps)), ..Default::default() });
+                    draw_texture_ex(
+                        tex,
+                        center.x - ps * 0.5,
+                        center.y - ps * 0.5,
+                        Color::from_rgba(255, 255, 255, alpha),
+                        DrawTextureParams {
+                            dest_size: Some(vec2(ps, ps)),
+                            ..Default::default()
+                        },
+                    );
                 }
             }
 
             if matches!(note.note_type, NoteType::Hold) {
                 // Touch hold: 4-texture cross rotated 45°, with progress border
-                let hold_progress = ((current_t - ns) / (hold_tail_time(note, bpms) - ns).max(0.01)).clamp(0.0, 1.0);
-                let hold_dist = (TOUCHHOLD_START_DIST + (TOUCHHOLD_END_DIST - TOUCHHOLD_START_DIST) * move_progress) * TOUCHHOLD_SCALE * scale;
+                let hold_progress = ((current_t - ns)
+                    / (hold_tail_time(note, bpms) - ns).max(0.01))
+                .clamp(0.0, 1.0);
+                let hold_dist = (TOUCHHOLD_START_DIST
+                    + (TOUCHHOLD_END_DIST - TOUCHHOLD_START_DIST) * move_progress)
+                    * TOUCHHOLD_SCALE
+                    * scale;
                 let d = hold_dist * 0.707; // √2/2 for diagonal
                 // Cross rotated 45° CW from regular touch, starting top-right
                 let hts = TOUCHHOLD_CROSS_BASE * TOUCHHOLD_SCALE * scale;
                 let ro = TOUCHHOLD_ROT_OFFSET;
                 let positions = [
-                    (center.x + d, center.y - d, -3.0 * std::f32::consts::FRAC_PI_4 + ro), // top-right (0)
-                    (center.x + d, center.y + d, -std::f32::consts::FRAC_PI_4 + ro),        // bottom-right (1)
-                    (center.x - d, center.y + d, std::f32::consts::FRAC_PI_4 + ro),         // bottom-left (2)
-                    (center.x - d, center.y - d, 3.0 * std::f32::consts::FRAC_PI_4 + ro),   // top-left (3)
+                    (
+                        center.x + d,
+                        center.y - d,
+                        -3.0 * std::f32::consts::FRAC_PI_4 + ro,
+                    ), // top-right (0)
+                    (
+                        center.x + d,
+                        center.y + d,
+                        -std::f32::consts::FRAC_PI_4 + ro,
+                    ), // bottom-right (1)
+                    (center.x - d, center.y + d, std::f32::consts::FRAC_PI_4 + ro), // bottom-left (2)
+                    (
+                        center.x - d,
+                        center.y - d,
+                        3.0 * std::f32::consts::FRAC_PI_4 + ro,
+                    ), // top-left (3)
                 ];
                 for (i, (px, py, rot)) in positions.iter().enumerate() {
                     if let Some(tex) = &app.touchhold_tex[i] {
                         let ratio = tex.width() / tex.height();
                         let tw = hts;
                         let th = hts / ratio;
-                        draw_texture_ex(tex, px - tw * 0.5, py - th * 0.5,
-                                        Color::from_rgba(255, 255, 255, alpha),
-                                        DrawTextureParams { dest_size: Some(vec2(tw, th)), rotation: *rot, ..Default::default() });
+                        draw_texture_ex(
+                            tex,
+                            px - tw * 0.5,
+                            py - th * 0.5,
+                            Color::from_rgba(255, 255, 255, alpha),
+                            DrawTextureParams {
+                                dest_size: Some(vec2(tw, th)),
+                                rotation: *rot,
+                                ..Default::default()
+                            },
+                        );
                     }
                 }
                 // Progress border: shader-based clockwise sweep
                 if let Some(border) = &app.touchhold_border_tex {
                     let bs = TOUCHHOLD_BORDER_BASE * TOUCHHOLD_SCALE * scale;
                     // Ghost ring
-                    draw_texture_ex(border, center.x - bs * 0.5, center.y - bs * 0.5,
-                                    Color::from_rgba(255, 255, 255, 0),
-                                    DrawTextureParams { dest_size: Some(vec2(bs, bs)), ..Default::default() });
+                    draw_texture_ex(
+                        border,
+                        center.x - bs * 0.5,
+                        center.y - bs * 0.5,
+                        Color::from_rgba(255, 255, 255, 0),
+                        DrawTextureParams {
+                            dest_size: Some(vec2(bs, bs)),
+                            ..Default::default()
+                        },
+                    );
                     // Shader sweep
                     if let Some(ref mat) = app.mask_material {
                         macroquad::material::gl_use_material(mat);
                         mat.set_uniform("progress", hold_progress);
                     }
-                    draw_texture_ex(border, center.x - bs * 0.5, center.y - bs * 0.5,
-                                    WHITE,
-                                    DrawTextureParams { dest_size: Some(vec2(bs, bs)), ..Default::default() });
+                    draw_texture_ex(
+                        border,
+                        center.x - bs * 0.5,
+                        center.y - bs * 0.5,
+                        WHITE,
+                        DrawTextureParams {
+                            dest_size: Some(vec2(bs, bs)),
+                            ..Default::default()
+                        },
+                    );
                     if app.mask_material.is_some() {
                         macroquad::material::gl_use_default_material();
                     }
                 }
                 // Center dot on top for hold
-                let pt_tex = if note.is_each { app.touch_point_each_tex.as_ref() } else { app.touch_point_tex.as_ref() };
+                let pt_tex = if note.is_each {
+                    app.touch_point_each_tex.as_ref()
+                } else {
+                    app.touch_point_tex.as_ref()
+                };
                 if let Some(tex) = pt_tex {
                     let ps = hts * 0.4;
-                    draw_texture_ex(tex, center.x - ps * 0.5, center.y - ps * 0.5,
-                                    Color::from_rgba(255, 255, 255, alpha),
-                                    DrawTextureParams { dest_size: Some(vec2(ps, ps)), ..Default::default() });
+                    draw_texture_ex(
+                        tex,
+                        center.x - ps * 0.5,
+                        center.y - ps * 0.5,
+                        Color::from_rgba(255, 255, 255, alpha),
+                        DrawTextureParams {
+                            dest_size: Some(vec2(ps, ps)),
+                            ..Default::default()
+                        },
+                    );
                 }
             }
         }
     }
-
 
     // draw_text(
     //     "Pad zones: A1~A8(Outer) + B1~B8(Inner) + C1(Center) + D1~8(Left) + E1~8(Right)",
@@ -545,20 +832,16 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
 }
 
 pub async fn load_note_textures(app: &mut PlayerState) {
-    let tap_candidates = [
-        "tap.png",
-        "Skins/classic/tap.png",
-        "skins/classic/tap.png",
-    ];
+    let tap_candidates = ["tap.png", "Skins/classic/tap.png", "skins/classic/tap.png"];
     for path in tap_candidates {
         match load_texture(path).await {
-            Ok(tex)=>{
+            Ok(tex) => {
                 tex.set_filter(FilterMode::Linear);
                 app.tap_texture = Some(tex);
                 break;
-            },
-            Err(e)=>{
-                println!("e:{}",e);
+            }
+            Err(e) => {
+                println!("e:{}", e);
             }
         }
     }
@@ -622,7 +905,10 @@ pub async fn load_note_textures(app: &mut PlayerState) {
         }
     }
     // Touch hold textures (4-frame cross, rotated 45°)
-    for (i, name) in ["touchhold_0", "touchhold_1", "touchhold_2", "touchhold_3"].iter().enumerate() {
+    for (i, name) in ["touchhold_0", "touchhold_1", "touchhold_2", "touchhold_3"]
+        .iter()
+        .enumerate()
+    {
         for path in [format!("Skins/classic/{name}.png"), format!("{name}.png")] {
             if let Ok(tex) = load_texture(&path).await {
                 tex.set_filter(FilterMode::Linear);
@@ -654,7 +940,10 @@ pub async fn load_note_textures(app: &mut PlayerState) {
         }
     }
     for i in 0..11 {
-        for path in [format!("Skins/classic/wifi_{i}.png"), format!("wifi_{i}.png")] {
+        for path in [
+            format!("Skins/classic/wifi_{i}.png"),
+            format!("wifi_{i}.png"),
+        ] {
             if let Ok(tex) = load_texture(&path).await {
                 tex.set_filter(FilterMode::Linear);
                 app.wifi_tex[i as usize] = Some(tex);
@@ -722,7 +1011,10 @@ pub async fn load_note_textures(app: &mut PlayerState) {
             break;
         }
     }
-    for path in ["Skins/classic/star_double_break.png", "star_double_break.png"] {
+    for path in [
+        "Skins/classic/star_double_break.png",
+        "star_double_break.png",
+    ] {
         if let Ok(tex) = load_texture(path).await {
             tex.set_filter(FilterMode::Linear);
             app.star_double_break_tex = Some(tex);
@@ -762,7 +1054,9 @@ pub async fn load_note_textures(app: &mut PlayerState) {
     if app.tap_texture.is_none() {
         app.set_status("tap texture not found (tried tap.png / Skins/classic/tap.png)".to_string());
     } else if app.hold_texture.is_none() {
-        app.set_status("hold texture not found (tried hold.png / Skins/classic/hold.png)".to_string());
+        app.set_status(
+            "hold texture not found (tried hold.png / Skins/classic/hold.png)".to_string(),
+        );
     }
 }
 

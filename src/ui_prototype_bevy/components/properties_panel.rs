@@ -1,6 +1,6 @@
-use egui_macroquad::egui::{self, Vec2, Color32, CornerRadius, Stroke, StrokeKind};
 use super::button::*;
 use crate::ui_prototype_bevy::style::*;
+use egui_macroquad::egui::{self, Color32, CornerRadius, Stroke, StrokeKind, Vec2};
 
 pub fn draw(ui: &mut egui::Ui) {
     egui::Frame::new()
@@ -34,16 +34,34 @@ fn draw_scene_hierarchy(ui: &mut egui::Ui) {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Scene").color(TEXT_PRIMARY).size(13.0));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                // Search icon
-                                let (rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 16.0), egui::Sense::hover());
-                                ui.painter().circle_stroke(rect.center(), 6.0, Stroke::new(1.5_f32, TEXT_DIM));
-                                ui.painter().line_segment(
-                                    [egui::pos2(rect.center().x + 4.0, rect.center().y + 4.0),
-                                     egui::pos2(rect.center().x + 8.0, rect.center().y + 8.0)],
-                                    Stroke::new(1.5_f32, TEXT_DIM),
-                                );
-                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    // Search icon
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        Vec2::new(16.0, 16.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().circle_stroke(
+                                        rect.center(),
+                                        6.0,
+                                        Stroke::new(1.5_f32, TEXT_DIM),
+                                    );
+                                    ui.painter().line_segment(
+                                        [
+                                            egui::pos2(
+                                                rect.center().x + 4.0,
+                                                rect.center().y + 4.0,
+                                            ),
+                                            egui::pos2(
+                                                rect.center().x + 8.0,
+                                                rect.center().y + 8.0,
+                                            ),
+                                        ],
+                                        Stroke::new(1.5_f32, TEXT_DIM),
+                                    );
+                                },
+                            );
                         });
                     });
 
@@ -61,17 +79,26 @@ fn draw_scene_hierarchy(ui: &mut egui::Ui) {
 }
 
 fn draw_tree_item(ui: &mut egui::Ui, icon: &str, name: &str, selected: bool, indent: usize) {
-    let bg = if selected { BG_HIGHLIGHT } else { Color32::TRANSPARENT };
+    let bg = if selected {
+        BG_HIGHLIGHT
+    } else {
+        Color32::TRANSPARENT
+    };
     let h = 24.0;
     let indent_w = indent as f32 * 16.0;
 
     let btn = ui.allocate_response(Vec2::new(ui.available_width(), h), egui::Sense::click());
     if bg != Color32::TRANSPARENT {
-        ui.painter().rect_filled(btn.rect, CornerRadius::same(3), bg);
+        ui.painter()
+            .rect_filled(btn.rect, CornerRadius::same(3), bg);
     }
 
     if btn.hovered() && !selected {
-        ui.painter().rect_filled(btn.rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(255, 255, 255, 8));
+        ui.painter().rect_filled(
+            btn.rect,
+            CornerRadius::same(3),
+            Color32::from_rgba_premultiplied(255, 255, 255, 8),
+        );
     }
 
     ui.painter().text(
@@ -97,15 +124,22 @@ fn draw_properties(ui: &mut egui::Ui) {
                     .inner_margin(egui::Margin::symmetric(8, 4))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Inspector").color(TEXT_PRIMARY).size(13.0));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                // Dots menu
-                                for i in 0..3 {
-                                    let x = ui.cursor().right() - 4.0 - i as f32 * 8.0;
-                                    let y = ui.cursor().center().y;
-                                    ui.painter().circle_filled(egui::pos2(x, y), 2.0, TEXT_DIM);
-                                }
-                            });
+                            ui.label(
+                                egui::RichText::new("Inspector")
+                                    .color(TEXT_PRIMARY)
+                                    .size(13.0),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    // Dots menu
+                                    for i in 0..3 {
+                                        let x = ui.cursor().right() - 4.0 - i as f32 * 8.0;
+                                        let y = ui.cursor().center().y;
+                                        ui.painter().circle_filled(egui::pos2(x, y), 2.0, TEXT_DIM);
+                                    }
+                                },
+                            );
                         });
                     });
 
@@ -138,11 +172,25 @@ fn draw_properties(ui: &mut egui::Ui) {
 
                 // Color swatch
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Color").color(TEXT_SECONDARY).size(12.0));
+                    ui.label(
+                        egui::RichText::new("Color")
+                            .color(TEXT_SECONDARY)
+                            .size(12.0),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let swatch_rect = ui.allocate_response(Vec2::new(60.0, 18.0), egui::Sense::hover());
-                        ui.painter().rect_filled(swatch_rect.rect, CornerRadius::same(3), Color32::from_rgb(100, 149, 237));
-                        ui.painter().rect_stroke(swatch_rect.rect, CornerRadius::same(3), Stroke::new(1.0_f32, BORDER), StrokeKind::Outside);
+                        let swatch_rect =
+                            ui.allocate_response(Vec2::new(60.0, 18.0), egui::Sense::hover());
+                        ui.painter().rect_filled(
+                            swatch_rect.rect,
+                            CornerRadius::same(3),
+                            Color32::from_rgb(100, 149, 237),
+                        );
+                        ui.painter().rect_stroke(
+                            swatch_rect.rect,
+                            CornerRadius::same(3),
+                            Stroke::new(1.0_f32, BORDER),
+                            StrokeKind::Outside,
+                        );
                     });
                 });
 
@@ -166,8 +214,14 @@ fn draw_property_row(ui: &mut egui::Ui, label: &str, value: &str) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Value box
             let val_rect = ui.allocate_response(Vec2::new(140.0, 20.0), egui::Sense::hover());
-            ui.painter().rect_filled(val_rect.rect, CornerRadius::same(3), BG_INPUT);
-            ui.painter().rect_stroke(val_rect.rect, CornerRadius::same(3), Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(255, 255, 255, 8)), StrokeKind::Outside);
+            ui.painter()
+                .rect_filled(val_rect.rect, CornerRadius::same(3), BG_INPUT);
+            ui.painter().rect_stroke(
+                val_rect.rect,
+                CornerRadius::same(3),
+                Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(255, 255, 255, 8)),
+                StrokeKind::Outside,
+            );
             ui.painter().text(
                 egui::pos2(val_rect.rect.left() + 6.0, val_rect.rect.center().y),
                 egui::Align2::LEFT_CENTER,

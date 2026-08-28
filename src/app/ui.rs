@@ -9,16 +9,17 @@ use super::template;
 use super::types::zone::PadZone;
 use super::types::{
     FIXED_SLIDE_FADE_IN, GRID_DIVISION, HIT_WINDOW, HOLD_DISAPPEAR_FRAC, HOLD_FLY_TIME,
-    HOLD_SPAWN_FRAC, HOLD_TAIL_FLY_TIME, HOLD_TRAVEL_TIME, HOLD_WIDTH, LANE_COUNT, LANE_LABELS,
-    Layout, Mode, NoteType, PAD_C_ZONE, PAD_ROTATION_RAD, PREVIEW_LEAD_TIME, PadGeom, RectF,
-    SCROLL_SPEED, SLIDE_TILE_SCALE, SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, SLIDE_TRAVEL_TIME,
-    SPEED_MAX, SPEED_MIN, SPEED_STEP, STAR_SIZE, SlideShape, TAP_DISAPPEAR_FRAC, TAP_GROW_FRAC,
-    TAP_RING_OFFSET, TAP_SIZE, TAP_SPAWN_FRAC, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME,
+    HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, LANE_COUNT, LANE_LABELS, Layout, Mode,
+    NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType, PAD_C_ZONE, PAD_ROTATION_RAD,
+    PREVIEW_LEAD_TIME, PadGeom, RectF, SCROLL_SPEED, SLIDE_TILE_SCALE, SLIDE_TILE_SIZE,
+    SLIDE_TILE_SPACING, SLIDE_TRAVEL_TIME, SPEED_MAX, SPEED_MIN, SPEED_STEP, STAR_SIZE, SlideShape,
+    TAP_DISAPPEAR_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME,
     TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE,
     TOUCH_SIZE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE,
     TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, UiAction,
-    UiButton, bpm_at, hold_tail_time, is_touch_zone, mdur_to_secs, measure_to_secs, note_secs,
-    sanitize_note_zone, secs_to_measure, slide_end_time, snap_measure,
+    UiButton, bpm_at, hold_tail_time, is_touch_zone, mdur_to_secs, measure_to_secs,
+    note_radial_motion, note_secs, sanitize_note_zone, secs_to_measure, slide_end_time,
+    snap_measure,
 };
 use crate::app::slide::path::*;
 
@@ -612,35 +613,23 @@ fn hold_pad_segment_geometry(
     tail_dt_scaled: f32,
     scale: f32,
 ) -> (Vec2, Vec2, f32, f32) {
-    const HOLD_COMPACT_LEN_TO_WIDTH: f32 = 0.46;
-
-    let h_spawn_r = outer_r * HOLD_SPAWN_FRAC;
-    let h_target_r = outer_r + TAP_TARGET_OFFSET;
-    let h_progress = ((HOLD_FLY_TIME - dt_scaled) / HOLD_FLY_TIME).clamp(0.0, 1.0);
-    let h_size_scale = if h_progress < TAP_GROW_FRAC {
-        h_progress / TAP_GROW_FRAC
-    } else {
-        1.0
-    };
-    let h_fly_progress = if h_progress < TAP_GROW_FRAC {
-        0.0
-    } else {
-        (h_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
-    };
-    let head_fly_r = h_spawn_r + (h_target_r - h_spawn_r) * h_fly_progress;
-    let head_r = head_fly_r.min(h_target_r);
-    let hold_w = (HOLD_WIDTH * scale * h_size_scale).max(1.0);
-    let compact_len = (hold_w * HOLD_COMPACT_LEN_TO_WIDTH).max(2.0);
-    let compact_tail_r = (head_r - compact_len).max(h_spawn_r * 0.1);
-    let tail_fly = if tail_dt_scaled <= HOLD_TAIL_FLY_TIME {
-        (1.0 - tail_dt_scaled / HOLD_TAIL_FLY_TIME).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let tail_r = (compact_tail_r + (h_target_r - compact_tail_r) * tail_fly).min(head_r);
-    let head = spawn_cx + dir * head_r;
+    let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
+    let head_motion = note_radial_motion(dt_scaled, HOLD_FLY_TIME, outer_r, HOLD_TARGET_OFFSET)
+        .unwrap_or(super::types::NoteMotion {
+            radius: lock_r,
+            scale: 0.0,
+            progress: 0.0,
+        });
+    let tail_r = note_radial_motion(tail_dt_scaled, HOLD_FLY_TIME, outer_r, HOLD_TARGET_OFFSET)
+        .map(|motion| motion.radius)
+        .unwrap_or(lock_r)
+        .min(head_motion.radius);
     let tail = spawn_cx + dir * tail_r;
-    (head, tail, hold_w, h_size_scale)
+    let head = spawn_cx + dir * head_motion.radius;
+    // Match HoldDrop: scale the whole generated note until the head reaches
+    // the lock radius, then keep its full size while it travels outward.
+    let hold_w = (HOLD_WIDTH * scale * head_motion.scale).max(1.0);
+    (head, tail, hold_w, head_motion.scale)
 }
 
 pub fn draw_pad_only(app: &AppState, pad: PadGeom, rect: RectF) {
@@ -1000,7 +989,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         } else {
             0.18
         };
-        if slide_tail_dt < -disappear_time || dt > lead_time {
+        if slide_tail_dt < -disappear_time || dt_scaled > lead_time {
             continue;
         }
 
@@ -1014,14 +1003,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             if let Some(ref svg) = app.pad_svg {
                 for sl in &note.slide {
                     let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
-                    let fade_in_s = if let Some(t) = FIXED_SLIDE_FADE_IN {
-                        t
-                    } else {
-                        mdur_to_secs(sl.slide_start_delay, note.time, bpms)
-                    }
-                    .max(0.0)
-                    .min(slide_dur_s - 0.001)
-                    .max(0.001);
+                    let start_delay_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms);
 
                     let dbl = note.is_star;
                     let trail_tex = if sl.slide_is_break {
@@ -1080,7 +1062,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         current_t,
                         ns,
                         slide_dur_s,
-                        fade_in_s,
+                        start_delay_s,
                         &pad,
                         svg,
                         scale,
@@ -1089,6 +1071,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         &tex,
                         false,
                         speed_scale,
+                        0,
                     );
                 }
             }
@@ -1117,24 +1100,13 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             } else {
                 TAP_TRAVEL_TIME
             };
-            let progress = ((head_travel - dt_scaled) / head_travel).clamp(0.0, 1.0);
-            // Phase 1: grow from 0 to 1 at spawn point. Phase 2: fly at full size.
-            let size_scale = if progress < TAP_GROW_FRAC {
-                progress / TAP_GROW_FRAC
-            } else {
-                1.0
+            let Some(motion) =
+                note_radial_motion(dt_scaled, head_travel, outer_r, TAP_TARGET_OFFSET)
+            else {
+                continue;
             };
-            let fly_progress = if progress < TAP_GROW_FRAC {
-                0.0
-            } else {
-                (progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
-            };
-            let spawn_r = outer_r * TAP_SPAWN_FRAC;
-            let target_r = outer_r + TAP_TARGET_OFFSET;
-            // r = midpoint (grow: fixed at spawn, fly: moves to target)
-            let r = spawn_r + (target_r - spawn_r) * fly_progress;
-            let px = spawn_cx.x + dir.x * r;
-            let py = spawn_cx.y + dir.y * r;
+            let px = spawn_cx.x + dir.x * motion.radius;
+            let py = spawn_cx.y + dir.y * motion.radius;
 
             if matches!(note.note_type, NoteType::Hold) {
                 let (head, tail, hold_w, h_size_scale) = hold_pad_segment_geometry(
@@ -1191,7 +1163,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
             // Slide head star is now drawn inside slide_render::draw_slide
             if !matches!(note.note_type, NoteType::Hold | NoteType::Slide) {
-                let ts = TAP_SIZE * scale * size_scale;
+                let ts = TAP_SIZE * scale * motion.scale;
                 let tap_tex = if note.is_break {
                     app.tap_break_tex.as_ref()
                 } else if note.is_each {
@@ -1226,7 +1198,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         }
                     }
                 } else {
-                    let tr = TAP_SIZE * 0.375 * scale * size_scale;
+                    let tr = TAP_SIZE * 0.375 * scale * motion.scale;
                     draw_circle(px, py, tr, Color::from_rgba(17, 24, 39, 255));
                     draw_circle_lines(px, py, tr, tr * 0.25, Color::from_rgba(244, 114, 182, 255));
                     draw_circle(px, py, tr * 0.317, Color::from_rgba(249, 168, 212, 255));
@@ -1326,9 +1298,9 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
             if matches!(note.note_type, NoteType::Hold) {
                 // Touch hold: 4-texture cross rotated 45°, with progress border
-                let hold_progress =
-                    ((current_t - ns) / (hold_tail_time(note, bpms) - ns).max(0.01))
-                        .clamp(0.0, 1.0);
+                let hold_progress = ((current_t - ns)
+                    / (hold_tail_time(note, bpms) - ns).max(0.01))
+                .clamp(0.0, 1.0);
                 let hold_dist = (TOUCHHOLD_START_DIST
                     + (TOUCHHOLD_END_DIST - TOUCHHOLD_START_DIST) * move_progress)
                     * TOUCHHOLD_SCALE
@@ -1472,7 +1444,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     } else {
                         dt
                     };
-                    if slide_tail_dt < -disappear_time || dt > lead_time {
+                    if slide_tail_dt < -disappear_time || dt_scaled > lead_time {
                         continue;
                     }
 
@@ -1487,10 +1459,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             for sl in &note.slide {
                                 let slide_dur_s =
                                     mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
-                                let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
-                                    .max(0.0)
-                                    .min(slide_dur_s - 0.001)
-                                    .max(0.001);
+                                let start_delay_s =
+                                    mdur_to_secs(sl.slide_start_delay, note.time, bpms);
                                 let trail_tex = if sl.slide_is_break {
                                     app.slide_break_tex.as_ref()
                                 } else if note.is_each {
@@ -1521,7 +1491,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                                     current_t,
                                     ns,
                                     slide_dur_s,
-                                    fade_in_s,
+                                    start_delay_s,
                                     &pad,
                                     svg,
                                     scale,
@@ -1530,6 +1500,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                                     &tex,
                                     false,
                                     speed_scale,
+                                    0,
                                 );
                             }
                         }
@@ -1546,22 +1517,13 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         } else {
                             TAP_TRAVEL_TIME
                         };
-                        let progress = ((head_travel - dt) / head_travel).clamp(0.0, 1.0);
-                        let size_scale = if progress < TAP_GROW_FRAC {
-                            progress / TAP_GROW_FRAC
-                        } else {
-                            1.0
+                        let Some(motion) =
+                            note_radial_motion(dt_scaled, head_travel, outer_r, TAP_TARGET_OFFSET)
+                        else {
+                            continue;
                         };
-                        let fly_progress = if progress < TAP_GROW_FRAC {
-                            0.0
-                        } else {
-                            (progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
-                        };
-                        let spawn_r = outer_r * TAP_SPAWN_FRAC;
-                        let target_r = outer_r + TAP_TARGET_OFFSET;
-                        let r = spawn_r + (target_r - spawn_r) * fly_progress;
-                        let px = spawn_cx.x + dir.x * r;
-                        let py = spawn_cx.y + dir.y * r;
+                        let px = spawn_cx.x + dir.x * motion.radius;
+                        let py = spawn_cx.y + dir.y * motion.radius;
 
                         // Hold rendering
                         if matches!(note.note_type, NoteType::Hold) {
@@ -1597,7 +1559,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
 
                         // Tap/Touch rendering (not Hold, not Slide)
                         if !matches!(note.note_type, NoteType::Hold | NoteType::Slide) {
-                            let ts = TAP_SIZE * scale * size_scale;
+                            let ts = TAP_SIZE * scale * motion.scale;
                             if let Some(tex) = app.tap_texture.as_ref() {
                                 draw_texture_ex(
                                     tex,
@@ -1610,7 +1572,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                                     },
                                 );
                             } else {
-                                let tr = TAP_SIZE * 0.375 * scale * size_scale;
+                                let tr = TAP_SIZE * 0.375 * scale * motion.scale;
                                 draw_circle(px, py, tr, Color::from_rgba(50, 70, 120, 255));
                                 draw_circle_lines(px, py, tr, tr * 0.25, tpl_color);
                             }

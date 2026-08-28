@@ -118,12 +118,16 @@ fn draw_song_detail(ui: &mut egui::Ui, app: &mut PlayerState) {
     let artist = if app.player_ui.using_custom_song {
         app.chart.artist.clone()
     } else {
-        song.map(|entry| entry.artist.as_str()).unwrap_or("").to_owned()
+        song.map(|entry| entry.artist.as_str())
+            .unwrap_or("")
+            .to_owned()
     };
     let descriptor = if app.player_ui.using_custom_song {
         "本地导入谱面".to_owned()
     } else {
-        song.map(|entry| entry.descriptor.as_str()).unwrap_or("").to_owned()
+        song.map(|entry| entry.descriptor.as_str())
+            .unwrap_or("")
+            .to_owned()
     };
     ui.vertical_centered(|ui| {
         let width = ui.available_width().min(320.0);

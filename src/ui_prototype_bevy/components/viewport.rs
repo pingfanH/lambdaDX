@@ -1,5 +1,5 @@
-use egui_macroquad::egui::{self, Color32, Stroke, Pos2};
 use crate::ui_prototype_bevy::style::*;
+use egui_macroquad::egui::{self, Color32, Pos2, Stroke};
 
 pub fn draw(ui: &mut egui::Ui) {
     egui::Frame::new()
@@ -72,8 +72,10 @@ fn draw_3d_grid(painter: &egui::Painter, rect: egui::Rect) {
         let x = cx - grid_w * 0.5 + grid_w * t;
         let top_offset = (t - 0.5).abs() * grid_h * 0.3;
         painter.line_segment(
-            [Pos2::new(x, cy - grid_h * 0.5 + top_offset),
-             Pos2::new(x, cy + grid_h * 0.5 - top_offset)],
+            [
+                Pos2::new(x, cy - grid_h * 0.5 + top_offset),
+                Pos2::new(x, cy + grid_h * 0.5 - top_offset),
+            ],
             Stroke::new(1.0_f32, grid_color),
         );
     }
@@ -112,7 +114,10 @@ fn draw_axes(painter: &egui::Painter, rect: egui::Rect) {
 
     // Z axis (blue) - diagonal for perspective
     painter.line_segment(
-        [Pos2::new(cx, cy), Pos2::new(cx - axis_len * 0.7, cy - axis_len * 0.5)],
+        [
+            Pos2::new(cx, cy),
+            Pos2::new(cx - axis_len * 0.7, cy - axis_len * 0.5),
+        ],
         Stroke::new(2.0_f32, Color32::from_rgb(60, 100, 220)),
     );
     painter.text(
@@ -134,20 +139,92 @@ fn draw_camera_hint(painter: &egui::Painter, rect: egui::Rect) {
     let color = Color32::from_rgba_premultiplied(200, 200, 200, 60);
 
     // Near plane
-    painter.line_segment([Pos2::new(cx - w * 0.3, cy - h * 0.3), Pos2::new(cx + w * 0.3, cy - h * 0.3)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx + w * 0.3, cy - h * 0.3), Pos2::new(cx + w * 0.3, cy + h * 0.3)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx + w * 0.3, cy + h * 0.3), Pos2::new(cx - w * 0.3, cy + h * 0.3)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx - w * 0.3, cy + h * 0.3), Pos2::new(cx - w * 0.3, cy - h * 0.3)], Stroke::new(1.0_f32, color));
+    painter.line_segment(
+        [
+            Pos2::new(cx - w * 0.3, cy - h * 0.3),
+            Pos2::new(cx + w * 0.3, cy - h * 0.3),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx + w * 0.3, cy - h * 0.3),
+            Pos2::new(cx + w * 0.3, cy + h * 0.3),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx + w * 0.3, cy + h * 0.3),
+            Pos2::new(cx - w * 0.3, cy + h * 0.3),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx - w * 0.3, cy + h * 0.3),
+            Pos2::new(cx - w * 0.3, cy - h * 0.3),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
 
     // Far plane
-    painter.line_segment([Pos2::new(cx - w * 0.5 - d, cy - h * 0.5 - d * 0.5), Pos2::new(cx + w * 0.5 + d, cy - h * 0.5 - d * 0.5)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx + w * 0.5 + d, cy - h * 0.5 - d * 0.5), Pos2::new(cx + w * 0.5 + d, cy + h * 0.5 + d * 0.5)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx + w * 0.5 + d, cy + h * 0.5 + d * 0.5), Pos2::new(cx - w * 0.5 - d, cy + h * 0.5 + d * 0.5)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx - w * 0.5 - d, cy + h * 0.5 + d * 0.5), Pos2::new(cx - w * 0.5 - d, cy - h * 0.5 - d * 0.5)], Stroke::new(1.0_f32, color));
+    painter.line_segment(
+        [
+            Pos2::new(cx - w * 0.5 - d, cy - h * 0.5 - d * 0.5),
+            Pos2::new(cx + w * 0.5 + d, cy - h * 0.5 - d * 0.5),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx + w * 0.5 + d, cy - h * 0.5 - d * 0.5),
+            Pos2::new(cx + w * 0.5 + d, cy + h * 0.5 + d * 0.5),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx + w * 0.5 + d, cy + h * 0.5 + d * 0.5),
+            Pos2::new(cx - w * 0.5 - d, cy + h * 0.5 + d * 0.5),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx - w * 0.5 - d, cy + h * 0.5 + d * 0.5),
+            Pos2::new(cx - w * 0.5 - d, cy - h * 0.5 - d * 0.5),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
 
     // Connecting lines
-    painter.line_segment([Pos2::new(cx - w * 0.3, cy - h * 0.3), Pos2::new(cx - w * 0.5 - d, cy - h * 0.5 - d * 0.5)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx + w * 0.3, cy - h * 0.3), Pos2::new(cx + w * 0.5 + d, cy - h * 0.5 - d * 0.5)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx + w * 0.3, cy + h * 0.3), Pos2::new(cx + w * 0.5 + d, cy + h * 0.5 + d * 0.5)], Stroke::new(1.0_f32, color));
-    painter.line_segment([Pos2::new(cx - w * 0.3, cy + h * 0.3), Pos2::new(cx - w * 0.5 - d, cy + h * 0.5 + d * 0.5)], Stroke::new(1.0_f32, color));
+    painter.line_segment(
+        [
+            Pos2::new(cx - w * 0.3, cy - h * 0.3),
+            Pos2::new(cx - w * 0.5 - d, cy - h * 0.5 - d * 0.5),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx + w * 0.3, cy - h * 0.3),
+            Pos2::new(cx + w * 0.5 + d, cy - h * 0.5 - d * 0.5),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx + w * 0.3, cy + h * 0.3),
+            Pos2::new(cx + w * 0.5 + d, cy + h * 0.5 + d * 0.5),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cx - w * 0.3, cy + h * 0.3),
+            Pos2::new(cx - w * 0.5 - d, cy + h * 0.5 + d * 0.5),
+        ],
+        Stroke::new(1.0_f32, color),
+    );
 }

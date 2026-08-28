@@ -7,7 +7,7 @@ use lambda_dx::types::{
     SlideShape, UiAction, UiButton,
 };
 use lambda_dx::ui::rect_contains;
-use macroquad::input::{KeyCode, TouchPhase, is_key_pressed};
+use macroquad::input::{KeyCode, TouchPhase, is_key_pressed, is_key_released};
 
 fn update_active_sensor_hold(app: &mut PlayerState, pointer_id: u64, zone: Option<PadZone>) {
     if let Some(zone) = zone {
@@ -107,11 +107,21 @@ pub fn handle_lane_input(app: &mut PlayerState) {
     ];
 
     for (key, lane) in bindings {
+        let input_id = u64::MAX - 100 - lane as u64;
         if is_key_pressed(key) {
+            app.active_pointer_zones
+                .insert(input_id, PadZone::from(lane));
+            app.active_sensor_holds
+                .insert(input_id, PadZone::from(lane));
             app.push_feedback(PadZone::from(lane), 0.12);
+            app.judge_input(PadZone::from(lane));
             if let (Some(sfx), Some(player)) = (&app.sfx_tap, &mut app.sfx_player) {
                 player.play(sfx, 1.0);
             }
+        }
+        if is_key_released(key) {
+            app.active_pointer_zones.remove(&input_id);
+            app.active_sensor_holds.remove(&input_id);
         }
     }
 }
@@ -254,6 +264,7 @@ pub fn handle_touch_controls(
                     app.active_pointer_zones.insert(ev.id, zone);
                     update_active_sensor_hold(app, ev.id, Some(zone));
                     app.push_feedback(zone, 0.12);
+                    app.judge_input(zone);
                     //app.start_record_hold_input(RecordInputId::Pointer(ev.id), zone);
                 }
             }
@@ -339,6 +350,10 @@ pub fn handle_global_hotkeys(app: &mut PlayerState) {
             }
             PlayerPage::Start | PlayerPage::SongSelect | PlayerPage::Settings => {}
         }
+    }
+    if is_key_pressed(KeyCode::A) {
+        app.autoplay = !app.autoplay;
+        app.set_status(format!("Autoplay: {}", app.autoplay));
     }
     if is_key_pressed(KeyCode::R) && app.player_ui.page == PlayerPage::Gameplay {
         app.toggle_replay();

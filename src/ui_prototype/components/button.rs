@@ -1,5 +1,5 @@
-use egui_macroquad::egui::{self, Color32, Vec2, CornerRadius, Stroke, Align2, FontId, StrokeKind};
 use crate::ui_prototype::style::*;
+use egui_macroquad::egui::{self, Align2, Color32, CornerRadius, FontId, Stroke, StrokeKind, Vec2};
 
 /// Reusable button component matching Bevy Editor style
 pub struct Button<'a> {
@@ -25,13 +25,13 @@ impl<'a> Button<'a> {
     /// Draw the button and return true if clicked
     pub fn show(self, ui: &mut egui::Ui) -> bool {
         if self.kind == ButtonKind::Separator {
-            let (rect, _) = ui.allocate_exact_size(
-                Vec2::new(1.0, self.size.y),
-                egui::Sense::hover(),
-            );
+            let (rect, _) =
+                ui.allocate_exact_size(Vec2::new(1.0, self.size.y), egui::Sense::hover());
             ui.painter().line_segment(
-                [egui::pos2(rect.center().x, rect.top() + 4.0),
-                 egui::pos2(rect.center().x, rect.bottom() - 4.0)],
+                [
+                    egui::pos2(rect.center().x, rect.top() + 4.0),
+                    egui::pos2(rect.center().x, rect.bottom() - 4.0),
+                ],
                 Stroke::new(1.0_f32, SEPARATOR),
             );
             return false;
@@ -56,11 +56,20 @@ impl<'a> Button<'a> {
         ui.painter().rect_filled(rect, CornerRadius::same(4), bg);
 
         // Draw border
-        ui.painter().rect_stroke(rect, CornerRadius::same(4), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+        ui.painter().rect_stroke(
+            rect,
+            CornerRadius::same(4),
+            Stroke::new(1.0_f32, BUTTON_BORDER),
+            StrokeKind::Outside,
+        );
 
         // Hover effect
         if btn.hovered() {
-            ui.painter().rect_filled(rect, CornerRadius::same(4), Color32::from_rgba_premultiplied(255, 255, 255, 10));
+            ui.painter().rect_filled(
+                rect,
+                CornerRadius::same(4),
+                Color32::from_rgba_premultiplied(255, 255, 255, 10),
+            );
         }
 
         // Draw text
@@ -85,13 +94,26 @@ pub fn icon_button(ui: &mut egui::Ui, icon: &str, active: bool) -> bool {
     let rect = btn.rect;
 
     ui.painter().rect_filled(rect, CornerRadius::same(5), bg);
-    ui.painter().rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0_f32, BUTTON_BORDER), StrokeKind::Outside);
+    ui.painter().rect_stroke(
+        rect,
+        CornerRadius::same(5),
+        Stroke::new(1.0_f32, BUTTON_BORDER),
+        StrokeKind::Outside,
+    );
 
     if btn.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(5), Color32::from_rgba_premultiplied(255, 255, 255, 10));
+        ui.painter().rect_filled(
+            rect,
+            CornerRadius::same(5),
+            Color32::from_rgba_premultiplied(255, 255, 255, 10),
+        );
     }
 
-    let text_color = if active { Color32::WHITE } else { TEXT_SECONDARY };
+    let text_color = if active {
+        Color32::WHITE
+    } else {
+        TEXT_SECONDARY
+    };
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,
@@ -106,7 +128,11 @@ pub fn icon_button(ui: &mut egui::Ui, icon: &str, active: bool) -> bool {
 /// Draw a section header
 pub fn section_header(ui: &mut egui::Ui, label: &str) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).color(TEXT_PRIMARY).size(FONT_HEADER));
+        ui.label(
+            egui::RichText::new(label)
+                .color(TEXT_PRIMARY)
+                .size(FONT_HEADER),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(egui::RichText::new("▼").color(TEXT_DIM).size(FONT_SMALL));
         });
@@ -116,9 +142,17 @@ pub fn section_header(ui: &mut egui::Ui, label: &str) {
 /// Draw a value row (label + value)
 pub fn value_row(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).color(TEXT_SECONDARY).size(FONT_BODY));
+        ui.label(
+            egui::RichText::new(label)
+                .color(TEXT_SECONDARY)
+                .size(FONT_BODY),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(egui::RichText::new(value).color(TEXT_PRIMARY).size(FONT_BODY));
+            ui.label(
+                egui::RichText::new(value)
+                    .color(TEXT_PRIMARY)
+                    .size(FONT_BODY),
+            );
         });
     });
 }
