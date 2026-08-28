@@ -448,13 +448,13 @@ fn parse_one_slide(s: &str, time_s: f32, beat_s: f32) -> Option<ParsedSlide> {
         })
         .collect();
 
-    // Convert seconds to measures for the Note/Slide types
+    // Convert seconds to measures for the Note/Slide types. `dur_s` is the
+    // total span from the head (travel + delay), matching the runtime model.
     let time_measure = secs_to_measure(time_s, &[]);
-    let slide_dur_measure = secs_to_measure(time_s + dur_s, &[]) - time_measure;
     let delay_measure = secs_to_measure(time_s + delay_s, &[]) - time_measure;
-
-    let dur_s = dur_s.max(0.1);
+    let dur_s = (dur_s + delay_s).max(0.1);
     let delay_s = delay_s.max(0.0).min(dur_s - 0.001);
+    let slide_dur_measure = secs_to_measure(time_s + dur_s, &[]) - time_measure;
 
     let note = Note {
         time: time_measure,

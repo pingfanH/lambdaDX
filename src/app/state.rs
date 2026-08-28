@@ -800,6 +800,7 @@ impl AppState {
                         self.hit_sounds_played.insert(slide_key);
                     }
                     let slide_end_key = i * 100 + si + self.chart.notes.len() * 4;
+                    // `slide_duration` is the total span from the head.
                     let slide_end_t = ns + mdur_to_secs(sl.slide_duration, note.time, bpms);
                     if sl.slide_is_break
                         && !self.hit_sounds_played.contains(&slide_end_key)

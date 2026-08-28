@@ -1,9 +1,9 @@
 use super::pad_svg::PadSvgDef;
 use super::slide::segmentation;
 use super::types::{
-    Note, PAD_ROTATION_RAD, PadGeom, SLIDE_TILE_SCALE, SLIDE_TILE_SIZE, SLIDE_TILE_SPACING,
-    SLIDE_TRAVEL_TIME, STAR_SIZE, Slide, SlideShape, TAP_GROW_FRAC, TAP_SPAWN_FRAC,
-    TAP_TARGET_OFFSET,
+    Note, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, PAD_ROTATION_RAD, PadGeom, SLIDE_MIN_DURATION_S,
+    SLIDE_TILE_SCALE, SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, SLIDE_TRAVEL_TIME, STAR_SIZE, Slide,
+    SlideShape, TAP_GROW_FRAC, TAP_TARGET_OFFSET,
 };
 use crate::app::slide::path::{
     slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp,
@@ -97,7 +97,7 @@ pub fn build_slide_path(
 /// `slide` — the sub-slide to render
 /// `current_t` — current playback time, in seconds
 /// `ns` — note head time, in seconds
-/// `slide_dur_s` — slide motion duration, in seconds
+/// `slide_dur_s` — total slide span from the head to the tail, in seconds
 /// `start_delay_s` — delay from the note head to Slide movement, in seconds
 /// `pad` — pad geometry
 /// `svg` — parsed SVG zone definitions
@@ -122,14 +122,22 @@ pub fn draw_slide(
     speed_scale: f32,
     completed_areas: usize,
 ) {
+    // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
+    // The star motion fills the `[start_delay, total]` window; the travel time
+    // is therefore `total - start_delay`.
     let slide_start_s = ns + start_delay_s;
-    let slide_end_s = slide_start_s + slide_dur_s;
-    let fade_duration_s = 0.2_f32.min(slide_dur_s).max(0.001);
+    let slide_end_s = ns + slide_dur_s;
+    let travel_dur_s = (slide_dur_s - start_delay_s).max(SLIDE_MIN_DURATION_S);
+    let fade_duration_s = 0.2_f32.min(travel_dur_s).max(0.001);
     let dt = ns - current_t;
+    // Scale the approach time by the play speed so the head star flies and
+    // the trail culls in musical time (matching taps and MajdataView, where
+    // `AudioTime` advances faster at higher playback speed).
+    let dt_scaled = dt / speed_scale.max(0.1);
 
     // ── Time culling (skip when not show_full) ──
     if !show_full {
-        if !(dt <= SLIDE_TRAVEL_TIME && current_t <= slide_end_s + 0.2) {
+        if !(dt_scaled <= SLIDE_TRAVEL_TIME && current_t <= slide_end_s + 0.2) {
             return;
         }
     }
@@ -237,8 +245,6 @@ pub fn draw_slide(
                     },
                 ];
 
-                let slide_end_s = slide_start_s + slide_dur_s;
-
                 // ── Head star (pre-judge flying in from center) ──
                 if show_full {
                     let head_pt = path[0];
@@ -257,7 +263,6 @@ pub fn draw_slide(
                         );
                     }
                 } else if current_t < ns && !note.is_tapless {
-                    let dt_scaled = (ns - current_t) / speed_scale;
                     let head_progress =
                         ((SLIDE_TRAVEL_TIME - dt_scaled) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
                     let size_scale = if head_progress < TAP_GROW_FRAC {
@@ -275,9 +280,11 @@ pub fn draw_slide(
                     let ang = -std::f32::consts::FRAC_PI_2
                         + PAD_ROTATION_RAD
                         + idx * std::f32::consts::TAU / 8.0;
-                    let spawn_r = outer_r * TAP_SPAWN_FRAC;
+                    // Match the tap flight: grow while locked at the inner
+                    // radius (NOTE_LOCK_DISTANCE), then fly to the target ring.
+                    let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
                     let target_r = outer_r + TAP_TARGET_OFFSET;
-                    let r = spawn_r + (target_r - spawn_r) * fly_progress;
+                    let r = lock_r + (target_r - lock_r) * fly_progress;
                     let px = spawn_cx.x + ang.cos() * r;
                     let py = spawn_cx.y + ang.sin() * r;
                     let ss = STAR_SIZE * scale * size_scale;
@@ -321,7 +328,7 @@ pub fn draw_slide(
 
                 // ── Flying star progress (0..1) ──
                 let star_t = if !show_full && current_t >= slide_start_s {
-                    ((current_t - slide_start_s) / slide_dur_s.max(0.001)).clamp(0.0, 1.0)
+                    ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
@@ -451,11 +458,10 @@ pub fn draw_slide(
             ((220.0 * (current_t - (ns - fade_duration_s)) / fade_duration_s)
                 .clamp(0.0, 220.0)) as u8
         };
-        let travel_dur_s = slide_dur_s.max(0.001);
         let star_t = if current_t < slide_start_s {
             0.0
         } else {
-            ((current_t - slide_start_s) / travel_dur_s).clamp(0.0, 1.0)
+            ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
         };
         (alpha, star_t * total_len)
     };
@@ -578,9 +584,9 @@ pub fn draw_slide(
                 },
             );
         }
-    } else if dt > 0.0 && dt < SLIDE_TRAVEL_TIME && !note.is_tapless {
+    } else if dt_scaled > 0.0 && dt_scaled < SLIDE_TRAVEL_TIME && !note.is_tapless {
         // Pre-judge flying-in head star (A-zone and touch-zone)
-        let head_progress = ((SLIDE_TRAVEL_TIME - dt) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
+        let head_progress = ((SLIDE_TRAVEL_TIME - dt_scaled) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
         let size_scale = if head_progress < TAP_GROW_FRAC {
             head_progress / TAP_GROW_FRAC
         } else {
@@ -593,13 +599,13 @@ pub fn draw_slide(
         };
 
         if note.lane <= 8 {
-            // A-zone: fly from spawn center to target
+            // A-zone: grow at the inner lock radius, then fly to the target.
             let idx = (note.lane - 1) as f32;
             let ang =
                 -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-            let spawn_r = outer_r * TAP_SPAWN_FRAC;
+            let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
             let target_r = outer_r + TAP_TARGET_OFFSET;
-            let r = spawn_r + (target_r - spawn_r) * fly_progress;
+            let r = lock_r + (target_r - lock_r) * fly_progress;
             let px = spawn_cx.x + ang.cos() * r;
             let py = spawn_cx.y + ang.sin() * r;
 

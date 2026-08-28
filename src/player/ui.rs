@@ -9,12 +9,12 @@ use lambda_dx::types::zone::PadZone;
 use lambda_dx::types::{
     HIT_WINDOW, HOLD_FLY_TIME, HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, Mode,
     NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType, PAD_ROTATION_RAD, PadGeom, RectF,
-    SLIDE_TRAVEL_TIME, SlideShape, TAP_RING_OFFSET, TAP_SIZE, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME,
-    TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE,
-    TOUCH_START_DIST, TOUCH_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE,
-    TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST,
-    hold_tail_time, mdur_to_secs, note_radial_motion, note_secs, sanitize_note_zone,
-    slide_end_time,
+    SLIDE_MIN_DURATION_S, SLIDE_TRAVEL_TIME, SlideShape, TAP_RING_OFFSET, TAP_SIZE,
+    TAP_TARGET_OFFSET, TAP_TRAVEL_TIME, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST,
+    TOUCH_GROW_FRAC, TOUCH_SCALE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE,
+    TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE,
+    TOUCHHOLD_START_DIST, hold_tail_time, mdur_to_secs, note_radial_motion, note_secs,
+    sanitize_note_zone, slide_end_time,
 };
 use lambda_dx::ui::draw_hold_9slice_segment;
 use lambda_dx::{pad_svg, slide_render};
@@ -418,7 +418,8 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                 .unwrap_or(vec2(cx, cy));
             if let Some(ref svg) = app.pad_svg {
                 for (si, sl) in note.slide.iter().enumerate() {
-                    let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
+                    let slide_dur_s =
+                        mdur_to_secs(sl.slide_duration, note.time, bpms).max(SLIDE_MIN_DURATION_S);
                     let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
                         .max(0.0)
                         .min(slide_dur_s - 0.001)

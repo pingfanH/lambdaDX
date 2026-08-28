@@ -747,9 +747,8 @@ impl PlayerState {
                             slide_idx,
                             head_time
                                 + mdur_to_secs(slide.slide_start_delay, note.time, &slide_bpms),
-                            head_time
-                                + mdur_to_secs(slide.slide_start_delay, note.time, &slide_bpms)
-                                + mdur_to_secs(slide.slide_duration, note.time, &slide_bpms),
+                            // `slide_duration` is the total span from the head.
+                            head_time + mdur_to_secs(slide.slide_duration, note.time, &slide_bpms),
                             areas,
                             visual.bars.len(),
                         )

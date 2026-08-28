@@ -80,6 +80,10 @@ pub const SLIDE_TILE_SCALE: f32 = 0.4;
 pub const SLIDE_MIN_POINTS: usize = 2;
 pub const STAR_SIZE: f32 = 45.0;
 pub const SLIDE_TRAVEL_TIME: f32 = 0.55;
+/// Lower bound (seconds) for a slide's rendered travel time. Kept tiny so
+/// short slides from the chart (e.g. `[1040#8:1]` flicks) are not stretched
+/// out; only guards against degenerate zero-duration slides.
+pub const SLIDE_MIN_DURATION_S: f32 = 0.05;
 pub const SLIDE_STAR_FADE_IN: f32 = 0.12;
 pub const SPEED_MIN: f32 = 0.1;
 pub const SPEED_MAX: f32 = 3.0;
@@ -602,20 +606,16 @@ pub fn is_touch_zone(zone: u8) -> bool {
     zone >= PAD_B_START
 }
 
-/// Slide end time in seconds — takes the longest slide's duration.
+/// Slide end time in seconds — the tail sits at head + the longest slide's
+/// total span (`slide_duration` already includes the start delay).
 pub fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
     let max_dur = note
         .slide
         .iter()
         .map(|s| s.slide_duration)
         .fold(0.0_f32, f32::max);
-    let delay_s = note
-        .slide
-        .iter()
-        .map(|s| mdur_to_secs(s.slide_start_delay, note.time, bpms))
-        .fold(0.0_f32, f32::max);
-    let dur_s = mdur_to_secs(max_dur, note.time, bpms).max(0.3);
-    note_secs(note, bpms) + delay_s + dur_s
+    let dur_s = mdur_to_secs(max_dur, note.time, bpms).max(SLIDE_MIN_DURATION_S);
+    note_secs(note, bpms) + dur_s
 }
 
 // ─── Template system ──────────────────────────────────────────────

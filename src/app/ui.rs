@@ -11,8 +11,9 @@ use super::types::{
     FIXED_SLIDE_FADE_IN, GRID_DIVISION, HIT_WINDOW, HOLD_DISAPPEAR_FRAC, HOLD_FLY_TIME,
     HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, LANE_COUNT, LANE_LABELS, Layout, Mode,
     NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType, PAD_C_ZONE, PAD_ROTATION_RAD,
-    PREVIEW_LEAD_TIME, PadGeom, RectF, SCROLL_SPEED, SLIDE_TILE_SCALE, SLIDE_TILE_SIZE,
-    SLIDE_TILE_SPACING, SLIDE_TRAVEL_TIME, SPEED_MAX, SPEED_MIN, SPEED_STEP, STAR_SIZE, SlideShape,
+    PREVIEW_LEAD_TIME, PadGeom, RectF, SCROLL_SPEED, SLIDE_MIN_DURATION_S, SLIDE_TILE_SCALE,
+    SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, SLIDE_TRAVEL_TIME, SPEED_MAX, SPEED_MIN, SPEED_STEP,
+    STAR_SIZE, SlideShape,
     TAP_DISAPPEAR_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME,
     TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE,
     TOUCH_SIZE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE,
@@ -1002,7 +1003,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                 .unwrap_or(vec2(cx, cy));
             if let Some(ref svg) = app.pad_svg {
                 for sl in &note.slide {
-                    let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
+                    let slide_dur_s = mdur_to_secs(sl.slide_duration, note.time, bpms).max(SLIDE_MIN_DURATION_S);
                     let start_delay_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms);
 
                     let dbl = note.is_star;
@@ -1458,7 +1459,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         if let Some(ref svg) = app.pad_svg {
                             for sl in &note.slide {
                                 let slide_dur_s =
-                                    mdur_to_secs(sl.slide_duration, note.time, bpms).max(0.3);
+                                    mdur_to_secs(sl.slide_duration, note.time, bpms).max(SLIDE_MIN_DURATION_S);
                                 let start_delay_s =
                                     mdur_to_secs(sl.slide_start_delay, note.time, bpms);
                                 let trail_tex = if sl.slide_is_break {

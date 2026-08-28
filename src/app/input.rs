@@ -4,8 +4,8 @@ use super::template;
 use super::types::{
     BpmChange, DragPart, LANE_COUNT, MOUSE_POINTER_ID, Note, NoteType, PAD_ZONE_MAX, PadGeom,
     PointerEvent, RecordInputId, RectF, SCROLL_INVERT, SCROLL_SPEED, SCROLL_SPEED_FACTOR,
-    SPEED_MAX, SPEED_MIN, SPEED_STEP, SlidePoint, SlideShape, UiButton, hold_tail_time,
-    is_touch_zone, mdur_to_secs, note_secs, sanitize_note_zone, secs_to_measure,
+    SLIDE_MIN_DURATION_S, SPEED_MAX, SPEED_MIN, SPEED_STEP, SlidePoint, SlideShape, UiButton,
+    hold_tail_time, is_touch_zone, mdur_to_secs, note_secs, sanitize_note_zone, secs_to_measure,
 };
 use super::ui::{rect_contains, trigger_ui_action};
 use crate::app::types::NoteType::Slide;
@@ -1179,7 +1179,7 @@ pub fn handle_timeline_editing(app: &mut AppState, timeline_rect: Option<RectF>)
                     continue;
                 }
                 let slide_dur_s =
-                    mdur_to_secs(sl.slide_duration, note.time, &app.chart.bpms).max(0.3);
+                    mdur_to_secs(sl.slide_duration, note.time, &app.chart.bpms).max(SLIDE_MIN_DURATION_S);
                 let delay_s = mdur_to_secs(sl.slide_start_delay, note.time, &app.chart.bpms);
                 let delay_y = judge_y - (ns + delay_s - now) * scroll_speed;
                 let tail_t = ns + slide_dur_s;

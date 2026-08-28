@@ -157,9 +157,11 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                     let chain_pts = simai_pattern_to_points(prev_end, *ce, *cp, *cr);
                     if *is_star {
                         // Flush current segments as a Slide, start new one
+                        // `slide_duration` is the total span from the head
+                        // (tail = head + duration), so it includes the delay.
                         slides.push(Slide {
                             segments: std::mem::take(&mut cur_segments),
-                            slide_duration: (*duration).max(0.0),
+                            slide_duration: (*duration + *delay).max(0.0),
                             slide_start_delay: delay.max(0.0),
                             slide_is_break: *is_break,
                         });
@@ -174,7 +176,7 @@ pub fn simai_chart_to_chart_doc(chart: &SimaiChart) -> ChartDoc {
                 if !cur_segments.is_empty() {
                     slides.push(Slide {
                         segments: cur_segments,
-                        slide_duration: (*duration).max(0.0),
+                        slide_duration: (*duration + *delay).max(0.0),
                         slide_start_delay: delay.max(0.0),
                         slide_is_break: *is_break,
                     });
@@ -692,6 +694,8 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         })
                         .collect();
                     let delay_meas = snap_measure(sl.slide_start_delay.max(0.0));
+                    // `slide_duration` is the total span from the head, so the
+                    // Simai travel `duration` is total minus the delay.
                     let total_meas = snap_measure(sl.slide_duration.max(0.0));
                     let travel_meas = (total_meas - delay_meas).max(0.05);
                     notes.push(SimaiNote::Slide {
@@ -906,4 +910,58 @@ fn extract_note_body(text: &str) -> String {
         }
     }
     body.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn slide_timing(text: &str) -> (f32, f32) {
+        let chart = ms::parse_chart_text(text).expect("parse");
+        let doc = simai_chart_to_chart_doc(&chart);
+        let sl = &doc
+            .notes
+            .iter()
+            .find(|n| matches!(n.note_type, super::super::types::NoteType::Slide))
+            .expect("slide note")
+            .slide[0];
+        (sl.slide_duration, sl.slide_start_delay)
+    }
+
+    #[test]
+    fn slide_import_preserves_travel_duration_with_no_delay() {
+        // `[8:3]` is 3/8 of a measure of travel; motion starts at the head.
+        let (dur, delay) = slide_timing("(120){4}1-5[8:3],E");
+        assert!((dur - 0.375).abs() < 0.001);
+        assert!((delay - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn slide_import_keeps_explicit_delay_from_seconds_form() {
+        // `[0.2##0.8]` → 0.2s delay, 0.8s travel at 120 BPM → 0.1 / 0.4
+        // measures. `slide_duration` is the total span from the head, so it
+        // includes the delay (0.1 + 0.4 = 0.5).
+        let (dur, delay) = slide_timing("(120){4}1-5[0.2##0.8],E");
+        assert!((dur - 0.5).abs() < 0.001, "total: {}", dur);
+        assert!((delay - 0.1).abs() < 0.001, "delay: {}", delay);
+    }
+
+    #[test]
+    fn slide_timing_round_trips_through_export() {
+        let chart = ms::parse_chart_text("(120){4}1-5[8:3],E").expect("parse");
+        let doc = simai_chart_to_chart_doc(&chart);
+        let out = chart_doc_to_simai_chart(&doc);
+        let sl = out
+            .notes
+            .iter()
+            .find_map(|n| match n {
+                ms::SimaiNote::Slide {
+                    duration, delay, ..
+                } => Some((*duration, *delay)),
+                _ => None,
+            })
+            .expect("slide");
+        assert!((sl.0 - 0.375).abs() < 0.001, "duration: {}", sl.0);
+        assert!((sl.1 - 0.0).abs() < 0.001, "delay: {}", sl.1);
+    }
 }
