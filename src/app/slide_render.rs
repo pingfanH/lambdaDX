@@ -120,6 +120,8 @@ pub fn draw_slide(
     tex: &SlideTextures,
     show_full: bool,
     speed_scale: f32,
+    base_speed: f32,
+    slide_fade_in: f32,
     completed_areas: usize,
 ) {
     // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
@@ -135,12 +137,16 @@ pub fn draw_slide(
     // `AudioTime` advances faster at higher playback speed).
     let dt_scaled = dt / speed_scale.max(0.1);
     // The slide head star uses the same radial flight as a Tap note.
-    let head_speed = super::types::note_flight_speed(note);
+    let head_speed = super::types::note_flight_speed(note, base_speed);
     let head_lead = super::types::note_lead_time(head_speed);
+    // MajdataView trail fade-in: `fadeInTime = -3.926913 / noteSpeed` seconds
+    // before the head, fully visible 0.2s later (in musical time).
+    let fade_in_s = slide_fade_in.max(0.0);
+    let full_fade_s = (fade_in_s - fade_duration_s).max(0.001);
 
     // ── Time culling (skip when not show_full) ──
     if !show_full {
-        if !(dt_scaled <= head_lead && current_t <= slide_end_s + 0.2) {
+        if !(dt_scaled <= head_lead.max(fade_in_s) && current_t <= slide_end_s + 0.2) {
             return;
         }
     }
@@ -317,11 +323,10 @@ pub fn draw_slide(
                 }
 
                 // ── Tile alpha ──
-                let path_alpha = if show_full || current_t >= ns {
+                let path_alpha = if show_full || dt_scaled <= full_fade_s {
                     220u8
                 } else {
-                    ((220.0 * (current_t - (ns - fade_duration_s)) / fade_duration_s)
-                        .clamp(0.0, 220.0)) as u8
+                    ((220.0 * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, 220.0)) as u8
                 };
 
                 // ── Flying star progress (0..1) ──
@@ -450,11 +455,10 @@ pub fn draw_slide(
     let (path_alpha, star_dist_along) = if show_full {
         (220u8, -1.0_f32) // all tiles visible, star at start
     } else {
-        let alpha = if current_t >= ns {
+        let alpha = if dt_scaled <= full_fade_s {
             220
         } else {
-            ((220.0 * (current_t - (ns - fade_duration_s)) / fade_duration_s)
-                .clamp(0.0, 220.0)) as u8
+            ((220.0 * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, 220.0)) as u8
         };
         let star_t = if current_t < slide_start_s {
             0.0

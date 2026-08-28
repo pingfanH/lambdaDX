@@ -996,7 +996,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         };
         let tail_dt_scaled = tail_dt / speed_scale;
 
-        let speed = note_flight_speed(note);
+        let speed = note_flight_speed(note, app.note_speed);
         let lead_time = if zone <= 8 {
             note_lead_time(speed)
         } else {
@@ -1100,6 +1100,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         &tex,
                         false,
                         speed_scale,
+                        app.note_speed,
+                        app.slide_fade_in,
                         0,
                     );
                 }
@@ -1442,7 +1444,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     let ns = note_secs(note, bpms);
                     let dt = ns - current_t;
                     let dt_scaled = dt / speed_scale;
-                    let speed = note_flight_speed(note);
+                    let speed = note_flight_speed(note, app.note_speed);
                     let lead_time = if zone <= 8 {
                         note_lead_time(speed)
                     } else {
@@ -1520,6 +1522,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                                     &tex,
                                     false,
                                     speed_scale,
+                                    app.note_speed,
+                                    app.slide_fade_in,
                                     0,
                                 );
                             }

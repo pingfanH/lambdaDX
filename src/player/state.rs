@@ -192,6 +192,11 @@ pub struct PlayerState {
     pub record_speed: f32,
     pub play_speed: f32,
     pub touch_speed: f32,
+    /// Base note flight speed (流速), matching MajdataView's `noteSpeed`.
+    pub note_speed: f32,
+    /// Seconds before the hit the slide trail starts fading in (slide 显示时机).
+    /// MajdataView uses `fadeInTime = -3.926913 / noteSpeed`.
+    pub slide_fade_in: f32,
 
     pub show_pad_only: bool,
     pub mobile_ui: bool,
@@ -345,6 +350,8 @@ impl PlayerState {
             record_speed: 1.0,
             play_speed: 1.0,
             touch_speed: 0.3,
+            note_speed: 7.5,
+            slide_fade_in: 3.926_913 / 7.5,
             show_pad_only: false,
             mobile_ui,
             ui_scale_override,

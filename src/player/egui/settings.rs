@@ -84,6 +84,8 @@ fn draw_settings(ui: &mut egui::Ui, app: &mut PlayerState) {
         if widgets::command_button(ui, "恢复默认设置", widgets::ButtonKind::Quiet).clicked() {
             app.audio_enabled = true;
             app.play_speed = 1.0;
+            app.note_speed = 7.5;
+            app.slide_fade_in = 3.926_913 / 7.5;
             app.autoplay = true;
             app.waveform_threshold = 0.3;
             app.mobile_ui = false;
@@ -111,6 +113,34 @@ fn draw_audio(ui: &mut egui::Ui, app: &mut PlayerState) {
 }
 
 fn draw_gameplay(ui: &mut egui::Ui, app: &mut PlayerState) {
+    ui.label(RichText::new(format!("流速 (Note Speed)  {:.1}", app.note_speed)).strong());
+    ui.add(
+        egui::Slider::new(&mut app.note_speed, 5.0..=10.0)
+            .step_by(0.1)
+            .text("流速"),
+    );
+    ui.label(
+        RichText::new("音符径向飞行速度,参考 MajdataView 的 noteSpeed。")
+            .color(theme::TEXT_SECONDARY),
+    );
+    ui.add_space(16.0);
+    ui.label(
+        RichText::new(format!(
+            "Slide 显示时机  {:.2}s",
+            app.slide_fade_in
+        ))
+        .strong(),
+    );
+    ui.add(
+        egui::Slider::new(&mut app.slide_fade_in, 0.2..=1.2)
+            .step_by(0.02)
+            .text("提前量"),
+    );
+    ui.label(
+        RichText::new("判定前多少秒开始淡入 slide 轨道(Majdata: -3.926913/流速)。")
+            .color(theme::TEXT_SECONDARY),
+    );
+    ui.add_space(16.0);
     ui.label(RichText::new(format!("播放速度  {:.1}x", app.play_speed)).strong());
     ui.add(
         egui::Slider::new(&mut app.play_speed, 0.1..=3.0)

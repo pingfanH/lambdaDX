@@ -154,21 +154,18 @@ impl Default for NoteType {
     }
 }
 
-/// MajdataView base note speeds (radial units/sec). Note flight follows
+/// MajdataView base note speed (radial units/sec). Note flight follows
 /// `distance = (audio_time - note_time) * speed + NOTE_OUTER_DISTANCE`,
 /// so higher speed means the note appears closer to the hit moment.
-pub const NOTE_SPEED: f32 = 7.5; // tap / hold / slide head
-pub const TOUCH_SPEED: f32 = 7.5; // touch / touch hold
+/// This is the default value for the configurable note speed (流速).
+pub const NOTE_SPEED: f32 = 7.5;
 
-/// Effective flight speed for a note (base speed × hi-speed).
-pub fn note_flight_speed(note: &Note) -> f32 {
-    let base = match note.note_type {
-        NoteType::Touch => TOUCH_SPEED,
-        _ => NOTE_SPEED,
-    };
+/// Effective flight speed for a note (`base_speed` × hi-speed). `base_speed` is
+/// the configurable note speed (流速), e.g. `PlayerState::note_speed`.
+pub fn note_flight_speed(note: &Note, base_speed: f32) -> f32 {
     // Editor-created notes leave `hi_speed` at its Default (0); treat that as 1x.
     let hs = if note.hi_speed > 0.0 { note.hi_speed } else { 1.0 };
-    base * hs
+    base_speed * hs
 }
 
 /// Seconds before the hit moment a note first becomes visible, given a flight

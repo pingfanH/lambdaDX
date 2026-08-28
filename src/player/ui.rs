@@ -377,7 +377,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         };
         let tail_dt_scaled = tail_dt / speed_scale;
 
-        let speed = note_flight_speed(note);
+        let speed = note_flight_speed(note, app.note_speed);
         let lead_time = if zone <= 8 {
             note_lead_time(speed)
         } else {
@@ -486,6 +486,8 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                         &tex,
                         false,
                         speed_scale,
+                        app.note_speed,
+                        app.slide_fade_in,
                         app.slide_progress
                             .get(&(note.id, si))
                             .map(|progress| progress.completed_areas)
