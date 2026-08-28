@@ -2123,6 +2123,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                 is_star: false,
                 is_tapless: false,
                 slide: vec![],
+                hi_speed: 1.0,
                 template_source: None,
             });
             app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
@@ -2172,6 +2173,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                         is_star: false,
                         is_tapless: false,
                         slide: vec![],
+                        hi_speed: 1.0,
                         template_source: None,
                     });
                     app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
@@ -2241,6 +2243,7 @@ fn handle_tool_click(app: &mut AppState, t: f32, lane: u8) {
                         slide_start_delay,
                         slide_is_break: false,
                     }],
+                    hi_speed: 1.0,
                     template_source: None,
                 });
                 app.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));

@@ -7,14 +7,13 @@ use lambda_dx::slide::path::{
 use lambda_dx::state::AppState;
 use lambda_dx::types::zone::PadZone;
 use lambda_dx::types::{
-    HIT_WINDOW, HOLD_FLY_TIME, HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, Mode,
-    NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType, PAD_ROTATION_RAD, PadGeom, RectF,
-    SLIDE_MIN_DURATION_S, SLIDE_TRAVEL_TIME, SlideShape, TAP_RING_OFFSET, TAP_SIZE,
-    TAP_TARGET_OFFSET, TAP_TRAVEL_TIME, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST,
-    TOUCH_GROW_FRAC, TOUCH_SCALE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE,
-    TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE,
-    TOUCHHOLD_START_DIST, hold_tail_time, mdur_to_secs, note_radial_motion, note_secs,
-    sanitize_note_zone, slide_end_time,
+    HIT_WINDOW, HOLD_WIDTH, Mode, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType,
+    PAD_ROTATION_RAD, PadGeom, RectF, SLIDE_MIN_DURATION_S, SlideShape, TAP_RING_OFFSET, TAP_SIZE,
+    TAP_TARGET_OFFSET, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC,
+    TOUCH_SCALE, TOUCH_START_DIST, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST,
+    TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, hold_tail_time, mdur_to_secs,
+    note_flight_speed, note_lead_time, note_lock_radius, note_radial_motion, note_secs,
+    sanitize_note_zone, slide_end_time, touch_whole_duration,
 };
 use lambda_dx::ui::draw_hold_9slice_segment;
 use lambda_dx::{pad_svg, slide_render};
@@ -378,19 +377,15 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         };
         let tail_dt_scaled = tail_dt / speed_scale;
 
+        let speed = note_flight_speed(note);
         let lead_time = if zone <= 8 {
-            if matches!(note.note_type, NoteType::Hold) {
-                HOLD_FLY_TIME
-            } else if matches!(note.note_type, NoteType::Slide) {
-                SLIDE_TRAVEL_TIME
-            } else {
-                TAP_TRAVEL_TIME
-            }
+            note_lead_time(speed)
         } else {
             match note.note_type {
-                NoteType::Hold => HOLD_TRAVEL_TIME,
-                NoteType::Slide => SLIDE_TRAVEL_TIME,
-                _ => TOUCH_TRAVEL_TIME,
+                // Touch and touch-hold use MajdataView's whole-duration model.
+                NoteType::Touch | NoteType::Hold => touch_whole_duration(speed),
+                NoteType::Slide => note_lead_time(speed),
+                NoteType::Tap => note_lead_time(speed),
             }
         };
         let slide_tail_dt = if matches!(note.note_type, NoteType::Slide) {
@@ -505,13 +500,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             let ang =
                 -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
             let dir = vec2(ang.cos(), ang.sin());
-            let head_travel = if matches!(note.note_type, NoteType::Slide) {
-                SLIDE_TRAVEL_TIME
-            } else {
-                TAP_TRAVEL_TIME
-            };
-            let Some(motion) =
-                note_radial_motion(dt_scaled, head_travel, outer_r, TAP_TARGET_OFFSET)
+            let Some(motion) = note_radial_motion(dt_scaled, speed, outer_r, TAP_TARGET_OFFSET)
             else {
                 continue;
             };
@@ -519,19 +508,31 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             let py = spawn_cx.y + dir.y * motion.radius;
 
             if matches!(note.note_type, NoteType::Hold) {
-                let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
-                let head_motion =
-                    note_radial_motion(dt_scaled, HOLD_FLY_TIME, outer_r, HOLD_TARGET_OFFSET)
-                        .unwrap_or(lambda_dx::types::NoteMotion {
-                            radius: lock_r,
-                            scale: 0.0,
-                            progress: 0.0,
-                        });
-                let tail_r =
-                    note_radial_motion(tail_dt_scaled, HOLD_FLY_TIME, outer_r, HOLD_TARGET_OFFSET)
-                        .map(|motion| motion.radius)
-                        .unwrap_or(lock_r)
-                        .min(head_motion.radius);
+                let lock_r = note_lock_radius(outer_r, TAP_TARGET_OFFSET);
+                // Majdata pins the hold head at the same ring as a Tap note
+                // (distance 4.8), so use the tap target offset.
+                let head_motion = note_radial_motion(dt_scaled, speed, outer_r, TAP_TARGET_OFFSET)
+                    .unwrap_or(lambda_dx::types::NoteMotion {
+                        radius: lock_r,
+                        scale: 0.0,
+                        progress: 0.0,
+                    });
+                // The tail is fixed at the inner radius during the approach and
+                // most of the hold — it only drains toward the ring in the final
+                // `drain_t` seconds before the hold ends. (A tail modeled as a
+                // note at the hold end would fly in parallel with the head for
+                // short holds, making the whole body translate forward.)
+                let drain_t = (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / speed;
+                let hold_dur_s = (hold_tail_time(note, bpms) - ns) / speed_scale;
+                let drain_window = drain_t.min(hold_dur_s).max(0.001);
+                let target_r = outer_r + TAP_TARGET_OFFSET;
+                let tail_r = if tail_dt_scaled >= drain_window {
+                    lock_r
+                } else {
+                    let p = (1.0 - tail_dt_scaled / drain_window).clamp(0.0, 1.0);
+                    lock_r + (target_r - lock_r) * p
+                };
+                let tail_r = tail_r.min(head_motion.radius);
                 let hx = spawn_cx.x + dir.x * head_motion.radius;
                 let hy = spawn_cx.y + dir.y * head_motion.radius;
                 let tx = spawn_cx.x + dir.x * tail_r;
@@ -546,22 +547,30 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                 } else {
                     app.hold_texture.as_ref()
                 };
+                let head_pos = vec2(hx, hy);
+                let tail_pos = vec2(tx, ty);
+                // Draw the body directly from the head to the tail: at spawn the
+                // head and tail judgment points overlap (body 0) and the head cap
+                // follows the head immediately once the grow phase ends. The
+                // 9-slice keeps the caps at natural size so the grow blob renders.
                 if let Some(tex) = hold_tex.or(app.hold_texture.as_ref()) {
                     draw_hold_9slice_segment(
                         tex,
-                        vec2(hx, hy),
-                        vec2(tx, ty),
+                        head_pos,
+                        tail_pos,
                         hold_w.max(1.0),
                         Color::from_rgba(255, 255, 255, 255),
+                        dir,
                     );
                     if note.is_ex {
                         if let Some(ex_tex) = app.hold_ex_tex.as_ref() {
                             draw_hold_9slice_segment(
                                 ex_tex,
-                                vec2(hx, hy),
-                                vec2(tx, ty),
+                                head_pos,
+                                tail_pos,
                                 hold_w.max(1.0),
                                 Color::from_rgba(255, 255, 255, 255),
+                                dir,
                             );
                         }
                     }
@@ -644,10 +653,9 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             else {
                 continue;
             };
-            let travel = match note.note_type {
-                NoteType::Hold => HOLD_TRAVEL_TIME,
-                _ => TOUCH_TRAVEL_TIME,
-            };
+            // Touch notes use MajdataView's whole-duration model so their
+            // fade-in/motion timing follows `touchSpeed * hi_speed`.
+            let travel = touch_whole_duration(speed);
             let raw = (travel - dt_scaled) / travel;
             let progress = smoothstep(raw.clamp(0.0, 1.0));
             // Phase 1: fade in 0→255. Phase 2: animate movement.

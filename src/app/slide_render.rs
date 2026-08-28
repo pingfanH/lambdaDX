@@ -2,8 +2,8 @@ use super::pad_svg::PadSvgDef;
 use super::slide::segmentation;
 use super::types::{
     Note, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, PAD_ROTATION_RAD, PadGeom, SLIDE_MIN_DURATION_S,
-    SLIDE_TILE_SCALE, SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, SLIDE_TRAVEL_TIME, STAR_SIZE, Slide,
-    SlideShape, TAP_GROW_FRAC, TAP_TARGET_OFFSET,
+    SLIDE_TILE_SCALE, SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, STAR_SIZE, Slide, SlideShape,
+    TAP_TARGET_OFFSET,
 };
 use crate::app::slide::path::{
     slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp,
@@ -134,10 +134,13 @@ pub fn draw_slide(
     // the trail culls in musical time (matching taps and MajdataView, where
     // `AudioTime` advances faster at higher playback speed).
     let dt_scaled = dt / speed_scale.max(0.1);
+    // The slide head star uses the same radial flight as a Tap note.
+    let head_speed = super::types::note_flight_speed(note);
+    let head_lead = super::types::note_lead_time(head_speed);
 
     // ── Time culling (skip when not show_full) ──
     if !show_full {
-        if !(dt_scaled <= SLIDE_TRAVEL_TIME && current_t <= slide_end_s + 0.2) {
+        if !(dt_scaled <= head_lead && current_t <= slide_end_s + 0.2) {
             return;
         }
     }
@@ -263,28 +266,23 @@ pub fn draw_slide(
                         );
                     }
                 } else if current_t < ns && !note.is_tapless {
-                    let head_progress =
-                        ((SLIDE_TRAVEL_TIME - dt_scaled) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
-                    let size_scale = if head_progress < TAP_GROW_FRAC {
-                        head_progress / TAP_GROW_FRAC
-                    } else {
-                        1.0
-                    };
-                    let fly_progress = if head_progress < TAP_GROW_FRAC {
-                        0.0
-                    } else {
-                        (head_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
-                    };
+                    // Same radial flight as a Tap: grow at the inner lock
+                    // radius, then fly out to the target ring.
+                    let head_motion = super::types::note_radial_motion(
+                        dt_scaled,
+                        head_speed,
+                        outer_r,
+                        TAP_TARGET_OFFSET,
+                    );
+                    let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
+                    let fly_progress = head_motion.map(|m| m.progress).unwrap_or(0.0);
 
                     let idx = (note.lane - 1) as f32;
                     let ang = -std::f32::consts::FRAC_PI_2
                         + PAD_ROTATION_RAD
                         + idx * std::f32::consts::TAU / 8.0;
-                    // Match the tap flight: grow while locked at the inner
-                    // radius (NOTE_LOCK_DISTANCE), then fly to the target ring.
-                    let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
-                    let target_r = outer_r + TAP_TARGET_OFFSET;
-                    let r = lock_r + (target_r - lock_r) * fly_progress;
+                    let lock_r = super::types::note_lock_radius(outer_r, TAP_TARGET_OFFSET);
+                    let r = head_motion.map(|m| m.radius).unwrap_or(lock_r);
                     let px = spawn_cx.x + ang.cos() * r;
                     let py = spawn_cx.y + ang.sin() * r;
                     let ss = STAR_SIZE * scale * size_scale;
@@ -584,28 +582,27 @@ pub fn draw_slide(
                 },
             );
         }
-    } else if dt_scaled > 0.0 && dt_scaled < SLIDE_TRAVEL_TIME && !note.is_tapless {
-        // Pre-judge flying-in head star (A-zone and touch-zone)
-        let head_progress = ((SLIDE_TRAVEL_TIME - dt_scaled) / SLIDE_TRAVEL_TIME).clamp(0.0, 1.0);
-        let size_scale = if head_progress < TAP_GROW_FRAC {
-            head_progress / TAP_GROW_FRAC
-        } else {
-            1.0
-        };
-        let fly_progress = if head_progress < TAP_GROW_FRAC {
-            0.0
-        } else {
-            (head_progress - TAP_GROW_FRAC) / (1.0 - TAP_GROW_FRAC)
-        };
+    } else if dt_scaled > 0.0 && dt_scaled < head_lead && !note.is_tapless {
+        // Pre-judge flying-in head star (A-zone and touch-zone). Same radial
+        // flight as a Tap note.
+        let head_motion = super::types::note_radial_motion(
+            dt_scaled,
+            head_speed,
+            outer_r,
+            TAP_TARGET_OFFSET,
+        );
+        let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
+        let fly_progress = head_motion.map(|m| m.progress).unwrap_or(0.0);
+        let lock_r = super::types::note_lock_radius(outer_r, TAP_TARGET_OFFSET);
 
         if note.lane <= 8 {
             // A-zone: grow at the inner lock radius, then fly to the target.
             let idx = (note.lane - 1) as f32;
             let ang =
                 -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-            let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
-            let target_r = outer_r + TAP_TARGET_OFFSET;
-            let r = lock_r + (target_r - lock_r) * fly_progress;
+            let r = head_motion
+                .map(|m| m.radius)
+                .unwrap_or(lock_r);
             let px = spawn_cx.x + ang.cos() * r;
             let py = spawn_cx.y + ang.sin() * r;
 
@@ -640,7 +637,7 @@ pub fn draw_slide(
             }
         } else {
             // Touch zone: fade in at centroid
-            let head_rot = head_progress * std::f32::consts::TAU;
+            let head_rot = fly_progress * std::f32::consts::TAU;
             let ss = STAR_SIZE * scale * size_scale;
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {

@@ -25,7 +25,6 @@ pub const HOLD_LENGTH_FRAC: f32 = 0.4;
 pub const HOLD_LENGTH_FRAC: f32 = 0.6;
 
 pub const HOLD_SPAWN_FRAC: f32 = 0.5;
-pub const HOLD_TARGET_OFFSET: f32 = 40.0;
 pub const TAP_TARGET_OFFSET: f32 = 15.;
 pub const NOTE_OUTER_DISTANCE: f32 = 4.8;
 pub const NOTE_LOCK_DISTANCE: f32 = 1.225;
@@ -106,13 +105,16 @@ pub struct NoteMotion {
 
 /// Convert time-until-hit into the MajdataView radial fly-out state.
 /// Notes grow while locked at the inner radius, then travel to the outer ring.
+/// `speed` is the note's flight speed (units/sec, `distance = 4.8 - t*speed`).
+///
+/// Position follows MajdataView's linear scaling `radius = distance/4.8 * ring`,
+/// so both the lock radius and the target are proportional to the same ring.
 pub fn note_radial_motion(
     time_until_hit: f32,
-    travel_time: f32,
+    speed: f32,
     outer_r: f32,
     target_offset: f32,
 ) -> Option<NoteMotion> {
-    let speed = NOTE_OUTER_DISTANCE / travel_time.max(0.001);
     let distance = NOTE_OUTER_DISTANCE - time_until_hit * speed;
     if distance < NOTE_VISIBLE_DISTANCE {
         return None;
@@ -121,8 +123,8 @@ pub fn note_radial_motion(
     let scale = (distance * 0.4 + 0.51).clamp(0.0, 1.0);
     let progress = ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE))
         .clamp(0.0, 1.0);
-    let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
     let target_r = outer_r + target_offset;
+    let lock_r = target_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
     let radius = lock_r + (target_r - lock_r) * progress;
 
     Some(NoteMotion {
@@ -130,6 +132,12 @@ pub fn note_radial_motion(
         scale,
         progress,
     })
+}
+
+/// Inner (lock) radius for a note flying to the given target ring, matching
+/// `note_radial_motion`'s linear scaling.
+pub fn note_lock_radius(outer_r: f32, target_offset: f32) -> f32 {
+    (outer_r + target_offset) * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +152,36 @@ impl Default for NoteType {
     fn default() -> Self {
         NoteType::Tap
     }
+}
+
+/// MajdataView base note speeds (radial units/sec). Note flight follows
+/// `distance = (audio_time - note_time) * speed + NOTE_OUTER_DISTANCE`,
+/// so higher speed means the note appears closer to the hit moment.
+pub const NOTE_SPEED: f32 = 7.5; // tap / hold / slide head
+pub const TOUCH_SPEED: f32 = 7.5; // touch / touch hold
+
+/// Effective flight speed for a note (base speed × hi-speed).
+pub fn note_flight_speed(note: &Note) -> f32 {
+    let base = match note.note_type {
+        NoteType::Touch => TOUCH_SPEED,
+        _ => NOTE_SPEED,
+    };
+    // Editor-created notes leave `hi_speed` at its Default (0); treat that as 1x.
+    let hs = if note.hi_speed > 0.0 { note.hi_speed } else { 1.0 };
+    base * hs
+}
+
+/// Seconds before the hit moment a note first becomes visible, given a flight
+/// speed (`distance = NOTE_OUTER_DISTANCE - t * speed` reaches
+/// `NOTE_VISIBLE_DISTANCE` at this lead).
+pub fn note_lead_time(speed: f32) -> f32 {
+    (NOTE_OUTER_DISTANCE - NOTE_VISIBLE_DISTANCE) / speed.max(0.1)
+}
+
+/// MajdataView touch-note total visible duration:
+/// `wholeDuration = 3.209385682 * speed^-0.9549621752`.
+pub fn touch_whole_duration(speed: f32) -> f32 {
+    3.209_385_7 * speed.max(0.1).powf(-0.954_962_2)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -251,6 +289,12 @@ pub struct SlideSegment {
 fn is_zero_f32(v: &f32) -> bool {
     *v == 0.0
 }
+fn is_one_f32(v: &f32) -> bool {
+    (*v - 1.0).abs() < 1e-6
+}
+fn default_hi_speed() -> f32 {
+    1.0
+}
 
 /// Note times and durations are stored in **measures** (where measure 1.0 =
 /// the first beat of the song).  Use `measure_to_secs` / `mdur_to_secs` to
@@ -277,6 +321,9 @@ pub struct Note {
     pub is_star: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_tapless: bool,
+    /// Note-speed multiplier from Simai `[x]` hi-speed markers (default 1.0).
+    #[serde(default = "default_hi_speed", skip_serializing_if = "is_one_f32")]
+    pub hi_speed: f32,
     pub slide: Vec<Slide>,
     /// If this note was expanded from a template instance, tracks its origin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -657,11 +704,13 @@ pub struct TemplateInstance {
 
 #[cfg(test)]
 mod note_motion_tests {
-    use super::{NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, note_radial_motion};
+    use super::{NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NOTE_VISIBLE_DISTANCE, note_radial_motion};
+
+    const SPEED: f32 = 7.0; // MajdataView default tap speed.
 
     #[test]
     fn note_reaches_outer_ring_at_hit_time() {
-        let motion = note_radial_motion(0.0, 1.0, 100.0, 15.0).expect("visible note");
+        let motion = note_radial_motion(0.0, SPEED, 100.0, 15.0).expect("visible note");
         assert!((motion.radius - 115.0).abs() < 0.001);
         assert_eq!(motion.scale, 1.0);
         assert_eq!(motion.progress, 1.0);
@@ -669,8 +718,10 @@ mod note_motion_tests {
 
     #[test]
     fn note_grows_at_the_inner_lock_radius() {
-        let motion = note_radial_motion(1.0, 1.0, 100.0, 15.0).expect("visible note");
-        let expected_radius = 100.0 * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
+        // distance 0 → locked at the inner radius, scale 0.51.
+        let t = NOTE_OUTER_DISTANCE / SPEED;
+        let motion = note_radial_motion(t, SPEED, 100.0, 15.0).expect("visible note");
+        let expected_radius = (100.0 + 15.0) * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
         assert!((motion.radius - expected_radius).abs() < 0.001);
         assert!((motion.scale - 0.51).abs() < 0.001);
         assert_eq!(motion.progress, 0.0);
@@ -678,16 +729,22 @@ mod note_motion_tests {
 
     #[test]
     fn note_becomes_fixed_size_when_it_leaves_the_lock_radius() {
-        let until_lock = (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / NOTE_OUTER_DISTANCE;
-        let motion = note_radial_motion(until_lock, 1.0, 100.0, 15.0).expect("visible note");
-        assert!((motion.radius - 100.0 * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE).abs() < 0.001);
+        // distance = NOTE_LOCK_DISTANCE → scale 1, still locked.
+        let until_lock = (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / SPEED;
+        let motion = note_radial_motion(until_lock, SPEED, 100.0, 15.0).expect("visible note");
+        assert!(
+            (motion.radius - (100.0 + 15.0) * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE).abs()
+                < 0.001
+        );
         assert!((motion.scale - 1.0).abs() < 0.001);
         assert_eq!(motion.progress, 0.0);
     }
 
     #[test]
     fn note_is_hidden_before_the_visible_distance() {
-        assert!(note_radial_motion(2.0, 1.0, 100.0, 15.0).is_none());
+        // distance below NOTE_VISIBLE_DISTANCE → None.
+        let t = (NOTE_OUTER_DISTANCE - NOTE_VISIBLE_DISTANCE + 0.1) / SPEED;
+        assert!(note_radial_motion(t, SPEED, 100.0, 15.0).is_none());
     }
 }
 

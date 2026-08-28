@@ -8,19 +8,18 @@ use super::state::AppState;
 use super::template;
 use super::types::zone::PadZone;
 use super::types::{
-    FIXED_SLIDE_FADE_IN, GRID_DIVISION, HIT_WINDOW, HOLD_DISAPPEAR_FRAC, HOLD_FLY_TIME,
-    HOLD_TARGET_OFFSET, HOLD_TRAVEL_TIME, HOLD_WIDTH, LANE_COUNT, LANE_LABELS, Layout, Mode,
-    NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType, PAD_C_ZONE, PAD_ROTATION_RAD,
-    PREVIEW_LEAD_TIME, PadGeom, RectF, SCROLL_SPEED, SLIDE_MIN_DURATION_S, SLIDE_TILE_SCALE,
-    SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, SLIDE_TRAVEL_TIME, SPEED_MAX, SPEED_MIN, SPEED_STEP,
-    STAR_SIZE, SlideShape,
-    TAP_DISAPPEAR_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_TARGET_OFFSET, TAP_TRAVEL_TIME,
-    TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE,
-    TOUCH_SIZE, TOUCH_START_DIST, TOUCH_TRAVEL_TIME, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE,
+    FIXED_SLIDE_FADE_IN, GRID_DIVISION, HIT_WINDOW, HOLD_DISAPPEAR_FRAC, HOLD_WIDTH, LANE_COUNT,
+    LANE_LABELS, Layout, Mode, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType, PAD_C_ZONE,
+    PAD_ROTATION_RAD, PREVIEW_LEAD_TIME, PadGeom, RectF, SCROLL_SPEED, SLIDE_MIN_DURATION_S,
+    SLIDE_TILE_SCALE, SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, SPEED_MAX, SPEED_MIN, SPEED_STEP,
+    STAR_SIZE, SlideShape, TAP_DISAPPEAR_FRAC, TAP_RING_OFFSET, TAP_SIZE, TAP_TARGET_OFFSET,
+    TAP_TRAVEL_TIME, TOUCH_CROSS_SIZE, TOUCH_DISAPPEAR_TIME, TOUCH_END_DIST, TOUCH_GROW_FRAC,
+    TOUCH_SCALE, TOUCH_SIZE, TOUCH_START_DIST, TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE,
     TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET, TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, UiAction,
     UiButton, bpm_at, hold_tail_time, is_touch_zone, mdur_to_secs, measure_to_secs,
-    note_radial_motion, note_secs, sanitize_note_zone, secs_to_measure, slide_end_time,
-    snap_measure,
+    note_flight_speed, note_lead_time, note_lock_radius, note_radial_motion, note_secs,
+    sanitize_note_zone,
+    secs_to_measure, slide_end_time, snap_measure, touch_whole_duration,
 };
 use crate::app::slide::path::*;
 
@@ -550,10 +549,30 @@ pub fn trigger_ui_action(app: &mut AppState, action: UiAction) {
     }
 }
 
-pub fn draw_hold_9slice_segment(tex: &Texture2D, from: Vec2, to: Vec2, width: f32, tint: Color) {
+/// Draw a 9-slice hold body from `from` (head end) to `to` (tail end). Caps are
+/// always kept at their natural size, so a zero-length segment (head == tail at
+/// spawn, body 0) still renders the head cap as a blob scaling with `width`
+/// instead of a squeezed point. `fallback_dir` (the outward ray) orients the
+/// caps when the segment is degenerate during the approach.
+pub fn draw_hold_9slice_segment(
+    tex: &Texture2D,
+    from: Vec2,
+    to: Vec2,
+    width: f32,
+    tint: Color,
+    fallback_dir: Vec2,
+) {
     let delta = to - from;
-    let center_len = delta.length().max(1.0);
-    let dir = delta / center_len;
+    let len = delta.length();
+    // `dir` is consistently from head to tail (inward). The head cap's texture
+    // top (head visual) therefore always points outward and the tail cap's
+    // bottom inward. For a degenerate segment (head == tail during the grow
+    // phase) fall back to the same inward direction so the caps never flip.
+    let dir = if len > 1e-3 {
+        delta / len
+    } else {
+        (-fallback_dir).normalize_or_zero()
+    };
     let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
 
     let tex_w = tex.width().max(1.0);
@@ -564,14 +583,12 @@ pub fn draw_hold_9slice_segment(tex: &Texture2D, from: Vec2, to: Vec2, width: f3
 
     let min_cap = 4.0;
     let natural_cap_len = cap_len.max(min_cap);
-    let (head_len, tail_len) = if center_len < natural_cap_len {
-        let squeezed = (center_len * 0.5).max(1.0);
-        (squeezed, squeezed)
-    } else {
-        (natural_cap_len, natural_cap_len)
-    };
-    let head_start = from - dir * (head_len * 0.5);
-    let tail_start = to - dir * (tail_len * 0.5);
+    let (head_len, tail_len) = (natural_cap_len, natural_cap_len);
+    // Judgment points sit at the cap↔body boundary: the head cap starts at
+    // `from` and extends outward (toward the ring), the tail cap starts at `to`
+    // and extends inward (toward the center).
+    let head_start = from - dir * head_len;
+    let tail_start = to;
     let body_start = head_start + dir * head_len;
     let body_delta = tail_start - body_start;
     let body_len = body_delta.dot(dir).max(0.0);
@@ -601,9 +618,12 @@ pub fn draw_hold_9slice_segment(tex: &Texture2D, from: Vec2, to: Vec2, width: f3
         );
     };
 
-    draw_part(head_start, head_len, 0.0, cap_h);
-    draw_part(body_start, body_len, cap_h, body_src_h);
+    // Draw the tail and body first, then the head cap on top, so when the caps
+    // overlap (head ≈ tail at spawn, body 0) the head is never hidden behind
+    // the tail — while both caps remain visible.
     draw_part(tail_start, tail_len, tex_h - cap_h, cap_h);
+    draw_part(body_start, body_len, cap_h, body_src_h);
+    draw_part(head_start, head_len, 0.0, cap_h);
 }
 
 fn hold_pad_segment_geometry(
@@ -613,18 +633,31 @@ fn hold_pad_segment_geometry(
     dt_scaled: f32,
     tail_dt_scaled: f32,
     scale: f32,
+    speed: f32,
+    hold_dur_s: f32,
 ) -> (Vec2, Vec2, f32, f32) {
-    let lock_r = outer_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
-    let head_motion = note_radial_motion(dt_scaled, HOLD_FLY_TIME, outer_r, HOLD_TARGET_OFFSET)
+    let lock_r = note_lock_radius(outer_r, TAP_TARGET_OFFSET);
+    // Majdata pins the hold head at the same ring as a Tap note, so use the
+    // tap target offset.
+    let head_motion = note_radial_motion(dt_scaled, speed, outer_r, TAP_TARGET_OFFSET)
         .unwrap_or(super::types::NoteMotion {
             radius: lock_r,
             scale: 0.0,
             progress: 0.0,
         });
-    let tail_r = note_radial_motion(tail_dt_scaled, HOLD_FLY_TIME, outer_r, HOLD_TARGET_OFFSET)
-        .map(|motion| motion.radius)
-        .unwrap_or(lock_r)
-        .min(head_motion.radius);
+    // The tail is fixed at the inner radius during the approach and most of
+    // the hold — it only drains toward the ring in the final `drain_t` seconds
+    // before the hold ends (so the body does not translate as a unit).
+    let drain_t = (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / speed;
+    let drain_window = drain_t.min(hold_dur_s).max(0.001);
+    let target_r = outer_r + TAP_TARGET_OFFSET;
+    let tail_r = if tail_dt_scaled >= drain_window {
+        lock_r
+    } else {
+        let p = (1.0 - tail_dt_scaled / drain_window).clamp(0.0, 1.0);
+        lock_r + (target_r - lock_r) * p
+    };
+    let tail_r = tail_r.min(head_motion.radius);
     let tail = spawn_cx + dir * tail_r;
     let head = spawn_cx + dir * head_motion.radius;
     // Match HoldDrop: scale the whole generated note until the head reaches
@@ -963,19 +996,14 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
         };
         let tail_dt_scaled = tail_dt / speed_scale;
 
+        let speed = note_flight_speed(note);
         let lead_time = if zone <= 8 {
-            if matches!(note.note_type, NoteType::Hold) {
-                HOLD_FLY_TIME
-            } else if matches!(note.note_type, NoteType::Slide) {
-                SLIDE_TRAVEL_TIME
-            } else {
-                TAP_TRAVEL_TIME
-            }
+            note_lead_time(speed)
         } else {
             match note.note_type {
-                NoteType::Hold => HOLD_TRAVEL_TIME,
-                NoteType::Slide => SLIDE_TRAVEL_TIME,
-                _ => TOUCH_TRAVEL_TIME,
+                NoteType::Touch | NoteType::Hold => touch_whole_duration(speed),
+                NoteType::Slide => note_lead_time(speed),
+                NoteType::Tap => note_lead_time(speed),
             }
         };
         let slide_tail_dt = if matches!(note.note_type, NoteType::Slide) {
@@ -1096,13 +1124,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             let ang =
                 -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
             let dir = vec2(ang.cos(), ang.sin());
-            let head_travel = if matches!(note.note_type, NoteType::Slide) {
-                SLIDE_TRAVEL_TIME
-            } else {
-                TAP_TRAVEL_TIME
-            };
-            let Some(motion) =
-                note_radial_motion(dt_scaled, head_travel, outer_r, TAP_TARGET_OFFSET)
+            let Some(motion) = note_radial_motion(dt_scaled, speed, outer_r, TAP_TARGET_OFFSET)
             else {
                 continue;
             };
@@ -1110,6 +1132,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             let py = spawn_cx.y + dir.y * motion.radius;
 
             if matches!(note.note_type, NoteType::Hold) {
+                let hold_dur_s = (hold_tail_time(note, bpms) - ns) / speed_scale;
                 let (head, tail, hold_w, h_size_scale) = hold_pad_segment_geometry(
                     spawn_cx,
                     dir,
@@ -1117,6 +1140,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     dt_scaled,
                     tail_dt_scaled,
                     scale,
+                    speed,
+                    hold_dur_s,
                 );
                 let hold_tex = if note.is_break {
                     app.hold_break_tex.as_ref()
@@ -1132,6 +1157,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         tail,
                         hold_w,
                         Color::from_rgba(255, 255, 255, 255),
+                        dir,
                     );
                     if note.is_ex {
                         if let Some(ex_tex) = app.hold_ex_tex.as_ref() {
@@ -1141,6 +1167,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                                 tail,
                                 hold_w,
                                 Color::from_rgba(255, 255, 255, 255),
+                                dir,
                             );
                         }
                     }
@@ -1223,10 +1250,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
             else {
                 continue;
             };
-            let travel = match note.note_type {
-                NoteType::Hold => HOLD_TRAVEL_TIME,
-                _ => TOUCH_TRAVEL_TIME,
-            };
+            let travel = touch_whole_duration(speed);
             let raw = (travel - dt_scaled) / travel;
             let progress = smoothstep(raw.clamp(0.0, 1.0));
             // Phase 1: fade in 0→255. Phase 2: animate movement.
@@ -1418,19 +1442,14 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                     let ns = note_secs(note, bpms);
                     let dt = ns - current_t;
                     let dt_scaled = dt / speed_scale;
+                    let speed = note_flight_speed(note);
                     let lead_time = if zone <= 8 {
-                        if matches!(note.note_type, NoteType::Hold) {
-                            HOLD_FLY_TIME
-                        } else if matches!(note.note_type, NoteType::Slide) {
-                            SLIDE_TRAVEL_TIME
-                        } else {
-                            TAP_TRAVEL_TIME
-                        }
+                        note_lead_time(speed)
                     } else {
                         match note.note_type {
-                            NoteType::Hold => HOLD_TRAVEL_TIME,
-                            NoteType::Slide => SLIDE_TRAVEL_TIME,
-                            _ => TOUCH_TRAVEL_TIME,
+                            NoteType::Touch | NoteType::Hold => touch_whole_duration(speed),
+                            NoteType::Slide => note_lead_time(speed),
+                            NoteType::Tap => note_lead_time(speed),
                         }
                     };
                     let disappear_time = if matches!(note.note_type, NoteType::Touch) {
@@ -1513,13 +1532,8 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                             + PAD_ROTATION_RAD
                             + idx * std::f32::consts::TAU / 8.0;
                         let dir = vec2(ang.cos(), ang.sin());
-                        let head_travel = if matches!(note.note_type, NoteType::Slide) {
-                            SLIDE_TRAVEL_TIME
-                        } else {
-                            TAP_TRAVEL_TIME
-                        };
                         let Some(motion) =
-                            note_radial_motion(dt_scaled, head_travel, outer_r, TAP_TARGET_OFFSET)
+                            note_radial_motion(dt_scaled, speed, outer_r, TAP_TARGET_OFFSET)
                         else {
                             continue;
                         };
@@ -1530,6 +1544,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         if matches!(note.note_type, NoteType::Hold) {
                             let tail_dt_h = hold_tail_time(note, bpms) - current_t;
                             let tail_dt_h_scaled = tail_dt_h / speed_scale;
+                            let hold_dur_h = (hold_tail_time(note, bpms) - ns) / speed_scale;
                             let (head, tail, hold_w, h_size_scale) = hold_pad_segment_geometry(
                                 spawn_cx,
                                 dir,
@@ -1537,9 +1552,11 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                                 dt_scaled,
                                 tail_dt_h_scaled,
                                 scale,
+                                speed,
+                                hold_dur_h,
                             );
                             if let Some(tex) = app.hold_texture.as_ref() {
-                                draw_hold_9slice_segment(tex, head, tail, hold_w, tpl_color);
+                                draw_hold_9slice_segment(tex, head, tail, hold_w, tpl_color, dir);
                             } else {
                                 draw_line(
                                     head.x,
@@ -1587,10 +1604,7 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         else {
                             continue;
                         };
-                        let travel = match note.note_type {
-                            NoteType::Hold => HOLD_TRAVEL_TIME,
-                            _ => TOUCH_TRAVEL_TIME,
-                        };
+                        let travel = touch_whole_duration(speed);
                         let raw = (travel - dt_scaled) / travel;
                         let progress = smoothstep(raw.clamp(0.0, 1.0));
                         let alpha_val = if progress < TOUCH_GROW_FRAC {

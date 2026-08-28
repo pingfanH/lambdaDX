@@ -179,6 +179,7 @@ pub fn ser_to_note(s: &SerNote) -> Note {
         is_ex: s.is_ex,
         is_star: s.is_star,
         is_tapless: s.is_tapless,
+        hi_speed: 1.0,
         slide: s.slide.clone(),
         template_source: None,
     }
