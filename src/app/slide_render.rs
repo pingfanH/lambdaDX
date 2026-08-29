@@ -123,6 +123,7 @@ pub fn draw_slide(
     base_speed: f32,
     slide_fade_in: f32,
     completed_areas: usize,
+    autoplay: bool,
 ) {
     // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
     // The star motion fills the `[start_delay, total]` window; the travel time
@@ -521,7 +522,14 @@ pub fn draw_slide(
             })
             .count()
     };
-    let completed_areas = completed_areas.max(star_completed_areas);
+    // In manual play the trail hides only when the player touches each area
+    // (`completed_areas`); the star's own progress only consumes the trail in
+    // autoplay/preview.
+    let completed_areas = if autoplay {
+        completed_areas.max(star_completed_areas)
+    } else {
+        completed_areas
+    };
     let hidden_until = if completed_areas == 0 {
         0
     } else {

@@ -683,6 +683,11 @@ impl PlayerState {
         self.active_sensor_holds.clear();
         self.prev_pointer_pos.clear();
         self.slide_progress.clear();
+        self.auto_judged.clear();
+        self.auto_slide_sensors.clear();
+        // The lnmai engine's session keeps its own timeline; reload it so the
+        // notes are judged again from the start.
+        self.reload_judge_engine();
         self.request_audio_start();
     }
 
@@ -784,7 +789,7 @@ impl PlayerState {
                 continue;
             }
             let progress = self.slide_progress.entry((note_id, slide_idx)).or_default();
-            if autoplay && self.judge_engine.is_none() {
+            if autoplay {
                 let process =
                     ((now - start_time) / (end_time - start_time).max(0.001)).clamp(0.0, 1.0);
                 let mut completed_zones = Vec::new();
@@ -798,8 +803,10 @@ impl PlayerState {
                     progress.area_on = false;
                     completed_zones.push(areas[area_index].0);
                 }
-                for zone in completed_zones {
-                    self.push_judgement(zone, "SLIDE", 0.26);
+                if self.judge_engine.is_none() {
+                    for zone in completed_zones {
+                        self.push_judgement(zone, "SLIDE", 0.26);
+                    }
                 }
                 continue;
             }

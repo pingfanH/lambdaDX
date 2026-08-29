@@ -492,6 +492,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                             .get(&(note.id, si))
                             .map(|progress| progress.completed_areas)
                             .unwrap_or(0),
+                        app.autoplay,
                     );
                 }
             }
