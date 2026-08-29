@@ -324,16 +324,21 @@ fn handle_engine_events(app: &mut crate::state::PlayerState, events: Vec<JudgeEv
     let bpms = app.chart.bpms.clone();
     for ev in events {
         let is_slide = ev.kind == JudgeEventKind::Slide;
+        let pos_zone = || {
+            if let Some(b) = ev.position.button {
+                Some(zone_for_button(b))
+            } else if let Some(s) = ev.position.sensor {
+                Some(zone_for_sensor(s))
+            } else {
+                None
+            }
+        };
         // The engine reports the slide's head button; show slide feedback at
         // the slide's tail zone with the slide color instead.
         let zone = if is_slide {
-            find_slide_tail_zone(app, now, &bpms)
-        } else if let Some(b) = ev.position.button {
-            Some(zone_for_button(b))
-        } else if let Some(s) = ev.position.sensor {
-            Some(zone_for_sensor(s))
+            find_slide_tail_zone(app, now, &bpms).or_else(pos_zone)
         } else {
-            None
+            pos_zone()
         };
         let Some(zone) = zone else {
             continue;
@@ -381,7 +386,8 @@ fn find_slide_tail_zone(
         .filter(|n| {
             let start = note_secs(n, bpms);
             let end = slide_end_time(n, bpms);
-            start <= now && now <= end
+            // Judge events fire near the slide end; allow a small grace window.
+            now >= start - 0.1 && now <= end + 1.0
         })
         .min_by(|a, b| {
             let da = (slide_end_time(a, bpms) - now).abs();

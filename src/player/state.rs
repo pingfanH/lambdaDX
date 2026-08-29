@@ -884,18 +884,20 @@ impl PlayerState {
             .filter(|note| sanitize_note_zone(note.note_type, note.lane) == zone.to_id())
             .map(|note| (note_secs(note, &self.chart.bpms) - now).abs())
             .min_by(f32::total_cmp);
+        // Only judge when a note actually exists in the hit window; an empty
+        // touch must not show a fake judgment.
         let Some(diff) = best else {
-            self.push_judgement(zone, "MISS", 0.24);
             return;
         };
+        if diff > 0.24 {
+            return;
+        }
         let (label, duration) = if diff <= 0.06 {
             ("PERFECT", 0.32)
         } else if diff <= 0.14 {
             ("GREAT", 0.28)
-        } else if diff <= 0.24 {
-            ("GOOD", 0.24)
         } else {
-            ("MISS", 0.24)
+            ("GOOD", 0.24)
         };
         self.push_judgement(zone, label, duration);
     }
