@@ -422,7 +422,7 @@ impl PlayerState {
             auto_slide_sensors: HashSet::new(),
             next_note_id: 1,
             hidden_notes: HashSet::new(),
-            autoplay: true,
+            autoplay: false,
             slide_progress: HashMap::new(),
             judge_engine: None,
             engine_events: Vec::new(),
@@ -707,7 +707,10 @@ impl PlayerState {
         let active: HashSet<PadZone> = self.active_sensor_holds.values().copied().collect();
         let bpms = self.chart.bpms.clone();
 
-        if autoplay {
+        // The lnmai-core engine owns autoplay judging when loaded; this manual
+        // autoplay feedback only runs as a fallback. The manual slide-area
+        // progression (bar hiding on touch) below always runs.
+        if autoplay && self.judge_engine.is_none() {
             let auto_judgements: Vec<(usize, PadZone)> = self
                 .chart
                 .notes
@@ -781,7 +784,7 @@ impl PlayerState {
                 continue;
             }
             let progress = self.slide_progress.entry((note_id, slide_idx)).or_default();
-            if autoplay {
+            if autoplay && self.judge_engine.is_none() {
                 let process =
                     ((now - start_time) / (end_time - start_time).max(0.001)).clamp(0.0, 1.0);
                 let mut completed_zones = Vec::new();

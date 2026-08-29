@@ -86,7 +86,7 @@ fn draw_settings(ui: &mut egui::Ui, app: &mut PlayerState) {
             app.play_speed = 1.0;
             app.note_speed = 7.5;
             app.slide_fade_in = 3.926_913 / 7.5;
-            app.autoplay = true;
+            app.autoplay = false;
             app.waveform_threshold = 0.3;
             app.mobile_ui = false;
             app.ui_scale_override = None;

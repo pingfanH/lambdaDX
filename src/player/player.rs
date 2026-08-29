@@ -83,11 +83,10 @@ pub async fn main() {
             let spawn_center = svg
                 .pad_visual_center(&pad_geom)
                 .unwrap_or(macroquad::math::vec2(pad_geom.cx, pad_geom.cy));
-            // The lnmai-core engine drives judgment when loaded; the manual
-            // slide/autoplay progression only runs as a fallback.
-            if app.judge_engine.is_none() {
-                app.update_slide_judgment(pad_geom, &svg, player_layout::ui_scale(&app), spawn_center);
-            }
+            // Always run the visual slide-area progression (bar hiding on
+            // touch); judge feedback is produced by the lnmai engine when
+            // loaded, otherwise by the manual path inside this call.
+            app.update_slide_judgment(pad_geom, &svg, player_layout::ui_scale(&app), spawn_center);
         }
 
         if show_gameplay {
