@@ -793,7 +793,7 @@ impl PlayerState {
             if autoplay {
                 let process =
                     ((now - start_time) / (end_time - start_time).max(0.001)).clamp(0.0, 1.0);
-                let mut completed_zones = Vec::new();
+                let mut slide_finished = false;
                 while progress.completed_areas < areas.len() {
                     let area_index = progress.completed_areas;
                     let segment_end = areas[area_index].1 as f32 / bar_count as f32;
@@ -802,11 +802,14 @@ impl PlayerState {
                     }
                     progress.completed_areas += 1;
                     progress.area_on = false;
-                    completed_zones.push(areas[area_index].0);
+                    if progress.completed_areas == areas.len() {
+                        slide_finished = true;
+                    }
                 }
-                if self.judge_engine.is_none() {
-                    for zone in completed_zones {
-                        self.push_judgement(zone, "Slide", 0.26);
+                // Only the whole slide's completion reports a judgment.
+                if self.judge_engine.is_none() && slide_finished {
+                    if let Some((zone, _)) = areas.last() {
+                        self.push_judgement(*zone, "Perfect", 0.32);
                     }
                 }
                 continue;
@@ -835,8 +838,20 @@ impl PlayerState {
                 } else {
                     false
                 };
-                if completed && self.judge_engine.is_none() {
-                    self.push_judgement(zone, "Slide", 0.26);
+                // Only the final area reports the slide's judgment; the
+                // intermediate areas stay silent.
+                if completed && is_last && self.judge_engine.is_none() {
+                    let diff = now - end_time;
+                    let (label, duration) = if diff.abs() <= 0.06 {
+                        ("Perfect", 0.32)
+                    } else if diff.abs() <= 0.14 {
+                        ("Great", 0.28)
+                    } else if diff.abs() <= 0.24 {
+                        ("Good", 0.24)
+                    } else {
+                        ("Miss", 0.24)
+                    };
+                    self.push_judgement(zone, label, duration);
                 }
                 break;
             }
