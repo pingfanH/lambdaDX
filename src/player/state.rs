@@ -809,6 +809,10 @@ impl PlayerState {
                 // Only the whole slide's completion reports a judgment.
                 if self.judge_engine.is_none() && slide_finished {
                     if let Some((zone, _)) = areas.last() {
+                        eprintln!(
+                            "[slide] autoplay slide #{} done: Perfect at t={now:.3} zone={:?}",
+                            note_id, zone
+                        );
                         self.push_judgement(*zone, "Perfect", 0.32);
                     }
                 }
@@ -851,6 +855,10 @@ impl PlayerState {
                     } else {
                         ("Miss", 0.24)
                     };
+                    eprintln!(
+                        "[slide] slide #{} done at t={now:.3} zone={:?} diff={diff:+.3}s -> {label}",
+                        note_id, zone
+                    );
                     self.push_judgement(zone, label, duration);
                 }
                 break;
