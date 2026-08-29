@@ -259,11 +259,18 @@ pub struct PlayerState {
     pub sfx_break_slide: Option<SfxBuffer>,
     pub touch_riser_playing: bool,
     pub hit_sounds_played: HashSet<usize>,
+    /// Notes already auto-judged by the lnmai engine (autoplay).
+    pub auto_judged: HashSet<u64>,
     pub next_note_id: u64,
     pub hidden_notes: HashSet<u64>,
     pub autoplay: bool,
     /// Per-note, per-sub-slide progress used to hide completed trail areas.
     pub slide_progress: HashMap<(u64, usize), SlideProgress>,
+
+    /// Loaded lnmai-core judgment session (None until a chart is loaded).
+    pub judge_engine: Option<super::engine::JudgeEngine>,
+    /// Input events collected for the current frame, fed to the engine.
+    pub engine_events: Vec<lnmai_core_rs::types::TimedInputEvent>,
 
     pub status: String,
 
@@ -409,10 +416,13 @@ impl PlayerState {
             sfx_break_slide: None,
             touch_riser_playing: false,
             hit_sounds_played: HashSet::new(),
+            auto_judged: HashSet::new(),
             next_note_id: 1,
             hidden_notes: HashSet::new(),
             autoplay: true,
             slide_progress: HashMap::new(),
+            judge_engine: None,
+            engine_events: Vec::new(),
             status: "Ready".to_string(),
             import_path_input: String::new(),
             pending_import: false,
@@ -874,6 +884,45 @@ impl PlayerState {
             ("MISS", 0.24)
         };
         self.push_judgement(zone, label, duration);
+    }
+
+    /// Record a zone press/release into the lnmai-core judgment engine's input
+    /// buffer for the current frame. Falls back to the manual judge windows
+    /// when no engine is loaded.
+    pub fn record_engine_input(&mut self, zone: PadZone, is_down: bool) {
+        if self.judge_engine.is_none() {
+            if is_down {
+                self.judge_input(zone);
+            }
+            return;
+        }
+        let tp = (self.song_time().max(0.0) * 1e6) as i64;
+        if let Some((click, hold_down, hold_up)) = super::engine::events_for_zone(zone, tp) {
+            if is_down {
+                self.engine_events.push(click);
+                self.engine_events.push(hold_down);
+            } else {
+                self.engine_events.push(hold_up);
+            }
+        }
+    }
+
+    /// (Re)load the lnmai-core judgment engine for the currently imported chart.
+    pub fn reload_judge_engine(&mut self) {
+        self.judge_engine = None;
+        let Some(file) = self.imported_simai.clone() else {
+            return;
+        };
+        let text = maisimai::export_file(&file);
+        match super::engine::JudgeEngine::load(&text, self.import_selected_level) {
+            Ok(engine) => {
+                self.judge_engine = Some(engine);
+                self.set_status(format!("判引擎已载入 (Lv.{})", self.import_selected_level));
+            }
+            Err(e) => {
+                self.set_status(format!("判引擎载入失败: {e}"));
+            }
+        }
     }
 
     pub fn push_judgement(&mut self, zone: PadZone, label: &str, duration: f64) {

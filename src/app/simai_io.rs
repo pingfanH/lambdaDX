@@ -597,6 +597,8 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
     let mut notes: Vec<SimaiNote> = Vec::with_capacity(doc.notes.len());
     for n in &doc.notes {
         let measure = snap_measure(n.time);
+        // Editor-created notes leave `hi_speed` at its Default (0); export as 1x.
+        let hs = if n.hi_speed > 0.0 { n.hi_speed } else { 1.0 };
         match n.note_type {
             NoteType::Tap => {
                 if n.lane >= 1 && n.lane <= 8 {
@@ -606,7 +608,7 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         is_break: n.is_break,
                         is_ex: n.is_ex,
                         is_star: n.is_star,
-                        hi_speed: n.hi_speed,
+                        hi_speed: hs,
                     });
                 } else {
                     let (region, position) = lane_to_touch(n.lane);
@@ -615,7 +617,7 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         region,
                         position,
                         is_firework: false,
-                        hi_speed: n.hi_speed,
+                        hi_speed: hs,
                     });
                 }
             }
@@ -626,7 +628,7 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                     region,
                     position,
                     is_firework: false,
-                    hi_speed: n.hi_speed,
+                    hi_speed: hs,
                 });
             }
             NoteType::Hold => {
@@ -637,7 +639,7 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         button: n.lane - 1,
                         duration: dur_meas,
                         is_ex: n.is_ex,
-                        hi_speed: n.hi_speed,
+                        hi_speed: hs,
                     });
                 } else {
                     let (region, position) = lane_to_touch(n.lane);
@@ -647,7 +649,7 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         position,
                         duration: dur_meas,
                         is_firework: false,
-                        hi_speed: n.hi_speed,
+                        hi_speed: hs,
                     });
                 }
             }
@@ -669,7 +671,7 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         is_break: n.is_break,
                         is_ex: n.is_ex,
                         is_star: true,
-                        hi_speed: n.hi_speed,
+                        hi_speed: hs,
                     });
                 }
                 // Emit one SimaiNote::Slide per Slide in note.slide.
@@ -726,7 +728,7 @@ pub fn chart_doc_to_simai_chart(doc: &ChartDoc) -> SimaiChart {
                         is_ex: false,
                         is_tapless: n.is_tapless,
                         chain,
-                        hi_speed: n.hi_speed,
+                        hi_speed: hs,
                     });
                 }
             }

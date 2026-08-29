@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod egui;
+pub mod engine;
 pub mod input;
 pub mod player_layout;
 pub mod state;
@@ -82,7 +83,11 @@ pub async fn main() {
             let spawn_center = svg
                 .pad_visual_center(&pad_geom)
                 .unwrap_or(macroquad::math::vec2(pad_geom.cx, pad_geom.cy));
-            app.update_slide_judgment(pad_geom, &svg, player_layout::ui_scale(&app), spawn_center);
+            // The lnmai-core engine drives judgment when loaded; the manual
+            // slide/autoplay progression only runs as a fallback.
+            if app.judge_engine.is_none() {
+                app.update_slide_judgment(pad_geom, &svg, player_layout::ui_scale(&app), spawn_center);
+            }
         }
 
         if show_gameplay {
@@ -97,6 +102,12 @@ pub async fn main() {
         }
         audio::service_audio(&mut app).await;
         app.tick_feedback();
+
+        if app.player_ui.page == state::PlayerPage::Gameplay
+            && app.mode == lambda_dx::app::types::Mode::Playing
+        {
+            engine::step_judge_engine(&mut app);
+        }
 
         egui_macroquad::ui(|egui_ctx| {
             egui::draw_egui_ui(egui_ctx, &mut app);

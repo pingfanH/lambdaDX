@@ -167,6 +167,7 @@ pub fn apply_import(app: &mut PlayerState, import: DialogImport, song_index: Opt
     app.import_levels = import.levels.clone();
     app.imported_simai = Some(import.simai_file);
     app.import_selected_level = selected_level;
+    app.reload_judge_engine();
     app.set_chart(import.chart);
     app.set_selected_note(None);
     app.set_editing_slide_path(None);
@@ -190,6 +191,7 @@ pub fn select_difficulty(app: &mut PlayerState, level: u32) -> Result<(), String
         .ok_or_else(|| "当前歌曲没有可切换的难度".to_owned())?;
     let chart = simai_io::convert_simai_level(simai, level)?;
     app.import_selected_level = level;
+    app.reload_judge_engine();
     app.set_chart(chart);
     app.set_status(format!("难度已切换至 Lv.{level}"));
     Ok(())

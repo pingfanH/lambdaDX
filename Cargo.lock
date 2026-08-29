@@ -774,6 +774,8 @@ dependencies = [
  "egui-macroquad",
  "hound",
  "image",
+ "lnmai-core-ffi",
+ "lnmai-core-rs",
  "macroquad",
  "maisimai",
  "minimp3",

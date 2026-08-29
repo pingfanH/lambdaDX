@@ -108,20 +108,24 @@ pub fn handle_lane_input(app: &mut PlayerState) {
 
     for (key, lane) in bindings {
         let input_id = u64::MAX - 100 - lane as u64;
+        let zone = PadZone::from(lane);
         if is_key_pressed(key) {
             app.active_pointer_zones
                 .insert(input_id, PadZone::from(lane));
             app.active_sensor_holds
                 .insert(input_id, PadZone::from(lane));
-            app.push_feedback(PadZone::from(lane), 0.12);
-            app.judge_input(PadZone::from(lane));
-            if let (Some(sfx), Some(player)) = (&app.sfx_tap, &mut app.sfx_player) {
-                player.play(sfx, 1.0);
+            app.push_feedback(zone, 0.12);
+            app.record_engine_input(zone, true);
+            if app.judge_engine.is_none() {
+                if let (Some(sfx), Some(player)) = (&app.sfx_tap, &mut app.sfx_player) {
+                    player.play(sfx, 1.0);
+                }
             }
         }
         if is_key_released(key) {
             app.active_pointer_zones.remove(&input_id);
             app.active_sensor_holds.remove(&input_id);
+            app.record_engine_input(zone, false);
         }
     }
 }
@@ -264,7 +268,7 @@ pub fn handle_touch_controls(
                     app.active_pointer_zones.insert(ev.id, zone);
                     update_active_sensor_hold(app, ev.id, Some(zone));
                     app.push_feedback(zone, 0.12);
-                    app.judge_input(zone);
+                    app.record_engine_input(zone, true);
                     //app.start_record_hold_input(RecordInputId::Pointer(ev.id), zone);
                 }
             }
@@ -298,11 +302,18 @@ pub fn handle_touch_controls(
 
                     if old_zone != new_zone {
                         if let Some(zone) = new_zone {
+                            if let Some(old) = old_zone {
+                                app.record_engine_input(old, false);
+                            }
                             //app.record_slide_zone(RecordInputId::Pointer(ev.id), zone);
                             app.active_pointer_zones.insert(ev.id, zone);
                             update_active_sensor_hold(app, ev.id, Some(zone));
+                            app.record_engine_input(zone, true);
                             app.push_feedback(zone, 0.10);
                         } else {
+                            if let Some(old) = old_zone {
+                                app.record_engine_input(old, false);
+                            }
                             app.active_pointer_zones.remove(&ev.id);
                             update_active_sensor_hold(app, ev.id, None);
                         }
@@ -310,6 +321,9 @@ pub fn handle_touch_controls(
                 }
             }
             TouchPhase::Ended | TouchPhase::Cancelled => {
+                if let Some(zone) = app.active_pointer_zones.get(&ev.id).copied() {
+                    app.record_engine_input(zone, false);
+                }
                 app.prev_pointer_pos.remove(&ev.id);
                 app.active_pointer_zones.remove(&ev.id);
                 update_active_sensor_hold(app, ev.id, None);
