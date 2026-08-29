@@ -895,17 +895,22 @@ impl PlayerState {
             .min_by(f32::total_cmp);
         // Only judge when a note actually exists in the hit window; an empty
         // touch must not show a fake judgment.
-        let Some(diff) = best else {
+        let Some(best) = best else {
             return;
         };
+        let (signed, diff) = (best - now, best.abs());
         let (label, duration) = if diff <= 0.06 {
             ("Perfect", 0.32)
         } else if diff <= 0.14 {
             ("Great", 0.28)
         } else if diff <= 0.24 {
             ("Good", 0.24)
-        } else {
+        } else if (-1.0..0.0).contains(&signed) {
+            // The nearest note already passed but not long ago: a real miss.
             ("Miss", 0.24)
+        } else {
+            // Too far in the future or long gone: nothing to judge.
+            return;
         };
         self.push_judgement(zone, label, duration);
     }
