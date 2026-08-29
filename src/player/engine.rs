@@ -13,19 +13,6 @@ use lnmai_core_rs::types::{
     ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, SensorArea, TimedInputBatch, TimedInputEvent,
 };
 
-/// Map a judge grade to the player's feedback label.
-pub fn grade_label(grade: JudgeGrade) -> &'static str {
-    use JudgeGrade::*;
-    match grade {
-        Perfect | FastPerfect2nd | FastPerfect3rd | LatePerfect2nd | LatePerfect3rd => "PERFECT",
-        FastGreat | FastGreat2nd | FastGreat3rd | LateGreat | LateGreat2nd | LateGreat3rd => {
-            "GREAT"
-        }
-        FastGood | LateGood => "GOOD",
-        Miss | TooFast => "MISS",
-    }
-}
-
 /// Map a pad zone id (1-8 = A buttons, 9-33 = sensors) to lnmai input events.
 /// Returns `(click_event, hold_down, hold_up)` for a press/release cycle.
 pub fn events_for_zone(
@@ -343,19 +330,17 @@ fn handle_engine_events(app: &mut crate::state::PlayerState, events: Vec<JudgeEv
         let Some(zone) = zone else {
             continue;
         };
-        let label = grade_label(ev.grade);
+        // Raw lnmai grade string (e.g. "Perfect", "LatePerfect2nd", "Miss"),
+        // matching the 8464c6f judge display.
+        let label = format!("{:?}", ev.grade);
         let is_miss = ev.grade.is_miss_or_too_fast();
         let duration = if is_miss { 0.24 } else { 0.3 };
-        if is_slide {
-            app.push_judgement_colored(
-                zone,
-                label,
-                duration,
-                macroquad::prelude::Color::from_rgba(232, 121, 249, 255),
-            );
-        } else {
-            app.push_judgement(zone, label, duration);
-        }
+        app.push_judgement_colored(
+            zone,
+            &label,
+            duration,
+            macroquad::prelude::Color::from_rgba(255, 255, 255, 255),
+        );
 
         if !is_miss {
             let sfx = match ev.kind {

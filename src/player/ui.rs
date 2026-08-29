@@ -66,41 +66,44 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
 
     let now = macroquad::prelude::get_time();
     for feedback in &app.judge_feedback {
-        let center = app
-            .pad_svg
-            .as_ref()
-            .and_then(|svg| svg.zone_screen_centroid(feedback.zone, &pad))
-            .unwrap_or(vec2(cx, cy));
-        let age = (now - feedback.started) as f32;
-        let life = (feedback.until - feedback.started) as f32;
-        let progress = (age / life.max(0.001)).clamp(0.0, 1.0);
-        let radius = (22.0 + progress * 28.0) * scale;
-        let alpha = ((1.0 - progress) * feedback.color.a * 255.0) as u8;
-        draw_circle_lines(
-            center.x,
-            center.y,
-            radius,
-            3.0 * scale,
-            Color::from_rgba(
-                (feedback.color.r * 255.0) as u8,
-                (feedback.color.g * 255.0) as u8,
-                (feedback.color.b * 255.0) as u8,
-                alpha,
-            ),
-        );
-        let text_size = 18.0 * scale;
-        let dims = measure_text(&feedback.label, None, text_size as _, 1.0);
+        let remaining = feedback.until - now;
+        if remaining <= 0.0 {
+            continue;
+        }
+        let alpha = if remaining < 0.2 {
+            (remaining / 0.2 * 255.0) as u8
+        } else {
+            255u8
+        };
+        // Grade-based colors (matches the pre-lnmai judge display).
+        let color = match feedback.label.as_str() {
+            "Perfect" => Color::from_rgba(255, 215, 0, alpha),
+            "Great" => Color::from_rgba(0, 255, 0, alpha),
+            _ => Color::from_rgba(255, 255, 255, alpha),
+        };
+        // A-zones show the text on the tap ring; other zones at their centroid.
+        let pos = if feedback.zone.to_id() <= 8 {
+            let idx = (feedback.zone.to_id() - 1) as f32;
+            let ang =
+                -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+            let dir = vec2(ang.cos(), ang.sin());
+            let target_r = outer_r + TAP_TARGET_OFFSET;
+            vec2(spawn_cx.x + dir.x * target_r, spawn_cx.y + dir.y * target_r)
+        } else {
+            app.pad_svg
+                .as_ref()
+                .and_then(|svg| svg.zone_screen_centroid(feedback.zone, &pad))
+                .unwrap_or(vec2(cx, cy))
+        };
+        let text = feedback.label.to_uppercase();
+        let font_size = 24.0 * scale;
+        let dims = measure_text(&text, None, font_size as _, 1.0);
         draw_text(
-            &feedback.label,
-            center.x - dims.width * 0.5,
-            center.y - radius - 8.0 * scale,
-            text_size,
-            Color::from_rgba(
-                (feedback.color.r * 255.0) as u8,
-                (feedback.color.g * 255.0) as u8,
-                (feedback.color.b * 255.0) as u8,
-                alpha,
-            ),
+            &text,
+            pos.x - dims.width * 0.5,
+            pos.y,
+            font_size,
+            color,
         );
     }
 

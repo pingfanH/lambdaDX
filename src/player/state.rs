@@ -739,7 +739,7 @@ impl PlayerState {
                 .collect();
             for (index, zone) in auto_judgements {
                 self.hit_sounds_played.insert(index);
-                self.push_judgement(zone, "PERFECT", 0.32);
+                self.push_judgement(zone, "Perfect", 0.32);
             }
         }
 
@@ -806,7 +806,7 @@ impl PlayerState {
                 }
                 if self.judge_engine.is_none() {
                     for zone in completed_zones {
-                        self.push_judgement(zone, "SLIDE", 0.26);
+                        self.push_judgement(zone, "Slide", 0.26);
                     }
                 }
                 continue;
@@ -893,11 +893,11 @@ impl PlayerState {
             return;
         }
         let (label, duration) = if diff <= 0.06 {
-            ("PERFECT", 0.32)
+            ("Perfect", 0.32)
         } else if diff <= 0.14 {
-            ("GREAT", 0.28)
+            ("Great", 0.28)
         } else {
-            ("GOOD", 0.24)
+            ("Good", 0.24)
         };
         self.push_judgement(zone, label, duration);
     }
