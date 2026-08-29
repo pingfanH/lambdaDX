@@ -101,7 +101,7 @@ fn draw_song_list(ui: &mut egui::Ui, app: &mut PlayerState) {
             .strong()
             .color(theme::TEXT_MUTED),
     );
-    if widgets::command_button(ui, "打开 maidata.txt", widgets::ButtonKind::Quiet).clicked() {
+    if widgets::command_button(ui, "导入歌曲到曲库", widgets::ButtonKind::Quiet).clicked() {
         app.pending_import = true;
     }
 }

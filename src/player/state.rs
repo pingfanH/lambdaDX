@@ -261,6 +261,8 @@ pub struct PlayerState {
     pub hit_sounds_played: HashSet<usize>,
     /// Notes already auto-judged by the lnmai engine (autoplay).
     pub auto_judged: HashSet<u64>,
+    /// (note_id, sensor zone) already auto-triggered for slides (autoplay).
+    pub auto_slide_sensors: HashSet<(u64, u8)>,
     pub next_note_id: u64,
     pub hidden_notes: HashSet<u64>,
     pub autoplay: bool,
@@ -417,6 +419,7 @@ impl PlayerState {
             touch_riser_playing: false,
             hit_sounds_played: HashSet::new(),
             auto_judged: HashSet::new(),
+            auto_slide_sensors: HashSet::new(),
             next_note_id: 1,
             hidden_notes: HashSet::new(),
             autoplay: true,

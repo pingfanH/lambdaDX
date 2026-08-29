@@ -234,6 +234,7 @@ impl InputTp for TimedInputEvent {
 
 use lambda_dx::app::types::note_secs;
 use lambda_dx::app::types::sanitize_note_zone;
+use lambda_dx::app::types::{NoteType, mdur_to_secs};
 
 fn tp_at(secs: f32) -> i64 {
     (secs.max(0.0) * 1e6) as i64
@@ -250,17 +251,57 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
         let now = app.song_time();
         let bpms = app.chart.bpms.clone();
         for note in &app.chart.notes {
-            if app.auto_judged.contains(&note.id) {
-                continue;
-            }
             let ns = note_secs(note, &bpms);
-            if ns <= now + 0.02 {
-                let zone = PadZone::from(sanitize_note_zone(note.note_type, note.lane));
-                if let Some((click, hold_down, _)) = events_for_zone(zone, tp_at(ns)) {
-                    app.engine_events.push(click);
-                    app.engine_events.push(hold_down);
+            match note.note_type {
+                NoteType::Slide => {
+                    // Feed sensor clicks along each slide's waypoint zones so
+                    // the engine can judge slides in autoplay.
+                    for sl in &note.slide {
+                        let start = ns + mdur_to_secs(sl.slide_start_delay, note.time, &bpms);
+                        let dur = mdur_to_secs(sl.slide_duration, note.time, &bpms).max(0.05);
+                        let mut zones = vec![note.lane];
+                        for seg in &sl.segments {
+                            for p in &seg.points {
+                                let zid = p.zone.to_id();
+                                if zones.last() != Some(&zid) {
+                                    zones.push(zid);
+                                }
+                            }
+                        }
+                        for (k, zid) in zones.iter().enumerate() {
+                            if !app.auto_slide_sensors.contains(&(note.id, *zid)) {
+                                let frac = if zones.len() <= 1 {
+                                    0.0
+                                } else {
+                                    k as f32 / (zones.len() - 1) as f32
+                                };
+                                let t = start + dur * frac;
+                                if t <= now + 0.02 {
+                                    if let Some((click, hold_down, _)) =
+                                        events_for_zone(PadZone::from(*zid), tp_at(t))
+                                    {
+                                        app.engine_events.push(click);
+                                        app.engine_events.push(hold_down);
+                                    }
+                                    app.auto_slide_sensors.insert((note.id, *zid));
+                                }
+                            }
+                        }
+                    }
                 }
-                app.auto_judged.insert(note.id);
+                _ => {
+                    if app.auto_judged.contains(&note.id) {
+                        continue;
+                    }
+                    if ns <= now + 0.02 {
+                        let zone = PadZone::from(sanitize_note_zone(note.note_type, note.lane));
+                        if let Some((click, hold_down, _)) = events_for_zone(zone, tp_at(ns)) {
+                            app.engine_events.push(click);
+                            app.engine_events.push(hold_down);
+                        }
+                        app.auto_judged.insert(note.id);
+                    }
+                }
             }
         }
     }

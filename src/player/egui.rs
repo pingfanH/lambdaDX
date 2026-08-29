@@ -28,6 +28,13 @@ pub fn draw_egui_ui(ctx: &egui::Context, app: &mut PlayerState) {
 }
 
 pub fn finish_dialog_import(app: &mut PlayerState, import: lambda_dx::simai_io::DialogImport) {
-    library::apply_import(app, import, None);
+    library::apply_import(app, import.clone(), None);
+    match library::import_song_to_library(app, &import) {
+        Ok(index) => {
+            let _ = library::load_song(app, index);
+            app.player_ui.selected_song = index;
+        }
+        Err(e) => app.set_status(format!("导入到曲库失败: {e}")),
+    }
     app.player_ui.page = PlayerPage::SongSelect;
 }

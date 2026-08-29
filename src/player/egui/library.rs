@@ -197,6 +197,83 @@ pub fn select_difficulty(app: &mut PlayerState, level: u32) -> Result<(), String
     Ok(())
 }
 
+/// Copy an imported song (maidata + audio + cover) into the `songs/` library,
+/// refresh the list and return the new song's index.
+pub fn import_song_to_library(
+    app: &mut PlayerState,
+    import: &simai_io::DialogImport,
+) -> Result<usize, String> {
+    let source_dir = import
+        .source_dir
+        .as_ref()
+        .ok_or_else(|| "导入来源目录不可用".to_owned())?;
+    let root = songs_directory();
+    std::fs::create_dir_all(&root).map_err(|e| format!("无法创建曲库目录: {e}"))?;
+
+    let mut folder = sanitize_folder_name(&import.title);
+    let mut dest = root.join(&folder);
+    let mut counter = 1;
+    while dest.is_dir() {
+        folder = format!("{} ({})", sanitize_folder_name(&import.title), counter);
+        dest = root.join(&folder);
+        counter += 1;
+    }
+    std::fs::create_dir_all(&dest).map_err(|e| format!("创建歌曲目录失败: {e}"))?;
+
+    // Copy maidata.txt (fall back to re-exporting the parsed file).
+    let maidata = source_dir.join("maidata.txt");
+    if maidata.is_file() {
+        std::fs::copy(&maidata, dest.join("maidata.txt"))
+            .map_err(|e| format!("复制 maidata.txt 失败: {e}"))?;
+    } else {
+        let text = maisimai::export_file(&import.simai_file);
+        std::fs::write(dest.join("maidata.txt"), text)
+            .map_err(|e| format!("写入 maidata.txt 失败: {e}"))?;
+    }
+
+    // Write audio.
+    if let (Some(bytes), Some(ext)) = (&import.audio_bytes, &import.audio_ext) {
+        std::fs::write(dest.join(format!("track.{ext}")), bytes)
+            .map_err(|e| format!("写入音频失败: {e}"))?;
+    }
+
+    // Copy the cover if present.
+    for name in ["bg.jpg", "bg.png", "cover.jpg", "cover.png"] {
+        let src = source_dir.join(name);
+        if src.is_file() {
+            let _ = std::fs::copy(&src, dest.join(name));
+            break;
+        }
+    }
+
+    refresh_song_library(app);
+    let index = app
+        .song_library
+        .iter()
+        .position(|song| song.chart_path.starts_with(&dest))
+        .unwrap_or_else(|| app.song_library.len().saturating_sub(1));
+    app.player_ui.selected_song = index;
+    app.set_status(format!("已导入「{}」到曲库", import.title));
+    Ok(index)
+}
+
+fn sanitize_folder_name(title: &str) -> String {
+    let mut s: String = title
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, ' ' | '_' | '-' | '・' | '（' | '）') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if s.trim().is_empty() {
+        s = "Imported Song".to_owned();
+    }
+    s.trim().to_string()
+}
+
 pub fn begin_gameplay(app: &mut PlayerState) -> Result<(), String> {
     if app.player_ui.using_custom_song {
         app.toggle_replay();

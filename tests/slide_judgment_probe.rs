@@ -5,9 +5,10 @@ use lambda_dx::types::zone::PadZone;
 use lambda_dx::types::{
     BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
 };
-use lnmai_core_rs::ffi_types::RuntimeStepLightResult;
 use lnmai_core_rs::session::{Empty, Loaded, Session};
-use lnmai_core_rs::types::{JudgeEvent, JudgeEventKind, JudgeGrade, TimedInputBatch};
+use lnmai_core_rs::types::{
+    ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, TimedInputBatch, TimedInputEvent,
+};
 
 fn test_guard() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -67,7 +68,7 @@ fn load_session(chart_text: &str) -> (Session<Loaded>, u64) {
     (loaded, handle)
 }
 
-fn step_light(loaded: &mut Session<Loaded>, time_us: i64) -> RuntimeStepLightResult {
+fn step_light(loaded: &mut Session<Loaded>, time_us: i64) -> lnmai_core_rs::ffi_types::RuntimeStepLightResult {
     let batch = TimedInputBatch {
         current_time: time_us,
         events: vec![],
@@ -75,18 +76,11 @@ fn step_light(loaded: &mut Session<Loaded>, time_us: i64) -> RuntimeStepLightRes
     let envelope = loaded
         .advance_frame_light(&serde_json::to_string(&batch).expect("batch json"))
         .expect("step");
-    let value: serde_json::Value =
-        serde_json::from_str(&envelope.json).expect("envelope json");
-    serde_json::from_value(
-        value
-            .get("result")
-            .cloned()
-            .unwrap_or_else(|| serde_json::Value::Null),
-    )
-    .expect("runtime result")
+    let value: serde_json::Value = serde_json::from_str(&envelope.json).expect("envelope json");
+    serde_json::from_value(value.get("result").cloned().unwrap_or_default()).expect("runtime result")
 }
 
-fn slide_events(result: &RuntimeStepLightResult) -> Vec<&JudgeEvent> {
+fn slide_events(result: &lnmai_core_rs::ffi_types::RuntimeStepLightResult) -> Vec<&JudgeEvent> {
     result
         .events
         .iter()
@@ -102,7 +96,6 @@ fn parsed_slide_chart_loads_and_judges_slide_miss_without_input() {
     let (mut loaded, handle) = load_session(&chart_text);
     let _ = handle;
 
-    // Step far past the slide's judge time with no input → Slide Miss.
     let result = step_light(&mut loaded, 5_000_000);
     let events = slide_events(&result);
     assert_eq!(events.len(), 1);
@@ -120,4 +113,34 @@ fn parsed_slide_chart_reports_score_state() {
     let result = step_light(&mut loaded, 5_000_000);
     assert!(result.current_time > 0);
     assert!(!result.events.is_empty());
+}
+
+#[test]
+fn tap_click_at_judge_time_is_perfect() {
+    let _guard = test_guard();
+    ensure_runtime();
+    let chart_text = "&title=Tap Probe\n&artist=Test\n&first=0\n&lv_6=1\n&inote_6=(120){4}1,2,3,4,E\n";
+    let (mut loaded, _) = load_session(&chart_text);
+
+    let batch = TimedInputBatch {
+        current_time: 20_000,
+        events: vec![TimedInputEvent::ButtonClick {
+            tp: 1,
+            zone: ButtonZone::K1,
+        }],
+    };
+    let envelope = loaded
+        .advance_frame_light(&serde_json::to_string(&batch).unwrap())
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&envelope.json).unwrap();
+    eprintln!("[probe] envelope: {}", envelope.json);
+    let result: lnmai_core_rs::ffi_types::RuntimeStepLightResult =
+        serde_json::from_value(value.get("result").cloned().unwrap()).unwrap();
+    let taps: Vec<&JudgeEvent> = result
+        .events
+        .iter()
+        .filter(|evt| evt.kind == JudgeEventKind::Tap)
+        .collect();
+    assert_eq!(taps.len(), 1, "expected one tap event");
+    assert!(!taps[0].grade.is_miss_or_too_fast(), "tap should be a hit");
 }

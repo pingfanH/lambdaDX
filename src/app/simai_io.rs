@@ -770,6 +770,7 @@ pub fn export_to_simai_path(doc: &ChartDoc, name: &str) -> Result<PathBuf, Strin
 // ─────────────────────── Dialog-based import ──────────────────────────
 
 /// Result of a dialog-based chart import.
+#[derive(Clone)]
 pub struct DialogImport {
     pub chart: ChartDoc,
     pub title: String,
@@ -779,6 +780,9 @@ pub struct DialogImport {
     pub levels: Vec<(u32, String)>,
     /// Parsed file for level switching without re-reading disk.
     pub simai_file: ms::SimaiFile,
+    /// Directory containing the source `maidata.txt` (for copying into the
+    /// song library), when the import came from a file path.
+    pub source_dir: Option<PathBuf>,
 }
 
 /// Open native file dialog to import a chart and its background music.
@@ -837,7 +841,7 @@ pub fn import_from_file_path(path_str: &str) -> Result<DialogImport, String> {
         .collect();
     levels.sort_by_key(|(lv, _)| *lv);
 
-    let (audio_bytes, audio_ext) = if let Some(dir) = base_dir {
+    let (audio_bytes, audio_ext) = if let Some(dir) = base_dir.clone() {
         let result = ["track.mp3", "track.wav", "music.mp3", "music.wav"]
             .iter()
             .find_map(|name| {
@@ -870,6 +874,7 @@ pub fn import_from_file_path(path_str: &str) -> Result<DialogImport, String> {
         audio_ext,
         levels,
         simai_file: parsed,
+        source_dir: base_dir,
     })
 }
 
