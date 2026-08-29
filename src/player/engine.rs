@@ -335,12 +335,6 @@ fn handle_engine_events(app: &mut crate::state::PlayerState, events: Vec<JudgeEv
         let label = format!("{:?}", ev.grade);
         let is_miss = ev.grade.is_miss_or_too_fast();
         let duration = if is_miss { 0.24 } else { 0.3 };
-        if is_slide {
-            eprintln!(
-                "[slide] engine slide event at t={now:.3} zone={:?} kind={:?} grade={label}",
-                zone, ev.kind
-            );
-        }
         app.push_judgement_colored(
             zone,
             &label,
