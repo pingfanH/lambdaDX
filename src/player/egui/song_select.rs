@@ -122,6 +122,13 @@ fn draw_song_detail(ui: &mut egui::Ui, app: &mut PlayerState) {
             .unwrap_or("")
             .to_owned()
     };
+    let designer = if app.player_ui.using_custom_song {
+        "".to_owned()
+    } else {
+        song.map(|entry| entry.designer.as_str())
+            .unwrap_or("")
+            .to_owned()
+    };
     let descriptor = if app.player_ui.using_custom_song {
         "本地导入谱面".to_owned()
     } else {
@@ -153,6 +160,13 @@ fn draw_song_detail(ui: &mut egui::Ui, app: &mut PlayerState) {
                 .size(15.0)
                 .color(theme::TEXT_SECONDARY),
         );
+        if !designer.is_empty() {
+            ui.label(
+                RichText::new(format!("谱师: {designer}"))
+                    .size(13.0)
+                    .color(theme::TEXT_MUTED),
+            );
+        }
         ui.add_space(6.0);
         ui.label(
             RichText::new(&descriptor)

@@ -144,3 +144,26 @@ fn tap_click_at_judge_time_is_perfect() {
     assert_eq!(taps.len(), 1, "expected one tap event");
     assert!(!taps[0].grade.is_miss_or_too_fast(), "tap should be a hit");
 }
+
+#[test]
+fn slide_miss_event_position() {
+    let _guard = test_guard();
+    ensure_runtime();
+    let chart_text = sample_slide_chart_text();
+    let (mut loaded, _) = load_session(&chart_text);
+    let result = step_light(&mut loaded, 5_000_000);
+    for ev in &result.events {
+        eprintln!(
+            "[probe] event kind={:?} grade={:?} position={:?}",
+            ev.kind, ev.grade, ev.position
+        );
+    }
+    let slide_ev = result
+        .events
+        .iter()
+        .find(|evt| evt.kind == JudgeEventKind::Slide)
+        .expect("slide event");
+    // The slide judge event reports the head button (K1), so the player maps
+    // slide feedback to the slide's tail zone itself.
+    assert!(slide_ev.position.button.is_some());
+}

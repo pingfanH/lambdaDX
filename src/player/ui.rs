@@ -75,7 +75,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         let life = (feedback.until - feedback.started) as f32;
         let progress = (age / life.max(0.001)).clamp(0.0, 1.0);
         let radius = (22.0 + progress * 28.0) * scale;
-        let alpha = ((1.0 - progress) * 220.0) as u8;
+        let alpha = ((1.0 - progress) * f32::from(feedback.color.a)) as u8;
         draw_circle_lines(
             center.x,
             center.y,

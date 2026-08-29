@@ -64,9 +64,10 @@ fn song_from_folder(folder: &Path) -> LibrarySong {
         .and_then(|name| name.to_str())
         .unwrap_or("未命名歌曲")
         .to_owned();
-    let metadata = std::fs::read_to_string(&chart_path)
-        .ok()
-        .and_then(|text| maisimai::parse_file(&text).ok());
+    let raw_text = std::fs::read_to_string(&chart_path).ok();
+    let metadata = raw_text
+        .as_ref()
+        .and_then(|text| maisimai::parse_file(text).ok());
     let title = metadata
         .as_ref()
         .map(|file| file.title.trim())
@@ -79,20 +80,39 @@ fn song_from_folder(folder: &Path) -> LibrarySong {
         .filter(|artist| !artist.is_empty())
         .unwrap_or("未知艺术家")
         .to_owned();
+    // `&des=` is the chart designer (谱师).
+    let designer = raw_text
+        .as_ref()
+        .and_then(|text| {
+            text.lines()
+                .find_map(|line| line.strip_prefix("&des="))
+                .map(|value| value.trim().to_owned())
+        })
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| "未知谱师".to_owned());
     let difficulty_count = metadata.as_ref().map(|file| file.charts.len()).unwrap_or(0);
     let descriptor = if difficulty_count == 0 {
         "本地谱面".to_owned()
     } else {
         format!("{difficulty_count} 个难度 · 本地谱面")
     };
-    let cover_path = ["bg.jpg", "bg.png", "cover.jpg", "cover.png"]
-        .iter()
-        .map(|name| folder.join(name))
-        .find(|path| path.is_file());
+    let cover_path = [
+        "bg.jpg",
+        "bg.png",
+        "bg.jpeg",
+        "cover.jpg",
+        "cover.png",
+        "jacket.jpg",
+        "jacket.png",
+    ]
+    .iter()
+    .map(|name| folder.join(name))
+    .find(|path| path.is_file());
 
     LibrarySong {
         title,
         artist,
+        designer,
         chart_path,
         cover_path,
         descriptor,
@@ -237,11 +257,25 @@ pub fn import_song_to_library(
             .map_err(|e| format!("写入音频失败: {e}"))?;
     }
 
-    // Copy the cover if present.
-    for name in ["bg.jpg", "bg.png", "cover.jpg", "cover.png"] {
+    // Copy the cover if present (also normalize it to bg.jpg for detection).
+    let cover_candidates = [
+        "bg.jpg",
+        "bg.png",
+        "bg.jpeg",
+        "cover.jpg",
+        "cover.png",
+        "jacket.jpg",
+        "jacket.png",
+    ];
+    for name in cover_candidates {
         let src = source_dir.join(name);
         if src.is_file() {
-            let _ = std::fs::copy(&src, dest.join(name));
+            let dest_name = if name.starts_with("bg.") {
+                name
+            } else {
+                "bg.jpg"
+            };
+            let _ = std::fs::copy(&src, dest.join(dest_name));
             break;
         }
     }

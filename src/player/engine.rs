@@ -320,17 +320,37 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
 }
 
 fn handle_engine_events(app: &mut crate::state::PlayerState, events: Vec<JudgeEvent>) {
+    let now = app.song_time();
+    let bpms = app.chart.bpms.clone();
     for ev in events {
-        let zone = if let Some(b) = ev.position.button {
-            zone_for_button(b)
+        let is_slide = ev.kind == JudgeEventKind::Slide;
+        // The engine reports the slide's head button; show slide feedback at
+        // the slide's tail zone with the slide color instead.
+        let zone = if is_slide {
+            find_slide_tail_zone(app, now, &bpms)
+        } else if let Some(b) = ev.position.button {
+            Some(zone_for_button(b))
         } else if let Some(s) = ev.position.sensor {
-            zone_for_sensor(s)
+            Some(zone_for_sensor(s))
         } else {
+            None
+        };
+        let Some(zone) = zone else {
             continue;
         };
         let label = grade_label(ev.grade);
         let is_miss = ev.grade.is_miss_or_too_fast();
-        app.push_judgement(zone, label, if is_miss { 0.24 } else { 0.3 });
+        let duration = if is_miss { 0.24 } else { 0.3 };
+        if is_slide {
+            app.push_judgement_colored(
+                zone,
+                label,
+                duration,
+                macroquad::prelude::Color::from_rgba(232, 121, 249, 255),
+            );
+        } else {
+            app.push_judgement(zone, label, duration);
+        }
 
         if !is_miss {
             let sfx = match ev.kind {
@@ -344,4 +364,35 @@ fn handle_engine_events(app: &mut crate::state::PlayerState, events: Vec<JudgeEv
             }
         }
     }
+}
+
+/// Find the tail zone of the slide note currently in its run window (used to
+/// place slide judge feedback).
+fn find_slide_tail_zone(
+    app: &crate::state::PlayerState,
+    now: f32,
+    bpms: &[lambda_dx::app::types::BpmChange],
+) -> Option<PadZone> {
+    use lambda_dx::app::types::{NoteType, slide_end_time};
+    app.chart
+        .notes
+        .iter()
+        .filter(|n| matches!(n.note_type, NoteType::Slide))
+        .filter(|n| {
+            let start = note_secs(n, bpms);
+            let end = slide_end_time(n, bpms);
+            start <= now && now <= end
+        })
+        .min_by(|a, b| {
+            let da = (slide_end_time(a, bpms) - now).abs();
+            let db = (slide_end_time(b, bpms) - now).abs();
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .and_then(|n| {
+            n.slide
+                .last()
+                .and_then(|sl| sl.segments.last())
+                .and_then(|seg| seg.points.last())
+                .map(|p| p.zone)
+        })
 }

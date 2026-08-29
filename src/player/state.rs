@@ -30,6 +30,7 @@ pub struct SlideProgress {
 pub struct LibrarySong {
     pub title: String,
     pub artist: String,
+    pub designer: String,
     pub chart_path: PathBuf,
     pub cover_path: Option<PathBuf>,
     pub descriptor: String,
@@ -946,6 +947,18 @@ impl PlayerState {
             "SLIDE" => macroquad::prelude::Color::from_rgba(232, 121, 249, 255),
             _ => macroquad::prelude::Color::from_rgba(248, 113, 113, 255),
         };
+        self.push_judgement_colored(zone, label, duration, color);
+    }
+
+    /// Push a judge feedback with an explicit color (used by the lnmai engine
+    /// to tint slide feedback with the slide color).
+    pub fn push_judgement_colored(
+        &mut self,
+        zone: PadZone,
+        label: &str,
+        duration: f64,
+        color: macroquad::prelude::Color,
+    ) {
         let started = get_time();
         self.judge_feedback.push(JudgeFeedback {
             zone,
