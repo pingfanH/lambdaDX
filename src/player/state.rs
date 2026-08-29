@@ -814,20 +814,29 @@ impl PlayerState {
             while progress.completed_areas < areas.len() {
                 let is_last = progress.completed_areas + 1 == areas.len();
                 let zone = areas[progress.completed_areas].0;
-                if is_last {
+                let completed = if is_last {
                     if active.contains(&zone) {
                         progress.completed_areas += 1;
+                        true
+                    } else {
+                        false
                     }
-                    break;
-                }
-                if progress.area_on {
+                } else if progress.area_on {
                     if !active.contains(&zone) {
                         progress.completed_areas += 1;
                         progress.area_on = false;
-                        continue;
+                        true
+                    } else {
+                        false
                     }
                 } else if active.contains(&zone) {
                     progress.area_on = true;
+                    false
+                } else {
+                    false
+                };
+                if completed && self.judge_engine.is_none() {
+                    self.push_judgement(zone, "Slide", 0.26);
                 }
                 break;
             }
@@ -889,15 +898,14 @@ impl PlayerState {
         let Some(diff) = best else {
             return;
         };
-        if diff > 0.24 {
-            return;
-        }
         let (label, duration) = if diff <= 0.06 {
             ("Perfect", 0.32)
         } else if diff <= 0.14 {
             ("Great", 0.28)
-        } else {
+        } else if diff <= 0.24 {
             ("Good", 0.24)
+        } else {
+            ("Miss", 0.24)
         };
         self.push_judgement(zone, label, duration);
     }

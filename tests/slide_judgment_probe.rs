@@ -167,3 +167,41 @@ fn slide_miss_event_position() {
     // slide feedback to the slide's tail zone itself.
     assert!(slide_ev.position.button.is_some());
 }
+
+#[test]
+fn real_chart_engine_produces_events() {
+    let _guard = test_guard();
+    ensure_runtime();
+    let text = std::fs::read_to_string("songs/夜に駆ける・改/maidata.txt").expect("real chart");
+    let empty = Session::<Empty>::create().expect("create");
+    // Some community charts use wifi inside a connection slide, which the
+    // engine rejects; the player falls back to its own judgment then.
+    let Ok((mut loaded, _)) = empty.load_chart_text(&text, 7) else {
+        eprintln!("[probe] real chart rejected by engine (wifi-in-chain)");
+        return;
+    };
+    let mut found = false;
+    for t in (100_000..=8_000_000).step_by(100_000) {
+        let batch = TimedInputBatch {
+            current_time: t,
+            events: vec![],
+        };
+        let envelope = loaded
+            .advance_frame_light(&serde_json::to_string(&batch).unwrap())
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&envelope.json).unwrap();
+        let result: lnmai_core_rs::ffi_types::RuntimeStepLightResult =
+            serde_json::from_value(value.get("result").cloned().unwrap_or_default()).unwrap();
+        if !result.events.is_empty() {
+            found = true;
+            for ev in &result.events {
+                eprintln!(
+                    "[probe] real event kind={:?} grade={:?} pos={:?}",
+                    ev.kind, ev.grade, ev.position
+                );
+            }
+            break;
+        }
+    }
+    assert!(found, "expected judge events from the real chart");
+}
