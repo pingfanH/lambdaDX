@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     lnmai-core-rs = {
-      url = "git+ssh://git@github.com/pingfanH/lnmai-core-rs?ref=main";
+      url = "git+ssh://git@github.com/pingfanH/lnmai-core-rs?ref=master";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };
@@ -33,7 +33,9 @@
         lib = pkgs.lib;
         libs = with pkgs; [
           alsa-lib
+          gmp
           libGL
+          libuv
           libxkbcommon
           libx11
           libxcursor
@@ -43,132 +45,106 @@
           udev
           wayland
           vulkan-loader
+          zlib
         ];
         devLibs = map pkgs.lib.getDev libs;
-        cargoBin = "${pkgs.cargo}/bin/cargo";
-        rustcBin = "${pkgs.rustc}/bin/rustc";
-        ccBin = "${pkgs.stdenv.cc}/bin/cc";
-        cxxBin = "${pkgs.stdenv.cc}/bin/c++";
-        arBin = "${pkgs.binutils}/bin/ar";
-        ranlibBin = "${pkgs.binutils}/bin/ranlib";
-        basePath = pkgs.lib.makeBinPath [
-          pkgs.bash
-          pkgs.binutils
-          pkgs.cargo
-          pkgs.coreutils
-          pkgs.elan
-          pkgs.git
-          pkgs.pkg-config
-          pkgs.rsync
-          pkgs.rustc
-          pkgs.stdenv.cc
-        ];
-        commonEnv = ''
-          export RUST_BACKTRACE=1
-          export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath libs}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPath "lib/pkgconfig" devLibs}:${pkgs.lib.makeSearchPath "share/pkgconfig" devLibs}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-          export PATH="${basePath}:$PATH"
-          export CARGO="${cargoBin}"
-          export RUSTC="${rustcBin}"
-          export CC="${ccBin}"
-          export CXX="${cxxBin}"
-          export AR="${arBin}"
-          export RANLIB="${ranlibBin}"
-        '';
-        repoSetup = ''
-          ${commonEnv}
-          if [ -n "''${LAMBDA_DX_REPO_ROOT:-}" ]; then
-            repo_root="$LAMBDA_DX_REPO_ROOT"
-          else
-            repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-          fi
-
-          workspace_root="$repo_root/target/nix/workspace"
-          source_root="$workspace_root/source"
-
-          mkdir -p "$source_root"
-          chmod -R u+w "$source_root" 2>/dev/null || true
-
+        libraryPath = pkgs.lib.makeLibraryPath libs;
+        pkgConfigPath = "${pkgs.lib.makeSearchPath "lib/pkgconfig" devLibs}:${pkgs.lib.makeSearchPath "share/pkgconfig" devLibs}";
+        lnmaiCoreArtifacts = lnmai-core.packages.${system}.ffi-artifacts;
+        stagedSource = pkgs.runCommand "lambdadx-source" {
+          nativeBuildInputs = [ pkgs.rsync ];
+        } ''
           mkdir -p \
-            "$source_root/lnmai-core-rs" \
-            "$source_root/maisimai" \
-            "$source_root/lnmai-core-rs/lnmai-core-ffi" \
-            "$source_root/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
+            "$out/lnmai-core-rs" \
+            "$out/maisimai" \
+            "$out/lnmai-core-rs/lnmai-core-ffi" \
+            "$out/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
 
-          rsync -a --delete --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
+          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
+            --exclude .git/ \
+            --exclude target/ \
+            --exclude result \
             --exclude lnmai-core-rs/ \
             --exclude maisimai/ \
-            ${self}/ "$source_root/"
-          rsync -a --delete --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r ${lnmai-core-rs}/. "$source_root/lnmai-core-rs/"
-          rsync -a --delete --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r ${maisimai}/. "$source_root/maisimai/"
-          rsync -a --delete --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r --exclude lnmai-core/ ${lnmai-core-ffi}/. "$source_root/lnmai-core-rs/lnmai-core-ffi/"
-          rsync -a --delete --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r --exclude .lake/ ${lnmai-core}/. "$source_root/lnmai-core-rs/lnmai-core-ffi/lnmai-core/"
-          chmod -R u+w "$source_root"
+            ${self}/ "$out/"
+          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
+            --exclude .git/ \
+            --exclude target/ \
+            --exclude result \
+            --exclude lnmai-core-ffi/ \
+            ${lnmai-core-rs}/. "$out/lnmai-core-rs/"
+          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
+            --exclude .git/ \
+            --exclude target/ \
+            --exclude result \
+            ${maisimai}/. "$out/maisimai/"
+          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
+            --exclude .git/ \
+            --exclude target/ \
+            --exclude result \
+            --exclude lnmai-core/ \
+            ${lnmai-core-ffi}/. "$out/lnmai-core-rs/lnmai-core-ffi/"
+          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
+            --exclude .git/ \
+            --exclude target/ \
+            --exclude result \
+            --exclude .lake/ \
+            ${lnmai-core}/. "$out/lnmai-core-rs/lnmai-core-ffi/lnmai-core/"
 
-          cd "$source_root"
-          export CARGO_TARGET_DIR="$repo_root/target/nix"
+          chmod -R u+w "$out"
         '';
-        lambdaDxPlayerApp = pkgs.writeShellApplication {
-          name = "lambdadx-player";
-          runtimeInputs = with pkgs; [
-            bash
-            binutils
-            cargo
-            coreutils
-            elan
-            git
+        lambdaDxPlayer = pkgs.rustPlatform.buildRustPackage {
+          pname = "lambda_dx";
+          version = "0.1.0";
+          src = stagedSource;
+
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--bin" "lambda_dx_player" ];
+          cargoInstallFlags = [ "--bin" "lambda_dx_player" ];
+
+          nativeBuildInputs = with pkgs; [
+            makeWrapper
             pkg-config
-            rsync
-            rustc
-            stdenv.cc
           ];
-          text = ''
-            ${repoSetup}
-            exec "$CARGO" run --bin lambda_dx_player -- "$@"
+          buildInputs = libs ++ devLibs;
+
+          LNMAI_CORE_ARTIFACTS = "${lnmaiCoreArtifacts}";
+          LIBRARY_PATH = libraryPath;
+          LD_LIBRARY_PATH = libraryPath;
+          PKG_CONFIG_PATH = pkgConfigPath;
+
+          doCheck = false;
+
+          postFixup = ''
+            wrapProgram "$out/bin/lambda_dx_player" \
+              --prefix LD_LIBRARY_PATH : "${libraryPath}"
           '';
         };
-        lambdaDxBuildApp = pkgs.writeShellApplication {
-          name = "lambdadx-build";
-          runtimeInputs = with pkgs; [
-            bash
-            binutils
-            cargo
-            coreutils
-            elan
-            git
-            pkg-config
-            rsync
-            rustc
-            stdenv.cc
-          ];
-          text = ''
-            ${repoSetup}
-            if [ "$#" -eq 0 ]; then
-              set -- --bin lambda_dx_player
-            fi
-            exec "$CARGO" build "$@"
-          '';
-        };
+        commonEnv = ''
+          export RUST_BACKTRACE=1
+          export LNMAI_CORE_ARTIFACTS="${lnmaiCoreArtifacts}"
+          export LD_LIBRARY_PATH="${libraryPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export LIBRARY_PATH="${libraryPath}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          export PKG_CONFIG_PATH="${pkgConfigPath}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+        '';
       in {
-        packages.default = lambdaDxBuildApp;
-        packages.player = lambdaDxPlayerApp;
-        packages.cli-build = lambdaDxBuildApp;
+        packages.default = lambdaDxPlayer;
+        packages.player = lambdaDxPlayer;
 
         apps.default = {
           type = "app";
-          program = "${lambdaDxBuildApp}/bin/lambdadx-build";
+          program = "${lambdaDxPlayer}/bin/lambda_dx_player";
         };
 
         apps.player = {
           type = "app";
-          program = "${lambdaDxPlayerApp}/bin/lambdadx-player";
+          program = "${lambdaDxPlayer}/bin/lambda_dx_player";
         };
 
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             binutils
             cargo
-            elan
             git
             pkg-config
             rsync
@@ -179,7 +155,10 @@
 
           buildInputs = libs ++ devLibs;
 
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libs;
+          LNMAI_CORE_ARTIFACTS = "${lnmaiCoreArtifacts}";
+          LD_LIBRARY_PATH = libraryPath;
+          LIBRARY_PATH = libraryPath;
+          PKG_CONFIG_PATH = pkgConfigPath;
 
           shellHook = ''
             ${commonEnv}

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-MANIFEST="$ROOT/demo/macroquad_sim/Cargo.toml"
-ASSETS_DIR="$ROOT/demo/macroquad_sim/assets"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ASSETS_DIR="$ROOT/assets"
 MP3="$ASSETS_DIR/demo.mp3"
 WAV="$ASSETS_DIR/demo.wav"
 
@@ -18,4 +17,4 @@ if [[ ! -f "$WAV" && -f "$MP3" ]]; then
 fi
 
 echo "[Mai2Chart] running desktop demo in mobile-ui mode..."
-MAI2_MOBILE_UI=1 cargo run --manifest-path "$MANIFEST"
+MAI2_MOBILE_UI=1 exec nix run "$ROOT#player"

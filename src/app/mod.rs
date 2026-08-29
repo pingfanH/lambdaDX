@@ -23,7 +23,7 @@ use macroquad::prelude::{Color, clear_background, next_frame};
 
 use state::AppState;
 
-use crate::egui_ui::draw_editor;
+use crate::egui_ui::draw_egui_ui;
 pub use ui::window_conf;
 
 /// Main app loop.
@@ -116,7 +116,7 @@ pub async fn run_app() {
 
         // Egui on top (build UI + draw)
         egui_macroquad::ui(|egui_ctx| {
-            draw_editor(egui_ctx, &mut app);
+            draw_egui_ui(egui_ctx, &mut app);
         });
         egui_macroquad::draw();
 

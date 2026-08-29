@@ -8,56 +8,125 @@ Clone normally:
 git clone git@github.com:pingfanH/lambdaDX.git
 ```
 
-## Nix shell
+## Nix Workflow
 
-Enter the development shell with Rust, `elan`, Lean build tooling, and Linux native libraries:
-
-```bash
-nix-shell
-```
-
-Or with flakes enabled:
+Enter the development shell from the flake:
 
 ```bash
 nix develop
 ```
 
-One-command build from flake-pinned dependency sync through Lean FFI compile:
+Build the player through the pinned flake graph:
 
 ```bash
-nix run .
+nix build .#player
 ```
 
-That defaults to:
+Run the player:
 
 ```bash
-cargo build --bin lambda_dx_player
+nix run .#player
 ```
 
-To pass custom Cargo build arguments through the Nix pipeline:
+`nix run .` uses the same player app. The Lean FFI artifacts are provided by the
+`lnmai-core` flake input and consumed through `LNMAI_CORE_ARTIFACTS`; raw Cargo
+builds are intentionally not the supported path for the FFI-enabled player.
+
+The flake stages `lnmai-core-rs`, `lnmai-core-ffi`, `lnmai-core`, and
+`maisimai` from the revisions pinned in `flake.lock`, then builds the Rust
+player as a Nix package. Rebuilds happen when the staged source, Cargo lock, or
+locked input revisions change.
+
+## Flake input update workflow
+
+This repo uses a flake-pinned dependency chain:
+
+- `lambdaDX` -> `lnmai-core-rs`, `lnmai-core-ffi`, `lnmai-core`, `maisimai`
+- `lnmai-core-rs` -> `lnmai-core-ffi`, `lnmai-core`, `maisimai`
+- `lnmai-core-ffi` -> `lnmai-core`
+
+If you modify one of those input repos and already pushed the change to GitHub,
+do not edit the staged workspace under `target/nix/workspace/source`. Update
+the nearest parent flake lock that consumes that repo, commit that lock change,
+push it, and then continue outward to the next parent.
+
+Preferred command form:
 
 ```bash
-nix run . -- --bins
-nix run . -- --release --bin lambda_dx_editor
+nix flake update <input-name>
 ```
 
-Nix builds are written to `target/nix`. Each `nix run` stages a workspace under
-`target/nix/workspace/source`, replacing `lnmai-core-rs`, `lnmai-core-ffi`,
-`lnmai-core`, and `maisimai` with the revisions pinned in `flake.lock`, so
-rebuilds only happen when the staged source or locked dependency revisions
-change.
-
-Build all binaries inside the shell:
+For multiple inputs:
 
 ```bash
-cargo build --bins
+nix flake update <input-a> <input-b>
+```
+
+Examples for the current repo chain:
+
+If `lnmai-core` changed and is already pushed:
+
+```bash
+cd lnmai-core-rs/lnmai-core-ffi
+nix flake update lnmai-core
+git add flake.lock lnmai-core
+git commit -m "Update lnmai-core"
+git push
+
+cd ../
+nix flake update lnmai-core lnmai-core-ffi
+git add flake.lock lnmai-core-ffi
+git commit -m "Update lnmai-core chain"
+git push
+
+cd ../
+nix flake update lnmai-core lnmai-core-ffi lnmai-core-rs
+git add flake.lock lnmai-core-rs
+git commit -m "Update lnmai-core chain"
+git push
+```
+
+If `lnmai-core-ffi` changed and is already pushed:
+
+```bash
+cd lnmai-core-rs
+nix flake update lnmai-core-ffi
+git add flake.lock lnmai-core-ffi
+git commit -m "Update lnmai-core-ffi"
+git push
+
+cd ../
+nix flake update lnmai-core-ffi lnmai-core-rs
+git add flake.lock lnmai-core-rs
+git commit -m "Update lnmai-core-ffi chain"
+git push
+```
+
+If `lnmai-core-rs` changed and is already pushed:
+
+```bash
+nix flake update lnmai-core-rs
+git add flake.lock lnmai-core-rs
+git commit -m "Update lnmai-core-rs"
+git push
+```
+
+If `maisimai` changed and is already pushed:
+
+```bash
+nix flake update maisimai
+git add flake.lock
+git commit -m "Update maisimai"
+git push
+```
+
+After a lock refresh, rebuild through the flake entrypoint:
+
+```bash
+nix build .#player
 ```
 
 ## Run
-
-```bash
-cargo run --manifest-path demo/macroquad_sim/Cargo.toml
-```
 
 Run the player through the Nix pipeline:
 
@@ -71,8 +140,7 @@ Pass runtime arguments through after `--`:
 nix run .#player -- --help
 ```
 
-If you build through Nix, prefer artifacts under `target/nix/` rather than
-`target/debug/`.
+Nix build outputs are linked through `./result` when using `nix build`.
 
 ## Controls
 
@@ -121,13 +189,13 @@ Audio speed behavior:
 Desktop:
 
 ```bash
-bash demo/macroquad_sim/scripts/run_desktop.sh
+bash scripts/run_desktop.sh
 ```
 
 Desktop (force mobile-ui for touch-only workflow):
 
 ```bash
-bash demo/macroquad_sim/scripts/run_desktop_mobile.sh
+bash scripts/run_desktop_mobile.sh
 ```
 
 Android (requires Android SDK + `cargo-apk`):
