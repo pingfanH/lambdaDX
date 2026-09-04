@@ -30,7 +30,10 @@ pub use ui::window_conf;
 /// `bin` only keeps the macroquad entry function and delegates to here.
 pub async fn run_app() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    set_pc_assets_folder("assets");
+    {
+        let asset_dir = platform::asset_dir();
+        set_pc_assets_folder(&asset_dir.to_string_lossy());
+    }
 
     let chart = chart::load_generated_chart().await;
     let (audio_source_name, audio_wav_pcm) = audio::load_audio_pcm_from_assets().await;

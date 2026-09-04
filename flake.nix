@@ -4,29 +4,14 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    lnmai-core-rs = {
-      url = "git+ssh://git@github.com/pingfanH/lnmai-core-rs?ref=master";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-utils.follows = "flake-utils";
-    };
-    lnmai-core-ffi = {
-      url = "git+ssh://git@github.com/pingfanH/lnmai-core-ffi?ref=master";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-utils.follows = "flake-utils";
-    };
     lnmai-core = {
       url = "git+ssh://git@github.com/Neuron-Group/lnmai-core?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };
-    maisimai = {
-      url = "git+ssh://git@github.com/pingfanH/maisimai-rs?ref=master";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-utils.follows = "flake-utils";
-    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, lnmai-core-rs, lnmai-core-ffi, lnmai-core, maisimai }:
+  outputs = { self, nixpkgs, flake-utils, lnmai-core }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
@@ -50,53 +35,29 @@
         devLibs = map pkgs.lib.getDev libs;
         libraryPath = pkgs.lib.makeLibraryPath libs;
         pkgConfigPath = "${pkgs.lib.makeSearchPath "lib/pkgconfig" devLibs}:${pkgs.lib.makeSearchPath "share/pkgconfig" devLibs}";
+        cjkFont = pkgs.wqy_microhei;
+        cleanSource = lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            let
+              rel = lib.removePrefix "${toString ./.}/" (toString path);
+            in
+              !(
+                rel == ".git"
+                || lib.hasPrefix ".git/" rel
+                || rel == "target"
+                || lib.hasPrefix "target/" rel
+                || rel == "result"
+                || lib.hasPrefix "result/" rel
+                || rel == ".codegraph"
+                || lib.hasPrefix ".codegraph/" rel
+              );
+        };
         lnmaiCoreArtifacts = lnmai-core.packages.${system}.ffi-artifacts;
-        stagedSource = pkgs.runCommand "lambdadx-source" {
-          nativeBuildInputs = [ pkgs.rsync ];
-        } ''
-          mkdir -p \
-            "$out/lnmai-core-rs" \
-            "$out/maisimai" \
-            "$out/lnmai-core-rs/lnmai-core-ffi" \
-            "$out/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
-
-          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
-            --exclude .git/ \
-            --exclude target/ \
-            --exclude result \
-            --exclude lnmai-core-rs/ \
-            --exclude maisimai/ \
-            ${self}/ "$out/"
-          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
-            --exclude .git/ \
-            --exclude target/ \
-            --exclude result \
-            --exclude lnmai-core-ffi/ \
-            ${lnmai-core-rs}/. "$out/lnmai-core-rs/"
-          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
-            --exclude .git/ \
-            --exclude target/ \
-            --exclude result \
-            ${maisimai}/. "$out/maisimai/"
-          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
-            --exclude .git/ \
-            --exclude target/ \
-            --exclude result \
-            --exclude lnmai-core/ \
-            ${lnmai-core-ffi}/. "$out/lnmai-core-rs/lnmai-core-ffi/"
-          rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
-            --exclude .git/ \
-            --exclude target/ \
-            --exclude result \
-            --exclude .lake/ \
-            ${lnmai-core}/. "$out/lnmai-core-rs/lnmai-core-ffi/lnmai-core/"
-
-          chmod -R u+w "$out"
-        '';
         lambdaDxPlayer = pkgs.rustPlatform.buildRustPackage {
           pname = "lambda_dx";
           version = "0.1.0";
-          src = stagedSource;
+          src = cleanSource;
 
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--bin" "lambda_dx_player" ];
@@ -115,9 +76,20 @@
 
           doCheck = false;
 
+          postInstall = ''
+            mkdir -p "$out/share/lambda_dx"
+            cp -r ${cleanSource}/assets "$out/share/lambda_dx/assets"
+            cp -r ${cleanSource}/songs "$out/share/lambda_dx/songs"
+          '';
+
           postFixup = ''
             wrapProgram "$out/bin/lambda_dx_player" \
-              --prefix LD_LIBRARY_PATH : "${libraryPath}"
+              --prefix LD_LIBRARY_PATH : "${libraryPath}" \
+              --set MAI2_ASSET_DIR "$out/share/lambda_dx/assets" \
+              --set MAI2_BUNDLED_SONGS_DIR "$out/share/lambda_dx/songs" \
+              --set-default MAI2_FONT_PATH "${cjkFont}" \
+              --set-default MAI2_FONT_INDEX "0" \
+              --run 'export MAI2_DATA_DIR="''${MAI2_DATA_DIR:-''${XDG_DATA_HOME:-''$HOME/.local/share}/lambda_dx}"'
           '';
         };
         commonEnv = ''
@@ -147,9 +119,7 @@
             cargo
             git
             pkg-config
-            rsync
             rustc
-            rustfmt
             stdenv.cc
           ];
 

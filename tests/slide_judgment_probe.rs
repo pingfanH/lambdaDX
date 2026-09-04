@@ -5,9 +5,10 @@ use lambda_dx::types::zone::PadZone;
 use lambda_dx::types::{
     BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
 };
-use lnmai_core_rs::session::{Empty, Loaded, Session};
-use lnmai_core_rs::types::{
-    ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, TimedInputBatch, TimedInputEvent,
+use lnmai_core::session::{Empty, Loaded, Session};
+use lnmai_core::types::{
+    ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, RuntimeStepLightResult, TimedInputBatch,
+    TimedInputEvent,
 };
 
 fn test_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -20,7 +21,7 @@ fn test_guard() -> std::sync::MutexGuard<'static, ()> {
 fn ensure_runtime() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| unsafe {
-        lnmai_core_rs::session::initialize_runtime().expect("lean runtime init");
+        lnmai_core::session::initialize_runtime().expect("lean runtime init");
     });
 }
 
@@ -56,7 +57,7 @@ fn sample_slide_chart_text() -> String {
         template_instances: vec![],
     };
     let file = simai_io::chart_doc_to_simai_file(&chart);
-    maisimai::export_file(&file)
+    simai_io::export_simai_file(&file)
 }
 
 fn load_session(chart_text: &str) -> (Session<Loaded>, u64) {
@@ -68,7 +69,7 @@ fn load_session(chart_text: &str) -> (Session<Loaded>, u64) {
     (loaded, handle)
 }
 
-fn step_light(loaded: &mut Session<Loaded>, time_us: i64) -> lnmai_core_rs::ffi_types::RuntimeStepLightResult {
+fn step_light(loaded: &mut Session<Loaded>, time_us: i64) -> RuntimeStepLightResult {
     let batch = TimedInputBatch {
         current_time: time_us,
         events: vec![],
@@ -80,7 +81,7 @@ fn step_light(loaded: &mut Session<Loaded>, time_us: i64) -> lnmai_core_rs::ffi_
     serde_json::from_value(value.get("result").cloned().unwrap_or_default()).expect("runtime result")
 }
 
-fn slide_events(result: &lnmai_core_rs::ffi_types::RuntimeStepLightResult) -> Vec<&JudgeEvent> {
+fn slide_events(result: &RuntimeStepLightResult) -> Vec<&JudgeEvent> {
     result
         .events
         .iter()
@@ -134,7 +135,7 @@ fn tap_click_at_judge_time_is_perfect() {
         .unwrap();
     let value: serde_json::Value = serde_json::from_str(&envelope.json).unwrap();
     eprintln!("[probe] envelope: {}", envelope.json);
-    let result: lnmai_core_rs::ffi_types::RuntimeStepLightResult =
+    let result: RuntimeStepLightResult =
         serde_json::from_value(value.get("result").cloned().unwrap()).unwrap();
     let taps: Vec<&JudgeEvent> = result
         .events
@@ -190,7 +191,7 @@ fn real_chart_engine_produces_events() {
             .advance_frame_light(&serde_json::to_string(&batch).unwrap())
             .unwrap();
         let value: serde_json::Value = serde_json::from_str(&envelope.json).unwrap();
-        let result: lnmai_core_rs::ffi_types::RuntimeStepLightResult =
+        let result: RuntimeStepLightResult =
             serde_json::from_value(value.get("result").cloned().unwrap_or_default()).unwrap();
         if !result.events.is_empty() {
             found = true;

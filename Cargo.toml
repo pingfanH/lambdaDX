@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [".", "lnmai-core-rs"]
+members = [".", "lnmai-core", "lnmai-core/lean-sys"]
 
 [lib]
 crate-type = ["rlib"]
@@ -48,13 +48,12 @@ roxmltree = "0.20"
 rustfft = "6"
 egui-macroquad = { version = "0.17", default-features = false }
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
-maisimai = { version = "0.1.0", path = "maisimai" }
-lnmai-core-rs = { path = "lnmai-core-rs", features = ["ffi"] }
+lnmai-core = { path = "lnmai-core" }
 tinyfiledialogs = "3.9"
 tokio = {version = "1.52.3",features = ["sync"]}
 
 [build-dependencies]
-lnmai-core-ffi = { path = "lnmai-core-rs/lnmai-core-ffi" }
+lnmai-core = { path = "lnmai-core" }
 
 [package.metadata.android]
 package_name = "com.mai2chart.macroquad_sim"

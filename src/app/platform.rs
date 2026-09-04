@@ -2,6 +2,18 @@ use macroquad::file::load_file;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const ASSET_DIR_ENV: &str = "MAI2_ASSET_DIR";
+
+/// Runtime directory containing files addressed through macroquad's asset API.
+/// Nix sets this to the immutable package resource tree; local builds keep the
+/// repository's conventional `assets/` directory.
+pub fn asset_dir() -> PathBuf {
+    std::env::var_os(ASSET_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"))
+}
+
 /// Cross-platform asset loading helper.
 /// - Android/iOS: packaged assets via `load_file(name)`.
 /// - Desktop: try packaged path first, then local fallback paths.
@@ -13,9 +25,7 @@ pub async fn load_asset_bytes(name: &str) -> Result<Vec<u8>, String> {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let fallbacks = [
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("assets")
-                .join(name),
+            asset_dir().join(name),
             Path::new(env!("CARGO_MANIFEST_DIR")).join(name),
             Path::new(name).to_path_buf(),
             Path::new("assets").join(name),

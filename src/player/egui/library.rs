@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
 
 use egui_macroquad::egui::{self, ColorImage, TextureOptions};
+use lambda_dx::app::platform;
 use lambda_dx::simai_io::{self, DialogImport};
 
 use crate::state::{LibrarySong, PlayerPage, PlayerState};
 
 const SONGS_DIR_ENV: &str = "MAI2_SONGS_DIR";
+const BUNDLED_SONGS_DIR_ENV: &str = "MAI2_BUNDLED_SONGS_DIR";
 const DEFAULT_SONGS_DIR: &str = "songs";
 
 pub fn ensure_song_library(app: &mut PlayerState) {
@@ -20,7 +22,7 @@ pub fn refresh_song_library(app: &mut PlayerState) {
     app.ui_cover_textures.clear();
     app.ui_assets_loaded = false;
     app.player_ui.loaded_song = None;
-    match scan_song_directory(&songs_directory()) {
+    match scan_runtime_song_directories() {
         Ok(songs) => {
             app.song_library = songs;
             if app.player_ui.selected_song >= app.song_library.len() {
@@ -38,7 +40,47 @@ pub fn refresh_song_library(app: &mut PlayerState) {
 fn songs_directory() -> PathBuf {
     std::env::var_os(SONGS_DIR_ENV)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_SONGS_DIR))
+        .unwrap_or_else(|| {
+            let data_root = platform::data_root_dir();
+            if data_root.ends_with(DEFAULT_SONGS_DIR) {
+                data_root
+            } else {
+                data_root.join(DEFAULT_SONGS_DIR)
+            }
+        })
+}
+
+fn bundled_songs_directory() -> Option<PathBuf> {
+    std::env::var_os(BUNDLED_SONGS_DIR_ENV).map(PathBuf::from)
+}
+
+fn scan_runtime_song_directories() -> Result<Vec<LibrarySong>, String> {
+    let mut roots = vec![songs_directory()];
+    if let Some(bundled) = bundled_songs_directory() {
+        if !roots.iter().any(|root| root == &bundled) {
+            roots.push(bundled);
+        }
+    }
+
+    let mut songs = Vec::new();
+    let mut first_error = None;
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        match scan_song_directory(&root) {
+            Ok(mut found) => songs.append(&mut found),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    songs.sort_by(|left, right| left.chart_path.cmp(&right.chart_path));
+    if songs.is_empty() {
+        Err(first_error.unwrap_or_else(|| "曲库目录不存在或没有 maidata.txt".to_owned()))
+    } else {
+        Ok(songs)
+    }
 }
 
 pub fn scan_song_directory(root: &Path) -> Result<Vec<LibrarySong>, String> {
@@ -67,7 +109,7 @@ fn song_from_folder(folder: &Path) -> LibrarySong {
     let raw_text = std::fs::read_to_string(&chart_path).ok();
     let metadata = raw_text
         .as_ref()
-        .and_then(|text| maisimai::parse_file(text).ok());
+        .and_then(|text| simai_io::parse_simai_source(text).ok());
     let title = metadata
         .as_ref()
         .map(|file| file.title.trim())
@@ -90,7 +132,10 @@ fn song_from_folder(folder: &Path) -> LibrarySong {
         })
         .filter(|d| !d.is_empty())
         .unwrap_or_else(|| "未知谱师".to_owned());
-    let difficulty_count = metadata.as_ref().map(|file| file.charts.len()).unwrap_or(0);
+    let difficulty_count = metadata
+        .as_ref()
+        .map(|file| file.chart_count())
+        .unwrap_or(0);
     let descriptor = if difficulty_count == 0 {
         "本地谱面".to_owned()
     } else {
@@ -246,7 +291,7 @@ pub fn import_song_to_library(
         std::fs::copy(&maidata, dest.join("maidata.txt"))
             .map_err(|e| format!("复制 maidata.txt 失败: {e}"))?;
     } else {
-        let text = maisimai::export_file(&import.simai_file);
+        let text = simai_io::export_simai_file(&import.simai_file);
         std::fs::write(dest.join("maidata.txt"), text)
             .map_err(|e| format!("写入 maidata.txt 失败: {e}"))?;
     }

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Once};
 
 use egui_macroquad::egui::{
@@ -23,27 +24,107 @@ pub const RADIUS_PANEL: CornerRadius = CornerRadius::same(8);
 
 static FONT_ONCE: Once = Once::new();
 
+fn append_font_candidates(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    if path.is_dir() {
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
+        let mut paths = Vec::new();
+        for entry in entries.flatten() {
+            if entry
+                .file_type()
+                .is_ok_and(|file_type| file_type.is_symlink())
+            {
+                continue;
+            }
+            paths.push(entry.path());
+        }
+        paths.sort();
+        for path in paths {
+            append_font_candidates(candidates, path);
+        }
+    } else if path.is_file()
+        && path.extension().is_some_and(|ext| {
+            matches!(
+                ext.to_str(),
+                Some("ttf" | "ttc" | "otf" | "otc" | "TTF" | "TTC" | "OTF" | "OTC")
+            )
+        })
+    {
+        candidates.push(path);
+    } else if !path.exists() {
+        candidates.push(path);
+    }
+}
+
 fn load_system_font(ctx: &egui::Context) {
     FONT_ONCE.call_once(|| {
-        let candidates = [
+        let mut candidates = Vec::new();
+        if let Some(path) = std::env::var_os("MAI2_FONT_PATH") {
+            append_font_candidates(&mut candidates, PathBuf::from(path));
+        }
+        for path in [
             "/System/Library/Fonts/PingFang.ttc",
             "/System/Library/Fonts/Hiragino Sans GB.ttc",
             "/System/Library/Fonts/STHeiti Medium.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto-cjk/NotoSansCJK-VF.otf.ttc",
             "C:\\Windows\\Fonts\\msyh.ttc",
-            "assets/Arial.ttf",
-        ];
+        ] {
+            append_font_candidates(&mut candidates, PathBuf::from(path));
+        }
+
+        // On Linux, fontconfig knows the distro-specific CJK font path.
+        // This keeps local non-Nix builds working without hard-coding every
+        // package manager's directory layout.
+        if let Ok(output) = std::process::Command::new("fc-match")
+            .args(["-f", "%{file}", "Noto Sans CJK SC"])
+            .output()
+        {
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+                if !path.is_empty() {
+                    append_font_candidates(&mut candidates, PathBuf::from(path));
+                }
+            }
+        }
+
+        append_font_candidates(&mut candidates, PathBuf::from("assets/Arial.ttf"));
 
         for path in candidates {
-            let Ok(data) = std::fs::read(path) else {
+            let Ok(data) = std::fs::read(&path) else {
                 continue;
             };
+            let mut font_data = FontData::from_owned(data);
+            if path.extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("ttc") || ext.eq_ignore_ascii_case("otc")
+            }) {
+                // Noto's CJK collection stores SC at face index 2. Other TTC
+                // candidates are tried only when that face is unavailable.
+                font_data.index = std::env::var("MAI2_FONT_INDEX")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or_else(|| {
+                        if path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .is_some_and(|name| name.contains("NotoSansCJK-VF"))
+                        {
+                            2
+                        } else {
+                            0
+                        }
+                    });
+            }
+
             let mut fonts = FontDefinitions::default();
-            fonts.font_data.insert(
-                "player_system".to_owned(),
-                Arc::new(FontData::from_owned(data)),
-            );
+            fonts
+                .font_data
+                .insert("player_system".to_owned(), Arc::new(font_data));
             if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
+                family.insert(0, "player_system".to_owned());
+            }
+            if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
                 family.insert(0, "player_system".to_owned());
             }
             ctx.set_fonts(fonts);

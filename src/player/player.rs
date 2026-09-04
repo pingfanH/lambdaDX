@@ -6,7 +6,7 @@ pub mod player_layout;
 pub mod state;
 pub mod ui;
 
-use lambda_dx::app::{egui_ui, pad_svg, sfx, types};
+use lambda_dx::app::{pad_svg, platform, sfx, types};
 use macroquad::color::Color;
 use macroquad::file::set_pc_assets_folder;
 use macroquad::prelude::{clear_background, next_frame};
@@ -17,7 +17,10 @@ use lambda_dx::window_conf;
 #[macroquad::main(window_conf)]
 pub async fn main() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    set_pc_assets_folder("assets");
+    {
+        let asset_dir = platform::asset_dir();
+        set_pc_assets_folder(&asset_dir.to_string_lossy());
+    }
 
     let chart = lambda_dx::chart::load_generated_chart().await;
     let (audio_source_name, audio_wav_pcm) =

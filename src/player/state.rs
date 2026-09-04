@@ -273,7 +273,7 @@ pub struct PlayerState {
     /// Loaded lnmai-core judgment session (None until a chart is loaded).
     pub judge_engine: Option<super::engine::JudgeEngine>,
     /// Input events collected for the current frame, fed to the engine.
-    pub engine_events: Vec<lnmai_core_rs::types::TimedInputEvent>,
+    pub engine_events: Vec<lnmai_core::types::TimedInputEvent>,
 
     pub status: String,
 
@@ -283,7 +283,7 @@ pub struct PlayerState {
     pub pending_import: bool,
 
     /// Imported Simai file for level switching.
-    pub imported_simai: Option<maisimai::SimaiFile>,
+    pub imported_simai: Option<lambda_dx::simai_io::SimaiFile>,
     /// Available levels: (number, display_text).
     pub import_levels: Vec<(u32, String)>,
     /// Currently selected import level.
@@ -957,7 +957,7 @@ impl PlayerState {
         let Some(file) = self.imported_simai.clone() else {
             return;
         };
-        let text = maisimai::export_file(&file);
+        let text = file.source_text().to_string();
         match super::engine::JudgeEngine::load(&text, self.import_selected_level) {
             Ok(engine) => {
                 self.judge_engine = Some(engine);

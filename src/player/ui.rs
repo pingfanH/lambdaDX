@@ -847,7 +847,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
 }
 
 pub async fn load_note_textures(app: &mut PlayerState) {
-    let tap_candidates = ["tap.png", "Skins/classic/tap.png", "skins/classic/tap.png"];
+    let tap_candidates = ["Skins/classic/tap.png", "skins/classic/tap.png", "tap.png"];
     for path in tap_candidates {
         match load_texture(path).await {
             Ok(tex) => {
@@ -855,16 +855,14 @@ pub async fn load_note_textures(app: &mut PlayerState) {
                 app.tap_texture = Some(tex);
                 break;
             }
-            Err(e) => {
-                println!("e:{}", e);
-            }
+            Err(_) => {}
         }
     }
 
     let hold_candidates = [
-        "hold.png",
         "Skins/classic/hold.png",
         "skins/classic/hold.png",
+        "hold.png",
     ];
     for path in hold_candidates {
         if let Ok(tex) = load_texture(path).await {

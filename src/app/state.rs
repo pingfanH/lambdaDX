@@ -196,7 +196,7 @@ pub struct AppState {
     pub pending_import: bool,
 
     /// Imported Simai file for level switching.
-    pub imported_simai: Option<maisimai::SimaiFile>,
+    pub imported_simai: Option<super::simai_io::SimaiFile>,
     /// Available levels: (number, display_text).
     pub import_levels: Vec<(u32, String)>,
     /// Currently selected import level.

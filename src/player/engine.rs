@@ -1,16 +1,14 @@
-//! Judgment engine bridge to `lnmai-core-rs` (FFI build).
+//! Judgment engine bridge to `lnmai-core`'s Lean FFI runtime.
 //!
 //! The chart is loaded into a persistent Lean runtime session; each gameplay
 //! frame the player feeds a [`TimedInputBatch`] (button/sensor presses at the
 //! current song time in µs) and reads back the resulting judge events. The
 //! player no longer computes judge windows itself.
 
-use std::sync::OnceLock;
-
 use lambda_dx::app::types::zone::PadZone;
-use lnmai_core_rs::session::{self, Empty, Loaded, Session};
-use lnmai_core_rs::types::{
-    ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, SensorArea, TimedInputBatch, TimedInputEvent,
+use lnmai_core::session::{self, Empty, Loaded, Session};
+use lnmai_core::types::{
+    ButtonZone, JudgeEvent, JudgeEventKind, SensorArea, TimedInputBatch, TimedInputEvent,
 };
 
 /// Map a pad zone id (1-8 = A buttons, 9-33 = sensors) to lnmai input events.
@@ -161,11 +159,7 @@ pub struct JudgeEngine {
 }
 
 fn ensure_runtime() {
-    static INIT: OnceLock<()> = OnceLock::new();
-    INIT.get_or_init(|| unsafe {
-        session::initialize_runtime()
-            .expect("lnmai-core runtime must initialize");
-    });
+    session::ensure_runtime().expect("lnmai-core runtime must initialize");
 }
 
 impl JudgeEngine {
@@ -216,6 +210,23 @@ impl InputTp for TimedInputEvent {
             | TimedInputEvent::SensorClick { tp, .. }
             | TimedInputEvent::SensorHold { tp, .. } => *tp,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JudgeEngine;
+    use lambda_dx::simai_io::{parse_simai_source, simai_file_to_chart_doc};
+
+    #[test]
+    fn importing_then_loading_the_player_engine_does_not_abort() {
+        let source = include_str!("../../songs/Imported Simai/maidata.txt");
+        let file = parse_simai_source(source).expect("fixture must parse");
+        let chart = simai_file_to_chart_doc(&file, None).expect("fixture must convert");
+
+        let engine = JudgeEngine::load(file.source_text(), chart.simai_level)
+            .expect("player engine must load the imported chart");
+        drop(engine);
     }
 }
 

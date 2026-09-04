@@ -172,7 +172,9 @@ fn parse_zone_element_with_id(node: roxmltree::Node, id: Option<&str>) -> Option
     let id = id?;
 
     // Skip the background circle by id
-    if id == "bg" {
+    // The source SVG contains C1/C2 helper polygons as well as the complete C
+    // polygon. They are construction fragments, not separate pad zones.
+    if matches!(id, "bg" | "C1" | "C2") {
         return None;
     }
 
@@ -518,6 +520,21 @@ fn point_in_triangle(p: Vec2, a: Vec2, b: Vec2, c: Vec2) -> bool {
     let v = (dot00 * dot12 - dot01 * dot02) / denom;
 
     u > 1e-9 && v > 1e-9 && (u + v) < 1.0 - 1e-9
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PadSvgDef;
+    use crate::app::types::zone::PadZone;
+
+    #[test]
+    fn bundled_pad_uses_the_full_center_polygon() {
+        let pad = PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg"))
+            .expect("bundled pad SVG must parse");
+
+        assert_eq!(pad.zones.len(), 33);
+        assert_eq!(pad.zone_def(PadZone::C).expect("center zone").svg_verts.len(), 8);
+    }
 }
 
 /// Draw the outline of a polygon as a closed line loop.

@@ -32,23 +32,17 @@ nix run .#player
 `lnmai-core` flake input and consumed through `LNMAI_CORE_ARTIFACTS`; raw Cargo
 builds are intentionally not the supported path for the FFI-enabled player.
 
-The flake stages `lnmai-core-rs`, `lnmai-core-ffi`, `lnmai-core`, and
-`maisimai` from the revisions pinned in `flake.lock`, then builds the Rust
-player as a Nix package. Rebuilds happen when the staged source, Cargo lock, or
-locked input revisions change.
+The flake stages this repository and links it against the Lean artifacts from
+the `lnmai-core` input pinned in `flake.lock`, then builds the Rust player as a
+Nix package. Rebuilds happen when the staged source, Cargo lock, or locked
+`lnmai-core` revision changes.
 
 ## Flake input update workflow
 
-This repo uses a flake-pinned dependency chain:
-
-- `lambdaDX` -> `lnmai-core-rs`, `lnmai-core-ffi`, `lnmai-core`, `maisimai`
-- `lnmai-core-rs` -> `lnmai-core-ffi`, `lnmai-core`, `maisimai`
-- `lnmai-core-ffi` -> `lnmai-core`
-
-If you modify one of those input repos and already pushed the change to GitHub,
-do not edit the staged workspace under `target/nix/workspace/source`. Update
-the nearest parent flake lock that consumes that repo, commit that lock change,
-push it, and then continue outward to the next parent.
+This repo consumes `lnmai-core` directly as the only compiler/runtime input. If
+you modify `lnmai-core` and already pushed the change to GitHub, refresh this
+repo's flake lock instead of editing the staged workspace under
+`target/nix/workspace/source`.
 
 Preferred command form:
 
@@ -62,61 +56,12 @@ For multiple inputs:
 nix flake update <input-a> <input-b>
 ```
 
-Examples for the current repo chain:
-
 If `lnmai-core` changed and is already pushed:
 
 ```bash
-cd lnmai-core-rs/lnmai-core-ffi
 nix flake update lnmai-core
-git add flake.lock lnmai-core
-git commit -m "Update lnmai-core"
-git push
-
-cd ../
-nix flake update lnmai-core lnmai-core-ffi
-git add flake.lock lnmai-core-ffi
-git commit -m "Update lnmai-core chain"
-git push
-
-cd ../
-nix flake update lnmai-core lnmai-core-ffi lnmai-core-rs
-git add flake.lock lnmai-core-rs
-git commit -m "Update lnmai-core chain"
-git push
-```
-
-If `lnmai-core-ffi` changed and is already pushed:
-
-```bash
-cd lnmai-core-rs
-nix flake update lnmai-core-ffi
-git add flake.lock lnmai-core-ffi
-git commit -m "Update lnmai-core-ffi"
-git push
-
-cd ../
-nix flake update lnmai-core-ffi lnmai-core-rs
-git add flake.lock lnmai-core-rs
-git commit -m "Update lnmai-core-ffi chain"
-git push
-```
-
-If `lnmai-core-rs` changed and is already pushed:
-
-```bash
-nix flake update lnmai-core-rs
-git add flake.lock lnmai-core-rs
-git commit -m "Update lnmai-core-rs"
-git push
-```
-
-If `maisimai` changed and is already pushed:
-
-```bash
-nix flake update maisimai
 git add flake.lock
-git commit -m "Update maisimai"
+git commit -m "Update lnmai-core"
 git push
 ```
 
