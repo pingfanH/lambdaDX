@@ -7,8 +7,14 @@
     lnmai-core = {
       url = "git+ssh://git@github.com/Neuron-Group/lnmai-core?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-utils.follows = "flake-utils";
     };
+  };
+
+  nixConfig = {
+    extra-substituters = [ "https://lnmai-core.cachix.org" ];
+    extra-trusted-public-keys = [
+      "lnmai-core.cachix.org-1:rYcjvGbYnD1X9NWUExTn2dly2tFFzuamDEj02rJG7F8="
+    ];
   };
 
   outputs = { self, nixpkgs, flake-utils, lnmai-core }:

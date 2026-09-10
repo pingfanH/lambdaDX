@@ -60,20 +60,17 @@
     },
     "lnmai-core": {
       "inputs": {
-        "flake-utils": [
-          "flake-utils"
-        ],
         "lean4-nix": "lean4-nix",
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1782401599,
-        "narHash": "sha256-6mVgwEhxyoWnGQcfZiL3TLLHd7vv7mIEUqRhY0YzmB0=",
+        "lastModified": 1789001216,
+        "narHash": "sha256-FcwKbTpbgC5xPaS+/rk2rnMOU4d7C8q6YGYg401TqwQ=",
         "ref": "main",
-        "rev": "2d3bbf1b9371fcfbf492f3c1d7d450e009962042",
-        "revCount": 80,
+        "rev": "a30b0fc63ec5abf60393b979791a199266614bd1",
+        "revCount": 82,
         "type": "git",
         "url": "ssh://git@github.com/Neuron-Group/lnmai-core"
       },
