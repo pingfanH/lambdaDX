@@ -4,6 +4,8 @@ pub mod engine;
 pub mod input;
 pub mod player_layout;
 pub mod state;
+#[cfg(target_os = "linux")]
+pub mod touch_evdev;
 pub mod ui;
 
 use lambda_dx::app::{pad_svg, platform, sfx, types};
@@ -71,6 +73,17 @@ pub async fn main() {
     }
 
     ui::load_note_textures(&mut app).await;
+
+    #[cfg(target_os = "linux")]
+    let mut evdev_touch = touch_evdev::EvdevTouch::start(None);
+    #[cfg(target_os = "linux")]
+    if let Some(t) = &evdev_touch {
+        match t.last_error() {
+            Some(e) => app.set_status(format!("Multi-touch: {e}")),
+            None => app.set_status(format!("Multi-touch: {}", t.device_name())),
+        }
+    }
+
     // Prime egui state on first frame to avoid mouse event issues on macOS.
     egui_macroquad::ui(|_| {});
     egui_macroquad::draw();
@@ -99,7 +112,18 @@ pub async fn main() {
         input::handle_global_hotkeys(&mut app);
         if app.player_ui.page == state::PlayerPage::Gameplay {
             input::handle_lane_input(&mut app);
+
+            #[cfg(target_os = "linux")]
+            let pointer_events = match evdev_touch.as_mut() {
+                Some(t) => t.collect_pointer_events(macroquad::math::vec2(
+                    macroquad::prelude::screen_width(),
+                    macroquad::prelude::screen_height(),
+                )),
+                None => lambda_dx::app::input::collect_pointer_events(),
+            };
+            #[cfg(not(target_os = "linux"))]
             let pointer_events = lambda_dx::app::input::collect_pointer_events();
+
             input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
         }
         audio::service_audio(&mut app).await;

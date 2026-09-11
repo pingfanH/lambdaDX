@@ -52,6 +52,9 @@ lnmai-core = { path = "lnmai-core" }
 tinyfiledialogs = "3.9"
 tokio = {version = "1.52.3",features = ["sync"]}
 
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "0.13"
+
 [build-dependencies]
 lnmai-core = { path = "lnmai-core" }
 
