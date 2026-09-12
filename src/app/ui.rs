@@ -1,3 +1,4 @@
+use macroquad::miniquad::conf::{LinuxBackend, Platform};
 use macroquad::prelude::*;
 use macroquad::texture::{DrawTextureParams, FilterMode, Texture2D, load_texture};
 
@@ -30,6 +31,14 @@ pub fn window_conf() -> Conf {
         window_height: 760,
         high_dpi: true,
         sample_count: 4,
+        // Run natively on Wayland when the session is Wayland, falling back to
+        // X11 (XWayland) only if the Wayland backend can't initialize. The X11
+        // backend (the previous default) forced the game through XWayland,
+        // which adds a compositing layer and can break vsync frame pacing.
+        platform: Platform {
+            linux_backend: LinuxBackend::WaylandWithX11Fallback,
+            ..Default::default()
+        },
         ..Default::default()
     }
 }

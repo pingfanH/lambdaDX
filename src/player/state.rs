@@ -26,6 +26,26 @@ pub struct SlideProgress {
     area_on: bool,
 }
 
+/// Cached slide geometry: the judge segments (zone → end bar) and total bar
+/// count derived from the rendered slide path. Depends only on the chart and
+/// pad layout, not on time, so it is built lazily and reused across frames.
+#[derive(Debug, Clone)]
+pub struct SlideGeom {
+    pub areas: Vec<(PadZone, usize)>,
+    pub bar_count: usize,
+}
+
+/// Identity of the pad-layout inputs that slide geometry depends on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SlideGeomKey {
+    cx: f32,
+    cy: f32,
+    outer_r: f32,
+    scale: f32,
+    spawn_x: f32,
+    spawn_y: f32,
+}
+
 #[derive(Debug, Clone)]
 pub struct LibrarySong {
     pub title: String,
@@ -269,6 +289,10 @@ pub struct PlayerState {
     pub autoplay: bool,
     /// Per-note, per-sub-slide progress used to hide completed trail areas.
     pub slide_progress: HashMap<(u64, usize), SlideProgress>,
+    /// Cached slide geometry keyed by (note_id, slide_idx).
+    pub slide_geom_cache: HashMap<(u64, usize), SlideGeom>,
+    /// Pad-layout identity the cache was built for; a change clears the cache.
+    slide_geom_key: Option<SlideGeomKey>,
 
     /// Loaded lnmai-core judgment session (None until a chart is loaded).
     pub judge_engine: Option<super::engine::JudgeEngine>,
@@ -425,6 +449,8 @@ impl PlayerState {
             hidden_notes: HashSet::new(),
             autoplay: false,
             slide_progress: HashMap::new(),
+            slide_geom_cache: HashMap::new(),
+            slide_geom_key: None,
             judge_engine: None,
             engine_events: Vec::new(),
             status: "Ready".to_string(),
@@ -478,6 +504,12 @@ impl PlayerState {
         }
         self.chart = chart;
         self.slide_progress.clear();
+        self.invalidate_slide_geometry();
+    }
+
+    fn invalidate_slide_geometry(&mut self) {
+        self.slide_geom_cache.clear();
+        self.slide_geom_key = None;
     }
 
     pub fn set_selected_note(&mut self, sel: Option<u64>) {
@@ -664,6 +696,7 @@ impl PlayerState {
             self.mode_wall_anchor = get_time();
             self.hit_sounds_played.clear();
             self.playback_cursor = 0;
+            self.invalidate_slide_geometry();
             self.request_audio_start();
             self.set_status(format!(
                 "Resumed @ {:.1}x from {:.2}s",
@@ -686,6 +719,7 @@ impl PlayerState {
         self.slide_progress.clear();
         self.auto_judged.clear();
         self.auto_slide_sensors.clear();
+        self.invalidate_slide_geometry();
         // The lnmai engine's session keeps its own timeline; reload it so the
         // notes are judged again from the start.
         self.reload_judge_engine();
@@ -743,47 +777,76 @@ impl PlayerState {
             }
         }
 
-        let slide_notes: Vec<(u64, usize, f32, f32, Vec<(PadZone, usize)>, usize)> = self
-            .chart
-            .notes
-            .iter()
-            .filter(|note| matches!(note.note_type, NoteType::Slide))
-            .flat_map(|note| {
-                let head_time = note_secs(note, &bpms);
-                let slide_bpms = bpms.clone();
-                note.slide
-                    .iter()
-                    .enumerate()
-                    .map(move |(slide_idx, slide)| {
-                        let path = slide_render::build_slide_path(
-                            note,
-                            slide,
-                            &pad,
-                            svg,
-                            scale,
-                            spawn_center,
-                            pad.outer_r,
-                        );
-                        let visual =
-                            segmentation::build(&path, SLIDE_TILE_SPACING * scale, svg, &pad);
-                        let areas = visual
-                            .judge_segments
-                            .iter()
-                            .map(|segment| (segment.zone, segment.end_bar))
-                            .collect();
-                        (
-                            note.id,
-                            slide_idx,
-                            head_time
-                                + mdur_to_secs(slide.slide_start_delay, note.time, &slide_bpms),
-                            // `slide_duration` is the total span from the head.
-                            head_time + mdur_to_secs(slide.slide_duration, note.time, &slide_bpms),
+        // Invalidate cached slide geometry whenever the pad layout changes.
+        let geom_key = SlideGeomKey {
+            cx: pad.cx,
+            cy: pad.cy,
+            outer_r: pad.outer_r,
+            scale,
+            spawn_x: spawn_center.x,
+            spawn_y: spawn_center.y,
+        };
+        if self.slide_geom_key != Some(geom_key) {
+            self.slide_geom_cache.clear();
+            self.slide_geom_key = Some(geom_key);
+        }
+
+        // Collect only the slides currently inside their run window, reusing
+        // cached geometry (path + segmentation) instead of rebuilding it every
+        // frame. Slide geometry depends on the chart and layout, not on time.
+        let mut slide_notes: Vec<(u64, usize, f32, f32, Vec<(PadZone, usize)>, usize)> =
+            Vec::new();
+        for note_idx in 0..self.chart.notes.len() {
+            let note = &self.chart.notes[note_idx];
+            if !matches!(note.note_type, NoteType::Slide) {
+                continue;
+            }
+            let head_time = note_secs(note, &bpms);
+            for (slide_idx, slide) in note.slide.iter().enumerate() {
+                let start_time =
+                    head_time + mdur_to_secs(slide.slide_start_delay, note.time, &bpms);
+                // `slide_duration` is the total span from the head.
+                let end_time = head_time + mdur_to_secs(slide.slide_duration, note.time, &bpms);
+                if now < start_time || now > end_time + 0.6 {
+                    continue;
+                }
+                let key = (note.id, slide_idx);
+                if !self.slide_geom_cache.contains_key(&key) {
+                    let path = slide_render::build_slide_path(
+                        note,
+                        slide,
+                        &pad,
+                        svg,
+                        scale,
+                        spawn_center,
+                        pad.outer_r,
+                    );
+                    let visual =
+                        segmentation::build(&path, SLIDE_TILE_SPACING * scale, svg, &pad);
+                    let areas = visual
+                        .judge_segments
+                        .iter()
+                        .map(|segment| (segment.zone, segment.end_bar))
+                        .collect();
+                    self.slide_geom_cache.insert(
+                        key,
+                        SlideGeom {
                             areas,
-                            visual.bars.len(),
-                        )
-                    })
-            })
-            .collect();
+                            bar_count: visual.bars.len(),
+                        },
+                    );
+                }
+                let geom = &self.slide_geom_cache[&key];
+                slide_notes.push((
+                    note.id,
+                    slide_idx,
+                    start_time,
+                    end_time,
+                    geom.areas.clone(),
+                    geom.bar_count,
+                ));
+            }
+        }
 
         for (note_id, slide_idx, start_time, end_time, areas, bar_count) in slide_notes {
             if now < start_time || now > end_time + 0.6 || areas.is_empty() || bar_count == 0 {

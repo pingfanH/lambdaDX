@@ -10,6 +10,7 @@ use lnmai_core::session::{self, Empty, Loaded, Session};
 use lnmai_core::types::{
     ButtonZone, JudgeEvent, JudgeEventKind, SensorArea, TimedInputBatch, TimedInputEvent,
 };
+use std::time::Instant;
 
 /// Map a pad zone id (1-8 = A buttons, 9-33 = sensors) to lnmai input events.
 /// Returns `(click_event, hold_down, hold_up)` for a press/release cycle.
@@ -186,8 +187,16 @@ impl JudgeEngine {
             current_time: (current_secs.max(0.0) * 1e6) as i64,
             events,
         };
+        let t_ser = Instant::now();
         let json = serde_json::to_string(&batch).map_err(|e| e.to_string())?;
-        let envelope = self.session.advance_frame_light(&json).map_err(|e| e.json)?;
+        let ser_ns = t_ser.elapsed();
+
+        let (envelope, ffi_timings) = self
+            .session
+            .advance_frame_light_timed(&json)
+            .map_err(|e| e.json)?;
+
+        let t_de = Instant::now();
         let value: serde_json::Value =
             serde_json::from_str(&envelope.json).map_err(|e| e.to_string())?;
         let events_json = value
@@ -195,7 +204,25 @@ impl JudgeEngine {
             .and_then(|r| r.get("events"))
             .cloned()
             .unwrap_or_default();
-        serde_json::from_value(events_json).map_err(|e| e.to_string())
+        let events = serde_json::from_value(events_json).map_err(|e| e.to_string())?;
+        let de_ns = t_de.elapsed();
+
+        crate::perf::record("engine.serialize", ser_ns);
+        crate::perf::record(
+            "engine.ffi.mk_string",
+            std::time::Duration::from_nanos(ffi_timings.mk_string_ns),
+        );
+        crate::perf::record(
+            "engine.ffi.lean",
+            std::time::Duration::from_nanos(ffi_timings.ffi_ns),
+        );
+        crate::perf::record(
+            "engine.ffi.into_string",
+            std::time::Duration::from_nanos(ffi_timings.into_string_ns),
+        );
+        crate::perf::record("engine.deserialize", de_ns);
+
+        Ok(events)
     }
 }
 
@@ -244,6 +271,7 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
     if app.judge_engine.is_none() {
         return;
     }
+    let t0 = Instant::now();
 
     if app.autoplay {
         let now = app.song_time();
@@ -315,6 +343,7 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
             }
         }
     }
+    crate::perf::record("engine.total", t0.elapsed());
 }
 
 fn handle_engine_events(app: &mut crate::state::PlayerState, events: Vec<JudgeEvent>) {

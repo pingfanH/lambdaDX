@@ -2,6 +2,7 @@ pub mod audio;
 pub mod egui;
 pub mod engine;
 pub mod input;
+pub mod perf;
 pub mod player_layout;
 pub mod state;
 #[cfg(target_os = "linux")]
@@ -12,6 +13,7 @@ use lambda_dx::app::{pad_svg, platform, sfx, types};
 use macroquad::color::Color;
 use macroquad::file::set_pc_assets_folder;
 use macroquad::prelude::{clear_background, next_frame};
+use std::time::Instant;
 
 use crate::state::PlayerState;
 use lambda_dx::window_conf;
@@ -88,6 +90,7 @@ pub async fn main() {
     egui_macroquad::ui(|_| {});
     egui_macroquad::draw();
     loop {
+        let frame_start = Instant::now();
         clear_background(Color::from_rgba(30, 30, 30, 255));
 
         let layout = player_layout::compute_layout(&app);
@@ -95,6 +98,7 @@ pub async fn main() {
         let buttons: Vec<types::UiButton> = Vec::new(); // buttons via egui
         let show_gameplay = app.player_ui.shows_gameplay_background();
 
+        let slide_start = Instant::now();
         if let Some(svg) = app.pad_svg.clone() {
             let spawn_center = svg
                 .pad_visual_center(&pad_geom)
@@ -104,7 +108,9 @@ pub async fn main() {
             // loaded, otherwise by the manual path inside this call.
             app.update_slide_judgment(pad_geom, &svg, player_layout::ui_scale(&app), spawn_center);
         }
+        let slide_elapsed = slide_start.elapsed();
 
+        let draw_start = Instant::now();
         if show_gameplay {
             player_layout::draw_layout(&app, layout, pad_geom, &buttons);
         }
@@ -128,6 +134,8 @@ pub async fn main() {
         }
         audio::service_audio(&mut app).await;
         app.tick_feedback();
+        let frontend_elapsed = frame_start.elapsed();
+        let draw_input_elapsed = draw_start.elapsed();
 
         if app.player_ui.page == state::PlayerPage::Gameplay
             && app.mode == lambda_dx::app::types::Mode::Playing
@@ -135,10 +143,19 @@ pub async fn main() {
             engine::step_judge_engine(&mut app);
         }
 
+        let egui_start = Instant::now();
         egui_macroquad::ui(|egui_ctx| {
             egui::draw_egui_ui(egui_ctx, &mut app);
         });
         egui_macroquad::draw();
+        let egui_elapsed = egui_start.elapsed();
+
+        perf::record("frontend.slide", slide_elapsed);
+        perf::record("frontend.draw_input", draw_input_elapsed);
+        perf::record("frontend", frontend_elapsed);
+        perf::record("egui", egui_elapsed);
+        perf::record("total", frame_start.elapsed());
+        perf::frame_done();
 
         if app.pending_import {
             app.pending_import = false;

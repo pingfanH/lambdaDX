@@ -1,6 +1,7 @@
 use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use crate::raw;
 use crate::types;
@@ -14,6 +15,16 @@ pub struct Loaded;
 #[derive(Debug, Clone)]
 pub struct FfiEnvelope {
     pub json: String,
+}
+
+/// Nanosecond breakdown of one `advance_frame_light` call across the FFI
+/// boundary. `ffi_ns` is the raw Lean runtime step; the other two fields are
+/// the Rust-side JSON string bridge around it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FfiStepTimings {
+    pub mk_string_ns: u64,
+    pub ffi_ns: u64,
+    pub into_string_ns: u64,
 }
 
 impl FfiEnvelope {
@@ -184,11 +195,32 @@ impl Session<Loaded> {
     }
 
     pub fn advance_frame_light(&mut self, batch_json: &str) -> Result<FfiEnvelope> {
+        let (envelope, _timings) = self.advance_frame_light_timed(batch_json)?;
+        Ok(envelope)
+    }
+
+    /// Like [`advance_frame_light`], but also reports where the frame time went
+    /// inside the FFI bridge: building the Lean input string, the raw Lean step
+    /// call itself, and copying the result JSON back into Rust.
+    pub fn advance_frame_light_timed(
+        &mut self,
+        batch_json: &str,
+    ) -> Result<(FfiEnvelope, FfiStepTimings)> {
+        let t0 = Instant::now();
         let batch_obj = mk_lean_string(batch_json)?;
+        let t1 = Instant::now();
         // Exported Lean functions consume owned Lean object arguments.
         let result = unsafe { raw::lnmai_step_game_state_handle_light(self.handle(), batch_obj) };
+        let t2 = Instant::now();
         let json = into_string(result)?;
-        ok_or_error(json)
+        let t3 = Instant::now();
+        let envelope = ok_or_error(json)?;
+        let timings = FfiStepTimings {
+            mk_string_ns: (t1 - t0).as_nanos() as u64,
+            ffi_ns: (t2 - t1).as_nanos() as u64,
+            into_string_ns: (t3 - t2).as_nanos() as u64,
+        };
+        Ok((envelope, timings))
     }
 
     pub fn advance_frame_full(&mut self, batch_json: &str) -> Result<FfiEnvelope> {
