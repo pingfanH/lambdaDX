@@ -720,6 +720,10 @@ pub fn chart_slide_key(
 }
 
 fn play_audio_command(app: &mut crate::state::PlayerState, command: &AudioCommand) {
+    if !app.audio_enabled {
+        return;
+    }
+
     let sfx = match command {
         AudioCommand::PlayJudgeSfx { kind, is_break, .. } => match kind {
             JudgeEventKind::Break => app.sfx_break_tap.as_ref(),

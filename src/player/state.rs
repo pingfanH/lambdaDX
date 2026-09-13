@@ -326,7 +326,7 @@ pub struct PlayerState {
     pub touch_riser_playing: bool,
     pub next_note_id: u64,
     pub hidden_notes: HashSet<u64>,
-    /// Per-note, per-sub-slide progress used to hide completed trail areas.
+    /// Per-note, per-sub-slide bar cutoff received from lnmai-core render commands.
     pub slide_progress: HashMap<(u64, usize), SlideProgress>,
 
     /// Loaded lnmai-core judgment session (None until a chart is loaded).

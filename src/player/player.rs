@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod command;
 pub mod egui;
 pub mod engine;
 pub mod input;
@@ -10,16 +11,33 @@ pub mod touch_evdev;
 pub mod ui;
 
 use lambda_dx::app::{pad_svg, platform, sfx, types};
+use macroquad::Window;
 use macroquad::color::Color;
 use macroquad::file::set_pc_assets_folder;
 use macroquad::prelude::{clear_background, next_frame};
 use std::time::Instant;
 
+use crate::command::LaunchArgs;
 use crate::state::PlayerState;
 use lambda_dx::window_conf;
 
-#[macroquad::main(window_conf)]
-pub async fn main() {
+pub fn main() {
+    match command::parse_env() {
+        Ok(LaunchArgs::Help) => {
+            print!("{}", command::help());
+        }
+        Ok(launch_args) => {
+            Window::from_config(window_conf(), run(launch_args));
+        }
+        Err(error) => {
+            eprintln!("error: {error}\n");
+            eprint!("{}", command::help());
+            std::process::exit(2);
+        }
+    }
+}
+
+async fn run(launch_args: LaunchArgs) {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let asset_dir = platform::asset_dir();
@@ -75,6 +93,13 @@ pub async fn main() {
     }
 
     ui::load_note_textures(&mut app).await;
+
+    if let LaunchArgs::Command(command) = &launch_args {
+        if let Err(error) = command::apply_to_app(&mut app, command) {
+            app.set_status(format!("Command mode: {error}"));
+            app.player_ui.song_error = Some(error);
+        }
+    }
 
     #[cfg(target_os = "linux")]
     let mut evdev_touch = touch_evdev::EvdevTouch::start(None);

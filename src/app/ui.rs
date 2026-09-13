@@ -1112,7 +1112,6 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                         app.note_speed,
                         app.slide_fade_in,
                         0,
-                        true,
                     );
                 }
             }
@@ -1535,7 +1534,6 @@ fn draw_pad_panel(app: &AppState, rect: RectF, pad: PadGeom) {
                                     app.note_speed,
                                     app.slide_fade_in,
                                     0,
-                                    true,
                                 );
                             }
                         }

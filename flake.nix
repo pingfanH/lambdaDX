@@ -96,6 +96,7 @@
               --set-default MAI2_FONT_PATH "${cjkFont}" \
               --set-default MAI2_FONT_INDEX "0" \
               --run 'export MAI2_DATA_DIR="''${MAI2_DATA_DIR:-''${XDG_DATA_HOME:-''$HOME/.local/share}/lambda_dx}"'
+            ln -sf lambda_dx_player "$out/bin/lambdaDX"
           '';
         };
         commonEnv = ''

@@ -488,7 +488,6 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                             .get(&(note.id, si))
                             .map(|progress| progress.hidden_until_bar)
                             .unwrap_or(0),
-                        false,
                     );
                 }
             }

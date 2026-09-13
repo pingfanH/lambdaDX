@@ -123,7 +123,6 @@ pub fn draw_slide(
     base_speed: f32,
     slide_fade_in: f32,
     hidden_until_bar: usize,
-    autoplay: bool,
 ) {
     // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
     // The star motion fills the `[start_delay, total]` window; the travel time
@@ -344,28 +343,16 @@ pub fn draw_slide(
                     let dir = (*target - start_pos).normalize_or_zero();
                     let seg_len = (*target - start_pos).length().max(0.001);
                     let angle = dir.y.atan2(dir.x) + std::f32::consts::PI + 112.0_f32.to_radians();
-                    let star_dist = star_t * seg_len;
-                    let star_pos = start_pos + dir * star_dist;
+                    let star_pos = start_pos + dir * (star_t * seg_len);
                     let step_size = seg_len / (sprite_count - 1) as f32 * 0.83;
                     // Wifi has three independent straight tracks, so its
                     // bars do not go through the shared path segmentation.
-                    // Hide each bar once the star has crossed its position.
-                    let star_hidden_until = if show_full {
-                        0
-                    } else if star_t >= 1.0 - 0.001 {
-                        sprite_count
-                    } else {
-                        (0..sprite_count)
-                            .take_while(|index| *index as f32 * step_size < star_dist)
-                            .count()
-                    };
-                    let hidden_until = command_hidden_until.max(star_hidden_until);
 
                     let is_middle = j == 1;
 
                     // ── Tiles (only middle line gets wifi textures) ──
                     for i in 0..sprite_count {
-                        if i < hidden_until {
+                        if i < command_hidden_until {
                             continue;
                         }
                         let dist = i as f32 * step_size;
@@ -498,39 +485,7 @@ pub fn draw_slide(
     let spacing = SLIDE_TILE_SPACING * scale;
 
     let segmentation = segmentation::build(&path, spacing, svg, pad);
-    // Derive the visual completion from the same path distance as the moving
-    // star. Autoplay removes a complete segment, not individual bars.
-    let mut bar_distances = vec![0.0; segmentation.bars.len()];
-    for index in 1..segmentation.bars.len() {
-        bar_distances[index] = bar_distances[index - 1]
-            + segmentation.bars[index - 1]
-                .position
-                .distance(segmentation.bars[index].position);
-    }
-    let star_hidden_until_bar = if show_full || star_dist_along < 0.0 {
-        0
-    } else if star_dist_along >= total_len - 0.001 {
-        segmentation.bars.len()
-    } else {
-        segmentation
-            .judge_segments
-            .iter()
-            .filter_map(|segment| {
-                let last_bar = segment.end_bar.saturating_sub(1);
-                (bar_distances.get(last_bar).copied().unwrap_or(f32::MAX) <= star_dist_along)
-                    .then_some(segment.end_bar)
-            })
-            .max()
-            .unwrap_or(0)
-    };
-    // In manual play the trail hides only from lnmai-core HideSlideBars
-    // commands; the star's own progress only consumes the trail in preview.
-    let hidden_until = if autoplay {
-        hidden_until_bar.max(star_hidden_until_bar)
-    } else {
-        hidden_until_bar
-    }
-    .min(segmentation.bars.len());
+    let hidden_until = hidden_until_bar.min(segmentation.bars.len());
     for (bar_index, bar) in segmentation.bars.iter().enumerate() {
         if bar_index < hidden_until {
             continue;
