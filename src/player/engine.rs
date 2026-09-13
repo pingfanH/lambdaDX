@@ -12,8 +12,13 @@ use lnmai_core::types::{
 };
 use std::time::Instant;
 
-/// Map a pad zone id (1-8 = A buttons, 9-33 = sensors) to lnmai input events.
-/// Returns `(click_event, hold_down, hold_up)` for a press/release cycle.
+/// Map a pad zone to its native lnmai input family.
+///
+/// A-ring zones return button events here. The player aliases those zones to
+/// matching sensor events through [`press_events_for_zone`] and
+/// [`release_events_for_zone`] because outer-ring contact also drives slides
+/// and touch notes.
+/// Returns `(click_event, hold_down, hold_up)` for one press/release cycle.
 pub fn events_for_zone(
     zone: PadZone,
     tp: i64,
@@ -45,58 +50,119 @@ pub fn events_for_zone(
             },
         )
     } else {
-        let area = match zid {
-            9..=16 => match zid - 8 {
-                1 => SensorArea::B1,
-                2 => SensorArea::B2,
-                3 => SensorArea::B3,
-                4 => SensorArea::B4,
-                5 => SensorArea::B5,
-                6 => SensorArea::B6,
-                7 => SensorArea::B7,
-                8 => SensorArea::B8,
-                _ => return None,
-            },
-            17 => SensorArea::C,
-            18..=25 => match zid - 17 {
-                1 => SensorArea::D1,
-                2 => SensorArea::D2,
-                3 => SensorArea::D3,
-                4 => SensorArea::D4,
-                5 => SensorArea::D5,
-                6 => SensorArea::D6,
-                7 => SensorArea::D7,
-                8 => SensorArea::D8,
-                _ => return None,
-            },
-            26..=33 => match zid - 25 {
-                1 => SensorArea::E1,
-                2 => SensorArea::E2,
-                3 => SensorArea::E3,
-                4 => SensorArea::E4,
-                5 => SensorArea::E5,
-                6 => SensorArea::E6,
-                7 => SensorArea::E7,
-                8 => SensorArea::E8,
-                _ => return None,
-            },
-            _ => return None,
-        };
-        (
-            TimedInputEvent::SensorClick { tp, area },
-            TimedInputEvent::SensorHold {
-                tp,
-                area,
-                is_down: true,
-            },
-            TimedInputEvent::SensorHold {
-                tp,
-                area,
-                is_down: false,
-            },
-        )
+        sensor_events_for_zone(zone, tp)?
     };
     Some((click, hold_down, hold_up))
+}
+
+/// Map any pad zone to its corresponding lnmai sensor area.
+///
+/// The core keeps outer-button notes and sensor notes separate. The player
+/// deliberately aliases A-ring input to the matching sensor area as well, so
+/// slide bodies can be driven from the same physical/manual contact.
+pub fn sensor_events_for_zone(
+    zone: PadZone,
+    tp: i64,
+) -> Option<(TimedInputEvent, TimedInputEvent, TimedInputEvent)> {
+    let area = match zone.to_id() {
+        1 => SensorArea::A1,
+        2 => SensorArea::A2,
+        3 => SensorArea::A3,
+        4 => SensorArea::A4,
+        5 => SensorArea::A5,
+        6 => SensorArea::A6,
+        7 => SensorArea::A7,
+        8 => SensorArea::A8,
+        9 => SensorArea::B1,
+        10 => SensorArea::B2,
+        11 => SensorArea::B3,
+        12 => SensorArea::B4,
+        13 => SensorArea::B5,
+        14 => SensorArea::B6,
+        15 => SensorArea::B7,
+        16 => SensorArea::B8,
+        17 => SensorArea::C,
+        18 => SensorArea::D1,
+        19 => SensorArea::D2,
+        20 => SensorArea::D3,
+        21 => SensorArea::D4,
+        22 => SensorArea::D5,
+        23 => SensorArea::D6,
+        24 => SensorArea::D7,
+        25 => SensorArea::D8,
+        26 => SensorArea::E1,
+        27 => SensorArea::E2,
+        28 => SensorArea::E3,
+        29 => SensorArea::E4,
+        30 => SensorArea::E5,
+        31 => SensorArea::E6,
+        32 => SensorArea::E7,
+        33 => SensorArea::E8,
+        _ => return None,
+    };
+    Some((
+        TimedInputEvent::SensorClick { tp, area },
+        TimedInputEvent::SensorHold {
+            tp,
+            area,
+            is_down: true,
+        },
+        TimedInputEvent::SensorHold {
+            tp,
+            area,
+            is_down: false,
+        },
+    ))
+}
+
+fn press_events_from(
+    events: Option<(TimedInputEvent, TimedInputEvent, TimedInputEvent)>,
+) -> Vec<TimedInputEvent> {
+    let mut result = Vec::with_capacity(2);
+    if let Some((click, hold_down, _)) = events {
+        result.push(click);
+        result.push(hold_down);
+    }
+    result
+}
+
+fn release_events_from(
+    events: Option<(TimedInputEvent, TimedInputEvent, TimedInputEvent)>,
+) -> Vec<TimedInputEvent> {
+    events
+        .map(|(_, _, hold_up)| vec![hold_up])
+        .unwrap_or_default()
+}
+
+/// Build the native lnmai press for one chart zone.
+///
+/// This keeps autoplay aligned with the chart's note family: A-ring chart
+/// notes use button events, while all other chart zones use sensor events.
+fn native_press_events_for_zone(zone: PadZone, tp: i64) -> Vec<TimedInputEvent> {
+    press_events_from(events_for_zone(zone, tp))
+}
+
+/// Build the sensor press used by slide-body autoplay.
+fn sensor_press_events_for_zone(zone: PadZone, tp: i64) -> Vec<TimedInputEvent> {
+    press_events_from(sensor_events_for_zone(zone, tp))
+}
+
+/// Build the complete logical press generated by one active pad zone.
+pub fn press_events_for_zone(zone: PadZone, tp: i64) -> Vec<TimedInputEvent> {
+    let mut events = native_press_events_for_zone(zone, tp);
+    if zone.to_id() <= 8 {
+        events.extend(sensor_press_events_for_zone(zone, tp));
+    }
+    events
+}
+
+/// Build the complete logical release generated by one active pad zone.
+pub fn release_events_for_zone(zone: PadZone, tp: i64) -> Vec<TimedInputEvent> {
+    let mut events = release_events_from(events_for_zone(zone, tp));
+    if zone.to_id() <= 8 {
+        events.extend(release_events_from(sensor_events_for_zone(zone, tp)));
+    }
+    events
 }
 
 /// Convert a button zone back to a [`PadZone`] (for engine judge feedback).
@@ -242,8 +308,60 @@ impl InputTp for TimedInputEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::JudgeEngine;
+    use super::{
+        native_press_events_for_zone, press_events_for_zone, sensor_press_events_for_zone,
+        JudgeEngine,
+    };
     use lambda_dx::simai_io::{parse_simai_source, simai_file_to_chart_doc};
+    use lambda_dx::types::zone::PadZone;
+    use lambda_dx::types::{
+        BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
+    };
+    use lnmai_core::types::{SensorArea, TimedInputEvent};
+    use serde_json::Value;
+
+    fn sample_outer_ring_slide_chart() -> String {
+        let chart = ChartDoc {
+            version: "1.0".to_string(),
+            title: "outer-ring-slide-probe".to_string(),
+            artist: String::new(),
+            simai_level: 6,
+            bpm: 120.0,
+            bpms: vec![BpmChange {
+                measure: 1.0,
+                bpm: 120.0,
+            }],
+            audio_offset: 0.0,
+            notes: vec![Note {
+                time: 1.0,
+                lane: 1,
+                note_type: NoteType::Slide,
+                is_star: true,
+                slide: vec![Slide {
+                    segments: vec![SlideSegment {
+                        points: vec![SlidePoint::from(PadZone::from(5_u8))],
+                        shape: SlideShape::Line,
+                    }],
+                    slide_duration: 1.0,
+                    slide_start_delay: 0.25,
+                    slide_is_break: false,
+                }],
+                ..Default::default()
+            }],
+            templates: vec![],
+            template_instances: vec![],
+        };
+        let file = lambda_dx::simai_io::chart_doc_to_simai_file(&chart);
+        lambda_dx::simai_io::export_simai_file(&file)
+    }
+
+    fn session_state(engine: &JudgeEngine) -> Value {
+        let envelope = engine
+            .session
+            .get_state_json()
+            .expect("player engine should expose its current state");
+        serde_json::from_str(&envelope.json).expect("player engine state should be valid JSON")
+    }
 
     #[test]
     fn importing_then_loading_the_player_engine_does_not_abort() {
@@ -255,11 +373,109 @@ mod tests {
             .expect("player engine must load the imported chart");
         drop(engine);
     }
+
+    #[test]
+    fn outer_ring_press_also_drives_the_matching_sensor_for_slide_bodies() {
+        let events = press_events_for_zone(PadZone::from(1), 123);
+
+        assert_eq!(events.len(), 4);
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                TimedInputEvent::SensorClick {
+                    area: SensorArea::A1,
+                    ..
+                }
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                TimedInputEvent::SensorHold {
+                    area: SensorArea::A1,
+                    is_down: true,
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn native_outer_ring_press_stays_button_only() {
+        let events = native_press_events_for_zone(PadZone::from(1), 123);
+
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| matches!(
+            event,
+            TimedInputEvent::ButtonClick { .. } | TimedInputEvent::ButtonHold { .. }
+        )));
+    }
+
+    #[test]
+    fn sensor_press_can_target_an_outer_ring_slide_body() {
+        let events = sensor_press_events_for_zone(PadZone::from(1), 123);
+
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| {
+            matches!(
+                event,
+                TimedInputEvent::SensorClick {
+                    area: SensorArea::A1,
+                    ..
+                } | TimedInputEvent::SensorHold {
+                    area: SensorArea::A1,
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn outer_ring_release_also_releases_the_matching_sensor() {
+        let events = super::release_events_for_zone(PadZone::from(1), 123);
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                TimedInputEvent::SensorHold {
+                    area: SensorArea::A1,
+                    is_down: false,
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn non_outer_sensor_press_is_not_duplicated() {
+        assert_eq!(press_events_for_zone(PadZone::from(9), 123).len(), 2);
+    }
+
+    #[test]
+    fn outer_ring_input_advances_the_core_slide_sensor_queue() {
+        let mut engine =
+            JudgeEngine::load(&sample_outer_ring_slide_chart(), 6).expect("slide chart loads");
+
+        engine
+            .step(0.0, Vec::new())
+            .expect("initial core frame should succeed");
+        engine
+            .step(0.8, press_events_for_zone(PadZone::from(1), 800_000))
+            .expect("A-ring press should reach the core");
+
+        let state = session_state(&engine);
+        let first_area = &state["result"]["slides"][0]["judgeQueues"][0][0];
+        assert_eq!(first_area["targetAreas"][0], "A1");
+        assert_eq!(
+            first_area["wasOn"], true,
+            "the player-style A-ring press must be visible as held sensor input"
+        );
+    }
 }
 
 use lambda_dx::app::types::note_secs;
 use lambda_dx::app::types::sanitize_note_zone;
-use lambda_dx::app::types::{NoteType, mdur_to_secs};
+use lambda_dx::app::types::{mdur_to_secs, NoteType};
 
 fn tp_at(secs: f32) -> i64 {
     (secs.max(0.0) * 1e6) as i64
@@ -303,12 +519,10 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
                                 };
                                 let t = start + dur * frac;
                                 if t <= now + 0.02 {
-                                    if let Some((click, hold_down, _)) =
-                                        events_for_zone(PadZone::from(*zid), tp_at(t))
-                                    {
-                                        app.engine_events.push(click);
-                                        app.engine_events.push(hold_down);
-                                    }
+                                    app.engine_events.extend(sensor_press_events_for_zone(
+                                        PadZone::from(*zid),
+                                        tp_at(t),
+                                    ));
                                     app.auto_slide_sensors.insert((note.id, *zid));
                                 }
                             }
@@ -321,10 +535,8 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
                     }
                     if ns <= now + 0.02 {
                         let zone = PadZone::from(sanitize_note_zone(note.note_type, note.lane));
-                        if let Some((click, hold_down, _)) = events_for_zone(zone, tp_at(ns)) {
-                            app.engine_events.push(click);
-                            app.engine_events.push(hold_down);
-                        }
+                        app.engine_events
+                            .extend(native_press_events_for_zone(zone, tp_at(ns)));
                         app.auto_judged.insert(note.id);
                     }
                 }
@@ -403,7 +615,7 @@ fn find_slide_tail_zone(
     now: f32,
     bpms: &[lambda_dx::app::types::BpmChange],
 ) -> Option<PadZone> {
-    use lambda_dx::app::types::{NoteType, slide_end_time};
+    use lambda_dx::app::types::{slide_end_time, NoteType};
     app.chart
         .notes
         .iter()

@@ -8,12 +8,64 @@ use lambda_dx::types::{
 };
 use lambda_dx::ui::rect_contains;
 use macroquad::input::{KeyCode, TouchPhase, is_key_pressed, is_key_released};
+use std::collections::HashMap;
 
 fn update_active_sensor_hold(app: &mut PlayerState, pointer_id: u64, zone: Option<PadZone>) {
     if let Some(zone) = zone {
         app.active_sensor_holds.insert(pointer_id, zone);
     } else {
         app.active_sensor_holds.remove(&pointer_id);
+    }
+}
+
+fn zone_state_transitions(
+    active_sources: &mut HashMap<u64, PadZone>,
+    source_id: u64,
+    new_zone: Option<PadZone>,
+) -> Vec<(PadZone, bool)> {
+    let old_zone = active_sources.get(&source_id).copied();
+    if old_zone == new_zone {
+        return Vec::new();
+    }
+
+    let old_zone_still_held = old_zone.is_some_and(|old_zone| {
+        active_sources
+            .iter()
+            .any(|(id, zone)| *id != source_id && *zone == old_zone)
+    });
+    let new_zone_was_held = new_zone.is_some_and(|new_zone| {
+        active_sources
+            .iter()
+            .any(|(id, zone)| *id != source_id && *zone == new_zone)
+    });
+
+    match new_zone {
+        Some(new_zone) => {
+            active_sources.insert(source_id, new_zone);
+        }
+        None => {
+            active_sources.remove(&source_id);
+        }
+    }
+
+    let mut transitions = Vec::with_capacity(2);
+    if let Some(old_zone) = old_zone {
+        if !old_zone_still_held {
+            transitions.push((old_zone, false));
+        }
+    }
+    if let Some(new_zone) = new_zone {
+        if !new_zone_was_held {
+            transitions.push((new_zone, true));
+        }
+    }
+    transitions
+}
+
+fn update_active_zone(app: &mut PlayerState, source_id: u64, zone: Option<PadZone>) {
+    update_active_sensor_hold(app, source_id, zone);
+    for (zone, is_down) in zone_state_transitions(&mut app.active_pointer_zones, source_id, zone) {
+        app.record_engine_input(zone, is_down);
     }
 }
 
@@ -110,12 +162,8 @@ pub fn handle_lane_input(app: &mut PlayerState) {
         let input_id = u64::MAX - 100 - lane as u64;
         let zone = PadZone::from(lane);
         if is_key_pressed(key) {
-            app.active_pointer_zones
-                .insert(input_id, PadZone::from(lane));
-            app.active_sensor_holds
-                .insert(input_id, PadZone::from(lane));
+            update_active_zone(app, input_id, Some(zone));
             app.push_feedback(zone, 0.12);
-            app.record_engine_input(zone, true);
             if app.judge_engine.is_none() {
                 if let (Some(sfx), Some(player)) = (&app.sfx_tap, &mut app.sfx_player) {
                     player.play(sfx, 1.0);
@@ -123,9 +171,7 @@ pub fn handle_lane_input(app: &mut PlayerState) {
             }
         }
         if is_key_released(key) {
-            app.active_pointer_zones.remove(&input_id);
-            app.active_sensor_holds.remove(&input_id);
-            app.record_engine_input(zone, false);
+            update_active_zone(app, input_id, None);
         }
     }
 }
@@ -265,10 +311,8 @@ pub fn handle_touch_controls(
                 }
 
                 if let Some(zone) = zone {
-                    app.active_pointer_zones.insert(ev.id, zone);
-                    update_active_sensor_hold(app, ev.id, Some(zone));
+                    update_active_zone(app, ev.id, Some(zone));
                     app.push_feedback(zone, 0.12);
-                    app.record_engine_input(zone, true);
                     //app.start_record_hold_input(RecordInputId::Pointer(ev.id), zone);
                 }
             }
@@ -302,35 +346,75 @@ pub fn handle_touch_controls(
 
                     if old_zone != new_zone {
                         if let Some(zone) = new_zone {
-                            if let Some(old) = old_zone {
-                                app.record_engine_input(old, false);
-                            }
                             //app.record_slide_zone(RecordInputId::Pointer(ev.id), zone);
-                            app.active_pointer_zones.insert(ev.id, zone);
-                            update_active_sensor_hold(app, ev.id, Some(zone));
-                            app.record_engine_input(zone, true);
+                            update_active_zone(app, ev.id, Some(zone));
                             app.push_feedback(zone, 0.10);
                         } else {
-                            if let Some(old) = old_zone {
-                                app.record_engine_input(old, false);
-                            }
-                            app.active_pointer_zones.remove(&ev.id);
-                            update_active_sensor_hold(app, ev.id, None);
+                            update_active_zone(app, ev.id, None);
                         }
                     }
                 }
             }
             TouchPhase::Ended | TouchPhase::Cancelled => {
-                if let Some(zone) = app.active_pointer_zones.get(&ev.id).copied() {
-                    app.record_engine_input(zone, false);
-                }
                 app.prev_pointer_pos.remove(&ev.id);
-                app.active_pointer_zones.remove(&ev.id);
-                update_active_sensor_hold(app, ev.id, None);
+                update_active_zone(app, ev.id, None);
                 app.finish_record_hold_input(RecordInputId::Pointer(ev.id));
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PadZone, zone_state_transitions};
+    use std::collections::HashMap;
+
+    #[test]
+    fn releasing_one_of_two_sources_keeps_zone_held() {
+        let zone = PadZone::from(9);
+        let mut active_sources = HashMap::new();
+
+        assert_eq!(
+            zone_state_transitions(&mut active_sources, 1, Some(zone)),
+            vec![(zone, true)]
+        );
+        assert!(zone_state_transitions(&mut active_sources, 2, Some(zone)).is_empty());
+
+        assert!(zone_state_transitions(&mut active_sources, 1, None).is_empty());
+        assert_eq!(active_sources.get(&2), Some(&zone));
+
+        assert_eq!(
+            zone_state_transitions(&mut active_sources, 2, None),
+            vec![(zone, false)]
+        );
+    }
+
+    #[test]
+    fn moving_source_releases_only_its_last_zone_and_enters_new_zone_once() {
+        let old_zone = PadZone::from(9);
+        let new_zone = PadZone::from(10);
+        let mut active_sources = HashMap::new();
+
+        assert_eq!(
+            zone_state_transitions(&mut active_sources, 1, Some(old_zone)),
+            vec![(old_zone, true)]
+        );
+        assert_eq!(
+            zone_state_transitions(&mut active_sources, 2, Some(old_zone)),
+            Vec::<(PadZone, bool)>::new()
+        );
+
+        assert_eq!(
+            zone_state_transitions(&mut active_sources, 1, Some(new_zone)),
+            vec![(new_zone, true)]
+        );
+        assert_eq!(active_sources.get(&2), Some(&old_zone));
+        assert_eq!(active_sources.get(&1), Some(&new_zone));
+        assert_eq!(
+            zone_state_transitions(&mut active_sources, 2, None),
+            vec![(old_zone, false)]
+        );
     }
 }
 

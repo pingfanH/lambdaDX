@@ -1004,13 +1004,12 @@ impl PlayerState {
             return;
         }
         let tp = (self.song_time().max(0.0) * 1e6) as i64;
-        if let Some((click, hold_down, hold_up)) = super::engine::events_for_zone(zone, tp) {
-            if is_down {
-                self.engine_events.push(click);
-                self.engine_events.push(hold_down);
-            } else {
-                self.engine_events.push(hold_up);
-            }
+        if is_down {
+            self.engine_events
+                .extend(super::engine::press_events_for_zone(zone, tp));
+        } else {
+            self.engine_events
+                .extend(super::engine::release_events_for_zone(zone, tp));
         }
     }
 
