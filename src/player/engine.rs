@@ -399,9 +399,11 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
     }
     let t0 = Instant::now();
 
+    app.prepare_engine_frame_events();
     let now = app.song_time();
     let events = std::mem::take(&mut app.engine_events);
     let result = app.judge_engine.as_mut().unwrap().step(now, events);
+    app.finish_engine_frame();
     match result {
         Ok(events) => handle_engine_events(app, events),
         Err(e) => {

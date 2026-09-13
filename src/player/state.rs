@@ -72,6 +72,57 @@ pub enum PlayerSettingsSection {
     Display,
 }
 
+#[derive(Default)]
+struct EngineInputLatch {
+    frame: u64,
+    press_frames: HashMap<PadZone, u64>,
+    pending_releases: HashMap<PadZone, u64>,
+}
+
+impl EngineInputLatch {
+    fn clear(&mut self) {
+        self.press_frames.clear();
+        self.pending_releases.clear();
+    }
+
+    fn record(
+        &mut self,
+        events: &mut Vec<lnmai_core::types::TimedInputEvent>,
+        zone: PadZone,
+        is_down: bool,
+        tp: i64,
+    ) {
+        if is_down {
+            self.pending_releases.remove(&zone);
+            self.press_frames.insert(zone, self.frame);
+            events.extend(super::engine::press_events_for_zone(zone, tp));
+        } else if self.press_frames.get(&zone).copied() == Some(self.frame) {
+            self.pending_releases.insert(zone, self.frame);
+        } else {
+            self.press_frames.remove(&zone);
+            self.pending_releases.remove(&zone);
+            events.extend(super::engine::release_events_for_zone(zone, tp));
+        }
+    }
+
+    fn prepare_frame(&mut self, events: &mut Vec<lnmai_core::types::TimedInputEvent>, tp: i64) {
+        let due: Vec<PadZone> = self
+            .pending_releases
+            .iter()
+            .filter_map(|(zone, frame)| (*frame < self.frame).then_some(*zone))
+            .collect();
+        for zone in due {
+            self.pending_releases.remove(&zone);
+            self.press_frames.remove(&zone);
+            events.extend(super::engine::release_events_for_zone(zone, tp));
+        }
+    }
+
+    fn finish_frame(&mut self) {
+        self.frame = self.frame.saturating_add(1);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PlayerUiState {
     pub page: PlayerPage,
@@ -298,6 +349,7 @@ pub struct PlayerState {
     pub judge_engine: Option<super::engine::JudgeEngine>,
     /// Input events collected for the current frame, fed to the engine.
     pub engine_events: Vec<lnmai_core::types::TimedInputEvent>,
+    engine_input_latch: EngineInputLatch,
 
     pub status: String,
 
@@ -453,6 +505,7 @@ impl PlayerState {
             slide_geom_key: None,
             judge_engine: None,
             engine_events: Vec::new(),
+            engine_input_latch: EngineInputLatch::default(),
             status: "Ready".to_string(),
             import_path_input: String::new(),
             pending_import: false,
@@ -516,6 +569,8 @@ impl PlayerState {
         self.active_pointer_zones.clear();
         self.active_sensor_holds.clear();
         self.prev_pointer_pos.clear();
+        self.engine_events.clear();
+        self.engine_input_latch.clear();
     }
 
     pub fn set_selected_note(&mut self, sel: Option<u64>) {
@@ -948,14 +1003,23 @@ impl PlayerState {
             }
             return;
         }
+        self.record_loaded_engine_input(zone, is_down);
+    }
+
+    fn record_loaded_engine_input(&mut self, zone: PadZone, is_down: bool) {
         let tp = (self.song_time().max(0.0) * 1e6) as i64;
-        if is_down {
-            self.engine_events
-                .extend(super::engine::press_events_for_zone(zone, tp));
-        } else {
-            self.engine_events
-                .extend(super::engine::release_events_for_zone(zone, tp));
-        }
+        self.engine_input_latch
+            .record(&mut self.engine_events, zone, is_down, tp);
+    }
+
+    pub fn prepare_engine_frame_events(&mut self) {
+        let tp = (self.song_time().max(0.0) * 1e6) as i64;
+        self.engine_input_latch
+            .prepare_frame(&mut self.engine_events, tp);
+    }
+
+    pub fn finish_engine_frame(&mut self) {
+        self.engine_input_latch.finish_frame();
     }
 
     /// (Re)load the lnmai-core judgment engine for the currently imported chart.
@@ -1157,7 +1221,63 @@ impl PlayerState {
 
 #[cfg(test)]
 mod player_ui_tests {
-    use super::{PlayerPage, PlayerUiState};
+    use super::{EngineInputLatch, PlayerPage, PlayerUiState};
+    use lambda_dx::types::zone::PadZone;
+    use lnmai_core::types::{SensorArea, TimedInputEvent};
+
+    #[test]
+    fn same_frame_sensor_release_waits_until_next_engine_frame() {
+        let mut latch = EngineInputLatch::default();
+        let mut events = Vec::new();
+        let zone = PadZone::from(1);
+
+        latch.record(&mut events, zone, true, 1);
+        latch.record(&mut events, zone, false, 1);
+
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            TimedInputEvent::SensorClick {
+                area: SensorArea::A1,
+                ..
+            }
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            TimedInputEvent::SensorHold {
+                area: SensorArea::A1,
+                is_down: true,
+                ..
+            }
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            TimedInputEvent::SensorHold {
+                area: SensorArea::A1,
+                is_down: false,
+                ..
+            }
+        )));
+
+        latch.prepare_frame(&mut events, 1);
+        assert_eq!(
+            events.len(),
+            2,
+            "same-frame release must not be drained into the press frame"
+        );
+
+        latch.finish_frame();
+        latch.prepare_frame(&mut events, 2);
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            TimedInputEvent::SensorHold {
+                area: SensorArea::A1,
+                is_down: false,
+                ..
+            }
+        )));
+    }
 
     #[test]
     fn settings_returns_to_the_page_that_opened_it() {
