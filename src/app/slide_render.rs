@@ -104,7 +104,7 @@ pub fn build_slide_path(
 /// `spawn_cx` — screen-space tap spawn center (C-zone centroid)
 /// `outer_r` — pad outer radius in screen space
 /// `show_full` — true to render the entire trail at full alpha (static view)
-/// `completed_areas` — number of leading Sensor areas already completed
+/// `hidden_until_bar` — hide trail bars with indexes lower than this value
 pub fn draw_slide(
     note: &Note,
     slide: &Slide,
@@ -122,7 +122,7 @@ pub fn draw_slide(
     speed_scale: f32,
     base_speed: f32,
     slide_fade_in: f32,
-    completed_areas: usize,
+    hidden_until_bar: usize,
     autoplay: bool,
 ) {
     // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
@@ -338,8 +338,7 @@ pub fn draw_slide(
                 };
 
                 let sprite_count = 11;
-                let wifi_boundaries = [0usize, 1, 4, 6, 11];
-                let area_hidden_until = wifi_boundaries[completed_areas.min(4)];
+                let command_hidden_until = hidden_until_bar.min(sprite_count);
 
                 for (j, target) in targets.iter().enumerate() {
                     let dir = (*target - start_pos).normalize_or_zero();
@@ -360,7 +359,7 @@ pub fn draw_slide(
                             .take_while(|index| *index as f32 * step_size < star_dist)
                             .count()
                     };
-                    let hidden_until = area_hidden_until.max(star_hidden_until);
+                    let hidden_until = command_hidden_until.max(star_hidden_until);
 
                     let is_middle = j == 1;
 
@@ -508,37 +507,30 @@ pub fn draw_slide(
                 .position
                 .distance(segmentation.bars[index].position);
     }
-    let star_completed_areas = if show_full || star_dist_along < 0.0 {
+    let star_hidden_until_bar = if show_full || star_dist_along < 0.0 {
         0
     } else if star_dist_along >= total_len - 0.001 {
-        segmentation.judge_segments.len()
+        segmentation.bars.len()
     } else {
         segmentation
             .judge_segments
             .iter()
-            .take_while(|segment| {
+            .filter_map(|segment| {
                 let last_bar = segment.end_bar.saturating_sub(1);
-                bar_distances.get(last_bar).copied().unwrap_or(f32::MAX) <= star_dist_along
+                (bar_distances.get(last_bar).copied().unwrap_or(f32::MAX) <= star_dist_along)
+                    .then_some(segment.end_bar)
             })
-            .count()
+            .max()
+            .unwrap_or(0)
     };
-    // In manual play the trail hides only when the player touches each area
-    // (`completed_areas`); the star's own progress only consumes the trail in
-    // autoplay/preview.
-    let completed_areas = if autoplay {
-        completed_areas.max(star_completed_areas)
+    // In manual play the trail hides only from lnmai-core HideSlideBars
+    // commands; the star's own progress only consumes the trail in preview.
+    let hidden_until = if autoplay {
+        hidden_until_bar.max(star_hidden_until_bar)
     } else {
-        completed_areas
-    };
-    let hidden_until = if completed_areas == 0 {
-        0
-    } else {
-        segmentation
-            .judge_segments
-            .get(completed_areas - 1)
-            .map(|segment| segment.end_bar)
-            .unwrap_or(segmentation.bars.len())
-    };
+        hidden_until_bar
+    }
+    .min(segmentation.bars.len());
     for (bar_index, bar) in segmentation.bars.iter().enumerate() {
         if bar_index < hidden_until {
             continue;

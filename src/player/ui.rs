@@ -486,7 +486,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                         app.slide_fade_in,
                         app.slide_progress
                             .get(&(note.id, si))
-                            .map(|progress| progress.completed_areas)
+                            .map(|progress| progress.hidden_until_bar)
                             .unwrap_or(0),
                         false,
                     );

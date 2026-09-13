@@ -15,10 +15,8 @@ use super::types::{
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SlideProgress {
-    /// Number of visual/judgment areas already completed.
-    pub completed_areas: usize,
-    /// Whether the current non-final area has seen an initial press.
-    area_on: bool,
+    /// Hide trail bars with indexes lower than this value.
+    pub hidden_until_bar: usize,
 }
 
 fn apply_core_slide_progress_updates_to_chart(
@@ -33,12 +31,10 @@ fn apply_core_slide_progress_updates_to_chart(
             slide_progress
                 .entry((note_id, slide_idx))
                 .and_modify(|progress| {
-                    progress.completed_areas = update.completed_areas;
-                    progress.area_on = false;
+                    progress.hidden_until_bar = update.hidden_until_bar;
                 })
                 .or_insert_with(|| SlideProgress {
-                    completed_areas: update.completed_areas,
-                    area_on: false,
+                    hidden_until_bar: update.hidden_until_bar,
                 });
         }
     }
@@ -722,9 +718,6 @@ impl PlayerState {
             self.touch_riser_playing = false;
             self.timeline_view_time = self.mode_song_offset;
             self.clear_active_screen_inputs();
-            for progress in self.slide_progress.values_mut() {
-                progress.area_on = false;
-            }
             self.set_status(format!("Paused at {:.2}s", self.mode_song_offset));
         } else {
             // Resume with audio seek
@@ -1139,22 +1132,22 @@ mod player_ui_tests {
             &[
                 SlideProgressUpdate {
                     runtime_slide_index: 0,
-                    completed_areas: 1,
+                    hidden_until_bar: 1,
                 },
                 SlideProgressUpdate {
                     runtime_slide_index: 1,
-                    completed_areas: 3,
+                    hidden_until_bar: 3,
                 },
                 SlideProgressUpdate {
                     runtime_slide_index: 2,
-                    completed_areas: 2,
+                    hidden_until_bar: 2,
                 },
             ],
         );
 
-        assert_eq!(progress[&(10, 0)].completed_areas, 1);
-        assert_eq!(progress[&(10, 1)].completed_areas, 3);
-        assert_eq!(progress[&(20, 0)].completed_areas, 2);
+        assert_eq!(progress[&(10, 0)].hidden_until_bar, 1);
+        assert_eq!(progress[&(10, 1)].hidden_until_bar, 3);
+        assert_eq!(progress[&(20, 0)].hidden_until_bar, 2);
     }
 
     #[test]

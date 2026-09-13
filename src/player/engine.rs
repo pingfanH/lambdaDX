@@ -175,13 +175,12 @@ pub struct JudgeEngine {
 #[derive(Debug, Clone, Copy)]
 struct RuntimeSlideBinding {
     runtime_slide_index: usize,
-    total_areas: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlideProgressUpdate {
     pub runtime_slide_index: usize,
-    pub completed_areas: usize,
+    pub hidden_until_bar: usize,
 }
 
 fn ensure_runtime() {
@@ -263,38 +262,28 @@ impl JudgeEngine {
             };
             by_slide
                 .entry(update.runtime_slide_index)
-                .and_modify(|completed| *completed = (*completed).max(update.completed_areas))
-                .or_insert(update.completed_areas);
+                .and_modify(|hidden| *hidden = (*hidden).max(update.hidden_until_bar))
+                .or_insert(update.hidden_until_bar);
         }
 
-        by_slide
+        let mut updates: Vec<_> = by_slide
             .into_iter()
             .map(
-                |(runtime_slide_index, completed_areas)| SlideProgressUpdate {
+                |(runtime_slide_index, hidden_until_bar)| SlideProgressUpdate {
                     runtime_slide_index,
-                    completed_areas,
+                    hidden_until_bar,
                 },
             )
-            .collect()
+            .collect();
+        updates.sort_by_key(|update| update.runtime_slide_index);
+        updates
     }
 
     fn slide_progress_update(&self, command: &RenderCommand) -> Option<SlideProgressUpdate> {
-        let (note_index, completed_areas) = match command {
-            RenderCommand::UpdateSlideProgress {
-                note_index,
-                remaining,
-            } => {
-                let binding = self.slide_bindings.get(note_index)?;
-                (
-                    *note_index,
-                    binding.total_areas.saturating_sub(*remaining as usize),
-                )
-            }
+        let (note_index, hidden_until_bar) = match command {
+            RenderCommand::UpdateSlideProgress { .. } => return None,
             RenderCommand::UpdateSlideTrackProgress { .. } => return None,
-            RenderCommand::HideAllSlideBars { note_index } => {
-                let binding = self.slide_bindings.get(note_index)?;
-                (*note_index, binding.total_areas)
-            }
+            RenderCommand::HideAllSlideBars { note_index } => (*note_index, usize::MAX),
             RenderCommand::HideSlideBars {
                 note_index,
                 end_index,
@@ -305,7 +294,7 @@ impl JudgeEngine {
         let binding = self.slide_bindings.get(&note_index)?;
         Some(SlideProgressUpdate {
             runtime_slide_index: binding.runtime_slide_index,
-            completed_areas: completed_areas.min(binding.total_areas),
+            hidden_until_bar,
         })
     }
 }
@@ -326,7 +315,6 @@ fn runtime_slide_bindings(
                 slide.params.note_index,
                 RuntimeSlideBinding {
                     runtime_slide_index,
-                    total_areas: slide.total_judge_queue_len as usize,
                 },
             )
         })
@@ -349,7 +337,7 @@ impl InputTp for TimedInputEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::{JudgeEngine, press_events_for_zone};
+    use super::{JudgeEngine, SlideProgressUpdate, press_events_for_zone};
     use lambda_dx::simai_io::{parse_simai_source, simai_file_to_chart_doc};
     use lambda_dx::types::zone::PadZone;
     use lambda_dx::types::{
@@ -359,6 +347,18 @@ mod tests {
     use serde_json::Value;
 
     fn sample_outer_ring_slide_chart() -> String {
+        sample_slide_chart(SlideShape::Line, PadZone::from(5_u8))
+    }
+
+    fn sample_clockwise_circle5_chart() -> String {
+        sample_slide_chart(SlideShape::Right, PadZone::from(5_u8))
+    }
+
+    fn sample_clockwise_circle4_chart() -> String {
+        sample_slide_chart(SlideShape::Right, PadZone::from(4_u8))
+    }
+
+    fn sample_slide_chart(shape: SlideShape, end_zone: PadZone) -> String {
         let chart = ChartDoc {
             version: "1.0".to_string(),
             title: "outer-ring-slide-probe".to_string(),
@@ -377,8 +377,8 @@ mod tests {
                 is_star: true,
                 slide: vec![Slide {
                     segments: vec![SlideSegment {
-                        points: vec![SlidePoint::from(PadZone::from(5_u8))],
-                        shape: SlideShape::Line,
+                        points: vec![SlidePoint::from(end_zone)],
+                        shape,
                     }],
                     slide_duration: 1.0,
                     slide_start_delay: 0.25,
@@ -509,6 +509,71 @@ mod tests {
         assert!(
             engine.runtime_slide_index(note_index).is_some(),
             "slide ShowJudgeResult should identify the slide body note"
+        );
+    }
+
+    #[test]
+    fn first_circle_area_uses_core_hide_bar_index_for_circle5() {
+        let mut engine =
+            JudgeEngine::load(&sample_clockwise_circle5_chart(), 6).expect("slide chart loads");
+
+        let result = engine
+            .step(1.00, press_events_for_zone(PadZone::from(1), 1_000_000))
+            .expect("first body sensor press should reach the core");
+        assert!(
+            engine
+                .slide_progress_updates(&result.render_commands)
+                .is_empty(),
+            "pressing the first non-final area should not hide bars until release"
+        );
+
+        let result = engine
+            .step(
+                1.30,
+                super::release_events_for_zone(PadZone::from(1), 1_300_000),
+            )
+            .expect("first body sensor release should reach the core");
+        assert!(result.render_commands.iter().any(|command| matches!(
+            command,
+            RenderCommand::HideSlideBars {
+                note_index: 1,
+                end_index: 3
+            }
+        )));
+        let updates = engine.slide_progress_updates(&result.render_commands);
+
+        assert_eq!(
+            updates,
+            vec![SlideProgressUpdate {
+                runtime_slide_index: 0,
+                hidden_until_bar: 3,
+            }],
+            "the frontend should preserve lnmai-core's bar index instead of treating it as an area count"
+        );
+    }
+
+    #[test]
+    fn first_circle_area_uses_core_hide_bar_index_for_circle4() {
+        let mut engine =
+            JudgeEngine::load(&sample_clockwise_circle4_chart(), 6).expect("slide chart loads");
+
+        engine
+            .step(1.00, press_events_for_zone(PadZone::from(1), 1_000_000))
+            .expect("first body sensor press should reach the core");
+        let result = engine
+            .step(
+                1.30,
+                super::release_events_for_zone(PadZone::from(1), 1_300_000),
+            )
+            .expect("first body sensor release should reach the core");
+
+        assert_eq!(
+            engine.slide_progress_updates(&result.render_commands),
+            vec![SlideProgressUpdate {
+                runtime_slide_index: 0,
+                hidden_until_bar: 3,
+            }],
+            "circle4 should use the same first-area bar cutoff as the reference"
         );
     }
 }
