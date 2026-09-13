@@ -7,8 +7,8 @@ use lambda_dx::types::{
 };
 use lnmai_core::session::{Empty, Loaded, Session};
 use lnmai_core::types::{
-    ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, RuntimeStepLightResult, TimedInputBatch,
-    TimedInputEvent,
+    ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, RuntimeStepLightResult, SensorArea,
+    TimedInputBatch, TimedInputEvent,
 };
 
 fn test_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -62,23 +62,80 @@ fn sample_slide_chart_text() -> String {
 
 fn load_session(chart_text: &str) -> (Session<Loaded>, u64) {
     let empty = Session::<Empty>::create().expect("create session");
-    let (loaded, _) = empty
-        .load_chart_text(chart_text, 6)
-        .expect("load chart");
+    let (loaded, _) = empty.load_chart_text(chart_text, 6).expect("load chart");
     let handle = loaded.handle();
     (loaded, handle)
 }
 
 fn step_light(loaded: &mut Session<Loaded>, time_us: i64) -> RuntimeStepLightResult {
+    step_light_with_events(loaded, time_us, vec![])
+}
+
+fn step_light_with_events(
+    loaded: &mut Session<Loaded>,
+    time_us: i64,
+    events: Vec<TimedInputEvent>,
+) -> RuntimeStepLightResult {
     let batch = TimedInputBatch {
         current_time: time_us,
-        events: vec![],
+        events,
     };
     let envelope = loaded
         .advance_frame_light(&serde_json::to_string(&batch).expect("batch json"))
         .expect("step");
     let value: serde_json::Value = serde_json::from_str(&envelope.json).expect("envelope json");
-    serde_json::from_value(value.get("result").cloned().unwrap_or_default()).expect("runtime result")
+    serde_json::from_value(value.get("result").cloned().unwrap_or_default())
+        .expect("runtime result")
+}
+
+fn session_state(loaded: &Session<Loaded>) -> serde_json::Value {
+    let envelope = loaded.get_state_json().expect("state json");
+    serde_json::from_str(&envelope.json).expect("state envelope json")
+}
+
+fn first_slide_queue_areas(loaded: &Session<Loaded>) -> Vec<SensorArea> {
+    let state = session_state(loaded);
+    state["result"]["slides"][0]["judgeQueues"]
+        .as_array()
+        .expect("slide judge queues")
+        .iter()
+        .flat_map(|queue| queue.as_array().expect("queue areas"))
+        .flat_map(|area| area["targetAreas"].as_array().expect("target areas"))
+        .map(|area| serde_json::from_value(area.clone()).expect("sensor area"))
+        .collect()
+}
+
+fn sensor_tap(tp: i64, area: SensorArea) -> Vec<TimedInputEvent> {
+    vec![
+        TimedInputEvent::SensorClick { tp, area },
+        TimedInputEvent::SensorHold {
+            tp,
+            area,
+            is_down: true,
+        },
+    ]
+}
+
+fn sensor_release(tp: i64, area: SensorArea) -> Vec<TimedInputEvent> {
+    vec![TimedInputEvent::SensorHold {
+        tp,
+        area,
+        is_down: false,
+    }]
+}
+
+fn sensor_presses(tp: i64, areas: &[SensorArea]) -> Vec<TimedInputEvent> {
+    areas
+        .iter()
+        .flat_map(|area| sensor_tap(tp, *area))
+        .collect()
+}
+
+fn sensor_releases(tp: i64, areas: &[SensorArea]) -> Vec<TimedInputEvent> {
+    areas
+        .iter()
+        .flat_map(|area| sensor_release(tp, *area))
+        .collect()
 }
 
 fn slide_events(result: &RuntimeStepLightResult) -> Vec<&JudgeEvent> {
@@ -87,6 +144,118 @@ fn slide_events(result: &RuntimeStepLightResult) -> Vec<&JudgeEvent> {
         .iter()
         .filter(|evt| evt.kind == JudgeEventKind::Slide)
         .collect()
+}
+
+#[test]
+fn sensor_only_early_slide_head_keeps_body_accessible() {
+    let _guard = test_guard();
+    ensure_runtime();
+    let chart_text = sample_slide_chart_text();
+    let (mut loaded, _) = load_session(&chart_text);
+    let areas = first_slide_queue_areas(&loaded);
+    assert!(
+        !areas.is_empty(),
+        "fixture slide should expose sensor queues"
+    );
+
+    step_light(&mut loaded, 700_000);
+    step_light_with_events(&mut loaded, 800_000, sensor_tap(800_000, SensorArea::A1));
+    step_light_with_events(
+        &mut loaded,
+        850_000,
+        sensor_release(850_000, SensorArea::A1),
+    );
+
+    for (idx, area) in areas.into_iter().enumerate() {
+        let tp = 1_260_000 + (idx as i64 * 90_000);
+        step_light_with_events(&mut loaded, tp, sensor_tap(tp, area));
+        step_light_with_events(&mut loaded, tp + 40_000, sensor_release(tp + 40_000, area));
+    }
+
+    let result = step_light(&mut loaded, 2_700_000);
+    let events = slide_events(&result);
+    assert_eq!(events.len(), 1, "expected one slide event");
+    assert!(
+        !events[0].grade.is_miss_or_too_fast(),
+        "sensor-only early head plus body sensors should judge slide as hit, got {:?}",
+        events[0].grade
+    );
+}
+
+#[test]
+fn same_frame_fast_slide_swipe_advances_body_queue() {
+    let _guard = test_guard();
+    ensure_runtime();
+    let chart_text = sample_slide_chart_text();
+    let (mut loaded, _) = load_session(&chart_text);
+    let areas = first_slide_queue_areas(&loaded);
+    assert!(
+        areas.len() >= 3,
+        "fixture slide should have multiple body areas"
+    );
+
+    step_light(&mut loaded, 700_000);
+    step_light_with_events(&mut loaded, 800_000, sensor_tap(800_000, SensorArea::A1));
+    step_light_with_events(
+        &mut loaded,
+        850_000,
+        sensor_release(850_000, SensorArea::A1),
+    );
+
+    step_light_with_events(&mut loaded, 1_300_000, sensor_presses(1_300_000, &areas));
+    step_light_with_events(
+        &mut loaded,
+        1_316_000,
+        sensor_releases(1_316_000, &areas[..areas.len() - 1]),
+    );
+
+    let result = step_light(&mut loaded, 2_700_000);
+    let events = slide_events(&result);
+    assert_eq!(events.len(), 1, "expected one slide event");
+    assert!(
+        !events[0].grade.is_miss_or_too_fast(),
+        "same-frame fast body swipe should judge slide as hit, got {:?}",
+        events[0].grade
+    );
+}
+
+#[test]
+fn holding_early_slide_head_into_body_window_counts_as_body_sensor_on() {
+    let _guard = test_guard();
+    ensure_runtime();
+    let chart_text = sample_slide_chart_text();
+    let (mut loaded, _) = load_session(&chart_text);
+    let areas = first_slide_queue_areas(&loaded);
+    assert!(
+        !areas.is_empty(),
+        "fixture slide should expose sensor queues"
+    );
+
+    step_light(&mut loaded, 300_000);
+    step_light_with_events(&mut loaded, 500_000, sensor_tap(500_000, SensorArea::A1));
+    step_light(&mut loaded, 1_260_000);
+
+    let state = session_state(&loaded);
+    let first_area = &state["result"]["slides"][0]["judgeQueues"][0][0];
+    assert_eq!(
+        first_area["wasOn"], true,
+        "an already-held head sensor should be visible when slide body becomes checkable"
+    );
+
+    for (idx, area) in areas.into_iter().enumerate().skip(1) {
+        let tp = 1_320_000 + (idx as i64 * 90_000);
+        step_light_with_events(&mut loaded, tp, sensor_tap(tp, area));
+        step_light_with_events(&mut loaded, tp + 40_000, sensor_release(tp + 40_000, area));
+    }
+
+    let result = step_light(&mut loaded, 2_700_000);
+    let events = slide_events(&result);
+    assert_eq!(events.len(), 1, "expected one slide event");
+    assert!(
+        !events[0].grade.is_miss_or_too_fast(),
+        "held early head plus later body sensors should judge slide as hit, got {:?}",
+        events[0].grade
+    );
 }
 
 #[test]
@@ -120,7 +289,8 @@ fn parsed_slide_chart_reports_score_state() {
 fn tap_click_at_judge_time_is_perfect() {
     let _guard = test_guard();
     ensure_runtime();
-    let chart_text = "&title=Tap Probe\n&artist=Test\n&first=0\n&lv_6=1\n&inote_6=(120){4}1,2,3,4,E\n";
+    let chart_text =
+        "&title=Tap Probe\n&artist=Test\n&first=0\n&lv_6=1\n&inote_6=(120){4}1,2,3,4,E\n";
     let (mut loaded, _) = load_session(&chart_text);
 
     let batch = TimedInputBatch {

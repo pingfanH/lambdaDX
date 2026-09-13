@@ -96,25 +96,8 @@ pub async fn main() {
         let layout = player_layout::compute_layout(&app);
         let pad_geom = ui::compute_pad_geom(layout.pad);
         let buttons: Vec<types::UiButton> = Vec::new(); // buttons via egui
-        let show_gameplay = app.player_ui.shows_gameplay_background();
-
-        let slide_start = Instant::now();
-        if let Some(svg) = app.pad_svg.clone() {
-            let spawn_center = svg
-                .pad_visual_center(&pad_geom)
-                .unwrap_or(macroquad::math::vec2(pad_geom.cx, pad_geom.cy));
-            // Always run the visual slide-area progression (bar hiding on
-            // touch); judge feedback is produced by the lnmai engine when
-            // loaded, otherwise by the manual path inside this call.
-            app.update_slide_judgment(pad_geom, &svg, player_layout::ui_scale(&app), spawn_center);
-        }
-        let slide_elapsed = slide_start.elapsed();
 
         let draw_start = Instant::now();
-        if show_gameplay {
-            player_layout::draw_layout(&app, layout, pad_geom, &buttons);
-        }
-
         input::handle_global_hotkeys(&mut app);
         if app.player_ui.page == state::PlayerPage::Gameplay {
             input::handle_lane_input(&mut app);
@@ -133,15 +116,32 @@ pub async fn main() {
             input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
         }
         audio::service_audio(&mut app).await;
-        app.tick_feedback();
-        let frontend_elapsed = frame_start.elapsed();
-        let draw_input_elapsed = draw_start.elapsed();
 
         if app.player_ui.page == state::PlayerPage::Gameplay
             && app.mode == lambda_dx::app::types::Mode::Playing
         {
             engine::step_judge_engine(&mut app);
         }
+
+        let slide_start = Instant::now();
+        if let Some(svg) = app.pad_svg.clone() {
+            let spawn_center = svg
+                .pad_visual_center(&pad_geom)
+                .unwrap_or(macroquad::math::vec2(pad_geom.cx, pad_geom.cy));
+            // With lnmai-core loaded, slide progress is copied from the core
+            // state after stepping. This call only keeps the no-engine fallback
+            // path alive.
+            app.update_slide_judgment(pad_geom, &svg, player_layout::ui_scale(&app), spawn_center);
+        }
+        let slide_elapsed = slide_start.elapsed();
+
+        if app.player_ui.shows_gameplay_background() {
+            player_layout::draw_layout(&app, layout, pad_geom, &buttons);
+        }
+
+        app.tick_feedback();
+        let frontend_elapsed = frame_start.elapsed();
+        let draw_input_elapsed = draw_start.elapsed();
 
         let egui_start = Instant::now();
         egui_macroquad::ui(|egui_ctx| {

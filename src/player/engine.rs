@@ -234,6 +234,42 @@ impl JudgeEngine {
 
         Ok(events)
     }
+
+    /// Snapshot per-slide body progress from lnmai-core for rendering.
+    ///
+    /// The runtime owns slide queue advancement. The player maps this ordinal
+    /// list back onto its chart slides and uses it only to hide completed trail
+    /// areas.
+    pub fn slide_progress_snapshot(&self) -> Result<Vec<usize>, String> {
+        let envelope = self.session.get_state_json().map_err(|e| e.json)?;
+        let state: serde_json::Value = serde_json::from_str(&envelope.json)
+            .map_err(|e| format!("invalid engine state json: {e}"))?;
+        let slides = state["result"]["slides"]
+            .as_array()
+            .ok_or_else(|| "engine state missing slides".to_string())?;
+
+        let mut progress = Vec::with_capacity(slides.len());
+        for slide in slides {
+            let total = slide["totalJudgeQueueLen"]
+                .as_u64()
+                .or_else(|| slide["initialQueueRemaining"].as_u64())
+                .unwrap_or(0);
+            let remaining = slide["judgeQueues"]
+                .as_array()
+                .map(|queues| {
+                    queues
+                        .iter()
+                        .filter_map(|queue| queue.as_array())
+                        .map(|queue| queue.len() as u64)
+                        .max()
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0);
+            progress.push(total.saturating_sub(remaining) as usize);
+        }
+
+        Ok(progress)
+    }
 }
 
 trait InputTp {
@@ -403,9 +439,21 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
     let now = app.song_time();
     let events = std::mem::take(&mut app.engine_events);
     let result = app.judge_engine.as_mut().unwrap().step(now, events);
+    let slide_progress = if result.is_ok() {
+        app.judge_engine
+            .as_ref()
+            .and_then(|engine| engine.slide_progress_snapshot().ok())
+    } else {
+        None
+    };
     app.finish_engine_frame();
     match result {
-        Ok(events) => handle_engine_events(app, events),
+        Ok(events) => {
+            if let Some(slide_progress) = slide_progress {
+                app.apply_core_slide_progress(&slide_progress);
+            }
+            handle_engine_events(app, events);
+        }
         Err(e) => {
             if !app.status.starts_with("判引擎") {
                 app.set_status(format!("engine: {e}"));

@@ -35,6 +35,37 @@ pub struct SlideGeom {
     pub bar_count: usize,
 }
 
+fn apply_core_slide_progress_to_chart(
+    chart: &ChartDoc,
+    slide_progress: &mut HashMap<(u64, usize), SlideProgress>,
+    completed_areas: &[usize],
+) {
+    let mut runtime_slide_idx = 0;
+
+    for note in &chart.notes {
+        if !matches!(note.note_type, NoteType::Slide) {
+            continue;
+        }
+
+        for slide_idx in 0..note.slide.len() {
+            let Some(&completed_areas) = completed_areas.get(runtime_slide_idx) else {
+                return;
+            };
+            slide_progress
+                .entry((note.id, slide_idx))
+                .and_modify(|progress| {
+                    progress.completed_areas = completed_areas;
+                    progress.area_on = false;
+                })
+                .or_insert_with(|| SlideProgress {
+                    completed_areas,
+                    area_on: false,
+                });
+            runtime_slide_idx += 1;
+        }
+    }
+}
+
 /// Identity of the pad-layout inputs that slide geometry depends on.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SlideGeomKey {
@@ -800,6 +831,9 @@ impl PlayerState {
         if self.mode != Mode::Playing {
             return;
         }
+        if self.judge_engine.is_some() {
+            return;
+        }
 
         let now = self.song_time();
         let active: HashSet<PadZone> = self.active_sensor_holds.values().copied().collect();
@@ -921,6 +955,10 @@ impl PlayerState {
                 break;
             }
         }
+    }
+
+    pub fn apply_core_slide_progress(&mut self, completed_areas: &[usize]) {
+        apply_core_slide_progress_to_chart(&self.chart, &mut self.slide_progress, completed_areas);
     }
 
     pub fn toggle_record(&mut self) {
@@ -1221,9 +1259,23 @@ impl PlayerState {
 
 #[cfg(test)]
 mod player_ui_tests {
-    use super::{EngineInputLatch, PlayerPage, PlayerUiState};
+    use super::{EngineInputLatch, PlayerPage, PlayerUiState, apply_core_slide_progress_to_chart};
     use lambda_dx::types::zone::PadZone;
+    use lambda_dx::types::{BpmChange, ChartDoc, Note, NoteType, Slide, SlideSegment, SlideShape};
     use lnmai_core::types::{SensorArea, TimedInputEvent};
+    use std::collections::HashMap;
+
+    fn test_slide() -> Slide {
+        Slide {
+            segments: vec![SlideSegment {
+                points: vec![],
+                shape: SlideShape::Line,
+            }],
+            slide_duration: 1.0,
+            slide_start_delay: 0.25,
+            slide_is_break: false,
+        }
+    }
 
     #[test]
     fn same_frame_sensor_release_waits_until_next_engine_frame() {
@@ -1277,6 +1329,49 @@ mod player_ui_tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn core_slide_progress_maps_to_chart_slide_order() {
+        let chart = ChartDoc {
+            version: "1.0".to_string(),
+            title: "progress-map".to_string(),
+            artist: String::new(),
+            simai_level: 6,
+            bpm: 120.0,
+            bpms: vec![BpmChange {
+                measure: 1.0,
+                bpm: 120.0,
+            }],
+            audio_offset: 0.0,
+            notes: vec![
+                Note {
+                    id: 10,
+                    time: 1.0,
+                    lane: 1,
+                    note_type: NoteType::Slide,
+                    slide: vec![test_slide(), test_slide()],
+                    ..Default::default()
+                },
+                Note {
+                    id: 20,
+                    time: 2.0,
+                    lane: 2,
+                    note_type: NoteType::Slide,
+                    slide: vec![test_slide()],
+                    ..Default::default()
+                },
+            ],
+            templates: vec![],
+            template_instances: vec![],
+        };
+        let mut progress = HashMap::new();
+
+        apply_core_slide_progress_to_chart(&chart, &mut progress, &[1, 3, 2]);
+
+        assert_eq!(progress[&(10, 0)].completed_areas, 1);
+        assert_eq!(progress[&(10, 1)].completed_areas, 3);
+        assert_eq!(progress[&(20, 0)].completed_areas, 2);
     }
 
     #[test]
