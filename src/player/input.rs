@@ -460,10 +460,6 @@ pub fn handle_global_hotkeys(app: &mut PlayerState) {
             PlayerPage::Start | PlayerPage::SongSelect | PlayerPage::Settings => {}
         }
     }
-    if is_key_pressed(KeyCode::A) {
-        app.autoplay = !app.autoplay;
-        app.set_status(format!("Autoplay: {}", app.autoplay));
-    }
     if is_key_pressed(KeyCode::R) && app.player_ui.page == PlayerPage::Gameplay {
         app.toggle_replay();
     }

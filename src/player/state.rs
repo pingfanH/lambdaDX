@@ -1,10 +1,6 @@
 use super::audio::BgmPcm;
 use super::sfx::{SfxBuffer, SfxPlayer};
 use lambda_dx::app::types::zone::PadZone;
-use lambda_dx::app::types::{PadGeom, SLIDE_TILE_SPACING};
-use lambda_dx::pad_svg::PadSvgDef;
-use lambda_dx::slide::segmentation;
-use lambda_dx::slide_render;
 use macroquad::material::Material;
 use macroquad::prelude::{Vec2, get_time};
 use macroquad::texture::Texture2D;
@@ -14,8 +10,7 @@ use std::path::PathBuf;
 use super::types::{
     ActiveRecordHold, ChartDoc, DragPart, HOLD_RECORD_MIN_DURATION, HitEvent, JudgeFeedback, Mode,
     Note, NoteType, PadFeedback, RecordInputId, SLIDE_MIN_POINTS, SPEED_MAX, SPEED_MIN, SlidePoint,
-    WavPcm, is_touch_zone, mdur_to_secs, note_secs, sanitize_note_zone, sdur_to_mdur,
-    secs_to_measure, snap_measure,
+    WavPcm, is_touch_zone, sdur_to_mdur, secs_to_measure, snap_measure,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -26,55 +21,27 @@ pub struct SlideProgress {
     area_on: bool,
 }
 
-/// Cached slide geometry: the judge segments (zone → end bar) and total bar
-/// count derived from the rendered slide path. Depends only on the chart and
-/// pad layout, not on time, so it is built lazily and reused across frames.
-#[derive(Debug, Clone)]
-pub struct SlideGeom {
-    pub areas: Vec<(PadZone, usize)>,
-    pub bar_count: usize,
-}
-
-fn apply_core_slide_progress_to_chart(
+fn apply_core_slide_progress_updates_to_chart(
     chart: &ChartDoc,
     slide_progress: &mut HashMap<(u64, usize), SlideProgress>,
-    completed_areas: &[usize],
+    updates: &[super::engine::SlideProgressUpdate],
 ) {
-    let mut runtime_slide_idx = 0;
-
-    for note in &chart.notes {
-        if !matches!(note.note_type, NoteType::Slide) {
-            continue;
-        }
-
-        for slide_idx in 0..note.slide.len() {
-            let Some(&completed_areas) = completed_areas.get(runtime_slide_idx) else {
-                return;
-            };
+    for update in updates {
+        if let Some((note_id, slide_idx)) =
+            super::engine::chart_slide_key(chart, update.runtime_slide_index)
+        {
             slide_progress
-                .entry((note.id, slide_idx))
+                .entry((note_id, slide_idx))
                 .and_modify(|progress| {
-                    progress.completed_areas = completed_areas;
+                    progress.completed_areas = update.completed_areas;
                     progress.area_on = false;
                 })
                 .or_insert_with(|| SlideProgress {
-                    completed_areas,
+                    completed_areas: update.completed_areas,
                     area_on: false,
                 });
-            runtime_slide_idx += 1;
         }
     }
-}
-
-/// Identity of the pad-layout inputs that slide geometry depends on.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct SlideGeomKey {
-    cx: f32,
-    cy: f32,
-    outer_r: f32,
-    scale: f32,
-    spawn_x: f32,
-    spawn_y: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -361,20 +328,10 @@ pub struct PlayerState {
     pub sfx_slide_break_start: Option<SfxBuffer>,
     pub sfx_break_slide: Option<SfxBuffer>,
     pub touch_riser_playing: bool,
-    pub hit_sounds_played: HashSet<usize>,
-    /// Notes already auto-judged by the lnmai engine (autoplay).
-    pub auto_judged: HashSet<u64>,
-    /// (note_id, sensor zone) already auto-triggered for slides (autoplay).
-    pub auto_slide_sensors: HashSet<(u64, u8)>,
     pub next_note_id: u64,
     pub hidden_notes: HashSet<u64>,
-    pub autoplay: bool,
     /// Per-note, per-sub-slide progress used to hide completed trail areas.
     pub slide_progress: HashMap<(u64, usize), SlideProgress>,
-    /// Cached slide geometry keyed by (note_id, slide_idx).
-    pub slide_geom_cache: HashMap<(u64, usize), SlideGeom>,
-    /// Pad-layout identity the cache was built for; a change clears the cache.
-    slide_geom_key: Option<SlideGeomKey>,
 
     /// Loaded lnmai-core judgment session (None until a chart is loaded).
     pub judge_engine: Option<super::engine::JudgeEngine>,
@@ -525,15 +482,9 @@ impl PlayerState {
             sfx_slide_break_start: None,
             sfx_break_slide: None,
             touch_riser_playing: false,
-            hit_sounds_played: HashSet::new(),
-            auto_judged: HashSet::new(),
-            auto_slide_sensors: HashSet::new(),
             next_note_id: 1,
             hidden_notes: HashSet::new(),
-            autoplay: false,
             slide_progress: HashMap::new(),
-            slide_geom_cache: HashMap::new(),
-            slide_geom_key: None,
             judge_engine: None,
             engine_events: Vec::new(),
             engine_input_latch: EngineInputLatch::default(),
@@ -588,12 +539,6 @@ impl PlayerState {
         }
         self.chart = chart;
         self.slide_progress.clear();
-        self.invalidate_slide_geometry();
-    }
-
-    fn invalidate_slide_geometry(&mut self) {
-        self.slide_geom_cache.clear();
-        self.slide_geom_key = None;
     }
 
     pub fn clear_active_screen_inputs(&mut self) {
@@ -786,9 +731,7 @@ impl PlayerState {
             self.audio_seek_offset = Some(self.mode_song_offset);
             self.mode = Mode::Playing;
             self.mode_wall_anchor = get_time();
-            self.hit_sounds_played.clear();
             self.playback_cursor = 0;
-            self.invalidate_slide_geometry();
             self.request_audio_start();
             self.set_status(format!(
                 "Resumed @ {:.1}x from {:.2}s",
@@ -801,164 +744,22 @@ impl PlayerState {
         self.timeline_view_time = 0.;
         self.mode_song_offset = 0.;
         self.audio_seek_offset = Some(0.);
-        self.hit_sounds_played.clear();
         self.recording_hits.clear();
         self.recording_notes.clear();
         self.active_record_holds.clear();
         self.clear_active_screen_inputs();
         self.slide_progress.clear();
-        self.auto_judged.clear();
-        self.auto_slide_sensors.clear();
-        self.invalidate_slide_geometry();
         // The lnmai engine's session keeps its own timeline; reload it so the
         // notes are judged again from the start.
         self.reload_judge_engine();
         self.request_audio_start();
     }
 
-    /// Advance Slide judge areas from the currently held pad sensors.
-    ///
-    /// Each consecutive zone run is one area. Intermediate areas need an
-    /// On->Off transition; the final area completes on On, matching
-    /// MajdataView's `Area.IsLast` behavior.
-    pub fn update_slide_judgment(
+    pub fn apply_core_slide_progress_updates(
         &mut self,
-        pad: PadGeom,
-        svg: &PadSvgDef,
-        scale: f32,
-        spawn_center: macroquad::prelude::Vec2,
+        updates: &[super::engine::SlideProgressUpdate],
     ) {
-        if self.mode != Mode::Playing {
-            return;
-        }
-        if self.judge_engine.is_some() {
-            return;
-        }
-
-        let now = self.song_time();
-        let active: HashSet<PadZone> = self.active_sensor_holds.values().copied().collect();
-        let bpms = self.chart.bpms.clone();
-
-        // Invalidate cached slide geometry whenever the pad layout changes.
-        let geom_key = SlideGeomKey {
-            cx: pad.cx,
-            cy: pad.cy,
-            outer_r: pad.outer_r,
-            scale,
-            spawn_x: spawn_center.x,
-            spawn_y: spawn_center.y,
-        };
-        if self.slide_geom_key != Some(geom_key) {
-            self.slide_geom_cache.clear();
-            self.slide_geom_key = Some(geom_key);
-        }
-
-        // Collect only the slides currently inside their run window, reusing
-        // cached geometry (path + segmentation) instead of rebuilding it every
-        // frame. Slide geometry depends on the chart and layout, not on time.
-        let mut slide_notes: Vec<(u64, usize, f32, f32, Vec<(PadZone, usize)>, usize)> = Vec::new();
-        for note_idx in 0..self.chart.notes.len() {
-            let note = &self.chart.notes[note_idx];
-            if !matches!(note.note_type, NoteType::Slide) {
-                continue;
-            }
-            let head_time = note_secs(note, &bpms);
-            for (slide_idx, slide) in note.slide.iter().enumerate() {
-                let start_time =
-                    head_time + mdur_to_secs(slide.slide_start_delay, note.time, &bpms);
-                // `slide_duration` is the total span from the head.
-                let end_time = head_time + mdur_to_secs(slide.slide_duration, note.time, &bpms);
-                if now < start_time || now > end_time + 0.6 {
-                    continue;
-                }
-                let key = (note.id, slide_idx);
-                if !self.slide_geom_cache.contains_key(&key) {
-                    let path = slide_render::build_slide_path(
-                        note,
-                        slide,
-                        &pad,
-                        svg,
-                        scale,
-                        spawn_center,
-                        pad.outer_r,
-                    );
-                    let visual = segmentation::build(&path, SLIDE_TILE_SPACING * scale, svg, &pad);
-                    let areas = visual
-                        .judge_segments
-                        .iter()
-                        .map(|segment| (segment.zone, segment.end_bar))
-                        .collect();
-                    self.slide_geom_cache.insert(
-                        key,
-                        SlideGeom {
-                            areas,
-                            bar_count: visual.bars.len(),
-                        },
-                    );
-                }
-                let geom = &self.slide_geom_cache[&key];
-                slide_notes.push((
-                    note.id,
-                    slide_idx,
-                    start_time,
-                    end_time,
-                    geom.areas.clone(),
-                    geom.bar_count,
-                ));
-            }
-        }
-
-        for (note_id, slide_idx, start_time, end_time, areas, bar_count) in slide_notes {
-            if now < start_time || now > end_time + 0.6 || areas.is_empty() || bar_count == 0 {
-                continue;
-            }
-            let progress = self.slide_progress.entry((note_id, slide_idx)).or_default();
-            while progress.completed_areas < areas.len() {
-                let is_last = progress.completed_areas + 1 == areas.len();
-                let zone = areas[progress.completed_areas].0;
-                let completed = if is_last {
-                    if active.contains(&zone) {
-                        progress.completed_areas += 1;
-                        true
-                    } else {
-                        false
-                    }
-                } else if progress.area_on {
-                    if !active.contains(&zone) {
-                        progress.completed_areas += 1;
-                        progress.area_on = false;
-                        true
-                    } else {
-                        false
-                    }
-                } else if active.contains(&zone) {
-                    progress.area_on = true;
-                    false
-                } else {
-                    false
-                };
-                // Only the final area reports the slide's judgment; the
-                // intermediate areas stay silent.
-                if completed && is_last && self.judge_engine.is_none() {
-                    let diff = now - end_time;
-                    let (label, duration) = if diff.abs() <= 0.06 {
-                        ("Perfect", 0.32)
-                    } else if diff.abs() <= 0.14 {
-                        ("Great", 0.28)
-                    } else if diff.abs() <= 0.24 {
-                        ("Good", 0.24)
-                    } else {
-                        ("Miss", 0.24)
-                    };
-                    self.push_judgement(zone, label, duration);
-                }
-                break;
-            }
-        }
-    }
-
-    pub fn apply_core_slide_progress(&mut self, completed_areas: &[usize]) {
-        apply_core_slide_progress_to_chart(&self.chart, &mut self.slide_progress, completed_areas);
+        apply_core_slide_progress_updates_to_chart(&self.chart, &mut self.slide_progress, updates);
     }
 
     pub fn toggle_record(&mut self) {
@@ -997,48 +798,10 @@ impl PlayerState {
         });
     }
 
-    pub fn judge_input(&mut self, zone: PadZone) {
-        if self.mode != Mode::Playing {
-            return;
-        }
-        let now = self.song_time();
-        let best = self
-            .chart
-            .notes
-            .iter()
-            .filter(|note| sanitize_note_zone(note.note_type, note.lane) == zone.to_id())
-            .map(|note| (note_secs(note, &self.chart.bpms) - now).abs())
-            .min_by(f32::total_cmp);
-        // Only judge when a note actually exists in the hit window; an empty
-        // touch must not show a fake judgment.
-        let Some(best) = best else {
-            return;
-        };
-        let (signed, diff) = (best - now, best.abs());
-        let (label, duration) = if diff <= 0.06 {
-            ("Perfect", 0.32)
-        } else if diff <= 0.14 {
-            ("Great", 0.28)
-        } else if diff <= 0.24 {
-            ("Good", 0.24)
-        } else if (-1.0..0.0).contains(&signed) {
-            // The nearest note already passed but not long ago: a real miss.
-            ("Miss", 0.24)
-        } else {
-            // Too far in the future or long gone: nothing to judge.
-            return;
-        };
-        self.push_judgement(zone, label, duration);
-    }
-
     /// Record a zone press/release into the lnmai-core judgment engine's input
-    /// buffer for the current frame. Falls back to the manual judge windows
-    /// when no engine is loaded.
+    /// buffer for the current frame.
     pub fn record_engine_input(&mut self, zone: PadZone, is_down: bool) {
         if self.judge_engine.is_none() {
-            if is_down {
-                self.judge_input(zone);
-            }
             return;
         }
         self.record_loaded_engine_input(zone, is_down);
@@ -1259,7 +1022,10 @@ impl PlayerState {
 
 #[cfg(test)]
 mod player_ui_tests {
-    use super::{EngineInputLatch, PlayerPage, PlayerUiState, apply_core_slide_progress_to_chart};
+    use super::{
+        EngineInputLatch, PlayerPage, PlayerUiState, apply_core_slide_progress_updates_to_chart,
+    };
+    use crate::engine::SlideProgressUpdate;
     use lambda_dx::types::zone::PadZone;
     use lambda_dx::types::{BpmChange, ChartDoc, Note, NoteType, Slide, SlideSegment, SlideShape};
     use lnmai_core::types::{SensorArea, TimedInputEvent};
@@ -1332,7 +1098,7 @@ mod player_ui_tests {
     }
 
     #[test]
-    fn core_slide_progress_maps_to_chart_slide_order() {
+    fn core_slide_progress_updates_map_to_chart_slide_order() {
         let chart = ChartDoc {
             version: "1.0".to_string(),
             title: "progress-map".to_string(),
@@ -1367,7 +1133,24 @@ mod player_ui_tests {
         };
         let mut progress = HashMap::new();
 
-        apply_core_slide_progress_to_chart(&chart, &mut progress, &[1, 3, 2]);
+        apply_core_slide_progress_updates_to_chart(
+            &chart,
+            &mut progress,
+            &[
+                SlideProgressUpdate {
+                    runtime_slide_index: 0,
+                    completed_areas: 1,
+                },
+                SlideProgressUpdate {
+                    runtime_slide_index: 1,
+                    completed_areas: 3,
+                },
+                SlideProgressUpdate {
+                    runtime_slide_index: 2,
+                    completed_areas: 2,
+                },
+            ],
+        );
 
         assert_eq!(progress[&(10, 0)].completed_areas, 1);
         assert_eq!(progress[&(10, 1)].completed_areas, 3);

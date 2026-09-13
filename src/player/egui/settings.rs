@@ -86,7 +86,6 @@ fn draw_settings(ui: &mut egui::Ui, app: &mut PlayerState) {
             app.play_speed = 1.0;
             app.note_speed = 7.5;
             app.slide_fade_in = 3.926_913 / 7.5;
-            app.autoplay = false;
             app.waveform_threshold = 0.3;
             app.mobile_ui = false;
             app.ui_scale_override = None;
@@ -124,13 +123,7 @@ fn draw_gameplay(ui: &mut egui::Ui, app: &mut PlayerState) {
             .color(theme::TEXT_SECONDARY),
     );
     ui.add_space(16.0);
-    ui.label(
-        RichText::new(format!(
-            "Slide 显示时机  {:.2}s",
-            app.slide_fade_in
-        ))
-        .strong(),
-    );
+    ui.label(RichText::new(format!("Slide 显示时机  {:.2}s", app.slide_fade_in)).strong());
     ui.add(
         egui::Slider::new(&mut app.slide_fade_in, 0.2..=1.2)
             .step_by(0.02)
@@ -154,17 +147,9 @@ fn draw_gameplay(ui: &mut egui::Ui, app: &mut PlayerState) {
             .step_by(0.05)
             .text("阈值"),
     );
-    ui.add_space(12.0);
-    setting_toggle(
-        ui,
-        "Slide 自动判定",
-        "移动星星经过每个分段时自动完成并隐藏该段。",
-        &mut app.autoplay,
-    );
-    ui.add_space(4.0);
     ui.label(RichText::new("快捷键").strong());
     ui.label(
-        RichText::new("1–8 / T 触发触摸区域 · A 自动判定 · Space 播放 / 暂停 · R 重播")
+        RichText::new("1–8 / T 触发触摸区域 · Space 播放 / 暂停 · R 重播")
             .color(theme::TEXT_SECONDARY),
     );
 }

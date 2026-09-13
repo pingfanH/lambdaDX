@@ -2,14 +2,16 @@
 //!
 //! The chart is loaded into a persistent Lean runtime session; each gameplay
 //! frame the player feeds a [`TimedInputBatch`] (screen sensor presses at the
-//! current song time in µs) and reads back the resulting judge events. The
+//! current song time in µs) and renders the commands returned by the core. The
 //! player no longer computes judge windows itself.
 
 use lambda_dx::app::types::zone::PadZone;
 use lnmai_core::session::{self, Empty, Loaded, Session};
 use lnmai_core::types::{
-    ButtonZone, JudgeEvent, JudgeEventKind, SensorArea, TimedInputBatch, TimedInputEvent,
+    AudioCommand, ButtonZone, GameState, JudgeEvent, JudgeEventKind, RenderCommand,
+    RuntimeStepLightResult, SensorArea, TimedInputBatch, TimedInputEvent,
 };
+use std::collections::HashMap;
 use std::time::Instant;
 
 /// Map a pad zone to the screen sensor event family.
@@ -167,6 +169,19 @@ pub fn zone_for_sensor(area: SensorArea) -> PadZone {
 /// A loaded lnmai-core (FFI) runtime session.
 pub struct JudgeEngine {
     session: Session<Loaded>,
+    slide_bindings: HashMap<u64, RuntimeSlideBinding>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RuntimeSlideBinding {
+    runtime_slide_index: usize,
+    total_areas: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlideProgressUpdate {
+    pub runtime_slide_index: usize,
+    pub completed_areas: usize,
 }
 
 fn ensure_runtime() {
@@ -181,17 +196,21 @@ impl JudgeEngine {
         let (loaded, _envelope) = empty
             .load_chart_text(simai_text, level_index)
             .map_err(|e| e.json)?;
-        Ok(JudgeEngine { session: loaded })
+        let slide_bindings = runtime_slide_bindings(&loaded)?;
+        Ok(JudgeEngine {
+            session: loaded,
+            slide_bindings,
+        })
     }
 
     /// Advance the runtime by one frame with the given input events at
     /// `current_secs` (song time in seconds, converted to µs ticks). Returns
-    /// the judge events produced this frame.
+    /// the complete light-frame result so the player can render core commands.
     pub fn step(
         &mut self,
         current_secs: f32,
         mut events: Vec<TimedInputEvent>,
-    ) -> Result<Vec<JudgeEvent>, String> {
+    ) -> Result<RuntimeStepLightResult, String> {
         events.sort_by_key(|e| e.tp());
         let batch = TimedInputBatch {
             current_time: (current_secs.max(0.0) * 1e6) as i64,
@@ -207,14 +226,9 @@ impl JudgeEngine {
             .map_err(|e| e.json)?;
 
         let t_de = Instant::now();
-        let value: serde_json::Value =
-            serde_json::from_str(&envelope.json).map_err(|e| e.to_string())?;
-        let events_json = value
-            .get("result")
-            .and_then(|r| r.get("events"))
-            .cloned()
-            .unwrap_or_default();
-        let events = serde_json::from_value(events_json).map_err(|e| e.to_string())?;
+        let result = envelope
+            .decode_result::<RuntimeStepLightResult>()
+            .map_err(|e| e.to_string())?;
         let de_ns = t_de.elapsed();
 
         crate::perf::record("engine.serialize", ser_ns);
@@ -232,44 +246,91 @@ impl JudgeEngine {
         );
         crate::perf::record("engine.deserialize", de_ns);
 
-        Ok(events)
+        Ok(result)
     }
 
-    /// Snapshot per-slide body progress from lnmai-core for rendering.
-    ///
-    /// The runtime owns slide queue advancement. The player maps this ordinal
-    /// list back onto its chart slides and uses it only to hide completed trail
-    /// areas.
-    pub fn slide_progress_snapshot(&self) -> Result<Vec<usize>, String> {
-        let envelope = self.session.get_state_json().map_err(|e| e.json)?;
-        let state: serde_json::Value = serde_json::from_str(&envelope.json)
-            .map_err(|e| format!("invalid engine state json: {e}"))?;
-        let slides = state["result"]["slides"]
-            .as_array()
-            .ok_or_else(|| "engine state missing slides".to_string())?;
+    pub fn runtime_slide_index(&self, note_index: u64) -> Option<usize> {
+        self.slide_bindings
+            .get(&note_index)
+            .map(|binding| binding.runtime_slide_index)
+    }
 
-        let mut progress = Vec::with_capacity(slides.len());
-        for slide in slides {
-            let total = slide["totalJudgeQueueLen"]
-                .as_u64()
-                .or_else(|| slide["initialQueueRemaining"].as_u64())
-                .unwrap_or(0);
-            let remaining = slide["judgeQueues"]
-                .as_array()
-                .map(|queues| {
-                    queues
-                        .iter()
-                        .filter_map(|queue| queue.as_array())
-                        .map(|queue| queue.len() as u64)
-                        .max()
-                        .unwrap_or(0)
-                })
-                .unwrap_or(0);
-            progress.push(total.saturating_sub(remaining) as usize);
+    pub fn slide_progress_updates(&self, commands: &[RenderCommand]) -> Vec<SlideProgressUpdate> {
+        let mut by_slide: HashMap<usize, usize> = HashMap::new();
+        for command in commands {
+            let Some(update) = self.slide_progress_update(command) else {
+                continue;
+            };
+            by_slide
+                .entry(update.runtime_slide_index)
+                .and_modify(|completed| *completed = (*completed).max(update.completed_areas))
+                .or_insert(update.completed_areas);
         }
 
-        Ok(progress)
+        by_slide
+            .into_iter()
+            .map(
+                |(runtime_slide_index, completed_areas)| SlideProgressUpdate {
+                    runtime_slide_index,
+                    completed_areas,
+                },
+            )
+            .collect()
     }
+
+    fn slide_progress_update(&self, command: &RenderCommand) -> Option<SlideProgressUpdate> {
+        let (note_index, completed_areas) = match command {
+            RenderCommand::UpdateSlideProgress {
+                note_index,
+                remaining,
+            } => {
+                let binding = self.slide_bindings.get(note_index)?;
+                (
+                    *note_index,
+                    binding.total_areas.saturating_sub(*remaining as usize),
+                )
+            }
+            RenderCommand::UpdateSlideTrackProgress { .. } => return None,
+            RenderCommand::HideAllSlideBars { note_index } => {
+                let binding = self.slide_bindings.get(note_index)?;
+                (*note_index, binding.total_areas)
+            }
+            RenderCommand::HideSlideBars {
+                note_index,
+                end_index,
+            } => (*note_index, *end_index as usize),
+            RenderCommand::HideSlideTrackBars { .. } => return None,
+            RenderCommand::ShowJudgeResult { .. } => return None,
+        };
+        let binding = self.slide_bindings.get(&note_index)?;
+        Some(SlideProgressUpdate {
+            runtime_slide_index: binding.runtime_slide_index,
+            completed_areas: completed_areas.min(binding.total_areas),
+        })
+    }
+}
+
+fn runtime_slide_bindings(
+    session: &Session<Loaded>,
+) -> Result<HashMap<u64, RuntimeSlideBinding>, String> {
+    let envelope = session.get_state_json().map_err(|e| e.json)?;
+    let state = envelope
+        .decode_result::<GameState>()
+        .map_err(|e| format!("invalid engine state json: {e}"))?;
+    Ok(state
+        .slides
+        .iter()
+        .enumerate()
+        .map(|(runtime_slide_index, slide)| {
+            (
+                slide.params.note_index,
+                RuntimeSlideBinding {
+                    runtime_slide_index,
+                    total_areas: slide.total_judge_queue_len as usize,
+                },
+            )
+        })
+        .collect())
 }
 
 trait InputTp {
@@ -294,7 +355,7 @@ mod tests {
     use lambda_dx::types::{
         BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
     };
-    use lnmai_core::types::{SensorArea, TimedInputEvent};
+    use lnmai_core::types::{JudgeEventKind, RenderCommand, SensorArea, TimedInputEvent};
     use serde_json::Value;
 
     fn sample_outer_ring_slide_chart() -> String {
@@ -423,12 +484,36 @@ mod tests {
             "the player-style A-ring press must be visible as held sensor input"
         );
     }
+
+    #[test]
+    fn slide_judge_render_command_maps_to_runtime_slide_body() {
+        let mut engine =
+            JudgeEngine::load(&sample_outer_ring_slide_chart(), 6).expect("slide chart loads");
+
+        let result = engine
+            .step(5.0, Vec::new())
+            .expect("missed slide frame should produce core commands");
+        let note_index = result
+            .render_commands
+            .iter()
+            .find_map(|command| match command {
+                RenderCommand::ShowJudgeResult {
+                    kind: JudgeEventKind::Slide,
+                    note_index,
+                    ..
+                } => Some(*note_index),
+                _ => None,
+            })
+            .expect("slide judge render command");
+
+        assert!(
+            engine.runtime_slide_index(note_index).is_some(),
+            "slide ShowJudgeResult should identify the slide body note"
+        );
+    }
 }
 
-use lambda_dx::app::types::note_secs;
-
-/// Advance the engine and apply the resulting judge events to the player's
-/// feedback.
+/// Advance the engine and apply the resulting core render/audio commands.
 pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
     if app.judge_engine.is_none() {
         return;
@@ -439,20 +524,14 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
     let now = app.song_time();
     let events = std::mem::take(&mut app.engine_events);
     let result = app.judge_engine.as_mut().unwrap().step(now, events);
-    let slide_progress = if result.is_ok() {
-        app.judge_engine
-            .as_ref()
-            .and_then(|engine| engine.slide_progress_snapshot().ok())
-    } else {
-        None
-    };
     app.finish_engine_frame();
     match result {
-        Ok(events) => {
-            if let Some(slide_progress) = slide_progress {
-                app.apply_core_slide_progress(&slide_progress);
+        Ok(result) => {
+            if let Some(engine) = app.judge_engine.as_ref() {
+                let updates = engine.slide_progress_updates(&result.render_commands);
+                app.apply_core_slide_progress_updates(&updates);
             }
-            handle_engine_events(app, events);
+            handle_engine_result(app, result);
         }
         Err(e) => {
             if !app.status.starts_with("判引擎") {
@@ -463,84 +542,137 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
     crate::perf::record("engine.total", t0.elapsed());
 }
 
-fn handle_engine_events(app: &mut crate::state::PlayerState, events: Vec<JudgeEvent>) {
-    let now = app.song_time();
-    let bpms = app.chart.bpms.clone();
-    for ev in events {
-        let is_slide = ev.kind == JudgeEventKind::Slide;
-        let pos_zone = || {
-            if let Some(b) = ev.position.button {
-                Some(zone_for_button(b))
-            } else if let Some(s) = ev.position.sensor {
-                Some(zone_for_sensor(s))
-            } else {
-                None
-            }
-        };
-        // The engine reports the slide's head button; show slide feedback at
-        // the slide's tail zone with the slide color instead.
-        let zone = if is_slide {
-            find_slide_tail_zone(app, now, &bpms).or_else(pos_zone)
-        } else {
-            pos_zone()
-        };
-        let Some(zone) = zone else {
-            continue;
-        };
-        // Raw lnmai grade string (e.g. "Perfect", "LatePerfect2nd", "Miss"),
-        // matching the 8464c6f judge display.
-        let label = format!("{:?}", ev.grade);
-        let is_miss = ev.grade.is_miss_or_too_fast();
-        let duration = if is_miss { 0.24 } else { 0.3 };
-        app.push_judgement_colored(
-            zone,
-            &label,
-            duration,
-            macroquad::prelude::Color::from_rgba(255, 255, 255, 255),
-        );
-
-        if !is_miss {
-            let sfx = match ev.kind {
-                JudgeEventKind::Break => app.sfx_break_tap.as_ref(),
-                JudgeEventKind::Touch => app.sfx_touch.as_ref(),
-                JudgeEventKind::Slide => app.sfx_slide.as_ref(),
-                _ => app.sfx_tap.as_ref(),
-            };
-            if let (Some(s), Some(player)) = (sfx, &mut app.sfx_player) {
-                player.play(s, 1.0);
-            }
+fn handle_engine_result(app: &mut crate::state::PlayerState, result: RuntimeStepLightResult) {
+    for command in &result.render_commands {
+        if let RenderCommand::ShowJudgeResult {
+            kind,
+            grade,
+            note_index,
+            ..
+        } = command
+        {
+            show_judge_result(app, &result.events, *note_index, *kind, *grade);
         }
+    }
+
+    for command in &result.audio_commands {
+        play_audio_command(app, command);
     }
 }
 
-/// Find the tail zone of the slide note currently in its run window (used to
-/// place slide judge feedback).
-fn find_slide_tail_zone(
-    app: &crate::state::PlayerState,
-    now: f32,
-    bpms: &[lambda_dx::app::types::BpmChange],
+fn show_judge_result(
+    app: &mut crate::state::PlayerState,
+    events: &[JudgeEvent],
+    note_index: u64,
+    kind: JudgeEventKind,
+    grade: lnmai_core::types::JudgeGrade,
+) {
+    let zone = if kind == JudgeEventKind::Slide {
+        slide_tail_zone_for_runtime_note(app, note_index)
+            .or_else(|| event_position_zone(events, note_index, kind))
+    } else {
+        event_position_zone(events, note_index, kind)
+    };
+    let Some(zone) = zone else {
+        return;
+    };
+
+    let label = format!("{grade:?}");
+    let duration = if grade.is_miss_or_too_fast() {
+        0.24
+    } else {
+        0.3
+    };
+    app.push_judgement_colored(
+        zone,
+        &label,
+        duration,
+        macroquad::prelude::Color::from_rgba(255, 255, 255, 255),
+    );
+}
+
+fn event_position_zone(
+    events: &[JudgeEvent],
+    note_index: u64,
+    kind: JudgeEventKind,
 ) -> Option<PadZone> {
-    use lambda_dx::app::types::{NoteType, slide_end_time};
-    app.chart
+    let ev = events
+        .iter()
+        .find(|ev| ev.note_index == note_index && ev.kind == kind)?;
+    if let Some(button) = ev.position.button {
+        Some(zone_for_button(button))
+    } else {
+        ev.position.sensor.map(zone_for_sensor)
+    }
+}
+
+fn slide_tail_zone_for_runtime_note(
+    app: &crate::state::PlayerState,
+    note_index: u64,
+) -> Option<PadZone> {
+    let runtime_slide_index = app
+        .judge_engine
+        .as_ref()
+        .and_then(|engine| engine.runtime_slide_index(note_index))?;
+    chart_slide_tail_zone(&app.chart, runtime_slide_index)
+}
+
+fn chart_slide_tail_zone(
+    chart: &lambda_dx::app::types::ChartDoc,
+    runtime_slide_index: usize,
+) -> Option<PadZone> {
+    chart_slide_key(chart, runtime_slide_index).and_then(|(note_id, slide_idx)| {
+        chart
+            .notes
+            .iter()
+            .find(|note| note.id == note_id)
+            .and_then(|note| note.slide.get(slide_idx))
+            .and_then(|slide| slide.segments.last())
+            .and_then(|segment| segment.points.last())
+            .map(|point| point.zone)
+    })
+}
+
+pub fn chart_slide_key(
+    chart: &lambda_dx::app::types::ChartDoc,
+    runtime_slide_index: usize,
+) -> Option<(u64, usize)> {
+    use lambda_dx::app::types::NoteType;
+    let mut current = 0;
+    chart
         .notes
         .iter()
-        .filter(|n| matches!(n.note_type, NoteType::Slide))
-        .filter(|n| {
-            let start = note_secs(n, bpms);
-            let end = slide_end_time(n, bpms);
-            // Judge events fire near the slide end; allow a small grace window.
-            now >= start - 0.1 && now <= end + 1.0
+        .filter(|note| matches!(note.note_type, NoteType::Slide))
+        .find_map(|note| {
+            for slide_idx in 0..note.slide.len() {
+                if current == runtime_slide_index {
+                    return Some((note.id, slide_idx));
+                }
+                current += 1;
+            }
+            None
         })
-        .min_by(|a, b| {
-            let da = (slide_end_time(a, bpms) - now).abs();
-            let db = (slide_end_time(b, bpms) - now).abs();
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .and_then(|n| {
-            n.slide
-                .last()
-                .and_then(|sl| sl.segments.last())
-                .and_then(|seg| seg.points.last())
-                .map(|p| p.zone)
-        })
+}
+
+fn play_audio_command(app: &mut crate::state::PlayerState, command: &AudioCommand) {
+    let sfx = match command {
+        AudioCommand::PlayJudgeSfx { kind, is_break, .. } => match kind {
+            JudgeEventKind::Break => app.sfx_break_tap.as_ref(),
+            JudgeEventKind::Touch => app.sfx_touch.as_ref(),
+            JudgeEventKind::Slide if *is_break => app.sfx_break_slide.as_ref(),
+            JudgeEventKind::Slide => app.sfx_slide.as_ref(),
+            _ if *is_break => app.sfx_break_tap.as_ref(),
+            _ => app.sfx_tap.as_ref(),
+        },
+        AudioCommand::PlaySlideCue { is_break, .. } => {
+            if *is_break {
+                app.sfx_slide_break_start.as_ref()
+            } else {
+                app.sfx_slide.as_ref()
+            }
+        }
+    };
+    if let (Some(sfx), Some(player)) = (sfx, &mut app.sfx_player) {
+        player.play(sfx, 1.0);
+    }
 }

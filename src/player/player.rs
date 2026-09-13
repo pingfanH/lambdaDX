@@ -123,18 +123,6 @@ pub async fn main() {
             engine::step_judge_engine(&mut app);
         }
 
-        let slide_start = Instant::now();
-        if let Some(svg) = app.pad_svg.clone() {
-            let spawn_center = svg
-                .pad_visual_center(&pad_geom)
-                .unwrap_or(macroquad::math::vec2(pad_geom.cx, pad_geom.cy));
-            // With lnmai-core loaded, slide progress is copied from the core
-            // state after stepping. This call only keeps the no-engine fallback
-            // path alive.
-            app.update_slide_judgment(pad_geom, &svg, player_layout::ui_scale(&app), spawn_center);
-        }
-        let slide_elapsed = slide_start.elapsed();
-
         if app.player_ui.shows_gameplay_background() {
             player_layout::draw_layout(&app, layout, pad_geom, &buttons);
         }
@@ -150,7 +138,6 @@ pub async fn main() {
         egui_macroquad::draw();
         let egui_elapsed = egui_start.elapsed();
 
-        perf::record("frontend.slide", slide_elapsed);
         perf::record("frontend.draw_input", draw_input_elapsed);
         perf::record("frontend", frontend_elapsed);
         perf::record("egui", egui_elapsed);
