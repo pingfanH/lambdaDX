@@ -4,7 +4,6 @@ use lambda_dx::slide::path::{
     slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp,
     slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z,
 };
-use lambda_dx::state::AppState;
 use lambda_dx::types::zone::PadZone;
 use lambda_dx::types::{
     HIT_WINDOW, HOLD_WIDTH, Mode, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NoteType,
@@ -98,13 +97,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         let text = feedback.label.to_uppercase();
         let font_size = 24.0 * scale;
         let dims = measure_text(&text, None, font_size as _, 1.0);
-        draw_text(
-            &text,
-            pos.x - dims.width * 0.5,
-            pos.y,
-            font_size,
-            color,
-        );
+        draw_text(&text, pos.x - dims.width * 0.5, pos.y, font_size, color);
     }
 
     if let Some(ref pad_svg) = app.pad_svg {
@@ -495,7 +488,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                             .get(&(note.id, si))
                             .map(|progress| progress.completed_areas)
                             .unwrap_or(0),
-                        app.autoplay,
+                        false,
                     );
                 }
             }

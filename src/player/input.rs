@@ -1,10 +1,9 @@
 use crate::state::{PlayerPage, PlayerState};
 use lambda_dx::chart;
-use lambda_dx::state::AppState;
 use lambda_dx::types::zone::PadZone;
 use lambda_dx::types::{
     Mode, PadGeom, PointerEvent, RecordInputId, SPEED_MAX, SPEED_MIN, SPEED_STEP, SlidePoint,
-    SlideShape, UiAction, UiButton,
+    UiAction, UiButton,
 };
 use lambda_dx::ui::rect_contains;
 use macroquad::input::{KeyCode, TouchPhase, is_key_pressed, is_key_released};
@@ -16,6 +15,25 @@ fn update_active_sensor_hold(app: &mut PlayerState, pointer_id: u64, zone: Optio
     } else {
         app.active_sensor_holds.remove(&pointer_id);
     }
+}
+
+fn sampled_motion_path(
+    prev: Option<macroquad::prelude::Vec2>,
+    position: macroquad::prelude::Vec2,
+) -> Vec<macroquad::prelude::Vec2> {
+    let Some(start) = prev else {
+        return vec![position];
+    };
+    let delta = position - start;
+    let dist = delta.length();
+    if dist <= f32::EPSILON {
+        return vec![position];
+    }
+
+    let steps = (dist / 4.0).ceil().max(1.0) as usize;
+    (1..=steps)
+        .map(|i| start + delta * (i as f32 / steps as f32))
+        .collect()
 }
 
 fn zone_state_transitions(
@@ -89,8 +107,7 @@ pub fn trigger_ui_action(app: &mut PlayerState, action: UiAction) {
             app.recording_hits.clear();
             app.recording_notes.clear();
             app.active_record_holds.clear();
-            app.active_pointer_zones.clear();
-            app.active_sensor_holds.clear();
+            app.clear_active_screen_inputs();
             app.set_status("Cleared recording hits".to_string());
         }
         UiAction::ToggleAudio => {
@@ -320,22 +337,7 @@ pub fn handle_touch_controls(
                 let prev = app.prev_pointer_pos.get(&ev.id).copied();
                 app.prev_pointer_pos.insert(ev.id, ev.position);
 
-                let samples = if let Some(p) = prev {
-                    let dist = ev.position.distance(p);
-                    let steps = (dist / 4.0).ceil() as usize;
-                    if steps > 0 {
-                        let mut pts = Vec::with_capacity(steps + 1);
-                        for i in 0..=steps {
-                            let t = i as f32 / (steps + 1) as f32;
-                            pts.push(p + (ev.position - p) * t);
-                        }
-                        pts
-                    } else {
-                        vec![ev.position]
-                    }
-                } else {
-                    vec![ev.position]
-                };
+                let samples = sampled_motion_path(prev, ev.position);
 
                 for sample in &samples {
                     let old_zone = app.active_pointer_zones.get(&ev.id).copied();
@@ -367,8 +369,17 @@ pub fn handle_touch_controls(
 
 #[cfg(test)]
 mod tests {
-    use super::{PadZone, zone_state_transitions};
+    use super::{PadZone, sampled_motion_path, zone_state_transitions};
+    use macroquad::prelude::vec2;
     use std::collections::HashMap;
+
+    #[test]
+    fn sampled_motion_path_includes_the_current_endpoint() {
+        let samples = sampled_motion_path(Some(vec2(0.0, 0.0)), vec2(10.0, 0.0));
+
+        assert_eq!(samples.last().copied(), Some(vec2(10.0, 0.0)));
+        assert_ne!(samples.first().copied(), Some(vec2(0.0, 0.0)));
+    }
 
     #[test]
     fn releasing_one_of_two_sources_keeps_zone_held() {
