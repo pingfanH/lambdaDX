@@ -733,10 +733,14 @@ impl PlayerState {
         }
     }
     pub fn toggle_replay(&mut self) {
+        self.start_playback_at(0.0);
+    }
+
+    pub fn start_playback_at(&mut self, time: f32) {
         self.mode = Mode::Playing;
-        self.timeline_view_time = 0.;
-        self.mode_song_offset = 0.;
-        self.audio_seek_offset = Some(0.);
+        self.timeline_view_time = time.max(0.0);
+        self.mode_song_offset = time.max(0.0);
+        self.audio_seek_offset = Some(time.max(0.0));
         self.recording_hits.clear();
         self.recording_notes.clear();
         self.active_record_holds.clear();

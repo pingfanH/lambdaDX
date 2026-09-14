@@ -339,7 +339,8 @@ impl InputTp for TimedInputEvent {
 mod tests {
     use super::{
         JudgeEngine, SlideProgressUpdate, chart_note_head_zone, collect_judge_result_displays,
-        display_label_for_grade, event_position_zone, judge_result_zone, press_events_for_zone,
+        display_label_for_grade, event_position_zone, judge_result_zone, judge_sfx_allowed,
+        press_events_for_zone,
     };
     use lambda_dx::simai_io::{parse_simai_source, simai_file_to_chart_doc};
     use lambda_dx::types::zone::PadZone;
@@ -598,6 +599,14 @@ mod tests {
         assert_eq!(display_label_for_grade(JudgeGrade::FastGood), "Good");
         assert_eq!(display_label_for_grade(JudgeGrade::Miss), "Miss");
         assert_eq!(display_label_for_grade(JudgeGrade::TooFast), "Miss");
+    }
+
+    #[test]
+    fn miss_grades_do_not_play_judge_sfx() {
+        assert!(!judge_sfx_allowed(JudgeGrade::Miss));
+        assert!(!judge_sfx_allowed(JudgeGrade::TooFast));
+        assert!(judge_sfx_allowed(JudgeGrade::Perfect));
+        assert!(judge_sfx_allowed(JudgeGrade::LateGreat));
     }
 
     #[test]
@@ -867,6 +876,10 @@ fn display_label_for_grade(grade: lnmai_core::types::JudgeGrade) -> &'static str
     }
 }
 
+fn judge_sfx_allowed(grade: lnmai_core::types::JudgeGrade) -> bool {
+    !grade.is_miss_or_too_fast()
+}
+
 fn event_position_zone(
     events: &[JudgeEvent],
     note_index: u64,
@@ -950,14 +963,24 @@ fn play_audio_command(app: &mut crate::state::PlayerState, command: &AudioComman
     }
 
     let sfx = match command {
-        AudioCommand::PlayJudgeSfx { kind, is_break, .. } => match kind {
-            JudgeEventKind::Break => app.sfx_break_tap.as_ref(),
-            JudgeEventKind::Touch => app.sfx_touch.as_ref(),
-            JudgeEventKind::Slide if *is_break => app.sfx_break_slide.as_ref(),
-            JudgeEventKind::Slide => app.sfx_slide.as_ref(),
-            _ if *is_break => app.sfx_break_tap.as_ref(),
-            _ => app.sfx_tap.as_ref(),
-        },
+        AudioCommand::PlayJudgeSfx {
+            kind,
+            grade,
+            is_break,
+            ..
+        } => {
+            if !judge_sfx_allowed(*grade) {
+                return;
+            }
+            match kind {
+                JudgeEventKind::Break => app.sfx_break_tap.as_ref(),
+                JudgeEventKind::Touch => app.sfx_touch.as_ref(),
+                JudgeEventKind::Slide if *is_break => app.sfx_break_slide.as_ref(),
+                JudgeEventKind::Slide => app.sfx_slide.as_ref(),
+                _ if *is_break => app.sfx_break_tap.as_ref(),
+                _ => app.sfx_tap.as_ref(),
+            }
+        }
         AudioCommand::PlaySlideCue { is_break, .. } => {
             if *is_break {
                 app.sfx_slide_break_start.as_ref()

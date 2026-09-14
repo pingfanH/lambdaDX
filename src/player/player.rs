@@ -127,16 +127,20 @@ async fn run(launch_args: LaunchArgs) {
         if app.player_ui.page == state::PlayerPage::Gameplay {
             input::handle_lane_input(&mut app);
 
+            let mut pointer_events = lambda_dx::app::input::collect_pointer_events();
             #[cfg(target_os = "linux")]
-            let pointer_events = match evdev_touch.as_mut() {
-                Some(t) => t.collect_pointer_events(macroquad::math::vec2(
+            if evdev_touch
+                .as_ref()
+                .is_some_and(|touch| touch.last_error().is_some())
+            {
+                evdev_touch = None;
+            }
+            if let Some(t) = evdev_touch.as_mut() {
+                pointer_events.extend(t.collect_pointer_events(macroquad::math::vec2(
                     macroquad::prelude::screen_width(),
                     macroquad::prelude::screen_height(),
-                )),
-                None => lambda_dx::app::input::collect_pointer_events(),
-            };
-            #[cfg(not(target_os = "linux"))]
-            let pointer_events = lambda_dx::app::input::collect_pointer_events();
+                )));
+            }
 
             input::handle_touch_controls(&mut app, pad_geom, &buttons, &pointer_events);
         }

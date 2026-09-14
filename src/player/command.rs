@@ -184,18 +184,12 @@ pub fn apply_to_app(app: &mut PlayerState, command: &CommandMode) -> Result<(), 
     app.player_ui.loaded_song = None;
     app.player_ui.using_custom_song = true;
     app.player_ui.song_error = None;
-    app.reload_judge_engine();
-    app.mode_song_offset = command.start_time.unwrap_or(0.0).max(0.0);
-    app.timeline_view_time = app.mode_song_offset;
-    app.audio_seek_offset = Some(app.mode_song_offset);
-    app.mode = lambda_dx::app::types::Mode::Playing;
-    app.mode_wall_anchor = macroquad::prelude::get_time();
-    app.playback_cursor = 0;
-    app.clear_active_screen_inputs();
-    app.slide_progress.clear();
-    app.request_audio_start();
+    app.start_playback_at(command.start_time.unwrap_or(0.0));
     app.player_ui.page = PlayerPage::Gameplay;
-    app.set_status(format!("Command mode: {} - Lv.{selected_level}", import.title));
+    app.set_status(format!(
+        "Command mode: {} - Lv.{selected_level}",
+        import.title
+    ));
     Ok(())
 }
 
