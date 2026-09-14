@@ -11,7 +11,7 @@ use lnmai_core::types::{
     AudioCommand, ButtonZone, GameState, JudgeEvent, JudgeEventKind, RenderCommand,
     RuntimeStepLightResult, SensorArea, TimedInputBatch, TimedInputEvent,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 /// Map a pad zone to the screen sensor event family.
@@ -337,29 +337,61 @@ impl InputTp for TimedInputEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::{JudgeEngine, SlideProgressUpdate, press_events_for_zone};
+    use super::{
+        JudgeEngine, SlideProgressUpdate, chart_note_head_zone, collect_judge_result_displays,
+        display_label_for_grade, event_position_zone, judge_result_zone, press_events_for_zone,
+    };
     use lambda_dx::simai_io::{parse_simai_source, simai_file_to_chart_doc};
     use lambda_dx::types::zone::PadZone;
     use lambda_dx::types::{
         BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
     };
-    use lnmai_core::types::{JudgeEventKind, RenderCommand, SensorArea, TimedInputEvent};
+    use lnmai_core::types::{
+        JudgeEventKind, JudgeGrade, RenderCommand, SensorArea, TimedInputEvent,
+    };
     use serde_json::Value;
 
     fn sample_outer_ring_slide_chart() -> String {
-        sample_slide_chart(SlideShape::Line, PadZone::from(5_u8))
+        sample_slide_chart_text(SlideShape::Line, PadZone::from(5_u8))
+    }
+
+    fn sample_tap_chart() -> (ChartDoc, String) {
+        let chart = ChartDoc {
+            version: "1.0".to_string(),
+            title: "tap-probe".to_string(),
+            artist: String::new(),
+            simai_level: 6,
+            bpm: 120.0,
+            bpms: vec![BpmChange {
+                measure: 1.0,
+                bpm: 120.0,
+            }],
+            audio_offset: 0.0,
+            notes: vec![Note {
+                id: 1,
+                time: 1.0,
+                lane: 1,
+                note_type: NoteType::Tap,
+                ..Default::default()
+            }],
+            templates: vec![],
+            template_instances: vec![],
+        };
+        let file = lambda_dx::simai_io::chart_doc_to_simai_file(&chart);
+        let text = lambda_dx::simai_io::export_simai_file(&file);
+        (chart, text)
     }
 
     fn sample_clockwise_circle5_chart() -> String {
-        sample_slide_chart(SlideShape::Right, PadZone::from(5_u8))
+        sample_slide_chart_text(SlideShape::Right, PadZone::from(5_u8))
     }
 
     fn sample_clockwise_circle4_chart() -> String {
-        sample_slide_chart(SlideShape::Right, PadZone::from(4_u8))
+        sample_slide_chart_text(SlideShape::Right, PadZone::from(4_u8))
     }
 
-    fn sample_slide_chart(shape: SlideShape, end_zone: PadZone) -> String {
-        let chart = ChartDoc {
+    fn sample_slide_chart(shape: SlideShape, end_zone: PadZone) -> ChartDoc {
+        ChartDoc {
             version: "1.0".to_string(),
             title: "outer-ring-slide-probe".to_string(),
             artist: String::new(),
@@ -371,6 +403,7 @@ mod tests {
             }],
             audio_offset: 0.0,
             notes: vec![Note {
+                id: 1,
                 time: 1.0,
                 lane: 1,
                 note_type: NoteType::Slide,
@@ -388,9 +421,20 @@ mod tests {
             }],
             templates: vec![],
             template_instances: vec![],
-        };
+        }
+    }
+
+    fn sample_slide_chart_text(shape: SlideShape, end_zone: PadZone) -> String {
+        let chart = sample_slide_chart(shape, end_zone);
         let file = lambda_dx::simai_io::chart_doc_to_simai_file(&chart);
         lambda_dx::simai_io::export_simai_file(&file)
+    }
+
+    fn sample_slide_chart_and_text(shape: SlideShape, end_zone: PadZone) -> (ChartDoc, String) {
+        let chart = sample_slide_chart(shape, end_zone);
+        let file = lambda_dx::simai_io::chart_doc_to_simai_file(&chart);
+        let text = lambda_dx::simai_io::export_simai_file(&file);
+        (chart, text)
     }
 
     fn session_state(engine: &JudgeEngine) -> Value {
@@ -513,6 +557,106 @@ mod tests {
     }
 
     #[test]
+    fn missed_tap_judge_result_maps_k_position_to_visible_lane() {
+        let (chart, text) = sample_tap_chart();
+        let mut engine = JudgeEngine::load(&text, 6).expect("tap chart loads");
+
+        let result = engine
+            .step(5.0, Vec::new())
+            .expect("missed tap frame should produce core commands");
+        let (note_index, kind) = result
+            .render_commands
+            .iter()
+            .find_map(|command| match command {
+                RenderCommand::ShowJudgeResult {
+                    kind, note_index, ..
+                } if *kind == JudgeEventKind::Tap => Some((*note_index, *kind)),
+                _ => None,
+            })
+            .expect("tap judge render command");
+
+        assert_eq!(
+            event_position_zone(&result.events, note_index, kind),
+            Some(PadZone::from(1)),
+            "K-button core result positions should map onto the visible A lane"
+        );
+        assert_eq!(
+            chart_note_head_zone(&chart, note_index),
+            Some(PadZone::from(1)),
+            "the player should still render the core judge command at the chart lane"
+        );
+    }
+
+    #[test]
+    fn core_grades_are_bucketed_for_display_without_rejudging() {
+        assert_eq!(display_label_for_grade(JudgeGrade::Perfect), "Perfect");
+        assert_eq!(
+            display_label_for_grade(JudgeGrade::FastPerfect2nd),
+            "Perfect"
+        );
+        assert_eq!(display_label_for_grade(JudgeGrade::LateGreat), "Great");
+        assert_eq!(display_label_for_grade(JudgeGrade::FastGood), "Good");
+        assert_eq!(display_label_for_grade(JudgeGrade::Miss), "Miss");
+        assert_eq!(display_label_for_grade(JudgeGrade::TooFast), "Miss");
+    }
+
+    #[test]
+    fn slide_judge_result_renders_at_chart_endpoint() {
+        let (chart, text) = sample_slide_chart_and_text(SlideShape::Line, PadZone::from(5_u8));
+        let mut engine = JudgeEngine::load(&text, 6).expect("slide chart loads");
+
+        let result = engine
+            .step(5.0, Vec::new())
+            .expect("missed slide frame should produce core commands");
+        let (note_index, kind) = result
+            .render_commands
+            .iter()
+            .find_map(|command| match command {
+                RenderCommand::ShowJudgeResult {
+                    kind: JudgeEventKind::Slide,
+                    note_index,
+                    ..
+                } => Some((*note_index, JudgeEventKind::Slide)),
+                _ => None,
+            })
+            .expect("slide judge render command");
+
+        assert_eq!(
+            judge_result_zone(&chart, Some(&engine), &result.events, note_index, kind),
+            Some(PadZone::from(5_u8)),
+            "slide feedback should be displayed at the chart slide endpoint, not the head"
+        );
+    }
+
+    #[test]
+    fn slide_event_fallback_displays_core_grade_at_endpoint() {
+        let (chart, text) = sample_slide_chart_and_text(SlideShape::Line, PadZone::from(5_u8));
+        let mut engine = JudgeEngine::load(&text, 6).expect("slide chart loads");
+
+        let mut result = engine
+            .step(5.0, Vec::new())
+            .expect("missed slide frame should produce core commands");
+        result.render_commands.retain(|command| {
+            !matches!(
+                command,
+                RenderCommand::ShowJudgeResult {
+                    kind: JudgeEventKind::Slide,
+                    ..
+                }
+            )
+        });
+
+        let displays = collect_judge_result_displays(&chart, Some(&engine), &result);
+
+        assert!(
+            displays
+                .iter()
+                .any(|display| display.zone == PadZone::from(5_u8) && display.label == "Miss"),
+            "when core emits a slide event without a render command, the player should still display the core grade at the endpoint"
+        );
+    }
+
+    #[test]
     fn first_circle_area_uses_core_hide_bar_index_for_circle5() {
         let mut engine =
             JudgeEngine::load(&sample_clockwise_circle5_chart(), 6).expect("slide chart loads");
@@ -608,6 +752,30 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
 }
 
 fn handle_engine_result(app: &mut crate::state::PlayerState, result: RuntimeStepLightResult) {
+    let displays = collect_judge_result_displays(&app.chart, app.judge_engine.as_ref(), &result);
+    for display in displays {
+        app.push_judgement(display.zone, display.label, display.duration);
+    }
+
+    for command in &result.audio_commands {
+        play_audio_command(app, command);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct JudgeResultDisplay {
+    zone: PadZone,
+    label: &'static str,
+    duration: f64,
+}
+
+fn collect_judge_result_displays(
+    chart: &lambda_dx::app::types::ChartDoc,
+    engine: Option<&JudgeEngine>,
+    result: &RuntimeStepLightResult,
+) -> Vec<JudgeResultDisplay> {
+    let mut displays = Vec::new();
+    let mut displayed_slide_results: HashSet<u64> = HashSet::new();
     for command in &result.render_commands {
         if let RenderCommand::ShowJudgeResult {
             kind,
@@ -616,44 +784,87 @@ fn handle_engine_result(app: &mut crate::state::PlayerState, result: RuntimeStep
             ..
         } = command
         {
-            show_judge_result(app, &result.events, *note_index, *kind, *grade);
+            if let Some(display) =
+                make_judge_result_display(chart, engine, &result.events, *note_index, *kind, *grade)
+            {
+                if *kind == JudgeEventKind::Slide {
+                    displayed_slide_results.insert(*note_index);
+                }
+                displays.push(display);
+            }
         }
     }
 
-    for command in &result.audio_commands {
-        play_audio_command(app, command);
+    for event in &result.events {
+        if event.kind == JudgeEventKind::Slide
+            && !displayed_slide_results.contains(&event.note_index)
+        {
+            if let Some(display) = make_judge_result_display(
+                chart,
+                engine,
+                &result.events,
+                event.note_index,
+                event.kind,
+                event.grade,
+            ) {
+                displayed_slide_results.insert(event.note_index);
+                displays.push(display);
+            }
+        }
     }
+
+    displays
 }
 
-fn show_judge_result(
-    app: &mut crate::state::PlayerState,
+fn make_judge_result_display(
+    chart: &lambda_dx::app::types::ChartDoc,
+    engine: Option<&JudgeEngine>,
     events: &[JudgeEvent],
     note_index: u64,
     kind: JudgeEventKind,
     grade: lnmai_core::types::JudgeGrade,
-) {
-    let zone = if kind == JudgeEventKind::Slide {
-        slide_tail_zone_for_runtime_note(app, note_index)
-            .or_else(|| event_position_zone(events, note_index, kind))
-    } else {
-        event_position_zone(events, note_index, kind)
-    };
-    let Some(zone) = zone else {
-        return;
-    };
+) -> Option<JudgeResultDisplay> {
+    let zone = judge_result_zone(chart, engine, events, note_index, kind)?;
 
-    let label = format!("{grade:?}");
+    let label = display_label_for_grade(grade);
     let duration = if grade.is_miss_or_too_fast() {
         0.24
     } else {
         0.3
     };
-    app.push_judgement_colored(
+    Some(JudgeResultDisplay {
         zone,
-        &label,
+        label,
         duration,
-        macroquad::prelude::Color::from_rgba(255, 255, 255, 255),
-    );
+    })
+}
+
+fn judge_result_zone(
+    chart: &lambda_dx::app::types::ChartDoc,
+    engine: Option<&JudgeEngine>,
+    events: &[JudgeEvent],
+    note_index: u64,
+    kind: JudgeEventKind,
+) -> Option<PadZone> {
+    if kind == JudgeEventKind::Slide {
+        slide_tail_zone_for_runtime_note(chart, engine, note_index)
+            .or_else(|| event_position_zone(events, note_index, kind))
+    } else {
+        event_position_zone(events, note_index, kind)
+            .or_else(|| chart_note_head_zone(chart, note_index))
+    }
+}
+
+fn display_label_for_grade(grade: lnmai_core::types::JudgeGrade) -> &'static str {
+    if grade.is_miss_or_too_fast() {
+        "Miss"
+    } else if grade.is_good_grade() {
+        "Good"
+    } else if grade.is_great_grade() {
+        "Great"
+    } else {
+        "Perfect"
+    }
 }
 
 fn event_position_zone(
@@ -672,14 +883,12 @@ fn event_position_zone(
 }
 
 fn slide_tail_zone_for_runtime_note(
-    app: &crate::state::PlayerState,
+    chart: &lambda_dx::app::types::ChartDoc,
+    engine: Option<&JudgeEngine>,
     note_index: u64,
 ) -> Option<PadZone> {
-    let runtime_slide_index = app
-        .judge_engine
-        .as_ref()
-        .and_then(|engine| engine.runtime_slide_index(note_index))?;
-    chart_slide_tail_zone(&app.chart, runtime_slide_index)
+    let runtime_slide_index = engine.and_then(|engine| engine.runtime_slide_index(note_index))?;
+    chart_slide_tail_zone(chart, runtime_slide_index)
 }
 
 fn chart_slide_tail_zone(
@@ -696,6 +905,22 @@ fn chart_slide_tail_zone(
             .and_then(|segment| segment.points.last())
             .map(|point| point.zone)
     })
+}
+
+fn chart_note_head_zone(
+    chart: &lambda_dx::app::types::ChartDoc,
+    note_index: u64,
+) -> Option<PadZone> {
+    let note = chart
+        .notes
+        .iter()
+        .find(|note| note.id == note_index)
+        .or_else(|| {
+            usize::try_from(note_index)
+                .ok()
+                .and_then(|index| chart.notes.get(index.saturating_sub(1)))
+        })?;
+    Some(PadZone::from(note.lane))
 }
 
 pub fn chart_slide_key(

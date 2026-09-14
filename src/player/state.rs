@@ -782,6 +782,7 @@ impl PlayerState {
     pub fn tick_feedback(&mut self) {
         let now = get_time();
         self.pad_feedback.retain(|f| f.until > now);
+        self.judge_feedback.retain(|f| f.until > now);
     }
 
     pub fn push_feedback(&mut self, zone: PadZone, duration: f64) {

@@ -63,43 +63,6 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
     let active_zones: Vec<PadZone> = app.active_pointer_zones.values().copied().collect();
     let feedback_zones: Vec<PadZone> = app.pad_feedback.iter().map(|fb| fb.zone).collect();
 
-    let now = macroquad::prelude::get_time();
-    for feedback in &app.judge_feedback {
-        let remaining = feedback.until - now;
-        if remaining <= 0.0 {
-            continue;
-        }
-        let alpha = if remaining < 0.2 {
-            (remaining / 0.2 * 255.0) as u8
-        } else {
-            255u8
-        };
-        // Grade-based colors (matches the pre-lnmai judge display).
-        let color = match feedback.label.as_str() {
-            "Perfect" => Color::from_rgba(255, 215, 0, alpha),
-            "Great" => Color::from_rgba(0, 255, 0, alpha),
-            _ => Color::from_rgba(255, 255, 255, alpha),
-        };
-        // A-zones show the text on the tap ring; other zones at their centroid.
-        let pos = if feedback.zone.to_id() <= 8 {
-            let idx = (feedback.zone.to_id() - 1) as f32;
-            let ang =
-                -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-            let dir = vec2(ang.cos(), ang.sin());
-            let target_r = outer_r + TAP_TARGET_OFFSET;
-            vec2(spawn_cx.x + dir.x * target_r, spawn_cx.y + dir.y * target_r)
-        } else {
-            app.pad_svg
-                .as_ref()
-                .and_then(|svg| svg.zone_screen_centroid(feedback.zone, &pad))
-                .unwrap_or(vec2(cx, cy))
-        };
-        let text = feedback.label.to_uppercase();
-        let font_size = 24.0 * scale;
-        let dims = measure_text(&text, None, font_size as _, 1.0);
-        draw_text(&text, pos.x - dims.width * 0.5, pos.y, font_size, color);
-    }
-
     if let Some(ref pad_svg) = app.pad_svg {
         for def in &pad_svg.zones {
             let screen_verts = pad_svg.def_screen_verts(def, &pad);
@@ -829,6 +792,8 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         }
     }
 
+    draw_judge_feedback_overlay(app, pad, outer_r, spawn_cx, scale);
+
     // draw_text(
     //     "Pad zones: A1~A8(Outer) + B1~B8(Inner) + C1(Center) + D1~8(Left) + E1~8(Right)",
     //     rect.x + 12.0 * scale,
@@ -836,6 +801,49 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
     //     18.0 * scale,
     //     Color::from_rgba(165, 180, 252, 255),
     // );
+}
+
+fn draw_judge_feedback_overlay(
+    app: &PlayerState,
+    pad: PadGeom,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    scale: f32,
+) {
+    let now = macroquad::prelude::get_time();
+    for feedback in &app.judge_feedback {
+        let remaining = feedback.until - now;
+        if remaining <= 0.0 {
+            continue;
+        }
+        let alpha = if remaining < 0.2 {
+            (remaining / 0.2 * 255.0) as u8
+        } else {
+            255u8
+        };
+        let color = match feedback.label.as_str() {
+            "Perfect" => Color::from_rgba(255, 215, 0, alpha),
+            "Great" => Color::from_rgba(0, 255, 0, alpha),
+            _ => Color::from_rgba(255, 255, 255, alpha),
+        };
+        let pos = if feedback.zone.to_id() <= 8 {
+            let idx = (feedback.zone.to_id() - 1) as f32;
+            let ang =
+                -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+            let dir = vec2(ang.cos(), ang.sin());
+            let target_r = outer_r + TAP_TARGET_OFFSET;
+            vec2(spawn_cx.x + dir.x * target_r, spawn_cx.y + dir.y * target_r)
+        } else {
+            app.pad_svg
+                .as_ref()
+                .and_then(|svg| svg.zone_screen_centroid(feedback.zone, &pad))
+                .unwrap_or(vec2(pad.cx, pad.cy))
+        };
+        let text = feedback.label.to_uppercase();
+        let font_size = 24.0 * scale;
+        let dims = measure_text(&text, None, font_size as _, 1.0);
+        draw_text(&text, pos.x - dims.width * 0.5, pos.y, font_size, color);
+    }
 }
 
 pub async fn load_note_textures(app: &mut PlayerState) {
