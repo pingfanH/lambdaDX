@@ -343,7 +343,8 @@ fn slide_miss_event_position() {
 fn real_chart_engine_produces_events() {
     let _guard = test_guard();
     ensure_runtime();
-    let text = std::fs::read_to_string("songs/夜に駆ける・改/maidata.txt").expect("real chart");
+    let text = std::fs::read_to_string("tests/fixtures/community-chart/maidata.txt")
+        .expect("real chart");
     let empty = Session::<Empty>::create().expect("create");
     // Some community charts use wifi inside a connection slide, which the
     // engine rejects; the player falls back to its own judgment then.

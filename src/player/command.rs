@@ -25,8 +25,8 @@ Settings:
   start <sec>           Start playback from this song time.
 
 Examples:
-  nix run -L .#player songs/MySong/maidata.txt level 13 note-speed 8.0
-  ./lambdaDX player songs/MySong play-speed 0.75 audio off
+  nix run -L .#player ~/.maichart/MySong/maidata.txt level 13 note-speed 8.0
+  ./lambdaDX player ~/.maichart/MySong play-speed 0.75 audio off
 "#;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -245,7 +245,7 @@ mod tests {
     fn parse_wrapper_style_command() {
         let parsed = parse([
             "player".to_owned(),
-            "songs/foo/maidata.txt".to_owned(),
+            "~/.maichart/foo/maidata.txt".to_owned(),
             "level".to_owned(),
             "13".to_owned(),
             "note-speed".to_owned(),
@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(
             parsed,
             LaunchArgs::Command(CommandMode {
-                chart_path: PathBuf::from("songs/foo/maidata.txt"),
+                chart_path: PathBuf::from("~/.maichart/foo/maidata.txt"),
                 level: Some(13),
                 note_speed: Some(8.0),
                 slide_fade_in: None,

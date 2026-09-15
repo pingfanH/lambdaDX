@@ -44,7 +44,13 @@ fn draw_song_list(ui: &mut egui::Ui, app: &mut PlayerState) {
     ui.label(RichText::new("选择一首歌开始").size(18.0).strong());
     ui.add_space(16.0);
     if app.song_library.is_empty() {
-        ui.label(RichText::new("曲库目录中没有 maidata.txt").color(theme::TEXT_SECONDARY));
+        ui.label(
+            RichText::new(format!(
+                "{} 中没有 maidata.txt",
+                library::charts_directory_display()
+            ))
+            .color(theme::TEXT_SECONDARY),
+        );
     }
     for index in 0..app.song_library.len() {
         let song = &app.song_library[index];

@@ -8,13 +8,8 @@ use crate::state::{LibrarySong, PlayerPage, PlayerState};
 
 /// Runtime override for the chart library root.
 const CHARTS_DIR_ENV: &str = "MAI2_SONGS_DIR";
-/// Read-only chart root shipped by the package (`share/lambda_dx/songs`). It is
-/// only ever read, to seed a fresh user library.
-const BUNDLED_CHARTS_DIR_ENV: &str = "MAI2_BUNDLED_SONGS_DIR";
 /// Library directory created under the user's home on first launch.
 const CHARTS_DIR_NAME: &str = ".maichart";
-/// Repository-local chart directory, used as the packaged root for dev builds.
-const REPO_CHARTS_DIR_NAME: &str = "songs";
 const CHART_FILE_NAME: &str = "maidata.txt";
 /// How deep below a chart root song directories are searched. Libraries group
 /// songs one level down (`<root>/Original/<song>/maidata.txt`), so the scan
@@ -28,9 +23,9 @@ pub fn ensure_song_library(app: &mut PlayerState) {
     refresh_song_library(app);
 }
 
-/// Prepare the chart library for this launch: create the library directory when
-/// it is missing and, on a fresh install, populate it from the charts shipped
-/// with the build. The eligible chart list is always read from disk.
+/// Prepare the chart library for this launch. The library directory is created
+/// when it is missing, and the eligible chart list is always read from disk:
+/// nothing is bundled with the build.
 pub fn ensure_chart_library(app: &mut PlayerState) {
     let root = charts_directory();
     let existed = root.is_dir();
@@ -40,27 +35,9 @@ pub fn ensure_chart_library(app: &mut PlayerState) {
         return;
     }
     if !existed {
-        seed_fresh_library(app, &root);
+        app.set_status(format!("已创建曲库目录 {}", root.display()));
     }
     ensure_song_library(app);
-}
-
-/// Copy the packaged charts into a freshly created library. Existing songs are
-/// never overwritten, and a missing packaged root simply leaves the new library
-/// empty for the user to fill.
-fn seed_fresh_library(app: &mut PlayerState, root: &Path) {
-    let Some(packaged) = packaged_charts_directory().filter(|path| path.as_path() != root) else {
-        app.set_status(format!("已创建曲库目录 {}", root.display()));
-        return;
-    };
-    match seed_chart_library(&packaged, root) {
-        Ok(0) => app.set_status(format!("已创建曲库目录 {}", root.display())),
-        Ok(count) => app.set_status(format!(
-            "已创建曲库目录 {}，已导入 {count} 首内置谱面",
-            root.display()
-        )),
-        Err(error) => app.player_ui.song_error = Some(error),
-    }
 }
 
 pub fn refresh_song_library(app: &mut PlayerState) {
@@ -104,15 +81,6 @@ fn home_directory() -> Option<PathBuf> {
         .find_map(std::env::var_os)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-}
-
-/// Charts shipped with the build, used only to seed a fresh library.
-fn packaged_charts_directory() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os(BUNDLED_CHARTS_DIR_ENV).filter(|value| !value.is_empty()) {
-        return Some(PathBuf::from(dir));
-    }
-    let repo_dir = platform::data_root_dir().join(REPO_CHARTS_DIR_NAME);
-    repo_dir.is_dir().then_some(repo_dir)
 }
 
 /// Create the chart library directory when missing so a fresh install can be
@@ -171,38 +139,6 @@ fn collect_song_folders(dir: &Path, depth: usize, folders: &mut Vec<PathBuf>) {
     }
 }
 
-/// Copy every song below `source` into `dest`, keeping the folder grouping.
-fn seed_chart_library(source: &Path, dest: &Path) -> Result<usize, String> {
-    let mut folders = Vec::new();
-    collect_song_folders(source, 0, &mut folders);
-    let mut seeded = 0;
-    for folder in folders {
-        let relative = folder.strip_prefix(source).unwrap_or(&folder);
-        let target = dest.join(relative);
-        if target.is_dir() {
-            continue;
-        }
-        copy_song_files(&folder, &target)?;
-        seeded += 1;
-    }
-    Ok(seeded)
-}
-
-fn copy_song_files(source: &Path, dest: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dest).map_err(|e| format!("无法创建目录 {}: {e}", dest.display()))?;
-    let entries = std::fs::read_dir(source)
-        .map_err(|e| format!("无法读取曲目目录 {}: {e}", source.display()))?;
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        if path.is_dir() {
-            continue;
-        }
-        let target = dest.join(entry.file_name());
-        std::fs::copy(&path, &target).map_err(|e| format!("复制 {} 失败: {e}", path.display()))?;
-    }
-    Ok(())
-}
-
 fn song_from_folder(folder: &Path) -> LibrarySong {
     let chart_path = folder.join(CHART_FILE_NAME);
     let fallback_title = folder
@@ -234,7 +170,7 @@ fn song_from_folder(folder: &Path) -> LibrarySong {
                 .find_map(|line| line.strip_prefix("&des="))
                 .map(|value| value.trim().to_owned())
         })
-        .filter(|d| !d.is_empty())
+        .filter(|designer| !designer.is_empty())
         .unwrap_or_else(|| "未知谱师".to_owned());
     let difficulty_count = metadata
         .as_ref()
@@ -245,18 +181,10 @@ fn song_from_folder(folder: &Path) -> LibrarySong {
     } else {
         format!("{difficulty_count} 个难度 · 本地谱面")
     };
-    let cover_path = [
-        "bg.jpg",
-        "bg.png",
-        "bg.jpeg",
-        "cover.jpg",
-        "cover.png",
-        "jacket.jpg",
-        "jacket.png",
-    ]
-    .iter()
-    .map(|name| folder.join(name))
-    .find(|path| path.is_file());
+    let cover_path = ["bg.jpg", "bg.png", "bg.jpeg", "cover.jpg", "cover.png", "jacket.jpg", "jacket.png"]
+        .iter()
+        .map(|name| folder.join(name))
+        .find(|path| path.is_file());
 
     LibrarySong {
         title,
@@ -477,35 +405,150 @@ pub fn begin_gameplay(app: &mut PlayerState) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::scan_song_directory;
+    use super::{MAX_CHART_SCAN_DEPTH, scan_song_directory};
+
+    /// Unique temp directory per test, removed by [`TempLibrary`] on drop.
+    struct TempLibrary(PathBuf);
+
+    impl TempLibrary {
+        fn new(label: &str) -> Self {
+            let unique_suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock must be after the Unix epoch")
+                .as_nanos();
+            let root = std::env::temp_dir()
+                .join(format!("lambda_dx_player_library_{label}_{unique_suffix}"));
+            std::fs::create_dir_all(&root).expect("test library must be created");
+            Self(root)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+
+        /// Create `<root>/<relative>` holding a minimal parseable `maidata.txt`.
+        fn add_song(&self, relative: &str) {
+            self.add_song_titled(relative, "Test Track");
+        }
+
+        fn add_song_titled(&self, relative: &str, title: &str) {
+            let folder = self.0.join(relative);
+            std::fs::create_dir_all(&folder).expect("test song directory must be created");
+            std::fs::write(
+                folder.join("maidata.txt"),
+                format!("&title={title}\n&artist=Test Artist\n&inote_5={{8}},1,,,,\n"),
+            )
+            .expect("test chart must be written");
+        }
+
+        fn add_dir(&self, relative: &str) {
+            std::fs::create_dir_all(self.0.join(relative)).expect("test directory must be created");
+        }
+    }
+
+    impl Drop for TempLibrary {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn scans_song_subdirectories_when_they_contain_maidata() {
         // Given
-        let unique_suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock must be after the Unix epoch")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("lambda_dx_player_library_{unique_suffix}"));
-        let valid_song = root.join("valid-song");
-        let ignored_folder = root.join("ignored-folder");
-        std::fs::create_dir_all(&valid_song).expect("test song directory must be created");
-        std::fs::create_dir_all(&ignored_folder).expect("ignored directory must be created");
-        std::fs::write(
-            valid_song.join("maidata.txt"),
-            "&title=Test Track\n&artist=Test Artist\n",
-        )
-        .expect("test chart must be written");
+        let library = TempLibrary::new("flat");
+        library.add_song("valid-song");
+        library.add_dir("ignored-folder");
 
         // When
-        let songs = scan_song_directory(&root).expect("song directory scan must succeed");
+        let songs = scan_song_directory(library.path()).expect("song directory scan must succeed");
 
         // Then
         assert_eq!(songs.len(), 1);
-        assert_eq!(songs[0].chart_path, valid_song.join("maidata.txt"));
+        assert_eq!(
+            songs[0].chart_path,
+            library.path().join("valid-song").join("maidata.txt")
+        );
+    }
 
-        std::fs::remove_dir_all(root).expect("test song directory must be removed");
+    #[test]
+    fn scans_grouped_libraries_below_the_root() {
+        // Given: real libraries group charts one level down.
+        let library = TempLibrary::new("grouped");
+        library.add_song("Original/inner-song");
+        library.add_song("root-song");
+
+        // When
+        let songs = scan_song_directory(library.path()).expect("song directory scan must succeed");
+
+        // Then: both the grouped and the top-level song are eligible.
+        let titles: Vec<&str> = songs.iter().map(|song| song.title.as_str()).collect();
+        assert_eq!(titles, ["Test Track", "Test Track"]);
+        assert!(songs.iter().any(|song| song
+            .chart_path
+            .ends_with("Original/inner-song/maidata.txt")));
+    }
+
+    #[test]
+    fn ignores_dot_directories_holding_tool_caches() {
+        // Given: the reference implementation stores caches in `.MajdataPlay`.
+        let library = TempLibrary::new("dot-dirs");
+        library.add_song(".MajdataPlay/hidden-song");
+        library.add_song("visible-song");
+
+        // When
+        let songs = scan_song_directory(library.path()).expect("song directory scan must succeed");
+
+        // Then
+        assert_eq!(songs.len(), 1);
+        assert!(songs[0].chart_path.ends_with("visible-song/maidata.txt"));
+    }
+
+    #[test]
+    fn scans_charts_at_the_depth_limit_but_not_beyond() {
+        // Given: one chart exactly at the limit and one nested a level deeper.
+        let library = TempLibrary::new("deep");
+        let nested = |levels: usize| {
+            (0..levels)
+                .map(|level| format!("level{level}"))
+                .collect::<Vec<_>>()
+                .join("/")
+        };
+        library.add_song_titled(&nested(MAX_CHART_SCAN_DEPTH), "At Limit");
+        library.add_song_titled(&nested(MAX_CHART_SCAN_DEPTH + 1), "Beyond Limit");
+
+        // When
+        let songs = scan_song_directory(library.path()).expect("song directory scan must succeed");
+
+        // Then: only the chart within the depth limit is eligible.
+        let titles: Vec<&str> = songs.iter().map(|song| song.title.as_str()).collect();
+        assert_eq!(titles, ["At Limit"]);
+    }
+
+    #[test]
+    fn empty_library_scans_to_an_empty_list() {
+        // Given
+        let library = TempLibrary::new("empty");
+
+        // When
+        let songs = scan_song_directory(library.path()).expect("empty library must not fail");
+
+        // Then
+        assert!(songs.is_empty());
+    }
+
+    #[test]
+    fn missing_library_is_reported_as_an_error() {
+        // Given
+        let library = TempLibrary::new("missing");
+        let missing = library.path().join("does-not-exist");
+
+        // When
+        let result = scan_song_directory(&missing);
+
+        // Then
+        assert!(result.is_err());
     }
 }

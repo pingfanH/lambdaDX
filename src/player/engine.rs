@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn importing_then_loading_the_player_engine_does_not_abort() {
-        let source = include_str!("../../songs/Imported Simai/maidata.txt");
+        let source = include_str!("../../tests/fixtures/imported-simai/maidata.txt");
         let file = parse_simai_source(source).expect("fixture must parse");
         let chart = simai_file_to_chart_doc(&file, None).expect("fixture must convert");
 

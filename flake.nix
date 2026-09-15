@@ -85,14 +85,12 @@
           postInstall = ''
             mkdir -p "$out/share/lambda_dx"
             cp -r ${cleanSource}/assets "$out/share/lambda_dx/assets"
-            cp -r ${cleanSource}/songs "$out/share/lambda_dx/songs"
           '';
 
           postFixup = ''
             wrapProgram "$out/bin/lambda_dx_player" \
               --prefix LD_LIBRARY_PATH : "${libraryPath}" \
               --set MAI2_ASSET_DIR "$out/share/lambda_dx/assets" \
-              --set MAI2_BUNDLED_SONGS_DIR "$out/share/lambda_dx/songs" \
               --set-default MAI2_FONT_PATH "${cjkFont}" \
               --set-default MAI2_FONT_INDEX "0" \
               --run 'export MAI2_DATA_DIR="''${MAI2_DATA_DIR:-''${XDG_DATA_HOME:-''$HOME/.local/share}/lambda_dx}"'
