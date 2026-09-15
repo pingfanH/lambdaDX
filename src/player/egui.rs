@@ -1,5 +1,5 @@
 mod gameplay;
-mod library;
+pub(crate) mod library;
 mod pause;
 mod settings;
 mod song_select;

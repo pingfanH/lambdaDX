@@ -6,9 +6,20 @@ use lambda_dx::simai_io::{self, DialogImport};
 
 use crate::state::{LibrarySong, PlayerPage, PlayerState};
 
-const SONGS_DIR_ENV: &str = "MAI2_SONGS_DIR";
-const BUNDLED_SONGS_DIR_ENV: &str = "MAI2_BUNDLED_SONGS_DIR";
-const DEFAULT_SONGS_DIR: &str = "songs";
+/// Runtime override for the chart library root.
+const CHARTS_DIR_ENV: &str = "MAI2_SONGS_DIR";
+/// Read-only chart root shipped by the package (`share/lambda_dx/songs`). It is
+/// only ever read, to seed a fresh user library.
+const BUNDLED_CHARTS_DIR_ENV: &str = "MAI2_BUNDLED_SONGS_DIR";
+/// Library directory created under the user's home on first launch.
+const CHARTS_DIR_NAME: &str = ".maichart";
+/// Repository-local chart directory, used as the packaged root for dev builds.
+const REPO_CHARTS_DIR_NAME: &str = "songs";
+const CHART_FILE_NAME: &str = "maidata.txt";
+/// How deep below a chart root song directories are searched. Libraries group
+/// songs one level down (`<root>/Original/<song>/maidata.txt`), so the scan
+/// descends a few levels instead of only one.
+const MAX_CHART_SCAN_DEPTH: usize = 3;
 
 pub fn ensure_song_library(app: &mut PlayerState) {
     if app.song_library_scanned {
@@ -17,12 +28,47 @@ pub fn ensure_song_library(app: &mut PlayerState) {
     refresh_song_library(app);
 }
 
+/// Prepare the chart library for this launch: create the library directory when
+/// it is missing and, on a fresh install, populate it from the charts shipped
+/// with the build. The eligible chart list is always read from disk.
+pub fn ensure_chart_library(app: &mut PlayerState) {
+    let root = charts_directory();
+    let existed = root.is_dir();
+    if let Err(error) = create_charts_directory() {
+        app.song_library.clear();
+        app.player_ui.song_error = Some(error);
+        return;
+    }
+    if !existed {
+        seed_fresh_library(app, &root);
+    }
+    ensure_song_library(app);
+}
+
+/// Copy the packaged charts into a freshly created library. Existing songs are
+/// never overwritten, and a missing packaged root simply leaves the new library
+/// empty for the user to fill.
+fn seed_fresh_library(app: &mut PlayerState, root: &Path) {
+    let Some(packaged) = packaged_charts_directory().filter(|path| path.as_path() != root) else {
+        app.set_status(format!("已创建曲库目录 {}", root.display()));
+        return;
+    };
+    match seed_chart_library(&packaged, root) {
+        Ok(0) => app.set_status(format!("已创建曲库目录 {}", root.display())),
+        Ok(count) => app.set_status(format!(
+            "已创建曲库目录 {}，已导入 {count} 首内置谱面",
+            root.display()
+        )),
+        Err(error) => app.player_ui.song_error = Some(error),
+    }
+}
+
 pub fn refresh_song_library(app: &mut PlayerState) {
     app.song_library_scanned = true;
     app.ui_cover_textures.clear();
     app.ui_assets_loaded = false;
     app.player_ui.loaded_song = None;
-    match scan_runtime_song_directories() {
+    match create_charts_directory().and_then(|root| scan_song_directory(&root)) {
         Ok(songs) => {
             app.song_library = songs;
             if app.player_ui.selected_song >= app.song_library.len() {
@@ -37,70 +83,128 @@ pub fn refresh_song_library(app: &mut PlayerState) {
     }
 }
 
-fn songs_directory() -> PathBuf {
-    std::env::var_os(SONGS_DIR_ENV)
+/// Chart library root: `$MAI2_SONGS_DIR` when set, otherwise `<home>/.maichart`.
+fn charts_directory() -> PathBuf {
+    std::env::var_os(CHARTS_DIR_ENV)
+        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let data_root = platform::data_root_dir();
-            if data_root.ends_with(DEFAULT_SONGS_DIR) {
-                data_root
-            } else {
-                data_root.join(DEFAULT_SONGS_DIR)
-            }
-        })
+        .or_else(home_charts_directory)
+        .unwrap_or_else(|| platform::data_root_dir().join(CHARTS_DIR_NAME))
 }
 
-fn bundled_songs_directory() -> Option<PathBuf> {
-    std::env::var_os(BUNDLED_SONGS_DIR_ENV).map(PathBuf::from)
+fn home_charts_directory() -> Option<PathBuf> {
+    home_directory().map(|home| home.join(CHARTS_DIR_NAME))
 }
 
-fn scan_runtime_song_directories() -> Result<Vec<LibrarySong>, String> {
-    let mut roots = vec![songs_directory()];
-    if let Some(bundled) = bundled_songs_directory() {
-        if !roots.iter().any(|root| root == &bundled) {
-            roots.push(bundled);
-        }
-    }
-
-    let mut songs = Vec::new();
-    let mut first_error = None;
-    for root in roots {
-        if !root.is_dir() {
-            continue;
-        }
-        match scan_song_directory(&root) {
-            Ok(mut found) => songs.append(&mut found),
-            Err(error) => {
-                first_error.get_or_insert(error);
-            }
-        }
-    }
-    songs.sort_by(|left, right| left.chart_path.cmp(&right.chart_path));
-    if songs.is_empty() {
-        Err(first_error.unwrap_or_else(|| "曲库目录不存在或没有 maidata.txt".to_owned()))
-    } else {
-        Ok(songs)
-    }
+/// `HOME` is unset in some Windows shells, where `USERPROFILE` is the
+/// equivalent. Mobile builds have neither and fall back to the data root.
+fn home_directory() -> Option<PathBuf> {
+    ["HOME", "USERPROFILE"]
+        .iter()
+        .find_map(std::env::var_os)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
+/// Charts shipped with the build, used only to seed a fresh library.
+fn packaged_charts_directory() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os(BUNDLED_CHARTS_DIR_ENV).filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    let repo_dir = platform::data_root_dir().join(REPO_CHARTS_DIR_NAME);
+    repo_dir.is_dir().then_some(repo_dir)
+}
+
+/// Create the chart library directory when missing so a fresh install can be
+/// filled in place at `~/.maichart`.
+fn create_charts_directory() -> Result<PathBuf, String> {
+    let root = charts_directory();
+    std::fs::create_dir_all(&root)
+        .map_err(|error| format!("无法创建曲库目录 {}: {error}", root.display()))?;
+    Ok(root)
+}
+
+/// Song folders below `root`, searched recursively. The returned list is the
+/// eligible chart list: a directory qualifies when it directly contains a
+/// `maidata.txt`, so grouped libraries are supported. An empty library yields
+/// an empty list; only an unreadable directory is an error.
 pub fn scan_song_directory(root: &Path) -> Result<Vec<LibrarySong>, String> {
-    let entries = std::fs::read_dir(root)
-        .map_err(|error| format!("无法读取曲库目录 {}: {error}", root.display()))?;
-    let mut folders: Vec<PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir() && path.join("maidata.txt").is_file())
-        .collect();
+    if !root.is_dir() {
+        return Err(format!("曲库目录不存在: {}", root.display()));
+    }
+    let mut folders = Vec::new();
+    collect_song_folders(root, 0, &mut folders);
     folders.sort();
-
     Ok(folders
         .into_iter()
         .map(|folder| song_from_folder(&folder))
         .collect())
 }
 
+/// Library root shown in the UI, so an empty library can point at itself.
+pub fn charts_directory_display() -> String {
+    charts_directory().display().to_string()
+}
+
+fn collect_song_folders(dir: &Path, depth: usize, folders: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut children: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        // Dot directories hold caches and tooling, never songs.
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| !name.starts_with('.'))
+        })
+        .collect();
+    children.sort();
+    for child in children {
+        if child.join(CHART_FILE_NAME).is_file() {
+            folders.push(child);
+        } else if depth + 1 < MAX_CHART_SCAN_DEPTH {
+            collect_song_folders(&child, depth + 1, folders);
+        }
+    }
+}
+
+/// Copy every song below `source` into `dest`, keeping the folder grouping.
+fn seed_chart_library(source: &Path, dest: &Path) -> Result<usize, String> {
+    let mut folders = Vec::new();
+    collect_song_folders(source, 0, &mut folders);
+    let mut seeded = 0;
+    for folder in folders {
+        let relative = folder.strip_prefix(source).unwrap_or(&folder);
+        let target = dest.join(relative);
+        if target.is_dir() {
+            continue;
+        }
+        copy_song_files(&folder, &target)?;
+        seeded += 1;
+    }
+    Ok(seeded)
+}
+
+fn copy_song_files(source: &Path, dest: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| format!("无法创建目录 {}: {e}", dest.display()))?;
+    let entries = std::fs::read_dir(source)
+        .map_err(|e| format!("无法读取曲目目录 {}: {e}", source.display()))?;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            continue;
+        }
+        let target = dest.join(entry.file_name());
+        std::fs::copy(&path, &target).map_err(|e| format!("复制 {} 失败: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn song_from_folder(folder: &Path) -> LibrarySong {
-    let chart_path = folder.join("maidata.txt");
+    let chart_path = folder.join(CHART_FILE_NAME);
     let fallback_title = folder
         .file_name()
         .and_then(|name| name.to_str())
@@ -262,7 +366,7 @@ pub fn select_difficulty(app: &mut PlayerState, level: u32) -> Result<(), String
     Ok(())
 }
 
-/// Copy an imported song (maidata + audio + cover) into the `songs/` library,
+/// Copy an imported song (maidata + audio + cover) into the chart library,
 /// refresh the list and return the new song's index.
 pub fn import_song_to_library(
     app: &mut PlayerState,
@@ -272,8 +376,7 @@ pub fn import_song_to_library(
         .source_dir
         .as_ref()
         .ok_or_else(|| "导入来源目录不可用".to_owned())?;
-    let root = songs_directory();
-    std::fs::create_dir_all(&root).map_err(|e| format!("无法创建曲库目录: {e}"))?;
+    let root = create_charts_directory()?;
 
     let mut folder = sanitize_folder_name(&import.title);
     let mut dest = root.join(&folder);
@@ -286,14 +389,14 @@ pub fn import_song_to_library(
     std::fs::create_dir_all(&dest).map_err(|e| format!("创建歌曲目录失败: {e}"))?;
 
     // Copy maidata.txt (fall back to re-exporting the parsed file).
-    let maidata = source_dir.join("maidata.txt");
+    let maidata = source_dir.join(CHART_FILE_NAME);
     if maidata.is_file() {
-        std::fs::copy(&maidata, dest.join("maidata.txt"))
-            .map_err(|e| format!("复制 maidata.txt 失败: {e}"))?;
+        std::fs::copy(&maidata, dest.join(CHART_FILE_NAME))
+            .map_err(|e| format!("复制 {CHART_FILE_NAME} 失败: {e}"))?;
     } else {
         let text = simai_io::export_simai_file(&import.simai_file);
-        std::fs::write(dest.join("maidata.txt"), text)
-            .map_err(|e| format!("写入 maidata.txt 失败: {e}"))?;
+        std::fs::write(dest.join(CHART_FILE_NAME), text)
+            .map_err(|e| format!("写入 {CHART_FILE_NAME} 失败: {e}"))?;
     }
 
     // Write audio.

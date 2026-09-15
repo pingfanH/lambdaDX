@@ -49,6 +49,9 @@ async fn run(launch_args: LaunchArgs) {
         lambda_dx::app::audio::load_audio_pcm_from_assets().await;
     let mut app = PlayerState::new(chart, audio_source_name, audio_wav_pcm);
 
+    // Read the eligible charts from the chart library, creating it on first launch.
+    egui::library::ensure_chart_library(&mut app);
+
     // Parse the SVG pad definition
     match pad_svg::PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")) {
         Ok(def) => {
