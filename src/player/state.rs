@@ -53,6 +53,15 @@ impl SlideJustKind {
             SlideJustKind::Miss => macroquad::prelude::Color::from_rgba(255, 120, 120, 255),
         }
     }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SlideJustKind::Perfect => "Perfect",
+            SlideJustKind::Great => "Great",
+            SlideJustKind::Good => "Good",
+            SlideJustKind::Miss => "Miss",
+        }
+    }
 }
 
 /// A slide `just` effect recorded when lnmai-core reports a slide judgment.
@@ -60,6 +69,16 @@ impl SlideJustKind {
 pub struct SlideJudgeFx {
     pub kind: SlideJustKind,
     pub started: f64,
+}
+
+fn timed_input_tp(event: &lnmai_core::types::TimedInputEvent) -> i64 {
+    use lnmai_core::types::TimedInputEvent;
+    match event {
+        TimedInputEvent::ButtonClick { tp, .. }
+        | TimedInputEvent::ButtonHold { tp, .. }
+        | TimedInputEvent::SensorClick { tp, .. }
+        | TimedInputEvent::SensorHold { tp, .. } => *tp,
+    }
 }
 
 fn apply_core_slide_progress_updates_to_chart(
@@ -380,6 +399,11 @@ pub struct PlayerState {
     pub engine_events: Vec<lnmai_core::types::TimedInputEvent>,
     engine_input_latch: EngineInputLatch,
 
+    /// Autoplay: feed lnmai-core's default replay tactic instead of user input.
+    pub autoplay: bool,
+    autoplay_events: Vec<lnmai_core::types::TimedInputEvent>,
+    autoplay_cursor: usize,
+
     pub status: String,
 
     /// File path input for chart import.
@@ -530,6 +554,9 @@ impl PlayerState {
             judge_engine: None,
             engine_events: Vec::new(),
             engine_input_latch: EngineInputLatch::default(),
+            autoplay: false,
+            autoplay_events: Vec::new(),
+            autoplay_cursor: 0,
             status: "Ready".to_string(),
             import_path_input: String::new(),
             pending_import: false,
@@ -878,6 +905,10 @@ impl PlayerState {
     }
 
     pub fn prepare_engine_frame_events(&mut self) {
+        if self.autoplay {
+            self.prepare_autoplay_frame_events();
+            return;
+        }
         let tp = (self.song_time().max(0.0) * 1e6) as i64;
         self.engine_input_latch
             .prepare_frame(&mut self.engine_events, tp);
@@ -885,6 +916,58 @@ impl PlayerState {
 
     pub fn finish_engine_frame(&mut self) {
         self.engine_input_latch.finish_frame();
+    }
+
+    /// Feed lnmai-core's default replay tactic events that are due at the
+    /// current song time. Used instead of the user-input latch in autoplay.
+    fn prepare_autoplay_frame_events(&mut self) {
+        let now = (self.song_time().max(0.0) * 1e6) as i64;
+        while let Some(event) = self.autoplay_events.get(self.autoplay_cursor) {
+            if timed_input_tp(event) > now {
+                break;
+            }
+            self.engine_events.push(event.clone());
+            self.autoplay_cursor += 1;
+        }
+    }
+
+    /// Enable/disable autoplay. Enabling builds lnmai-core's default replay
+    /// tactic for the loaded chart through its FFI.
+    pub fn set_autoplay(&mut self, on: bool) {
+        if self.autoplay == on {
+            return;
+        }
+        self.autoplay = on;
+        self.reset_autoplay_tactic();
+        self.set_status(if on {
+            "Autoplay: ON".to_string()
+        } else {
+            "Autoplay: OFF".to_string()
+        });
+    }
+
+    fn reset_autoplay_tactic(&mut self) {
+        self.autoplay_events.clear();
+        self.autoplay_cursor = 0;
+        if !self.autoplay {
+            return;
+        }
+        let Some(engine) = self.judge_engine.as_ref() else {
+            return;
+        };
+        match engine.default_tactic() {
+            Ok(events) => {
+                // If autoplay is enabled mid-song, skip events already in the
+                // past so they are not dumped as one burst.
+                let now = (self.song_time().max(0.0) * 1e6) as i64;
+                self.autoplay_cursor = events
+                    .iter()
+                    .position(|event| timed_input_tp(event) >= now)
+                    .unwrap_or(events.len());
+                self.autoplay_events = events;
+            }
+            Err(e) => self.set_status(format!("autoplay tactic failed: {e}")),
+        }
     }
 
     /// (Re)load the lnmai-core judgment engine for the currently imported chart.
@@ -898,6 +981,7 @@ impl PlayerState {
             Ok(engine) => {
                 self.judge_engine = Some(engine);
                 self.set_status(format!("判引擎已载入 (Lv.{})", self.import_selected_level));
+                self.reset_autoplay_tactic();
             }
             Err(e) => {
                 self.set_status(format!("判引擎载入失败: {e}"));

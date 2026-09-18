@@ -20,8 +20,8 @@ use macroquad::color::{Color, WHITE};
 use macroquad::math::{Vec2, vec2};
 use macroquad::miniquad::FilterMode;
 use macroquad::prelude::{
-    DrawTextureParams, draw_circle, draw_circle_lines, draw_line, draw_rectangle, draw_text,
-    draw_texture_ex, load_texture, measure_text,
+    DrawTextureParams, TextParams, draw_circle, draw_circle_lines, draw_line, draw_rectangle,
+    draw_text, draw_text_ex, draw_texture_ex, load_texture, measure_text,
 };
 pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
     let scale = ui_scale(app);
@@ -340,7 +340,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                 let alpha =
                     (1.0 - age / crate::state::SLIDE_JUST_DURATION as f32).clamp(0.0, 1.0);
                 let c = fx.kind.tint();
-                slide_render::draw_slide_judge_band(
+                let band = slide_render::draw_slide_judge_band(
                     note,
                     sl,
                     &pad,
@@ -352,6 +352,21 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                     Color::new(c.r, c.g, c.b, alpha * 0.45),
                     Color::new(c.r, c.g, c.b, alpha * 0.85),
                 );
+                // Judgment text sits on the band's last star segment and is
+                // rotated to that segment so it reads in the slide direction.
+                // Wifi slides (no band) fall back to the endpoint zone direction.
+                let anchor = band.or_else(|| {
+                    slide_endpoint_direction(note, sl, svg, &pad, spawn_cx, outer_r)
+                });
+                if let Some((angle, end)) = anchor {
+                    draw_rotated_centered_text(
+                        &fx.kind.label().to_uppercase(),
+                        end,
+                        36.0 * scale,
+                        angle,
+                        Color::new(c.r, c.g, c.b, alpha),
+                    );
+                }
             }
         }
     }
@@ -879,7 +894,7 @@ fn draw_judge_feedback_overlay(
                 .unwrap_or(vec2(pad.cx, pad.cy))
         };
         let text = feedback.label.to_uppercase();
-        let font_size = 24.0 * scale;
+        let font_size = 36.0 * scale;
         let dims = measure_text(&text, None, font_size as _, 1.0);
         draw_text(&text, pos.x - dims.width * 0.5, pos.y, font_size, color);
     }
@@ -1122,4 +1137,69 @@ pub fn compute_pad_geom(panel: RectF) -> PadGeom {
 fn smoothstep(x: f32) -> f32 {
     let t = x.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+/// Fallback anchor for the slide judgment text: the endpoint zone centroid and
+/// the direction between the last two zone centroids. Used when the band is
+/// skipped (e.g. wifi slides).
+fn slide_endpoint_direction(
+    note: &lambda_dx::types::Note,
+    slide: &lambda_dx::types::Slide,
+    svg: &pad_svg::PadSvgDef,
+    pad: &PadGeom,
+    spawn_cx: Vec2,
+    outer_r: f32,
+) -> Option<(f32, Vec2)> {
+    let zones: Vec<PadZone> = slide
+        .segments
+        .iter()
+        .flat_map(|s| s.points.iter().map(|p| p.zone))
+        .collect();
+    let &last = zones.last()?;
+    let end = svg.zone_screen_centroid(last, pad)?;
+    let prev_pos = match zones.len().checked_sub(2) {
+        Some(i) => svg.zone_screen_centroid(zones[i], pad)?,
+        None => {
+            if note.lane <= 8 {
+                let idx = (note.lane - 1) as f32;
+                let ang =
+                    -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+                let r = outer_r + TAP_TARGET_OFFSET;
+                spawn_cx + vec2(ang.cos(), ang.sin()) * r
+            } else {
+                svg.zone_screen_centroid(PadZone::from(note.lane), pad)?
+            }
+        }
+    };
+    let dir = end - prev_pos;
+    let angle = if dir.length_squared() > 1e-6 {
+        dir.y.atan2(dir.x)
+    } else {
+        0.0
+    };
+    Some((angle, end))
+}
+
+/// Draw `text` centered on `center`, rotated by `angle` radians.
+fn draw_rotated_centered_text(text: &str, center: Vec2, font_size: f32, angle: f32, color: Color) {
+    let dims = measure_text(text, None, font_size as _, 1.0);
+    // Macroquad draws text right-and-up from its origin, so the text center
+    // relative to the origin is (w/2, -h/2); rotate it into screen space.
+    let local = vec2(dims.width * 0.5, -dims.height * 0.5);
+    let rotated = vec2(
+        local.x * angle.cos() - local.y * angle.sin(),
+        local.x * angle.sin() + local.y * angle.cos(),
+    );
+    let origin = center - rotated;
+    draw_text_ex(
+        text,
+        origin.x,
+        origin.y,
+        TextParams {
+            font_size: font_size as u16,
+            rotation: angle,
+            color,
+            ..Default::default()
+        },
+    );
 }

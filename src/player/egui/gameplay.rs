@@ -56,6 +56,15 @@ pub fn draw(ctx: &egui::Context, app: &mut PlayerState) {
                         .color(theme::TEXT_SECONDARY),
                 );
                 ui.separator();
+                let auto_kind = if app.autoplay {
+                    widgets::ButtonKind::Primary
+                } else {
+                    widgets::ButtonKind::Quiet
+                };
+                if widgets::compact_button(ui, "AUTO", auto_kind).clicked() {
+                    app.set_autoplay(!app.autoplay);
+                }
+                ui.separator();
                 ui.label(
                     RichText::new(if app.audio_enabled {
                         "音频 ON"

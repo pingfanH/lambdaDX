@@ -8,7 +8,7 @@
 use lambda_dx::app::types::zone::PadZone;
 use lnmai_core::session::{self, Empty, Loaded, Session};
 use lnmai_core::types::{
-    AudioCommand, ButtonZone, GameState, JudgeEvent, JudgeEventKind, RenderCommand,
+    AudioCommand, ButtonZone, ChartSpec, GameState, JudgeEvent, JudgeEventKind, RenderCommand,
     RuntimeStepLightResult, SensorArea, TimedInputBatch, TimedInputEvent,
 };
 use std::collections::{HashMap, HashSet};
@@ -252,6 +252,19 @@ impl JudgeEngine {
         self.slide_bindings
             .get(&note_index)
             .map(|binding| binding.runtime_slide_index)
+    }
+
+    /// Build lnmai-core's default replay tactic (autoplay events) for the
+    /// loaded chart. The events carry the same `tp` microsecond timestamps as
+    /// runtime input, so the player can feed them frame by frame.
+    pub fn default_tactic(&self) -> Result<Vec<TimedInputEvent>, String> {
+        let envelope = self.session.get_lowered_chart_json().map_err(|e| e.json)?;
+        let chart: ChartSpec = envelope
+            .decode_result()
+            .map_err(|e| format!("invalid lowered chart json: {e}"))?;
+        lnmai_core::api::default_tactic_from_chart(&chart)
+            .map(|tactic| tactic.events)
+            .map_err(|e| e.json)
     }
 
     pub fn slide_progress_updates(&self, commands: &[RenderCommand]) -> Vec<SlideProgressUpdate> {
@@ -688,6 +701,21 @@ mod tests {
     }
 
     #[test]
+    fn default_tactic_is_available_for_a_loaded_chart() {
+        let (_chart, text) = sample_slide_chart_and_text(SlideShape::Line, PadZone::from(5_u8));
+        let engine = JudgeEngine::load(&text, 6).expect("slide chart loads");
+
+        let events = engine
+            .default_tactic()
+            .expect("lnmai-core default tactic should build");
+
+        assert!(
+            !events.is_empty(),
+            "autoplay replay tactic should contain at least one input event"
+        );
+    }
+
+    #[test]
     fn first_circle_area_uses_core_hide_bar_index_for_circle5() {
         let mut engine =
             JudgeEngine::load(&sample_clockwise_circle5_chart(), 6).expect("slide chart loads");
@@ -785,7 +813,10 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
 fn handle_engine_result(app: &mut crate::state::PlayerState, result: RuntimeStepLightResult) {
     let displays = collect_judge_result_displays(&app.chart, app.judge_engine.as_ref(), &result);
     for display in displays {
-        app.push_judgement(display.zone, display.label, display.duration);
+        // Slide feedback text is drawn by the slide judge band instead.
+        if !display.is_slide {
+            app.push_judgement(display.zone, display.label, display.duration);
+        }
     }
 
     // Record slide judgments so the renderer can show the `just` overlay.
@@ -864,6 +895,9 @@ struct JudgeResultDisplay {
     zone: PadZone,
     label: &'static str,
     duration: f64,
+    /// Slide feedback is rendered by the slide judge band (which draws its own
+    /// direction-aligned text), so it is not pushed to the generic overlay.
+    is_slide: bool,
 }
 
 fn collect_judge_result_displays(
@@ -933,6 +967,7 @@ fn make_judge_result_display(
         zone,
         label,
         duration,
+        is_slide: kind == JudgeEventKind::Slide,
     })
 }
 

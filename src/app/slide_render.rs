@@ -24,13 +24,15 @@ pub struct SlideTextures<'a> {
     pub wifi: [Option<&'a Texture2D>; 11],
 }
 
-/// Draw a filled polygon band along the slide path as the judgment background.
+/// Draw a filled polygon band along the slide's **last star segment** as the
+/// judgment background.
 ///
-/// The band is built from the exact slide polyline, so it always follows the
-/// slide direction and curvature (including multi-segment and curved slides).
-/// `fill` paints the wide background band and `core` paints a brighter center
-/// stripe on top. Wifi slides are skipped because their three tracks are
-/// rendered separately.
+/// Anchoring on the final segment (instead of the whole path) keeps the effect
+/// local to where the slide is judged. The band follows that segment's exact
+/// polyline, so its direction always matches the slide. `fill` paints the wide
+/// background band and `core` paints a brighter center stripe. Returns the
+/// segment direction in radians so callers can align the judgment text. Wifi
+/// slides are skipped because their three tracks are rendered separately.
 pub fn draw_slide_judge_band(
     note: &Note,
     slide: &Slide,
@@ -42,21 +44,26 @@ pub fn draw_slide_judge_band(
     band_width: f32,
     fill: Color,
     core: Color,
-) {
+) -> Option<(f32, Vec2)> {
     if slide
         .segments
         .iter()
         .any(|s| matches!(s.shape, SlideShape::Wifi))
     {
-        return;
+        return None;
     }
-    let path = build_slide_path(note, slide, pad, svg, scale, spawn_cx, outer_r);
+    let path = build_last_segment_path(note, slide, pad, svg, scale, spawn_cx, outer_r);
     if path.len() < 2 {
-        return;
+        return None;
     }
 
     draw_polyline_band(&path, band_width, fill);
     draw_polyline_band(&path, band_width * 0.42, core);
+
+    let first = path[0];
+    let last = *path.last().unwrap();
+    let dir = last - first;
+    (dir.length_squared() > 1e-6).then(|| (dir.y.atan2(dir.x), last))
 }
 
 /// Fill a custom polygon band of `width` around a polyline by emitting a quad
@@ -96,7 +103,70 @@ pub fn build_slide_path(
     outer_r: f32,
 ) -> Vec<Vec2> {
     let mut path = Vec::new();
-    let start = if note.lane <= 8 {
+    if let Some(start) = slide_start_point(note, svg, pad, spawn_cx, outer_r) {
+        path.push(start);
+    }
+    append_segments(&mut path, note, slide, outer_r, spawn_cx, pad, svg, scale);
+    path
+}
+
+/// Build only the final slide segment's polyline. Used for the slide judgment
+/// band, which is anchored on the last star segment rather than the whole path.
+pub fn build_last_segment_path(
+    note: &Note,
+    slide: &Slide,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+    spawn_cx: Vec2,
+    outer_r: f32,
+) -> Vec<Vec2> {
+    let mut path = Vec::new();
+    if let Some(start) = slide_start_point(note, svg, pad, spawn_cx, outer_r) {
+        path.push(start);
+    }
+    let mut current = note.clone();
+    let last = slide.segments.len().saturating_sub(1);
+    for (i, segment) in slide.segments.iter().enumerate() {
+        if i == last {
+            let mut segment_path = Vec::new();
+            if let Some(&joint) = path.last() {
+                segment_path.push(joint);
+            }
+            append_segment(
+                &mut segment_path,
+                &mut current,
+                segment,
+                outer_r,
+                spawn_cx,
+                pad,
+                svg,
+                scale,
+            );
+            return segment_path;
+        }
+        append_segment(
+            &mut path,
+            &mut current,
+            segment,
+            outer_r,
+            spawn_cx,
+            pad,
+            svg,
+            scale,
+        );
+    }
+    path
+}
+
+fn slide_start_point(
+    note: &Note,
+    svg: &PadSvgDef,
+    pad: &PadGeom,
+    spawn_cx: Vec2,
+    outer_r: f32,
+) -> Option<Vec2> {
+    if note.lane <= 8 {
         let idx = (note.lane - 1) as f32;
         let angle =
             -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
@@ -104,51 +174,64 @@ pub fn build_slide_path(
         Some(spawn_cx + vec2(angle.cos(), angle.sin()) * radius)
     } else {
         svg.zone_screen_centroid(PadZone::from(note.lane), pad)
-    };
-    if let Some(start) = start {
-        path.push(start);
     }
+}
 
+fn append_segments(
+    path: &mut Vec<Vec2>,
+    note: &Note,
+    slide: &Slide,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+) {
     let mut current = note.clone();
     for segment in &slide.segments {
-        match segment.shape {
-            SlideShape::Q => slide_shape_q(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::QQ => slide_shape_qq(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::P => slide_shape_p(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::PP => slide_shape_pp(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::Left => slide_shape_left(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::Right => slide_shape_right(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::Caret => slide_shape_caret(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::Z => slide_shape_z(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::S => slide_shape_s(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
-            SlideShape::Wifi => {}
-            SlideShape::Line | SlideShape::VShape | SlideShape::BigV => slide_shape_line(
-                &mut path, &current, segment, outer_r, spawn_cx, pad, svg, scale,
-            ),
+        append_segment(
+            path, &mut current, segment, outer_r, spawn_cx, pad, svg, scale,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_segment(
+    path: &mut Vec<Vec2>,
+    current: &mut Note,
+    segment: &crate::app::types::SlideSegment,
+    outer_r: f32,
+    spawn_cx: Vec2,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+) {
+    match segment.shape {
+        SlideShape::Q => slide_shape_q(path, current, segment, outer_r, spawn_cx, pad, svg, scale),
+        SlideShape::QQ => slide_shape_qq(path, current, segment, outer_r, spawn_cx, pad, svg, scale),
+        SlideShape::P => slide_shape_p(path, current, segment, outer_r, spawn_cx, pad, svg, scale),
+        SlideShape::PP => {
+            slide_shape_pp(path, current, segment, outer_r, spawn_cx, pad, svg, scale)
         }
-        if let Some(last) = segment.points.last() {
-            current.lane = last.zone.to_id();
+        SlideShape::Left => {
+            slide_shape_left(path, current, segment, outer_r, spawn_cx, pad, svg, scale)
+        }
+        SlideShape::Right => {
+            slide_shape_right(path, current, segment, outer_r, spawn_cx, pad, svg, scale)
+        }
+        SlideShape::Caret => {
+            slide_shape_caret(path, current, segment, outer_r, spawn_cx, pad, svg, scale)
+        }
+        SlideShape::Z => slide_shape_z(path, current, segment, outer_r, spawn_cx, pad, svg, scale),
+        SlideShape::S => slide_shape_s(path, current, segment, outer_r, spawn_cx, pad, svg, scale),
+        SlideShape::Wifi => {}
+        SlideShape::Line | SlideShape::VShape | SlideShape::BigV => {
+            slide_shape_line(path, current, segment, outer_r, spawn_cx, pad, svg, scale)
         }
     }
-    path
+    if let Some(last) = segment.points.last() {
+        current.lane = last.zone.to_id();
+    }
 }
 
 /// Draw a single slide on the pad surface: path tiles + head star + flying star.
