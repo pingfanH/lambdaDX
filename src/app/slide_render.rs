@@ -24,14 +24,16 @@ pub struct SlideTextures<'a> {
     pub wifi: [Option<&'a Texture2D>; 11],
 }
 
-/// Draw a filled polygon band along the slide's **last star segment** as the
-/// judgment background.
+/// Draw a filled polygon band over the slide's **last touch judge segment** as
+/// the judgment background.
 ///
-/// Anchoring on the final segment (instead of the whole path) keeps the effect
-/// local to where the slide is judged. The band follows that segment's exact
-/// polyline, so its direction always matches the slide. `fill` paints the wide
-/// background band and `core` paints a brighter center stripe. Returns the
-/// segment direction in radians so callers can align the judgment text. Wifi
+/// The slide path is sampled into trail bars and merged into per-sensor-area
+/// judge segments (see [`segmentation`]). The band covers only the final such
+/// block — the last piece the star can be touched/slid through — instead of the
+/// whole path or shape segment. The band follows the sampled bars, so its
+/// direction always matches the slide. `fill` paints the wide background band
+/// and `core` paints a brighter center stripe. Returns the block direction in
+/// radians and its end point so callers can align the judgment text. Wifi
 /// slides are skipped because their three tracks are rendered separately.
 pub fn draw_slide_judge_band(
     note: &Note,
@@ -52,16 +54,47 @@ pub fn draw_slide_judge_band(
     {
         return None;
     }
-    let path = build_last_segment_path(note, slide, pad, svg, scale, spawn_cx, outer_r);
+    let path = build_slide_path(note, slide, pad, svg, scale, spawn_cx, outer_r);
     if path.len() < 2 {
         return None;
     }
+    let segmentation = segmentation::build(&path, SLIDE_TILE_SPACING * scale, svg, pad);
+    let last_segment = segmentation.judge_segments.last()?;
+    let start = last_segment.start_bar;
+    let end = last_segment.end_bar.min(segmentation.bars.len());
+    if start >= end {
+        return None;
+    }
 
-    draw_polyline_band(&path, band_width, fill);
-    draw_polyline_band(&path, band_width * 0.42, core);
+    let mut block: Vec<Vec2> = segmentation.bars[start..end]
+        .iter()
+        .map(|bar| bar.position)
+        .collect();
+    if block.is_empty() {
+        return None;
+    }
+    if block.len() == 1 {
+        // A one-bar block still needs two points to form a band; extend along
+        // the incoming direction of the path.
+        let hint = if start > 0 {
+            block[0] - segmentation.bars[start - 1].position
+        } else {
+            Vec2::ZERO
+        };
+        let dir = if hint.length_squared() > 1e-6 {
+            hint.normalize()
+        } else {
+            vec2(1.0, 0.0)
+        };
+        let half = band_width.max(1.0) * 0.5;
+        block = vec![block[0] - dir * half, block[0] + dir * half];
+    }
 
-    let first = path[0];
-    let last = *path.last().unwrap();
+    draw_polyline_band(&block, band_width, fill);
+    draw_polyline_band(&block, band_width * 0.42, core);
+
+    let first = block[0];
+    let last = *block.last().unwrap();
     let dir = last - first;
     (dir.length_squared() > 1e-6).then(|| (dir.y.atan2(dir.x), last))
 }
@@ -110,55 +143,8 @@ pub fn build_slide_path(
     path
 }
 
-/// Build only the final slide segment's polyline. Used for the slide judgment
-/// band, which is anchored on the last star segment rather than the whole path.
-pub fn build_last_segment_path(
-    note: &Note,
-    slide: &Slide,
-    pad: &PadGeom,
-    svg: &PadSvgDef,
-    scale: f32,
-    spawn_cx: Vec2,
-    outer_r: f32,
-) -> Vec<Vec2> {
-    let mut path = Vec::new();
-    if let Some(start) = slide_start_point(note, svg, pad, spawn_cx, outer_r) {
-        path.push(start);
-    }
-    let mut current = note.clone();
-    let last = slide.segments.len().saturating_sub(1);
-    for (i, segment) in slide.segments.iter().enumerate() {
-        if i == last {
-            let mut segment_path = Vec::new();
-            if let Some(&joint) = path.last() {
-                segment_path.push(joint);
-            }
-            append_segment(
-                &mut segment_path,
-                &mut current,
-                segment,
-                outer_r,
-                spawn_cx,
-                pad,
-                svg,
-                scale,
-            );
-            return segment_path;
-        }
-        append_segment(
-            &mut path,
-            &mut current,
-            segment,
-            outer_r,
-            spawn_cx,
-            pad,
-            svg,
-            scale,
-        );
-    }
-    path
-}
-
+/// Screen-space start point of a slide path: the outer tap ring for A zones,
+/// or the zone centroid for screen zones.
 fn slide_start_point(
     note: &Note,
     svg: &PadSvgDef,
