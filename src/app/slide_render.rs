@@ -24,6 +24,98 @@ pub struct SlideTextures<'a> {
     pub wifi: [Option<&'a Texture2D>; 11],
 }
 
+/// Textures for the slide `just` overlay (MajdataView's `slideOK`).
+pub struct JustTextures<'a> {
+    pub curv: Option<&'a Texture2D>,
+    pub straight: Option<&'a Texture2D>,
+    pub wifi: Option<&'a Texture2D>,
+}
+
+/// Draw the MajdataView `just` trajectory overlay for one sub-slide.
+///
+/// Quick build: one template sprite per slide, anchored at the path start,
+/// rotated to the initial path direction and scaled to the path length. Curved
+/// slides mirror the template according to the path turn direction so the
+/// overlay follows the same way the slide bends. Wifi slides are skipped here
+/// because their three tracks are rendered separately.
+pub fn draw_slide_just(
+    note: &Note,
+    slide: &Slide,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+    spawn_cx: Vec2,
+    outer_r: f32,
+    tex: &JustTextures,
+    tint: Color,
+) {
+    if slide
+        .segments
+        .iter()
+        .any(|s| matches!(s.shape, SlideShape::Wifi))
+    {
+        return;
+    }
+    let path = build_slide_path(note, slide, pad, svg, scale, spawn_cx, outer_r);
+    if path.len() < 2 {
+        return;
+    }
+    let is_curved = slide.segments.iter().any(|s| {
+        matches!(
+            s.shape,
+            SlideShape::Q
+                | SlideShape::QQ
+                | SlideShape::P
+                | SlideShape::PP
+                | SlideShape::Left
+                | SlideShape::Right
+                | SlideShape::Caret
+                | SlideShape::Z
+                | SlideShape::S
+        )
+    });
+    let used = if is_curved {
+        tex.curv.or(tex.straight)
+    } else {
+        tex.straight.or(tex.curv)
+    };
+    let Some(tex) = used else { return };
+
+    let total_len: f32 = path
+        .windows(2)
+        .map(|w| (w[1] - w[0]).length())
+        .sum::<f32>()
+        .max(1.0);
+    let start = path[0];
+    let dir = (path[1] - path[0]).normalize_or_zero();
+    // Sum of turn cross-products: its sign tells which way the path bends so
+    // the curved template can be mirrored like MajdataView's left/right sprites.
+    let mut turn = 0.0f32;
+    for w in path.windows(3) {
+        let a = (w[1] - w[0]).normalize_or_zero();
+        let b = (w[2] - w[1]).normalize_or_zero();
+        turn += a.x * b.y - a.y * b.x;
+    }
+    let flip = is_curved && turn < 0.0;
+
+    let tw = total_len;
+    let aspect = tex.height() / tex.width().max(1.0);
+    let th = (tw * aspect).max(1.0);
+    draw_texture_ex(
+        tex,
+        start.x,
+        start.y,
+        tint,
+        DrawTextureParams {
+            dest_size: Some(vec2(tw, th)),
+            rotation: dir.y.atan2(dir.x),
+            flip_x: flip,
+            pivot: Some(start),
+            ..Default::default()
+        },
+    );
+}
+
 /// Build the standard Slide polyline used by both rendering and judgment.
 /// Wifi uses a separate three-track renderer and is intentionally omitted.
 pub fn build_slide_path(

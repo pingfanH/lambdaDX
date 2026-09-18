@@ -14,7 +14,7 @@ use lambda_dx::types::{
     note_flight_speed, note_lead_time, note_lock_radius, note_radial_motion, note_secs,
     sanitize_note_zone, slide_end_time, touch_whole_duration,
 };
-use lambda_dx::ui::draw_hold_9slice_segment;
+use lambda_dx::ui::{draw_hold_9slice_segment_opt};
 use lambda_dx::{pad_svg, slide_render};
 use macroquad::color::{Color, WHITE};
 use macroquad::math::{Vec2, vec2};
@@ -452,6 +452,31 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                             .map(|progress| progress.hidden_until_bar)
                             .unwrap_or(0),
                     );
+
+                    // MajdataView `just` overlay: shown once lnmai-core reports
+                    // this slide's judgment, tinted by grade and faded out.
+                    if let Some(fx) = app.slide_judge.get(&(note.id, si)) {
+                        let age = (macroquad::prelude::get_time() - fx.started) as f32;
+                        let alpha =
+                            (1.0 - age / crate::state::SLIDE_JUST_DURATION as f32).clamp(0.0, 1.0);
+                        let c = fx.kind.tint();
+                        let just_tex = slide_render::JustTextures {
+                            curv: app.just_curv_tex.as_ref(),
+                            straight: app.just_str_tex.as_ref(),
+                            wifi: app.just_wifi_tex.as_ref(),
+                        };
+                        slide_render::draw_slide_just(
+                            note,
+                            sl,
+                            &pad,
+                            svg,
+                            scale,
+                            spawn_center,
+                            outer_r,
+                            &just_tex,
+                            Color::new(c.r, c.g, c.b, alpha),
+                        );
+                    }
                 }
             }
         }
@@ -467,6 +492,30 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             };
             let px = spawn_cx.x + dir.x * motion.radius;
             let py = spawn_cx.y + dir.y * motion.radius;
+
+            // MajdataView draws a `tapLine` spoke behind A-zone notes. The skin
+            // has no line texture, so approximate it procedurally: the line
+            // grows with the radial distance like `|distance/4.8|`.
+            if !matches!(note.note_type, NoteType::Slide) {
+                let line_scale = (motion.radius / (outer_r + TAP_TARGET_OFFSET)).clamp(0.0, 1.0);
+                if line_scale > 0.05 {
+                    let (lr, lg, lb) = if note.is_break {
+                        (255u8, 150u8, 90u8)
+                    } else if note.is_each {
+                        (255u8, 226u8, 150u8)
+                    } else {
+                        (150u8, 200u8, 255u8)
+                    };
+                    draw_line(
+                        spawn_cx.x,
+                        spawn_cx.y,
+                        px,
+                        py,
+                        (TAP_SIZE * 0.12 * scale * motion.scale).max(1.0),
+                        Color::from_rgba(lr, lg, lb, (80.0 * line_scale) as u8),
+                    );
+                }
+            }
 
             if matches!(note.note_type, NoteType::Hold) {
                 let lock_r = note_lock_radius(outer_r, TAP_TARGET_OFFSET);
@@ -510,28 +559,43 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                 };
                 let head_pos = vec2(hx, hy);
                 let tail_pos = vec2(tx, ty);
+                // MajdataView only enables the tail cap (`holdEndRender`) once
+                // the tail has left the inner lock radius. Hide it while the
+                // head is still growing so the caps do not double-draw at spawn.
+                let tail_visible = tail_dt_scaled <= drain_window;
+                // Break notes pulse while unjudged; held holds add a soft pulse.
+                let held = current_t >= ns
+                    && tail_dt > 0.0
+                    && app
+                        .active_pointer_zones
+                        .values()
+                        .any(|z| z.to_id() == zone);
+                let hold_shine = note_shine(note.is_break, held);
+                let hold_tint = Color::new(hold_shine, hold_shine, hold_shine, 1.0);
                 // Draw the body directly from the head to the tail: at spawn the
                 // head and tail judgment points overlap (body 0) and the head cap
                 // follows the head immediately once the grow phase ends. The
                 // 9-slice keeps the caps at natural size so the grow blob renders.
                 if let Some(tex) = hold_tex.or(app.hold_texture.as_ref()) {
-                    draw_hold_9slice_segment(
+                    draw_hold_9slice_segment_opt(
                         tex,
                         head_pos,
                         tail_pos,
                         hold_w.max(1.0),
-                        Color::from_rgba(255, 255, 255, 255),
+                        hold_tint,
                         dir,
+                        tail_visible,
                     );
                     if note.is_ex {
                         if let Some(ex_tex) = app.hold_ex_tex.as_ref() {
-                            draw_hold_9slice_segment(
+                            draw_hold_9slice_segment_opt(
                                 ex_tex,
                                 head_pos,
                                 tail_pos,
                                 hold_w.max(1.0),
-                                Color::from_rgba(255, 255, 255, 255),
+                                hold_tint,
                                 dir,
+                                tail_visible,
                             );
                         }
                     }
@@ -563,12 +627,16 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                 } else {
                     app.tap_texture.as_ref()
                 };
+                // Break taps pulse their brightness, matching MajdataView's
+                // `_Brightness` shader property.
+                let tap_shine = note_shine(note.is_break, false);
+                let tap_tint = Color::new(tap_shine, tap_shine, tap_shine, 1.0);
                 if let Some(tex) = tap_tex.or(app.tap_texture.as_ref()) {
                     draw_texture_ex(
                         tex,
                         px - ts * 0.5,
                         py - ts * 0.5,
-                        WHITE,
+                        tap_tint,
                         DrawTextureParams {
                             dest_size: Some(vec2(ts, ts)),
                             ..Default::default()
@@ -581,7 +649,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                                 ex_tex,
                                 px - ts * 0.5,
                                 py - ts * 0.5,
-                                WHITE,
+                                tap_tint,
                                 DrawTextureParams {
                                     dest_size: Some(vec2(ts, ts)),
                                     ..Default::default()
@@ -952,6 +1020,28 @@ pub async fn load_note_textures(app: &mut PlayerState) {
             break;
         }
     }
+    for (candidates, slot) in [
+        (
+            ["Skins/classic/just_curv.png", "just_curv.png"],
+            &mut app.just_curv_tex,
+        ),
+        (
+            ["Skins/classic/just_str.png", "just_str.png"],
+            &mut app.just_str_tex,
+        ),
+        (
+            ["Skins/classic/just_wifi.png", "just_wifi.png"],
+            &mut app.just_wifi_tex,
+        ),
+    ] {
+        for path in candidates {
+            if let Ok(tex) = load_texture(path).await {
+                tex.set_filter(FilterMode::Linear);
+                *slot = Some(tex);
+                break;
+            }
+        }
+    }
     for i in 0..11 {
         for path in [
             format!("Skins/classic/wifi_{i}.png"),
@@ -1083,4 +1173,19 @@ pub fn compute_pad_geom(panel: RectF) -> PadGeom {
 fn smoothstep(x: f32) -> f32 {
     let t = x.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+/// Brightness multiplier approximating MajdataView's break shine pulse
+/// (`0.95 + max(sin(frame * 0.17) * 0.5, 0)`) and a soft pulse while a hold is
+/// being held (`HoldShine`).
+fn note_shine(is_break: bool, held: bool) -> f32 {
+    let t = macroquad::prelude::get_time() as f32;
+    let mut brightness = 1.0f32;
+    if is_break {
+        brightness = 0.95 + (t * 60.0 * 0.17).sin().max(0.0) * 0.5;
+    }
+    if held {
+        brightness += (t * 10.0).sin().max(0.0) * 0.35;
+    }
+    brightness
 }

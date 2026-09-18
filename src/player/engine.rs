@@ -766,9 +766,75 @@ fn handle_engine_result(app: &mut crate::state::PlayerState, result: RuntimeStep
         app.push_judgement(display.zone, display.label, display.duration);
     }
 
+    // Record slide judgments so the renderer can show the `just` overlay.
+    let slide_results = if let Some(engine) = app.judge_engine.as_ref() {
+        collect_slide_judge_results(&app.chart, Some(engine), &result)
+    } else {
+        Vec::new()
+    };
+    for slide in slide_results {
+        app.record_slide_judge(
+            slide.note_id,
+            slide.slide_idx,
+            crate::state::SlideJustKind::from_grade(slide.grade),
+        );
+    }
+
     for command in &result.audio_commands {
         play_audio_command(app, command);
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SlideJudgeResult {
+    note_id: u64,
+    slide_idx: usize,
+    grade: lnmai_core::types::JudgeGrade,
+}
+
+/// Map lnmai-core's runtime slide judgments onto the chart's `(note_id,
+/// slide_idx)` keys used by the renderer's per-sub-slide effects.
+fn collect_slide_judge_results(
+    chart: &lambda_dx::app::types::ChartDoc,
+    engine: Option<&JudgeEngine>,
+    result: &RuntimeStepLightResult,
+) -> Vec<SlideJudgeResult> {
+    let mut out = Vec::new();
+    let mut seen: HashSet<(u64, usize)> = HashSet::new();
+    let mut push = |note_index: u64, grade: lnmai_core::types::JudgeGrade| {
+        let Some(engine) = engine else { return };
+        let Some(runtime_slide_index) = engine.runtime_slide_index(note_index) else {
+            return;
+        };
+        let Some((note_id, slide_idx)) = chart_slide_key(chart, runtime_slide_index) else {
+            return;
+        };
+        if seen.insert((note_id, slide_idx)) {
+            out.push(SlideJudgeResult {
+                note_id,
+                slide_idx,
+                grade,
+            });
+        }
+    };
+
+    for command in &result.render_commands {
+        if let RenderCommand::ShowJudgeResult {
+            kind: JudgeEventKind::Slide,
+            grade,
+            note_index,
+            ..
+        } = command
+        {
+            push(*note_index, *grade);
+        }
+    }
+    for event in &result.events {
+        if event.kind == JudgeEventKind::Slide {
+            push(event.note_index, event.grade);
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, PartialEq)]

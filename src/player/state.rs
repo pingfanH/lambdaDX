@@ -19,6 +19,49 @@ pub struct SlideProgress {
     pub hidden_until_bar: usize,
 }
 
+/// Seconds a slide `just` overlay stays on screen after its judgment.
+pub const SLIDE_JUST_DURATION: f64 = 0.65;
+
+/// Display grade for the slide `just` overlay, collapsing lnmai-core's full
+/// fast/late grade set into the four MajdataView `just` variants we ship.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlideJustKind {
+    Perfect,
+    Great,
+    Good,
+    Miss,
+}
+
+impl SlideJustKind {
+    pub fn from_grade(grade: lnmai_core::types::JudgeGrade) -> Self {
+        if grade.is_miss_or_too_fast() {
+            SlideJustKind::Miss
+        } else if grade.is_good_grade() {
+            SlideJustKind::Good
+        } else if grade.is_great_grade() {
+            SlideJustKind::Great
+        } else {
+            SlideJustKind::Perfect
+        }
+    }
+
+    pub fn tint(self) -> macroquad::prelude::Color {
+        match self {
+            SlideJustKind::Perfect => macroquad::prelude::Color::from_rgba(255, 244, 179, 255),
+            SlideJustKind::Great => macroquad::prelude::Color::from_rgba(120, 255, 160, 255),
+            SlideJustKind::Good => macroquad::prelude::Color::from_rgba(120, 190, 255, 255),
+            SlideJustKind::Miss => macroquad::prelude::Color::from_rgba(255, 120, 120, 255),
+        }
+    }
+}
+
+/// A slide `just` effect recorded when lnmai-core reports a slide judgment.
+#[derive(Debug, Clone, Copy)]
+pub struct SlideJudgeFx {
+    pub kind: SlideJustKind,
+    pub started: f64,
+}
+
 fn apply_core_slide_progress_updates_to_chart(
     chart: &ChartDoc,
     slide_progress: &mut HashMap<(u64, usize), SlideProgress>,
@@ -282,6 +325,9 @@ pub struct PlayerState {
     pub touchhold_border_tex: Option<Texture2D>,
     pub slide_tex: Option<Texture2D>,
     pub slide_each_tex: Option<Texture2D>,
+    pub just_curv_tex: Option<Texture2D>,
+    pub just_str_tex: Option<Texture2D>,
+    pub just_wifi_tex: Option<Texture2D>,
     pub wifi_tex: [Option<Texture2D>; 11],
     pub star_tex: Option<Texture2D>,
     pub star_each_tex: Option<Texture2D>,
@@ -328,6 +374,8 @@ pub struct PlayerState {
     pub hidden_notes: HashSet<u64>,
     /// Per-note, per-sub-slide bar cutoff received from lnmai-core render commands.
     pub slide_progress: HashMap<(u64, usize), SlideProgress>,
+    /// Per-note, per-sub-slide `just` overlay shown after a slide judgment.
+    pub slide_judge: HashMap<(u64, usize), SlideJudgeFx>,
 
     /// Loaded lnmai-core judgment session (None until a chart is loaded).
     pub judge_engine: Option<super::engine::JudgeEngine>,
@@ -439,6 +487,9 @@ impl PlayerState {
             touchhold_border_tex: None,
             slide_tex: None,
             slide_each_tex: None,
+            just_curv_tex: None,
+            just_str_tex: None,
+            just_wifi_tex: None,
             wifi_tex: [
                 None, None, None, None, None, None, None, None, None, None, None,
             ],
@@ -481,6 +532,7 @@ impl PlayerState {
             next_note_id: 1,
             hidden_notes: HashSet::new(),
             slide_progress: HashMap::new(),
+            slide_judge: HashMap::new(),
             judge_engine: None,
             engine_events: Vec::new(),
             engine_input_latch: EngineInputLatch::default(),
@@ -535,6 +587,7 @@ impl PlayerState {
         }
         self.chart = chart;
         self.slide_progress.clear();
+        self.slide_judge.clear();
     }
 
     pub fn clear_active_screen_inputs(&mut self) {
@@ -746,6 +799,7 @@ impl PlayerState {
         self.active_record_holds.clear();
         self.clear_active_screen_inputs();
         self.slide_progress.clear();
+        self.slide_judge.clear();
         // The lnmai engine's session keeps its own timeline; reload it so the
         // notes are judged again from the start.
         self.reload_judge_engine();
@@ -757,6 +811,22 @@ impl PlayerState {
         updates: &[super::engine::SlideProgressUpdate],
     ) {
         apply_core_slide_progress_updates_to_chart(&self.chart, &mut self.slide_progress, updates);
+    }
+
+    /// Record a slide `just` overlay when lnmai-core reports a slide judgment.
+    pub fn record_slide_judge(
+        &mut self,
+        note_id: u64,
+        slide_idx: usize,
+        kind: SlideJustKind,
+    ) {
+        self.slide_judge.insert(
+            (note_id, slide_idx),
+            SlideJudgeFx {
+                kind,
+                started: get_time(),
+            },
+        );
     }
 
     pub fn toggle_record(&mut self) {
@@ -787,6 +857,8 @@ impl PlayerState {
         let now = get_time();
         self.pad_feedback.retain(|f| f.until > now);
         self.judge_feedback.retain(|f| f.until > now);
+        self.slide_judge
+            .retain(|_, fx| now - fx.started < SLIDE_JUST_DURATION);
     }
 
     pub fn push_feedback(&mut self, zone: PadZone, duration: f64) {

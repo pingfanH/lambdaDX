@@ -571,6 +571,21 @@ pub fn draw_hold_9slice_segment(
     tint: Color,
     fallback_dir: Vec2,
 ) {
+    draw_hold_9slice_segment_opt(tex, from, to, width, tint, fallback_dir, true);
+}
+
+/// Like [`draw_hold_9slice_segment`], but `draw_tail_cap` lets the caller hide
+/// the tail cap until the hold tail has entered the play field (MajdataView
+/// only enables `holdEndRender` once `holdDistance >= 1.225`).
+pub fn draw_hold_9slice_segment_opt(
+    tex: &Texture2D,
+    from: Vec2,
+    to: Vec2,
+    width: f32,
+    tint: Color,
+    fallback_dir: Vec2,
+    draw_tail_cap: bool,
+) {
     let delta = to - from;
     let len = delta.length();
     // `dir` is consistently from head to tail (inward). The head cap's texture
@@ -630,7 +645,9 @@ pub fn draw_hold_9slice_segment(
     // Draw the tail and body first, then the head cap on top, so when the caps
     // overlap (head ≈ tail at spawn, body 0) the head is never hidden behind
     // the tail — while both caps remain visible.
-    draw_part(tail_start, tail_len, tex_h - cap_h, cap_h);
+    if draw_tail_cap {
+        draw_part(tail_start, tail_len, tex_h - cap_h, cap_h);
+    }
     draw_part(body_start, body_len, cap_h, body_src_h);
     draw_part(head_start, head_len, 0.0, cap_h);
 }
