@@ -339,8 +339,8 @@ impl InputTp for TimedInputEvent {
 mod tests {
     use super::{
         JudgeEngine, SlideProgressUpdate, chart_note_head_zone, collect_judge_result_displays,
-        display_label_for_grade, event_position_zone, judge_result_zone, judge_sfx_allowed,
-        press_events_for_zone,
+        collect_slide_judge_results, display_label_for_grade, event_position_zone, judge_result_zone,
+        judge_sfx_allowed, press_events_for_zone,
     };
     use lambda_dx::simai_io::{parse_simai_source, simai_file_to_chart_doc};
     use lambda_dx::types::zone::PadZone;
@@ -662,6 +662,28 @@ mod tests {
                 .iter()
                 .any(|display| display.zone == PadZone::from(5_u8) && display.label == "Miss"),
             "when core emits a slide event without a render command, the player should still display the core grade at the endpoint"
+        );
+    }
+
+    #[test]
+    fn missed_slide_records_miss_just_effect() {
+        let (chart, text) = sample_slide_chart_and_text(SlideShape::Line, PadZone::from(5_u8));
+        let mut engine = JudgeEngine::load(&text, 6).expect("slide chart loads");
+
+        let result = engine
+            .step(5.0, Vec::new())
+            .expect("missed slide frame should produce core commands");
+        let results = collect_slide_judge_results(&chart, Some(&engine), &result);
+
+        assert!(
+            !results.is_empty(),
+            "a missed slide should still record a just effect"
+        );
+        assert!(
+            results
+                .iter()
+                .all(|slide| slide.grade.is_miss_or_too_fast()),
+            "the recorded grade should be the core miss"
         );
     }
 

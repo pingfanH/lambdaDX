@@ -320,6 +320,42 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         }
     }
 
+    // Slide judgment backgrounds (custom polygon bands). Drawn before the
+    // notes and independent of note culling, so a late "too late" miss — which
+    // the core reports after the slide has already left the visible window —
+    // still shows its band.
+    if let Some(svg) = app.pad_svg.as_ref() {
+        for note in app.chart.notes.iter() {
+            if !matches!(note.note_type, NoteType::Slide) || note.slide.is_empty() {
+                continue;
+            }
+            if app.hidden_notes.contains(&note.id) {
+                continue;
+            }
+            for (si, sl) in note.slide.iter().enumerate() {
+                let Some(fx) = app.slide_judge.get(&(note.id, si)) else {
+                    continue;
+                };
+                let age = (macroquad::prelude::get_time() - fx.started) as f32;
+                let alpha =
+                    (1.0 - age / crate::state::SLIDE_JUST_DURATION as f32).clamp(0.0, 1.0);
+                let c = fx.kind.tint();
+                slide_render::draw_slide_judge_band(
+                    note,
+                    sl,
+                    &pad,
+                    svg,
+                    scale,
+                    spawn_cx,
+                    outer_r,
+                    TAP_SIZE * 1.3 * scale,
+                    Color::new(c.r, c.g, c.b, alpha * 0.45),
+                    Color::new(c.r, c.g, c.b, alpha * 0.85),
+                );
+            }
+        }
+    }
+
     let bpms = &app.chart.bpms;
     for (_p_idx, note) in app.chart.notes.iter().enumerate() {
         if app.hidden_notes.contains(&note.id) {
@@ -452,28 +488,6 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                             .map(|progress| progress.hidden_until_bar)
                             .unwrap_or(0),
                     );
-
-                    // MajdataView `just` overlay reworked as a custom polygon
-                    // band: drawn once lnmai-core reports this slide's judgment,
-                    // tinted by grade and faded out.
-                    if let Some(fx) = app.slide_judge.get(&(note.id, si)) {
-                        let age = (macroquad::prelude::get_time() - fx.started) as f32;
-                        let alpha =
-                            (1.0 - age / crate::state::SLIDE_JUST_DURATION as f32).clamp(0.0, 1.0);
-                        let c = fx.kind.tint();
-                        slide_render::draw_slide_judge_band(
-                            note,
-                            sl,
-                            &pad,
-                            svg,
-                            scale,
-                            spawn_center,
-                            outer_r,
-                            TAP_SIZE * 1.3 * scale,
-                            Color::new(c.r, c.g, c.b, alpha * 0.45),
-                            Color::new(c.r, c.g, c.b, alpha * 0.85),
-                        );
-                    }
                 }
             }
         }
@@ -843,11 +857,14 @@ fn draw_judge_feedback_overlay(
         } else {
             255u8
         };
-        let color = match feedback.label.as_str() {
-            "Perfect" => Color::from_rgba(255, 215, 0, alpha),
-            "Great" => Color::from_rgba(0, 255, 0, alpha),
-            _ => Color::from_rgba(255, 255, 255, alpha),
-        };
+        // Use the color recorded with the feedback so Miss (red) and Good
+        // (blue) are tinted like Perfect/Great instead of falling back to white.
+        let color = Color::new(
+            feedback.color.r,
+            feedback.color.g,
+            feedback.color.b,
+            alpha as f32 / 255.0,
+        );
         let pos = if feedback.zone.to_id() <= 8 {
             let idx = (feedback.zone.to_id() - 1) as f32;
             let ang =
