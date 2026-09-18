@@ -5,24 +5,43 @@ use std::process::Command;
 
 pub fn build() {
     // The Lean project itself is supplied by the pinned lnmai-core flake input.
-    // This Rust wrapper only consumes its sanitized linker response file.
+    // This Rust wrapper only consumes its sanitized linker response file, but it
+    // can also fall back to a local Lake checkout for non-Nix development.
     println!("cargo:rerun-if-env-changed=LNMAI_CORE_ARTIFACTS");
+    println!("cargo:rerun-if-env-changed=LNMAI_CORE_LEAN_PROJECT");
 
-    let artifacts = PathBuf::from(env::var("LNMAI_CORE_ARTIFACTS").expect(
-        "LNMAI_CORE_ARTIFACTS must be set by the Nix build; run through nix build/nix run",
-    ));
-    let lake_rsp_path = artifacts.join("share/lnmai-core/ffi-link.rsp");
-    if !lake_rsp_path.exists() {
-        panic!(
-            "missing sanitized Nix-built Lean response file at {}; build lnmai-core .#ffi-artifacts first",
-            lake_rsp_path.display()
-        );
-    }
+    let lake_args = match env::var("LNMAI_CORE_ARTIFACTS")
+        .ok()
+        .filter(|value| !value.is_empty())
+    {
+        Some(artifacts) => {
+            let lake_rsp_path =
+                PathBuf::from(artifacts).join("share/lnmai-core/ffi-link.rsp");
+            if !lake_rsp_path.exists() {
+                panic!(
+                    "missing sanitized Nix-built Lean response file at {}; build lnmai-core .#ffi-artifacts first",
+                    lake_rsp_path.display()
+                );
+            }
 
-    println!("cargo:rerun-if-changed={}", lake_rsp_path.display());
-    let lake_rsp =
-        fs::read_to_string(&lake_rsp_path).expect("failed to read Lake link response file");
-    let lake_args = parse_rsp(&lake_rsp);
+            println!("cargo:rerun-if-changed={}", lake_rsp_path.display());
+            let lake_rsp =
+                fs::read_to_string(&lake_rsp_path).expect("failed to read Lake link response file");
+            parse_rsp(&lake_rsp)
+        }
+        None => {
+            let lean_project = find_lean_project();
+            run_lake_build(&lean_project);
+            let lake_rsp_path = lean_project.join(".lake/build/bin/lnmai-core.rsp");
+            println!("cargo:rerun-if-changed={}", lake_rsp_path.display());
+            let lake_rsp = fs::read_to_string(&lake_rsp_path)
+                .unwrap_or_else(|error| panic!(
+                    "failed to read Lake link response file at {}: {error}",
+                    lake_rsp_path.display()
+                ));
+            parse_rsp(&lake_rsp)
+        }
+    };
 
     let resolved = resolve_system_libraries(&lake_args);
 
@@ -42,6 +61,102 @@ pub fn build() {
     if cfg!(target_os = "macos") {
         println!("cargo:rustc-link-arg=-Wl,-syslibroot");
         println!("cargo:rustc-link-arg={}", sdk_path());
+    }
+}
+
+fn find_lean_project() -> PathBuf {
+    if let Ok(path) = env::var("LNMAI_CORE_LEAN_PROJECT") {
+        let path = PathBuf::from(path);
+        if path.join("lakefile.toml").exists() {
+            return path;
+        }
+        panic!(
+            "LNMAI_CORE_LEAN_PROJECT does not point at a Lake project: {}",
+            path.display()
+        );
+    }
+
+    // Resolve relative to the Cargo workspace root rather than the calling
+    // crate's manifest dir so every crate in the workspace links the same Lake
+    // project.
+    //
+    // Prefer the `lnmai-core-ffi` submodule: it is a git clone of
+    // Neuron-Group/lnmai-core whose FFI schema matches `shared/rust_ffi_types.rs`
+    // (slide heads/bodies, `headTiming`). A sibling `../lnmai-core` checkout is
+    // only used as a fallback because it may be a pre-refactor snapshot that
+    // emits the legacy `timing` field and fails deserialization.
+    let workspace_root = workspace_root();
+    let candidates = [
+        workspace_root.join("lnmai-core-rs/lnmai-core-ffi/lnmai-core"),
+        workspace_root.join("../lnmai-core"),
+        workspace_root.join("lnmai-core-lean"),
+        workspace_root.join("../lnmai-core-lean"),
+    ];
+    for candidate in candidates {
+        if candidate.join("lakefile.toml").exists() {
+            return fs::canonicalize(&candidate).unwrap_or(candidate);
+        }
+    }
+
+    panic!(
+        "LNMAI_CORE_ARTIFACTS is not set and no local Lean project was found under {}; run through `nix build`/`nix run`, or set LNMAI_CORE_LEAN_PROJECT to a Lake checkout of Neuron-Group/lnmai-core",
+        workspace_root.display()
+    );
+}
+
+fn workspace_root() -> PathBuf {
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("missing CARGO_MANIFEST_DIR"));
+    let mut dir = manifest_dir.as_path();
+    loop {
+        let cargo_toml = dir.join("Cargo.toml");
+        if let Ok(content) = fs::read_to_string(&cargo_toml) {
+            if content.lines().any(|line| line.trim() == "[workspace]") {
+                return dir.to_path_buf();
+            }
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => return manifest_dir,
+        }
+    }
+}
+
+fn run_lake_build(lean_project: &Path) {
+    println!(
+        "cargo:rerun-if-changed={}",
+        lean_project.join("lakefile.toml").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        lean_project.join("lean-toolchain").display()
+    );
+
+    let rsp_path = lean_project.join(".lake/build/bin/lnmai-core.rsp");
+    if !rsp_path.exists() {
+        // First build of this Lean project: fetch the mathlib cache so the
+        // subsequent `lake build` does not try to compile mathlib from source.
+        println!(
+            "cargo:warning=lnmai-core: {} missing, running `lake exe cache get` first",
+            rsp_path.display()
+        );
+        let cache_status = Command::new("lake")
+            .args(["exe", "cache", "get"])
+            .current_dir(lean_project)
+            .status()
+            .expect("failed to invoke `lake exe cache get`; install elan/lake or run through `nix develop`");
+        if !cache_status.success() {
+            panic!("`lake exe cache get` failed with status {cache_status}");
+        }
+    }
+
+    let status = Command::new("lake")
+        .args(["build", "lnmai-core", "+LnmaiCore.FFI:c.o"])
+        .current_dir(lean_project)
+        .status()
+        .expect("failed to invoke `lake build`; install elan/lake or run through `nix develop`");
+    if !status.success() {
+        panic!("`lake build` failed with status {status}");
     }
 }
 

@@ -2,6 +2,7 @@
 name = "lambda_dx"
 version = "0.1.0"
 edition = "2024"
+default-run = "lambda_dx_player"
 
 [workspace]
 members = [".", "lnmai-core", "lnmai-core/lean-sys"]

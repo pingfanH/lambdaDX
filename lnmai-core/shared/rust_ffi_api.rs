@@ -47,10 +47,19 @@ fn into_io_string(result: *mut lean_object) -> Result<String> {
 }
 
 fn decode_envelope<T: DeserializeOwned>(json: String) -> Result<T> {
-    let envelope: types::FfiEnvelope<T> =
-        serde_json::from_str(&json).map_err(|_| LnmaiError { json: json.clone() })?;
+    let envelope: types::FfiEnvelope<T> = serde_json::from_str(&json).map_err(|error| LnmaiError {
+        json: serde_json::json!({
+            "error": { "message": format!("failed to decode lnmai-core FFI envelope: {error}") }
+        })
+        .to_string(),
+    })?;
     if envelope.ok {
-        envelope.result.ok_or(LnmaiError { json })
+        envelope.result.ok_or_else(|| LnmaiError {
+            json: serde_json::json!({
+                "error": { "message": "lnmai-core FFI envelope declared ok but carried no result" }
+            })
+            .to_string(),
+        })
     } else {
         Err(LnmaiError { json })
     }

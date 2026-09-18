@@ -138,6 +138,7 @@ async fn run(launch_args: LaunchArgs) {
             {
                 evdev_touch = None;
             }
+            #[cfg(target_os = "linux")]
             if let Some(t) = evdev_touch.as_mut() {
                 pointer_events.extend(t.collect_pointer_events(macroquad::math::vec2(
                     macroquad::prelude::screen_width(),
