@@ -152,6 +152,7 @@ async fn run(launch_args: LaunchArgs) {
 
         if app.player_ui.page == state::PlayerPage::Gameplay
             && app.mode == lambda_dx::app::types::Mode::Playing
+            && !app.playback_pending
         {
             engine::step_judge_engine(&mut app);
         }
@@ -169,6 +170,13 @@ async fn run(launch_args: LaunchArgs) {
             egui::draw_egui_ui(egui_ctx, &mut app);
         });
         egui_macroquad::draw();
+
+        // The gameplay screen has now been presented: release the frozen song
+        // clock and kick off audio, so loading the chart/audio never advances
+        // the timeline before the player can see it.
+        if app.player_ui.page == state::PlayerPage::Gameplay && app.playback_pending {
+            app.finalize_playback_start();
+        }
         let egui_elapsed = egui_start.elapsed();
 
         perf::record("frontend.draw_input", draw_input_elapsed);

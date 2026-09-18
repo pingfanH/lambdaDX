@@ -253,6 +253,10 @@ pub struct PlayerState {
     pub mode: Mode,
     pub mode_wall_anchor: f64,
     pub mode_song_offset: f32,
+    /// Playback is requested but the song clock is frozen until the gameplay
+    /// screen has actually been shown, so loading hitches never eat into the
+    /// chart timeline.
+    pub playback_pending: bool,
 
     pub chart: ChartDoc,
     pub recording_hits: Vec<HitEvent>,
@@ -440,6 +444,7 @@ impl PlayerState {
             mode: Mode::Idle,
             mode_wall_anchor: get_time(),
             mode_song_offset: 0.0,
+            playback_pending: false,
             chart,
             recording_hits: Vec::new(),
             recording_notes: Vec::new(),
@@ -680,6 +685,12 @@ impl PlayerState {
     }
 
     pub fn song_time(&self) -> f32 {
+        // While a playback start is pending, hold the clock at the requested
+        // offset so loading the chart/audio cannot advance the timeline before
+        // the gameplay screen is on screen.
+        if self.playback_pending {
+            return self.mode_song_offset;
+        }
         let elapsed_wall = (get_time() - self.mode_wall_anchor) as f32;
         self.mode_song_offset + elapsed_wall * self.current_speed()
     }
@@ -785,6 +796,7 @@ impl PlayerState {
             self.mode_song_offset = self.song_time();
             self.mode = Mode::Idle;
             self.mode_wall_anchor = get_time();
+            self.playback_pending = false;
             self.stop_audio_if_any();
             if let Some(player) = &mut self.sfx_player {
                 player.stop_looped();
@@ -798,6 +810,7 @@ impl PlayerState {
             self.audio_seek_offset = Some(self.mode_song_offset);
             self.mode = Mode::Playing;
             self.mode_wall_anchor = get_time();
+            self.playback_pending = false;
             self.playback_cursor = 0;
             self.request_audio_start();
             self.set_status(format!(
@@ -814,6 +827,8 @@ impl PlayerState {
         self.mode = Mode::Playing;
         self.timeline_view_time = time.max(0.0);
         self.mode_song_offset = time.max(0.0);
+        self.mode_wall_anchor = get_time();
+        self.playback_pending = true;
         self.audio_seek_offset = Some(time.max(0.0));
         self.recording_hits.clear();
         self.recording_notes.clear();
@@ -822,8 +837,18 @@ impl PlayerState {
         self.slide_progress.clear();
         self.slide_judge.clear();
         // The lnmai engine's session keeps its own timeline; reload it so the
-        // notes are judged again from the start.
+        // notes are judged again from the start. Audio is kicked off by
+        // `finalize_playback_start` once the gameplay screen is visible.
         self.reload_judge_engine();
+    }
+
+    /// Start audio and release the frozen song clock once the gameplay screen
+    /// has been drawn. Called by the main loop after the first gameplay frame.
+    pub fn finalize_playback_start(&mut self) {
+        if !self.playback_pending {
+            return;
+        }
+        self.playback_pending = false;
         self.request_audio_start();
     }
 

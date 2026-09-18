@@ -364,7 +364,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                         end,
                         36.0 * scale,
                         angle,
-                        Color::new(c.r, c.g, c.b, alpha),
+                        Color::new(1.0, 1.0, 1.0, alpha),
                     );
                 }
             }
@@ -872,14 +872,9 @@ fn draw_judge_feedback_overlay(
         } else {
             255u8
         };
-        // Use the color recorded with the feedback so Miss (red) and Good
-        // (blue) are tinted like Perfect/Great instead of falling back to white.
-        let color = Color::new(
-            feedback.color.r,
-            feedback.color.g,
-            feedback.color.b,
-            alpha as f32 / 255.0,
-        );
+        // Judgment text is always white; the slide judge band carries the grade
+        // color as its background instead.
+        let color = Color::new(1.0, 1.0, 1.0, alpha as f32 / 255.0);
         let pos = if feedback.zone.to_id() <= 8 {
             let idx = (feedback.zone.to_id() - 1) as f32;
             let ang =
