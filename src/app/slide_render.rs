@@ -24,21 +24,14 @@ pub struct SlideTextures<'a> {
     pub wifi: [Option<&'a Texture2D>; 11],
 }
 
-/// Textures for the slide `just` overlay (MajdataView's `slideOK`).
-pub struct JustTextures<'a> {
-    pub curv: Option<&'a Texture2D>,
-    pub straight: Option<&'a Texture2D>,
-    pub wifi: Option<&'a Texture2D>,
-}
-
-/// Draw the MajdataView `just` trajectory overlay for one sub-slide.
+/// Draw a filled polygon band along the slide path as the judgment background.
 ///
-/// Quick build: one template sprite per slide, anchored at the path start,
-/// rotated to the initial path direction and scaled to the path length. Curved
-/// slides mirror the template according to the path turn direction so the
-/// overlay follows the same way the slide bends. Wifi slides are skipped here
-/// because their three tracks are rendered separately.
-pub fn draw_slide_just(
+/// The band is built from the exact slide polyline, so it always follows the
+/// slide direction and curvature (including multi-segment and curved slides).
+/// `fill` paints the wide background band and `core` paints a brighter center
+/// stripe on top. Wifi slides are skipped because their three tracks are
+/// rendered separately.
+pub fn draw_slide_judge_band(
     note: &Note,
     slide: &Slide,
     pad: &PadGeom,
@@ -46,8 +39,9 @@ pub fn draw_slide_just(
     scale: f32,
     spawn_cx: Vec2,
     outer_r: f32,
-    tex: &JustTextures,
-    tint: Color,
+    band_width: f32,
+    fill: Color,
+    core: Color,
 ) {
     if slide
         .segments
@@ -60,60 +54,34 @@ pub fn draw_slide_just(
     if path.len() < 2 {
         return;
     }
-    let is_curved = slide.segments.iter().any(|s| {
-        matches!(
-            s.shape,
-            SlideShape::Q
-                | SlideShape::QQ
-                | SlideShape::P
-                | SlideShape::PP
-                | SlideShape::Left
-                | SlideShape::Right
-                | SlideShape::Caret
-                | SlideShape::Z
-                | SlideShape::S
-        )
-    });
-    let used = if is_curved {
-        tex.curv.or(tex.straight)
-    } else {
-        tex.straight.or(tex.curv)
-    };
-    let Some(tex) = used else { return };
 
-    let total_len: f32 = path
-        .windows(2)
-        .map(|w| (w[1] - w[0]).length())
-        .sum::<f32>()
-        .max(1.0);
-    let start = path[0];
-    let dir = (path[1] - path[0]).normalize_or_zero();
-    // Sum of turn cross-products: its sign tells which way the path bends so
-    // the curved template can be mirrored like MajdataView's left/right sprites.
-    let mut turn = 0.0f32;
-    for w in path.windows(3) {
-        let a = (w[1] - w[0]).normalize_or_zero();
-        let b = (w[2] - w[1]).normalize_or_zero();
-        turn += a.x * b.y - a.y * b.x;
+    draw_polyline_band(&path, band_width, fill);
+    draw_polyline_band(&path, band_width * 0.42, core);
+}
+
+/// Fill a custom polygon band of `width` around a polyline by emitting a quad
+/// per segment (two triangles) plus round joints at each vertex.
+fn draw_polyline_band(path: &[Vec2], width: f32, color: Color) {
+    let hw = (width * 0.5).max(0.5);
+    for w in path.windows(2) {
+        let delta = w[1] - w[0];
+        let len = delta.length();
+        if len < 1e-3 {
+            continue;
+        }
+        let dir = delta / len;
+        let normal = vec2(-dir.y, dir.x) * hw;
+        let a = w[0] + normal;
+        let b = w[0] - normal;
+        let c = w[1] + normal;
+        let d = w[1] - normal;
+        draw_triangle(a, b, c, color);
+        draw_triangle(b, d, c, color);
     }
-    let flip = is_curved && turn < 0.0;
-
-    let tw = total_len;
-    let aspect = tex.height() / tex.width().max(1.0);
-    let th = (tw * aspect).max(1.0);
-    draw_texture_ex(
-        tex,
-        start.x,
-        start.y,
-        tint,
-        DrawTextureParams {
-            dest_size: Some(vec2(tw, th)),
-            rotation: dir.y.atan2(dir.x),
-            flip_x: flip,
-            pivot: Some(start),
-            ..Default::default()
-        },
-    );
+    // Round the corners so the band has no notches where segments meet.
+    for p in path {
+        draw_circle(p.x, p.y, hw, color);
+    }
 }
 
 /// Build the standard Slide polyline used by both rendering and judgment.
