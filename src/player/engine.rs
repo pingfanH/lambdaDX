@@ -175,12 +175,24 @@ pub struct JudgeEngine {
 #[derive(Debug, Clone, Copy)]
 struct RuntimeSlideBinding {
     runtime_slide_index: usize,
+    initial_queue_remaining: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlideProgressUpdate {
     pub runtime_slide_index: usize,
     pub hidden_until_bar: usize,
+}
+
+/// lnmai-core's slide progress for one runtime slide, in judge-queue units.
+/// `remaining` counts the sensor blocks left to slide through; `initial` is the
+/// queue length at load time, so `1 - remaining/initial` is the slide progress
+/// the core itself uses to drive the render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlideTrackProgressUpdate {
+    pub runtime_slide_index: usize,
+    pub remaining: u64,
+    pub initial: u64,
 }
 
 fn ensure_runtime() {
@@ -292,6 +304,51 @@ impl JudgeEngine {
         updates
     }
 
+    /// Collect lnmai-core's per-slide progress (remaining sensor blocks) so the
+    /// renderer can move the slide star from the core's own progress instead of
+    /// recomputing it from chart timing. Wifi/connected slides emit one command
+    /// per track; the least-advanced track wins.
+    pub fn slide_track_progress_updates(
+        &self,
+        commands: &[RenderCommand],
+    ) -> Vec<SlideTrackProgressUpdate> {
+        let mut by_slide: HashMap<usize, (u64, u64)> = HashMap::new();
+        for command in commands {
+            let (note_index, remaining) = match command {
+                RenderCommand::UpdateSlideProgress {
+                    note_index,
+                    remaining,
+                } => (*note_index, *remaining),
+                RenderCommand::UpdateSlideTrackProgress {
+                    note_index,
+                    remaining,
+                    ..
+                } => (*note_index, *remaining),
+                _ => continue,
+            };
+            let Some(binding) = self.slide_bindings.get(&note_index) else {
+                continue;
+            };
+            by_slide
+                .entry(binding.runtime_slide_index)
+                .and_modify(|(current, _)| *current = (*current).min(remaining))
+                .or_insert((remaining, binding.initial_queue_remaining));
+        }
+
+        let mut updates: Vec<_> = by_slide
+            .into_iter()
+            .map(
+                |(runtime_slide_index, (remaining, initial))| SlideTrackProgressUpdate {
+                    runtime_slide_index,
+                    remaining,
+                    initial,
+                },
+            )
+            .collect();
+        updates.sort_by_key(|update| update.runtime_slide_index);
+        updates
+    }
+
     fn slide_progress_update(&self, command: &RenderCommand) -> Option<SlideProgressUpdate> {
         let (note_index, hidden_until_bar) = match command {
             RenderCommand::UpdateSlideProgress { .. } => return None,
@@ -328,6 +385,7 @@ fn runtime_slide_bindings(
                 slide.params.note_index,
                 RuntimeSlideBinding {
                     runtime_slide_index,
+                    initial_queue_remaining: slide.initial_queue_remaining,
                 },
             )
         })
@@ -795,10 +853,17 @@ pub fn step_judge_engine(app: &mut crate::state::PlayerState) {
     app.finish_engine_frame();
     match result {
         Ok(result) => {
-            if let Some(engine) = app.judge_engine.as_ref() {
-                let updates = engine.slide_progress_updates(&result.render_commands);
-                app.apply_core_slide_progress_updates(&updates);
-            }
+            let (bar_updates, track_updates) =
+                if let Some(engine) = app.judge_engine.as_ref() {
+                    (
+                        engine.slide_progress_updates(&result.render_commands),
+                        engine.slide_track_progress_updates(&result.render_commands),
+                    )
+                } else {
+                    (Vec::new(), Vec::new())
+                };
+            app.apply_core_slide_progress_updates(&bar_updates);
+            app.apply_core_slide_track_progress_updates(&track_updates);
             handle_engine_result(app, result);
         }
         Err(e) => {

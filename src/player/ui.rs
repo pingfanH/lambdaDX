@@ -388,12 +388,15 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
         let tail_dt_scaled = tail_dt / speed_scale;
 
         let speed = note_flight_speed(note, app.note_speed);
+        // Touch/touch-hold notes use their own 流速 (`touchSpeed * hi_speed`),
+        // matching MajdataView's separate touch speed setting.
+        let touch_flight = note_flight_speed(note, app.touch_speed);
         let lead_time = if zone <= 8 {
             note_lead_time(speed)
         } else {
             match note.note_type {
                 // Touch and touch-hold use MajdataView's whole-duration model.
-                NoteType::Touch | NoteType::Hold => touch_whole_duration(speed),
+                NoteType::Touch | NoteType::Hold => touch_whole_duration(touch_flight),
                 NoteType::Slide => note_lead_time(speed),
                 NoteType::Tap => note_lead_time(speed),
             }
@@ -502,6 +505,14 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                             .get(&(note.id, si))
                             .map(|progress| progress.hidden_until_bar)
                             .unwrap_or(0),
+                        app.slide_progress.get(&(note.id, si)).and_then(|progress| {
+                            match (progress.remaining, progress.initial_remaining) {
+                                (Some(remaining), Some(initial)) if initial > 0 => {
+                                    Some(1.0 - remaining as f32 / initial as f32)
+                                }
+                                _ => None,
+                            }
+                        }),
                     );
                 }
             }
@@ -667,7 +678,7 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
             };
             // Touch notes use MajdataView's whole-duration model so their
             // fade-in/motion timing follows `touchSpeed * hi_speed`.
-            let travel = touch_whole_duration(speed);
+            let travel = touch_whole_duration(touch_flight);
             let raw = (travel - dt_scaled) / travel;
             let progress = smoothstep(raw.clamp(0.0, 1.0));
             // Phase 1: fade in 0→255. Phase 2: animate movement.

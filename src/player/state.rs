@@ -17,6 +17,10 @@ use super::types::{
 pub struct SlideProgress {
     /// Hide trail bars with indexes lower than this value.
     pub hidden_until_bar: usize,
+    /// Remaining sensor blocks from lnmai-core (`UpdateSlideProgress`).
+    pub remaining: Option<u64>,
+    /// Queue length at load time, used to turn `remaining` into progress.
+    pub initial_remaining: Option<u64>,
 }
 
 /// Seconds a slide `just` overlay stays on screen after its judgment.
@@ -97,7 +101,26 @@ fn apply_core_slide_progress_updates_to_chart(
                 })
                 .or_insert_with(|| SlideProgress {
                     hidden_until_bar: update.hidden_until_bar,
+                    ..Default::default()
                 });
+        }
+    }
+}
+
+fn apply_core_slide_track_progress_updates_to_chart(
+    chart: &ChartDoc,
+    slide_progress: &mut HashMap<(u64, usize), SlideProgress>,
+    updates: &[super::engine::SlideTrackProgressUpdate],
+) {
+    for update in updates {
+        if let Some((note_id, slide_idx)) =
+            super::engine::chart_slide_key(chart, update.runtime_slide_index)
+        {
+            let entry = slide_progress.entry((note_id, slide_idx)).or_default();
+            entry.remaining = Some(update.remaining);
+            if entry.initial_remaining.is_none() {
+                entry.initial_remaining = Some(update.initial);
+            }
         }
     }
 }
@@ -493,7 +516,7 @@ impl PlayerState {
             last_click_note: None,
             record_speed: 1.0,
             play_speed: 1.0,
-            touch_speed: 0.3,
+            touch_speed: 7.5,
             note_speed: 7.5,
             slide_fade_in: 3.926_913 / 7.5,
             show_pad_only: false,
@@ -731,9 +754,12 @@ impl PlayerState {
         }
     }
 
-    // pub fn set_touch_speed(&mut self, new_speed: f32) {
-    //     self.touch_speed = new_speed.clamp(TOUCH_SPEED_MIN, TOUCH_SPEED_MAX);
-    // }
+    pub fn set_touch_speed(&mut self, new_speed: f32) {
+        self.touch_speed = new_speed.clamp(
+            lambda_dx::types::TOUCH_SPEED_MIN,
+            lambda_dx::types::TOUCH_SPEED_MAX,
+        );
+    }
 
     pub fn stop_audio_if_any(&mut self) {
         if let Some(player) = &mut self.sfx_player {
@@ -857,6 +883,17 @@ impl PlayerState {
         updates: &[super::engine::SlideProgressUpdate],
     ) {
         apply_core_slide_progress_updates_to_chart(&self.chart, &mut self.slide_progress, updates);
+    }
+
+    pub fn apply_core_slide_track_progress_updates(
+        &mut self,
+        updates: &[super::engine::SlideTrackProgressUpdate],
+    ) {
+        apply_core_slide_track_progress_updates_to_chart(
+            &self.chart,
+            &mut self.slide_progress,
+            updates,
+        );
     }
 
     /// Record a slide `just` overlay when lnmai-core reports a slide judgment.

@@ -85,6 +85,7 @@ fn draw_settings(ui: &mut egui::Ui, app: &mut PlayerState) {
             app.audio_enabled = true;
             app.play_speed = 1.0;
             app.note_speed = 7.5;
+            app.touch_speed = 7.5;
             app.slide_fade_in = 3.926_913 / 7.5;
             app.waveform_threshold = 0.3;
             app.mobile_ui = false;
@@ -120,6 +121,23 @@ fn draw_gameplay(ui: &mut egui::Ui, app: &mut PlayerState) {
     );
     ui.label(
         RichText::new("音符径向飞行速度,参考 MajdataView 的 noteSpeed。")
+            .color(theme::TEXT_SECONDARY),
+    );
+    ui.add_space(16.0);
+    ui.label(
+        RichText::new(format!(
+            "Touch 流速 (Touch Speed)  {:.1}",
+            app.touch_speed
+        ))
+        .strong(),
+    );
+    ui.add(
+        egui::Slider::new(&mut app.touch_speed, 5.0..=10.0)
+            .step_by(0.1)
+            .text("Touch 流速"),
+    );
+    ui.label(
+        RichText::new("触摸音符的飞行速度,参考 MajdataView 的 touchSpeed。")
             .color(theme::TEXT_SECONDARY),
     );
     ui.add_space(16.0);

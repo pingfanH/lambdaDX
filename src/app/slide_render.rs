@@ -252,6 +252,9 @@ pub fn draw_slide(
     base_speed: f32,
     slide_fade_in: f32,
     hidden_until_bar: usize,
+    // lnmai-core's own slide progress in `0..=1` (from `UpdateSlideProgress`).
+    // When present it drives the star position instead of chart timing.
+    judge_progress: Option<f32>,
 ) {
     // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
     // The star motion fills the `[start_delay, total]` window; the travel time
@@ -259,6 +262,9 @@ pub fn draw_slide(
     let slide_start_s = ns + start_delay_s;
     let slide_end_s = ns + slide_dur_s;
     let travel_dur_s = (slide_dur_s - start_delay_s).max(SLIDE_MIN_DURATION_S);
+    // lnmai-core's own progress drives the star when available; otherwise fall
+    // back to chart-time interpolation.
+    let core_star_t = judge_progress.map(|progress| progress.clamp(0.0, 1.0));
     let fade_duration_s = 0.2_f32.min(travel_dur_s).max(0.001);
     let dt = ns - current_t;
     // Scale the approach time by the play speed so the head star flies and
@@ -459,11 +465,13 @@ pub fn draw_slide(
                 };
 
                 // ── Flying star progress (0..1) ──
-                let star_t = if !show_full && current_t >= slide_start_s {
-                    ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
+                let star_t = core_star_t.unwrap_or_else(|| {
+                    if !show_full && current_t >= slide_start_s {
+                        ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    }
+                });
 
                 let sprite_count = 11;
                 let command_hidden_until = hidden_until_bar.min(sprite_count);
@@ -576,11 +584,13 @@ pub fn draw_slide(
         } else {
             ((220.0 * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, 220.0)) as u8
         };
-        let star_t = if current_t < slide_start_s {
-            0.0
-        } else {
-            ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
-        };
+        let star_t = core_star_t.unwrap_or_else(|| {
+            if current_t < slide_start_s {
+                0.0
+            } else {
+                ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
+            }
+        });
         (alpha, star_t * total_len)
     };
 

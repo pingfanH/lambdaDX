@@ -157,6 +157,9 @@ async fn run(launch_args: LaunchArgs) {
             engine::step_judge_engine(&mut app);
         }
 
+        // Capture whether the gameplay screen is drawn on *this* frame before
+        // egui runs, since page switches happen during the egui pass.
+        let gameplay_drawn = app.player_ui.page == state::PlayerPage::Gameplay;
         if app.player_ui.shows_gameplay_background() {
             player_layout::draw_layout(&app, layout, pad_geom, &buttons);
         }
@@ -171,10 +174,11 @@ async fn run(launch_args: LaunchArgs) {
         });
         egui_macroquad::draw();
 
-        // The gameplay screen has now been presented: release the frozen song
-        // clock and kick off audio, so loading the chart/audio never advances
-        // the timeline before the player can see it.
-        if app.player_ui.page == state::PlayerPage::Gameplay && app.playback_pending {
+        // Only release the frozen song clock once the gameplay screen has
+        // actually been presented on a previous frame. Page switches happen in
+        // the egui pass, so using the frame-local flag avoids starting audio
+        // while the previous screen is still the last thing drawn.
+        if gameplay_drawn && app.playback_pending {
             app.finalize_playback_start();
         }
         let egui_elapsed = egui_start.elapsed();
