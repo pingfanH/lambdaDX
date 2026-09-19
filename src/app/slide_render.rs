@@ -465,13 +465,10 @@ pub fn draw_slide(
                 };
 
                 // ── Flying star progress (0..1) ──
-                let star_t = core_star_t.unwrap_or_else(|| {
-                    if !show_full && current_t >= slide_start_s {
-                        ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    }
-                });
+                // Driven solely by lnmai-core's slide progress: the star waits
+                // at the touched block instead of sweeping the whole path on
+                // its own, so segments do not all slide at once.
+                let star_t = core_star_t.unwrap_or(0.0);
 
                 let sprite_count = 11;
                 let command_hidden_until = hidden_until_bar.min(sprite_count);
@@ -584,13 +581,9 @@ pub fn draw_slide(
         } else {
             ((220.0 * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, 220.0)) as u8
         };
-        let star_t = core_star_t.unwrap_or_else(|| {
-            if current_t < slide_start_s {
-                0.0
-            } else {
-                ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
-            }
-        });
+        // Progress-driven star (see the wifi branch above); no time fallback so
+        // the slide does not animate ahead of the player's touches.
+        let star_t = core_star_t.unwrap_or(0.0);
         (alpha, star_t * total_len)
     };
 

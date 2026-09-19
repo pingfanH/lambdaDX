@@ -988,8 +988,44 @@ impl PlayerState {
             if timed_input_tp(event) > now {
                 break;
             }
-            self.engine_events.push(event.clone());
+            // Autoplay clicks the sensing areas like a real player: light up the
+            // pad and hold the zone while the synthesized sensor event is down.
+            let event = event.clone();
+            self.autoplay_visual_feedback(&event);
+            self.engine_events.push(event);
             self.autoplay_cursor += 1;
+        }
+    }
+
+    /// Mirror an autoplay input event onto the pad visuals so the sensor areas
+    /// light up instead of the judgment appearing out of nowhere.
+    fn autoplay_visual_feedback(&mut self, event: &lnmai_core::types::TimedInputEvent) {
+        use lnmai_core::types::TimedInputEvent;
+        let (zone, is_down, is_click) = match event {
+            TimedInputEvent::ButtonClick { zone, .. } => {
+                (super::engine::zone_for_button(*zone), true, true)
+            }
+            TimedInputEvent::SensorClick { area, .. } => {
+                (super::engine::zone_for_sensor(*area), true, true)
+            }
+            TimedInputEvent::ButtonHold { zone, is_down, .. } => {
+                (super::engine::zone_for_button(*zone), *is_down, false)
+            }
+            TimedInputEvent::SensorHold { area, is_down, .. } => {
+                (super::engine::zone_for_sensor(*area), *is_down, false)
+            }
+        };
+        if is_click {
+            self.push_feedback(zone, 0.12);
+            return;
+        }
+        // Synthetic pointer id keyed by zone so holds stay lit until release.
+        let key = (u64::from(zone.to_id())) | (1u64 << 40);
+        if is_down {
+            self.active_pointer_zones.insert(key, zone);
+            self.push_feedback(zone, 0.12);
+        } else {
+            self.active_pointer_zones.remove(&key);
         }
     }
 
