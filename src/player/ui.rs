@@ -505,14 +505,6 @@ pub fn draw_pad_panel(app: &PlayerState, rect: RectF, pad: PadGeom) {
                             .get(&(note.id, si))
                             .map(|progress| progress.hidden_until_bar)
                             .unwrap_or(0),
-                        app.slide_progress.get(&(note.id, si)).and_then(|progress| {
-                            match (progress.remaining, progress.initial_remaining) {
-                                (Some(remaining), Some(initial)) if initial > 0 => {
-                                    Some(1.0 - remaining as f32 / initial as f32)
-                                }
-                                _ => None,
-                            }
-                        }),
                     );
                 }
             }
