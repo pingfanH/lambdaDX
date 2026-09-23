@@ -1,0 +1,7 @@
+﻿&title=Jack-the-Ripper◆[SD]
+&artist=sasakure.UK
+&first=0
+&lv_2=5.0
+&des_2=Jack
+&inote_2=
+(210){4},,1>6[2:1],,,6<1[2:1],,1s5[2:1]*>6[2:1]

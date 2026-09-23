@@ -5,6 +5,7 @@ pub mod cli;
 pub mod maichart;
 pub mod maidata;
 pub mod pad_svg;
+pub mod params;
 pub mod platform;
 pub mod slide;
 pub mod slide_render;

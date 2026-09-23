@@ -41,6 +41,10 @@ pub const TOUCHHOLD_END_DIST: f32 = 19.0;
 pub const TOUCHHOLD_ROT_OFFSET: f32 = 0.0;
 pub const EACH_WINDOW: f32 = 0.02;
 pub const TOUCH_GROW_FRAC: f32 = 0.25;
+/// After a touch note's fade-in, it holds at the outer start distance for this
+/// fraction of its whole duration before the arms start moving inward. This
+/// stall is carved out of the fade-in (the inward-motion window is unchanged).
+pub const TOUCH_STALL_FRAC: f32 = 0.06;
 pub const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

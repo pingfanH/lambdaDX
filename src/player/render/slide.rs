@@ -5,11 +5,10 @@ use macroquad::math::Vec2;
 
 use crate::app::slide::segmentation::{self, SlideSegmentation};
 use crate::app::slide_render;
-use crate::app::types::{
-    PadGeom, SLIDE_MIN_DURATION_S, SLIDE_TILE_SPACING, mdur_to_secs, note_secs,
-};
+use crate::app::types::{PadGeom, SLIDE_MIN_DURATION_S, mdur_to_secs, note_secs};
 use crate::player::render::timing::NoteTiming;
 use crate::player::state::PadPreviewState;
+use crate::app::params;
 
 /// Draw every sub-slide of a slide note for the current time.
 ///
@@ -36,7 +35,15 @@ pub fn draw(
         return;
     };
 
-    for sl in note.slide.iter() {
+    // Sub-slide order within the note (multi-slide / chained slides).
+    let subs: Box<dyn Iterator<Item = &crate::app::types::Slide>> =
+        if params::slide_sub_reverse() {
+            Box::new(note.slide.iter().rev())
+        } else {
+            Box::new(note.slide.iter())
+        };
+
+    for sl in subs {
         let slide_dur_s =
             mdur_to_secs(sl.slide_duration, note.time, bpms).max(SLIDE_MIN_DURATION_S);
         let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
@@ -117,11 +124,13 @@ pub fn draw(
         } else {
             ((current_t - star_start_s) / travel_s).clamp(0.0, 1.0)
         };
-        let spacing = SLIDE_TILE_SPACING * scale;
+        let spacing = params::slide_tile_spacing() * scale;
         let path = slide_render::build_slide_path(note, sl, pad, svg, scale, spawn_cx, outer_r);
-        let seg = segmentation::build(&path, spacing, svg, pad);
+        let head_gap = params::slide_head_gap() * scale;
+        let tail_gap = params::slide_tail_gap() * scale;
+        let seg = segmentation::build(&path, spacing, head_gap, tail_gap, svg, pad);
         let total_len: f32 = path.windows(2).map(|w| (w[1] - w[0]).length()).sum();
-        let hidden_until_bar = hidden_bars_for_star(&seg, star_t * total_len, spacing);
+        let hidden_until_bar = hidden_bars_for_star(&seg, star_t * total_len);
 
         slide_render::draw_slide(
             note,
@@ -139,7 +148,7 @@ pub fn draw(
             false,
             t.speed_scale,
             app.note_speed,
-            app.slide_fade_in,
+            params::slide_fade_in(),
             hidden_until_bar,
         );
     }
@@ -151,12 +160,16 @@ pub fn draw(
 /// `star_dist` is the star's distance along the path. Every judge segment that
 /// lies entirely behind the star is hidden at once, so the trail disappears in
 /// chunks (a whole zone's worth of tiles) rather than tile by tile.
-fn hidden_bars_for_star(seg: &SlideSegmentation, star_dist: f32, spacing: f32) -> usize {
-    if seg.bars.is_empty() {
+fn hidden_bars_for_star(seg: &SlideSegmentation, star_dist: f32) -> usize {
+    // Bars are ordered by increasing distance from the path start, so the last
+    // bar at or before the star is its current bar.
+    let Some(bar_idx) = seg
+        .bars
+        .iter()
+        .rposition(|b| b.distance_along <= star_dist)
+    else {
         return 0;
-    }
-    let last = seg.bars.len() - 1;
-    let bar_idx = ((star_dist / spacing.max(1.0)).floor() as usize).min(last);
+    };
     let mut hidden = 0;
     for s in &seg.judge_segments {
         // Hide the segment once the star reaches its last bar (so the final
@@ -183,6 +196,7 @@ mod tests {
                 position: vec2(i as f32, 0.0),
                 rotation: 0.0,
                 zone: None,
+                distance_along: i as f32,
             })
             .collect();
         SlideSegmentation {
@@ -211,22 +225,22 @@ mod tests {
     fn trail_hides_in_segment_chunks() {
         let seg = sample_segmentation();
         // At the head nothing is consumed.
-        assert_eq!(hidden_bars_for_star(&seg, 0.0, 1.0), 0);
+        assert_eq!(hidden_bars_for_star(&seg, 0.0), 0);
         // Mid first segment: still nothing fully passed.
-        assert_eq!(hidden_bars_for_star(&seg, 1.0, 1.0), 0);
+        assert_eq!(hidden_bars_for_star(&seg, 1.0), 0);
         // Star reaches bar 3: the whole first segment (3 tiles) hides at once.
-        assert_eq!(hidden_bars_for_star(&seg, 3.0, 1.0), 3);
+        assert_eq!(hidden_bars_for_star(&seg, 3.0), 3);
         // Inside the second segment: unchanged (no per-tile hiding).
-        assert_eq!(hidden_bars_for_star(&seg, 5.0, 1.0), 3);
+        assert_eq!(hidden_bars_for_star(&seg, 5.0), 3);
         // Star reaches bar 7: second segment hides, cumulative 0..7.
-        assert_eq!(hidden_bars_for_star(&seg, 7.0, 1.0), 7);
+        assert_eq!(hidden_bars_for_star(&seg, 7.0), 7);
         // Star at the end: everything hidden.
-        assert_eq!(hidden_bars_for_star(&seg, 10.0, 1.0), 10);
+        assert_eq!(hidden_bars_for_star(&seg, 10.0), 10);
     }
 
     #[test]
     fn empty_segmentation_is_safe() {
         let seg = SlideSegmentation::default();
-        assert_eq!(hidden_bars_for_star(&seg, 5.0, 2.0), 0);
+        assert_eq!(hidden_bars_for_star(&seg, 5.0), 0);
     }
 }

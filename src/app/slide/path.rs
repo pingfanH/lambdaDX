@@ -1,10 +1,8 @@
 use crate::app::pad_svg::PadSvgDef;
 use crate::app::types::zone::PadZone;
-use crate::app::types::{
-    Note, PAD_ROTATION_RAD, PadGeom, SLIDE_TILE_SPACING, SlideSegment, SlideShape,
-    TAP_TARGET_OFFSET,
-};
+use crate::app::types::{Note, PAD_ROTATION_RAD, PadGeom, SlideSegment, SlideShape};
 use macroquad::math::{Vec2, vec2};
+use crate::app::params;
 
 // ── Direction ──
 
@@ -18,7 +16,7 @@ enum ArcDir {
 fn a_ring_pos(zone: PadZone, outer_r: f32, spawn_cx: Vec2) -> Vec2 {
     let idx = (zone.to_id() - 1) as f32;
     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-    let target_r = outer_r + TAP_TARGET_OFFSET;
+    let target_r = outer_r + params::tap_target_offset();
     vec2(
         spawn_cx.x + ang.cos() * target_r,
         spawn_cx.y + ang.sin() * target_r,
@@ -364,7 +362,7 @@ fn build_arc(
             start_pos,
             end,
             20.0 * scale,
-            SLIDE_TILE_SPACING * scale,
+            params::slide_tile_spacing() * scale,
         );
         // path.push(start_pos);
         // path.push(end);
@@ -375,15 +373,16 @@ fn build_arc(
         let sign = if ep >= bp { 1.0 } else { -1.0 };
         let start_idx = path.len();
         path.push(start_pos);
-        push_arc(path, bp, ep, b_center, b_radius, SLIDE_TILE_SPACING * scale);
+        push_arc(path, bp, ep, b_center, b_radius, params::slide_tile_spacing() * scale);
         let end_idx = path.len() - 1;
         path.push(end);
-        let fillet_r = (b_radius * 0.3).clamp(8.0 * scale, 40.0 * scale);
+        let fillet_r = (b_radius * params::slide_join_fillet_frac())
+            .clamp(params::slide_join_fillet_min() * scale, params::slide_join_fillet_max() * scale);
         blend_arc_to_line(
-            path, end_idx, b_center, b_radius, ep, sign, fillet_r, SLIDE_TILE_SPACING * scale,
+            path, end_idx, b_center, b_radius, ep, sign, fillet_r, params::slide_tile_spacing() * scale,
         );
         blend_line_to_arc(
-            path, start_idx, b_center, b_radius, bp, sign, fillet_r, SLIDE_TILE_SPACING * scale,
+            path, start_idx, b_center, b_radius, bp, sign, fillet_r, params::slide_tile_spacing() * scale,
         );
     }
 }
@@ -439,16 +438,17 @@ fn build_pp_arc(
         ep,
         arc_center,
         arc_radius,
-        SLIDE_TILE_SPACING * scale,
+        params::slide_tile_spacing() * scale,
     );
     let end_idx = path.len() - 1;
     path.push(target_end);
-    let fillet_r = (arc_radius * 0.3).clamp(8.0 * scale, 40.0 * scale);
+    let fillet_r = (arc_radius * params::slide_join_fillet_frac())
+        .clamp(params::slide_join_fillet_min() * scale, params::slide_join_fillet_max() * scale);
     blend_arc_to_line(
-        path, end_idx, arc_center, arc_radius, ep, -1.0, fillet_r, SLIDE_TILE_SPACING * scale,
+        path, end_idx, arc_center, arc_radius, ep, -1.0, fillet_r, params::slide_tile_spacing() * scale,
     );
     blend_line_to_arc(
-        path, start_idx, arc_center, arc_radius, bp, -1.0, fillet_r, SLIDE_TILE_SPACING * scale,
+        path, start_idx, arc_center, arc_radius, bp, -1.0, fillet_r, params::slide_tile_spacing() * scale,
     );
 }
 
@@ -524,16 +524,17 @@ fn build_edge_arc(
         ep,
         arc_center,
         arc_radius,
-        SLIDE_TILE_SPACING * scale,
+        params::slide_tile_spacing() * scale,
     );
     let end_idx = path.len() - 1;
     path.push(target_end);
-    let fillet_r = (arc_radius * 0.3).clamp(8.0 * scale, 40.0 * scale);
+    let fillet_r = (arc_radius * params::slide_join_fillet_frac())
+        .clamp(params::slide_join_fillet_min() * scale, params::slide_join_fillet_max() * scale);
     blend_arc_to_line(
-        path, end_idx, arc_center, arc_radius, ep, 1.0, fillet_r, SLIDE_TILE_SPACING * scale,
+        path, end_idx, arc_center, arc_radius, ep, 1.0, fillet_r, params::slide_tile_spacing() * scale,
     );
     blend_line_to_arc(
-        path, start_idx, arc_center, arc_radius, bp, 1.0, fillet_r, SLIDE_TILE_SPACING * scale,
+        path, start_idx, arc_center, arc_radius, bp, 1.0, fillet_r, params::slide_tile_spacing() * scale,
     );
 }
 
@@ -583,7 +584,7 @@ fn build_a_ring_arc(
         }
     }
 
-    push_arc(path, bp, ep, a_center, a_radius, SLIDE_TILE_SPACING * scale);
+    push_arc(path, bp, ep, a_center, a_radius, params::slide_tile_spacing() * scale);
 }
 
 /// Caret：note1 → note2，两点间 B 环弧连接（seg.points 恰好 2 个）

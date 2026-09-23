@@ -5,8 +5,9 @@ use macroquad::color::Color;
 use macroquad::math::{Vec2, vec2};
 use macroquad::prelude::{draw_text, get_time, measure_text};
 
-use crate::app::types::{PAD_ROTATION_RAD, PadGeom, TAP_TARGET_OFFSET};
+use crate::app::types::{PAD_ROTATION_RAD, PadGeom};
 use crate::player::state::PadPreviewState;
+use crate::app::params;
 
 /// Draw all live judgment labels.
 pub fn draw(
@@ -36,7 +37,7 @@ pub fn draw(
             let ang =
                 -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
             let dir = vec2(ang.cos(), ang.sin());
-            let target_r = outer_r + TAP_TARGET_OFFSET;
+            let target_r = outer_r + params::tap_target_offset();
             vec2(spawn_cx.x + dir.x * target_r, spawn_cx.y + dir.y * target_r)
         } else {
             app.pad_svg

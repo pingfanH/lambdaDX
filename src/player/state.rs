@@ -96,6 +96,12 @@ pub struct PadPreviewState {
     pub mobile_ui: bool,
     pub ui_scale_override: Option<f32>,
     pub status: String,
+
+    // ── Tunable params panel ─────────────────────────────────────────
+    /// Visual parameters (also mirrored into the global `app::params`).
+    pub params: crate::app::params::Params,
+    /// Whether the egui params panel is open (toggle with F1).
+    pub show_params: bool,
 }
 
 impl PadPreviewState {
@@ -122,7 +128,7 @@ impl PadPreviewState {
             play_speed: 1.0,
             timeline_view_time: 0.0,
             note_speed: NOTE_SPEED,
-            touch_speed: NOTE_SPEED,
+            touch_speed: NOTE_SPEED*0.7,
             slide_fade_in: 3.926_913 / NOTE_SPEED,
             chart,
             hidden_notes: HashSet::new(),
@@ -171,6 +177,8 @@ impl PadPreviewState {
             mobile_ui,
             ui_scale_override,
             status: "Ready".to_string(),
+            params: crate::app::params::Params::default(),
+            show_params: false,
         }
     }
 

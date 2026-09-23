@@ -5,14 +5,11 @@ use macroquad::color::{Color, WHITE};
 use macroquad::math::{Vec2, vec2};
 use macroquad::prelude::{DrawTextureParams, draw_circle, draw_circle_lines, draw_line, draw_texture_ex};
 
-use crate::app::types::{
-    HIT_WINDOW, HOLD_SPAWN_BODY_WIDTH_FRAC, HOLD_WIDTH, NoteMotion, NoteType, PAD_ROTATION_RAD,
-    TAP_SIZE, TAP_TARGET_OFFSET, note_lock_radius, note_radial_motion,
-    note_radial_motion_continue,
-};
+use crate::app::types::{HIT_WINDOW, HOLD_SPAWN_BODY_WIDTH_FRAC, NoteMotion, NoteType, PAD_ROTATION_RAD, note_lock_radius, note_radial_motion, note_radial_motion_continue};
 use crate::app::ui::draw_hold_9slice_segment;
 use crate::player::render::timing::NoteTiming;
 use crate::player::state::PadPreviewState;
+use crate::app::params;
 
 /// Draw a tap or hold note on one of the eight ring directions.
 ///
@@ -37,9 +34,9 @@ pub fn draw(
     // judgment point instead of stopping on the ring. Holds keep the clamped
     // version (the head must stay on the ring while the body is held).
     let motion = if matches!(note.note_type, NoteType::Tap) {
-        note_radial_motion_continue(t.dt_scaled, t.speed, outer_r, TAP_TARGET_OFFSET)
+        note_radial_motion_continue(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
     } else {
-        note_radial_motion(t.dt_scaled, t.speed, outer_r, TAP_TARGET_OFFSET)
+        note_radial_motion(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
     };
     let Some(motion) = motion else {
         return;
@@ -61,7 +58,7 @@ pub fn draw(
         draw_circle_lines(
             px,
             py,
-            TAP_SIZE * 0.53 * scale,
+            params::tap_size() * 0.53 * scale,
             2.0 * scale,
             Color::from_rgba(255, 255, 255, 220),
         );
@@ -77,7 +74,7 @@ fn draw_tap(
     py: f32,
     scale: f32,
 ) {
-    let ts = TAP_SIZE * scale * motion_scale;
+    let ts = params::tap_size() * scale * motion_scale;
     let tap_tex = if note.is_break {
         app.tap_break_tex.as_ref()
     } else if note.is_each {
@@ -112,7 +109,7 @@ fn draw_tap(
         }
     } else {
         // Fallback when no skin textures are present.
-        let tr = TAP_SIZE * 0.375 * scale * motion_scale;
+        let tr = params::tap_size() * 0.375 * scale * motion_scale;
         draw_circle(px, py, tr, Color::from_rgba(17, 24, 39, 255));
         draw_circle_lines(px, py, tr, tr * 0.25, Color::from_rgba(244, 114, 182, 255));
         draw_circle(px, py, tr * 0.317, Color::from_rgba(249, 168, 212, 255));
@@ -139,8 +136,8 @@ fn draw_hold(
     spawn_cx: Vec2,
     outer_r: f32,
 ) {
-    let lock_r = note_lock_radius(outer_r, TAP_TARGET_OFFSET);
-    let head_motion = note_radial_motion(t.dt_scaled, t.speed, outer_r, TAP_TARGET_OFFSET)
+    let lock_r = note_lock_radius(outer_r, params::tap_target_offset());
+    let head_motion = note_radial_motion(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
         .unwrap_or(NoteMotion {
             radius: lock_r,
             scale: 0.0,
@@ -149,10 +146,10 @@ fn draw_hold(
 
     // Width of the 9-slice body (also its minimum length at spawn). Grows with
     // the head while the hold is spawning.
-    let body_w = (HOLD_WIDTH * scale * head_motion.scale).max(1.0);
+    let body_w = (params::hold_width() * scale * head_motion.scale).max(1.0);
 
     // Tail flies on the same radial model at the hold-end time.
-    let tail_motion = note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, TAP_TARGET_OFFSET);
+    let tail_motion = note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
     let (tail_raw, tail_progress) = tail_motion
         .map(|m| (m.radius, m.progress))
         .unwrap_or((lock_r, 0.0));
@@ -212,13 +209,13 @@ fn draw_hold(
             hy,
             tx,
             ty,
-            HOLD_WIDTH * 0.233 * scale * head_motion.scale,
+            params::hold_width() * 0.233 * scale * head_motion.scale,
             Color::from_rgba(251, 113, 133, 200),
         );
         draw_circle(
             tx,
             ty,
-            HOLD_WIDTH * 0.167 * scale * head_motion.scale,
+            params::hold_width() * 0.167 * scale * head_motion.scale,
             Color::from_rgba(253, 164, 175, 255),
         );
     }

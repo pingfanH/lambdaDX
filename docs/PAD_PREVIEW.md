@@ -48,6 +48,7 @@ cargo run -- --help
 | `←` / `→` | 后退 / 前进 1 秒（seek） |
 | `↑` / `↓` | 播放速度 ±0.1x |
 | `A` | 开关音频 |
+| `F1` | 打开/关闭参数面板（可视化调 note 大小、slide、touch 参数，可保存 JSON） |
 
 环境变量：`MAI2_UI_SCALE`（0.7–2.4 缩放）、`MAI2_MOBILE_UI=1`（移动端尺寸）、
 `MAICHART_DIFF=1..5`（选择难度，默认取最高难）。
@@ -71,6 +72,7 @@ cargo run -- --help
 | `demo.mp3` | 备用 BGM |
 | `Skins/classic/*.png` | tap/hold/touch/slide/star/wifi 皮肤 |
 | `Sfx/answer.wav` | 判定点音效（tap / hold 头 / hold 尾） |
+| `note_params.json` | 默认可视化参数（面板可保存覆盖，见 §10.5） |
 | `mask.frag` | touch-hold 进度环的着色器 |
 
 谱面加载优先级（未指定命令行路径时）：默认 maichart `chart.json` → 输出目录的
@@ -446,12 +448,18 @@ raw     = (whole - dt_scaled) / whole            // 剩余比例
 progress= smoothstep(clamp(raw, 0, 1))           // 缓动
 ```
 
-分两阶段（`render/touch.rs::draw`）：
+分三段（`render/touch.rs::draw`）：
 
-- **阶段 1**（`progress < TOUCH_GROW_FRAC = 0.25`）：原地淡入（alpha 0→255），不动。
-- **阶段 2**：完全不透明，四根三角臂从 `TOUCH_START_DIST(30)` 向内移动到
-  `TOUCH_END_DIST(10)`，中心点静止。位移
-  `dist = (30 + (10-30)·move_progress) · TOUCH_SCALE · scale`。
+- **淡入**（`progress < fade_frac = TOUCH_GROW_FRAC - TOUCH_STALL_FRAC`）：原地淡入
+  （alpha 0→255），不动。
+- **短暂停滞**（`fade_frac ≤ progress < TOUCH_GROW_FRAC = 0.25`）：已完全不透明，四根
+  三角臂仍停在 `TOUCH_START_DIST(30)`，停一下。
+- **向内收**（`progress ≥ TOUCH_GROW_FRAC`）：臂从 `30` 收到 `TOUCH_END_DIST(10)`，中心
+  点静止。速度**从 0.5× 线性升到 1.5×**（外半程慢、内半程快，均值 1×，所以总时间不变）：
+  `move_eased = move_progress·(0.5 + 0.5·move_progress)`，
+  `dist = (30 + (10-30)·move_eased) · TOUCH_SCALE · scale`。
+
+停滞是从淡入里匀出来的，所以**内收时间窗仍是 `TOUCH_GROW_FRAC..1`（0.75），和之前一样**。
 
 Touch-Hold（`draw_touch_hold`）额外：
 
@@ -469,7 +477,11 @@ Slide 委托给 `app/slide_render.rs::draw_slide`（`render/slide.rs` 是适配�
 1. **路径构建**：起点在 A 环（lane 1–8）或 zone 质心（其余），然后逐段按
    `SlideShape`（Q/QQ/P/PP/Left/Right/Caret/Z/S/Wifi/Line）调用
    `slide/path.rs` 生成屏幕点。`segmentation::build` 以
-   `SLIDE_TILE_SPACING·scale` 为间距沿路径采样成 `SlideBar`（位置 + 旋转 + 所属 zone）。
+   `slide_tile_spacing·scale` 为间距，在 `[total − tail_gap, head_gap]` 区间内沿路径采样成
+   `SlideBar`（位置 + 旋转 + 所属 zone + 距起点距离 `distance_along`）。采样**以路径终点
+   为基准排布相位**：这样共享尾部的多条 slide（如 `1>6/2>6`）重叠部分的贴图落在同一点。
+   头尾空隙由参数 `slide_head_gap` / `slide_tail_gap`（`scale` 后为像素）控制，不再是
+   硬编码“尾部减一格”。
 2. **trail tiles（按“判定段”整段消耗）**：沿采样点铺贴图。`render/slide.rs` 用
    `segmentation::build` 得到 `bars`（每个贴图）和 `judge_segments`（同一传感器 zone 的
    连续 bar 组成的段）。`hidden_bars_for_star` 按星星沿路径走过的距离求出当前 bar，
@@ -490,6 +502,16 @@ Slide 委托给 `app/slide_render.rs::draw_slide`（`render/slide.rs` 是适配�
 
 slide 的 `disappear_time = 0`（`timing.rs::compute`）：星星到达尾端后整个 slide 立即
 消失，不做 0.3s 的停留。
+
+**透明度**：trail 贴图的 alpha 由 `slide_trail_alpha`（0..255，默认 255=完全不透明）
+控制，淡入时按 `fade_in_s` 从 0 升到该值。之前硬编码为 220（≈86%），所以看着“有点透明”。
+
+**叠放顺序**（三个开关，均在参数面板 Slide 组）：
+- `note_earlier_on_top`：整个 note 遍历顺序。`false`（默认）按谱面顺序 → 后生成的在上；
+  `true` 反向 → 先生成的在上。
+- `slide_tile_reverse`：**单条 slide 内** trail 贴图的绘制顺序（`false` 从前到后，
+  `true` 反向），影响同一条 slide 内相邻贴图的重叠压盖。
+- `slide_sub_reverse`：一个 note 内 `note.slide` 多条子 slide 的绘制顺序（多箭头 / 链式）。
 
 第 1 步里的 Q/P/QQ/PP 由「直线 → B/AD 弧 → 直线」拼成。直线与圆弧的接缝原本是
 硬折角（直线近似沿半径、而圆弧切线垂直于半径，夹角接近 90°），看起来很不自然。
@@ -687,6 +709,31 @@ slide 的 `disappear_time = 0`（`timing.rs::compute`）：星星到达尾端后
 | `maidata::from_maidata` | simai `maidata.txt` → `ChartDoc`（见 §5.6） |
 | `simai::parse_file` / `simai::parse_chart_text` | 内置纯 Rust simai 解析器 |
 | `audio::*` | 解码 / 变速 / 播放（§9） |
+
+---
+
+## 10.5 可调参数与面板（`app/params.rs` + `player/params_panel.rs`）
+
+note 大小、slide 参数、touch 参数原本是 `types.rs` 里的 `const`，现在统一收进一个可序列化的
+`Params`（字段默认值仍取自那些常量），并通过 thread-local 全局提供给深层渲染代码
+（`params::star_size()` 等），免得把参数一路穿进所有函数签名。
+
+- **按 `F1`** 打开 egui 面板：note 大小、slide trail/接缝/弹出、touch/touch-hold、
+  note/touch 速度（速度实时生效）都能拖动调节，改动**立即生效**。
+- **Save**：写到可写目录 `output/note_params.json`（格式化 JSON）。
+- **Reload / Reset**：重新读盘 / 恢复内置默认。
+- 启动加载优先级：`output/note_params.json`（保存的覆盖）→ `assets/note_params.json`
+  （随包默认）→ 内置 `Params::default()`。所以“保存后下次默认就是它”。
+- JSON 支持部分字段（`#[serde(default)]`），缺的字段用默认值。
+
+可调字段（见 `Params`）：`tap_size` / `hold_width` / `star_size` / `tap_target_offset` /
+`tap_ring_offset`；`slide_tile_spacing` / `slide_tile_scale` / `slide_tile_size` /
+`slide_trail_alpha`(0..255) / `slide_fade_in` / `slide_join_fillet_frac|min|max` /
+`slide_head_gap` / `slide_tail_gap` /
+`star_spawn_scale_gain` / `star_spawn_alpha_start` / `note_earlier_on_top` /
+`slide_tile_reverse` / `slide_sub_reverse`（三个叠放顺序开关，见 §6.4）；`touch_cross_size` /
+`touch_start_dist` / `touch_end_dist` / `touch_scale` / `touch_grow_frac` /
+`touch_stall_frac` / `touch_move_ramp` / `touchhold_*`。
 
 ---
 

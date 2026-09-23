@@ -3,7 +3,8 @@
 
 use macroquad::math::Vec2;
 
-use crate::app::types::{NoteType, PadGeom};
+use crate::app::params;
+use crate::app::types::{Note, NoteType, PadGeom};
 use crate::player::render::timing::{self, NoteTiming};
 use crate::player::render::{ring, slide, touch};
 use crate::player::state::PadPreviewState;
@@ -13,6 +14,10 @@ use crate::player::state::PadPreviewState;
 /// Slides are drawn first (trail under the head), then fall through to the zone
 /// branch exactly like the player: a slide on a ring lane draws its head star
 /// inside `slide`, and the ring branch only adds the on-hit ring.
+///
+/// The note pass runs forward (later notes on top) or in reverse (earlier notes
+/// on top) depending on `note_earlier_on_top`, so overlapping note art can be
+/// ordered either way.
 pub fn draw_notes(
     app: &PadPreviewState,
     pad: &PadGeom,
@@ -22,7 +27,13 @@ pub fn draw_notes(
     speed_scale: f32,
 ) {
     let bpms = &app.chart.bpms;
-    for note in app.chart.notes.iter() {
+    let notes: Box<dyn Iterator<Item = &Note>> = if params::note_earlier_on_top() {
+        Box::new(app.chart.notes.iter().rev())
+    } else {
+        Box::new(app.chart.notes.iter())
+    };
+
+    for note in notes {
         if app.hidden_notes.contains(&note.id) {
             continue;
         }

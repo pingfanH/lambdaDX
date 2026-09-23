@@ -151,6 +151,10 @@ async fn run(args: LaunchArgs) {
 
     let mut app = PadPreviewState::new(chart, audio_source_name, audio_wav_pcm);
 
+    // Tunable visual params (override JSON > bundled JSON > built-in defaults).
+    app.params = app::params::load();
+    app::params::set(app.params.clone());
+
     // Parse the SVG pad definition.
     match pad_svg::PadSvgDef::from_svg_str(include_str!("../assets/pad.svg")) {
         Ok(def) => app.pad_svg = Some(def),
@@ -189,6 +193,10 @@ async fn run(args: LaunchArgs) {
         player::render::draw_pad_panel(&app, layout.pad, pad_geom);
 
         app.tick_feedback();
+
+        // egui params panel on top (F1).
+        egui_macroquad::ui(|ctx| player::params_panel::draw(ctx, &mut app));
+        egui_macroquad::draw();
 
         // Release the frozen song clock once the first frame is on screen.
         if app.playback_pending {

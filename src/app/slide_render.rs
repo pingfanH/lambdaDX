@@ -1,10 +1,6 @@
 use super::pad_svg::PadSvgDef;
 use super::slide::segmentation;
-use super::types::{
-    Note, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, PAD_ROTATION_RAD, PadGeom, SLIDE_MIN_DURATION_S,
-    SLIDE_TILE_SCALE, SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, STAR_SIZE, Slide, SlideShape,
-    TAP_TARGET_OFFSET,
-};
+use super::types::{Note, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, PAD_ROTATION_RAD, PadGeom, SLIDE_MIN_DURATION_S, Slide, SlideShape};
 use crate::app::slide::path::{
     slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp,
     slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z,
@@ -12,6 +8,7 @@ use crate::app::slide::path::{
 use crate::app::types::zone::PadZone;
 use macroquad::prelude::*;
 use macroquad::texture::{DrawTextureParams, Texture2D};
+use crate::app::params;
 
 /// Resolved textures for a single draw_slide call.
 /// The caller picks the appropriate variant; the function just uses what's given.
@@ -58,7 +55,15 @@ pub fn draw_slide_judge_band(
     if path.len() < 2 {
         return None;
     }
-    let segmentation = segmentation::build(&path, SLIDE_TILE_SPACING * scale, svg, pad);
+    let spacing = params::slide_tile_spacing() * scale;
+    let segmentation = segmentation::build(
+        &path,
+        spacing,
+        params::slide_head_gap() * scale,
+        params::slide_tail_gap() * scale,
+        svg,
+        pad,
+    );
     let last_segment = segmentation.judge_segments.last()?;
     let start = last_segment.start_bar;
     let end = last_segment.end_bar.min(segmentation.bars.len());
@@ -156,7 +161,7 @@ fn slide_start_point(
         let idx = (note.lane - 1) as f32;
         let angle =
             -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-        let radius = outer_r + TAP_TARGET_OFFSET;
+        let radius = outer_r + params::tap_target_offset();
         Some(spawn_cx + vec2(angle.cos(), angle.sin()) * radius)
     } else {
         svg.zone_screen_centroid(PadZone::from(note.lane), pad)
@@ -288,7 +293,7 @@ pub fn draw_slide(
         let idx = (note.lane - 1) as f32;
         let ang =
             -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-        let target_r = outer_r + TAP_TARGET_OFFSET;
+        let target_r = outer_r + params::tap_target_offset();
         Some(vec2(
             spawn_cx.x + ang.cos() * target_r,
             spawn_cx.y + ang.sin() * target_r,
@@ -336,7 +341,7 @@ pub fn draw_slide(
                     let ang = -std::f32::consts::FRAC_PI_2
                         + PAD_ROTATION_RAD
                         + idx * std::f32::consts::TAU / 8.0;
-                    let target_r = outer_r + TAP_TARGET_OFFSET;
+                    let target_r = outer_r + params::tap_target_offset();
                     vec2(
                         spawn_cx.x + ang.cos() * target_r,
                         spawn_cx.y + ang.sin() * target_r,
@@ -351,7 +356,7 @@ pub fn draw_slide(
                         let ang = -std::f32::consts::FRAC_PI_2
                             + PAD_ROTATION_RAD
                             + idx * std::f32::consts::TAU / 8.0;
-                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                        let target_r = outer_r + params::tap_target_offset();
                         vec2(
                             spawn_cx.x + ang.cos() * target_r,
                             spawn_cx.y + ang.sin() * target_r,
@@ -363,7 +368,7 @@ pub fn draw_slide(
                         let ang = -std::f32::consts::FRAC_PI_2
                             + PAD_ROTATION_RAD
                             + idx * std::f32::consts::TAU / 8.0;
-                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                        let target_r = outer_r + params::tap_target_offset();
                         vec2(
                             spawn_cx.x + ang.cos() * target_r,
                             spawn_cx.y + ang.sin() * target_r,
@@ -375,7 +380,7 @@ pub fn draw_slide(
                         let ang = -std::f32::consts::FRAC_PI_2
                             + PAD_ROTATION_RAD
                             + idx * std::f32::consts::TAU / 8.0;
-                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                        let target_r = outer_r + params::tap_target_offset();
                         vec2(
                             spawn_cx.x + ang.cos() * target_r,
                             spawn_cx.y + ang.sin() * target_r,
@@ -386,7 +391,7 @@ pub fn draw_slide(
                 // ── Head star (pre-judge flying in from center) ──
                 if show_full {
                     let head_pt = path[0];
-                    let ss = STAR_SIZE * scale;
+                    let ss = params::star_size() * scale;
                     let star_used = tex.star.or(tex.star_fallback);
                     if let Some(st) = star_used {
                         draw_texture_ex(
@@ -407,7 +412,7 @@ pub fn draw_slide(
                         dt_scaled,
                         head_speed,
                         outer_r,
-                        TAP_TARGET_OFFSET,
+                        params::tap_target_offset(),
                     );
                     let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
                     let fly_progress = head_motion.map(|m| m.progress).unwrap_or(0.0);
@@ -416,11 +421,11 @@ pub fn draw_slide(
                     let ang = -std::f32::consts::FRAC_PI_2
                         + PAD_ROTATION_RAD
                         + idx * std::f32::consts::TAU / 8.0;
-                    let lock_r = super::types::note_lock_radius(outer_r, TAP_TARGET_OFFSET);
+                    let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
                     let r = head_motion.map(|m| m.radius).unwrap_or(lock_r);
                     let px = spawn_cx.x + ang.cos() * r;
                     let py = spawn_cx.y + ang.sin() * r;
-                    let ss = STAR_SIZE * scale * size_scale;
+                    let ss = params::star_size() * scale * size_scale;
                     let star_rot = fly_progress * std::f32::consts::TAU;
                     let star_used = tex.star.or(tex.star_fallback);
                     if let Some(st) = star_used {
@@ -452,10 +457,11 @@ pub fn draw_slide(
                 }
 
                 // ── Tile alpha ──
+                let a_max = params::slide_trail_alpha();
                 let path_alpha = if show_full || dt_scaled <= full_fade_s {
-                    220u8
+                    a_max as u8
                 } else {
-                    ((220.0 * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, 220.0)) as u8
+                    ((a_max * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, a_max)) as u8
                 };
 
                 // ── Flying star progress (0..1) ──
@@ -489,8 +495,8 @@ pub fn draw_slide(
 
                         if is_middle {
                             if let Some(t) = tex.wifi[i] {
-                                let tw = t.width() * scale * SLIDE_TILE_SCALE;
-                                let th = t.height() * scale * SLIDE_TILE_SCALE;
+                                let tw = t.width() * scale * params::slide_tile_scale();
+                                let th = t.height() * scale * params::slide_tile_scale();
                                 draw_texture_ex(
                                     t,
                                     sprite_pos.x - tw * 0.5,
@@ -513,7 +519,7 @@ pub fn draw_slide(
                         } else {
                             1.0
                         };
-                        let ss = STAR_SIZE * scale * (0.5 + intro);
+                        let ss = params::star_size() * scale * (0.5 + intro);
                         let star_alpha = (intro * 255.0) as u8;
                         let star_used = tex.star.or(tex.star_fallback);
                         if let Some(st) = star_used {
@@ -569,12 +575,13 @@ pub fn draw_slide(
 
     // ── Alpha & star position ──
     let (path_alpha, star_dist_along) = if show_full {
-        (220u8, -1.0_f32) // all tiles visible, star at start
+        (params::slide_trail_alpha() as u8, -1.0_f32) // all tiles visible, star at start
     } else {
+        let a_max = params::slide_trail_alpha();
         let alpha = if dt_scaled <= full_fade_s {
-            220
+            a_max as u8
         } else {
-            ((220.0 * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, 220.0)) as u8
+            ((a_max * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, a_max)) as u8
         };
         let star_t = if current_t < slide_start_s {
             0.0
@@ -605,20 +612,35 @@ pub fn draw_slide(
     // ── Path tiles ──
     let (tw, th) = if let Some(t) = tex.trail {
         (
-            t.width() * scale * SLIDE_TILE_SCALE,
-            t.height() * scale * SLIDE_TILE_SCALE,
+            t.width() * scale * params::slide_tile_scale(),
+            t.height() * scale * params::slide_tile_scale(),
         )
     } else {
-        (SLIDE_TILE_SIZE * scale, SLIDE_TILE_SIZE * scale)
+        (params::slide_tile_size() * scale, params::slide_tile_size() * scale)
     };
-    let spacing = SLIDE_TILE_SPACING * scale;
+    let spacing = params::slide_tile_spacing() * scale;
 
-    let segmentation = segmentation::build(&path, spacing, svg, pad);
+    let segmentation = segmentation::build(
+        &path,
+        spacing,
+        params::slide_head_gap() * scale,
+        params::slide_tail_gap() * scale,
+        svg,
+        pad,
+    );
     let hidden_until = hidden_until_bar.min(segmentation.bars.len());
-    for (bar_index, bar) in segmentation.bars.iter().enumerate() {
+    // Within one slide, the trail tiles can be drawn forward or reversed so an
+    // overlapping tile's stacking can be chosen.
+    let bar_order: Box<dyn Iterator<Item = usize>> = if params::slide_tile_reverse() {
+        Box::new((0..segmentation.bars.len()).rev())
+    } else {
+        Box::new(0..segmentation.bars.len())
+    };
+    for bar_index in bar_order {
         if bar_index < hidden_until {
             continue;
         }
+        let bar = &segmentation.bars[bar_index];
         if let Some(t) = tex.trail {
             draw_texture_ex(
                 t,
@@ -656,7 +678,7 @@ pub fn draw_slide(
     if show_full {
         // Static star at start position
         let head_pt = path[0];
-        let ss = STAR_SIZE * scale;
+        let ss = params::star_size() * scale;
         let star_used = tex.star.or(tex.star_fallback);
         if let Some(st) = star_used {
             draw_texture_ex(
@@ -677,11 +699,11 @@ pub fn draw_slide(
             dt_scaled,
             head_speed,
             outer_r,
-            TAP_TARGET_OFFSET,
+            params::tap_target_offset(),
         );
         let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
         let fly_progress = head_motion.map(|m| m.progress).unwrap_or(0.0);
-        let lock_r = super::types::note_lock_radius(outer_r, TAP_TARGET_OFFSET);
+        let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
 
         if note.lane <= 8 {
             // A-zone: grow at the inner lock radius, then fly to the target.
@@ -694,7 +716,7 @@ pub fn draw_slide(
             let px = spawn_cx.x + ang.cos() * r;
             let py = spawn_cx.y + ang.sin() * r;
 
-            let ss = STAR_SIZE * scale * size_scale;
+            let ss = params::star_size() * scale * size_scale;
             let star_rot = fly_progress * std::f32::consts::TAU;
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {
@@ -726,7 +748,7 @@ pub fn draw_slide(
         } else {
             // Touch zone: fade in at centroid
             let head_rot = fly_progress * std::f32::consts::TAU;
-            let ss = STAR_SIZE * scale * size_scale;
+            let ss = params::star_size() * scale * size_scale;
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {
                 draw_texture_ex(
@@ -771,8 +793,9 @@ pub fn draw_slide(
         } else {
             1.0
         };
-        let ss = STAR_SIZE * scale * (1.0 + 0.5 * p);
-        let tint = Color::from_rgba(255, 255, 255, ((0.5 + 0.5 * p) * 255.0) as u8);
+        let ss = params::star_size() * scale * (1.0 + params::star_spawn_scale_gain() * p);
+        let a0 = params::star_spawn_alpha_start();
+        let tint = Color::from_rgba(255, 255, 255, ((a0 + (1.0 - a0) * p) * 255.0) as u8);
         let star_used = tex.star.or(tex.star_fallback);
         if let Some(st) = star_used {
             draw_texture_ex(

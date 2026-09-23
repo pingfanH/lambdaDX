@@ -43,6 +43,9 @@ pub fn handle_lane_input(app: &mut PadPreviewState) {
 
 /// Global playback hotkeys.
 pub fn handle_global_hotkeys(app: &mut PadPreviewState) {
+    if is_key_pressed(KeyCode::F1) {
+        app.show_params = !app.show_params;
+    }
     if is_key_pressed(KeyCode::Space) {
         app.toggle_play();
     }

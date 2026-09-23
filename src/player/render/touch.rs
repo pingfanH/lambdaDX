@@ -10,13 +10,10 @@ use macroquad::math::{Vec2, vec2};
 use macroquad::prelude::{DrawTextureParams, draw_texture_ex};
 
 use crate::app::types::zone::PadZone;
-use crate::app::types::{
-    PadGeom, TOUCH_CROSS_SIZE, TOUCH_END_DIST, TOUCH_GROW_FRAC, TOUCH_SCALE, TOUCH_START_DIST,
-    TOUCHHOLD_BORDER_BASE, TOUCHHOLD_CROSS_BASE, TOUCHHOLD_END_DIST, TOUCHHOLD_ROT_OFFSET,
-    TOUCHHOLD_SCALE, TOUCHHOLD_START_DIST, hold_tail_time, touch_whole_duration,
-};
+use crate::app::types::{PadGeom, hold_tail_time, touch_whole_duration};
 use crate::player::render::timing::NoteTiming;
 use crate::player::state::PadPreviewState;
+use crate::app::params;
 
 /// Draw a touch or touch-hold note at its zone centroid.
 pub fn draw(
@@ -42,22 +39,34 @@ pub fn draw(
     let raw = (travel - t.dt_scaled) / travel;
     let progress = smoothstep(raw.clamp(0.0, 1.0));
 
-    // Phase 1 (progress < TOUCH_GROW_FRAC): fade in, no movement.
-    // Phase 2: fully opaque and the arms move inward.
-    let alpha = if progress < TOUCH_GROW_FRAC {
-        (progress / TOUCH_GROW_FRAC * 255.0) as u8
+    // Phases:
+    //   1. fade in  [0, fade_frac)          — appears, no movement
+    //   2. stall    [fade_frac, GROW_FRAC)  — fully opaque, still held at the
+    //                                          outer distance (brief pause)
+    //   3. move in  [GROW_FRAC, 1]          — arms travel inward, slow -> fast
+    //
+    // The stall is taken out of the fade-in, so the inward-motion window
+    // (`GROW_FRAC..1`, the same 75% as before) keeps its duration.
+    let fade_frac = (params::touch_grow_frac() - params::touch_stall_frac()).max(0.01);
+    let alpha = if progress < fade_frac {
+        (progress / fade_frac * 255.0) as u8
     } else {
         255
     };
-    let move_progress = if progress < TOUCH_GROW_FRAC {
+    let move_progress = if progress < params::touch_grow_frac() {
         0.0
     } else {
-        (progress - TOUCH_GROW_FRAC) / (1.0 - TOUCH_GROW_FRAC)
+        ((progress - params::touch_grow_frac()) / (1.0 - params::touch_grow_frac())).clamp(0.0, 1.0)
     };
-    let dist = (TOUCH_START_DIST + (TOUCH_END_DIST - TOUCH_START_DIST) * move_progress)
-        * TOUCH_SCALE
+    // Slow -> fast: the speed ramps linearly from 0.5x (outer half, slower) to
+    // 1.5x (inner half, faster), averaging 1x so the total time is unchanged.
+    // eased(t) = t·(0.5 + 0.5t) is the integral of v(t) = 0.5 + t.
+    let ramp = params::touch_move_ramp();
+    let move_eased = move_progress * ((1.0 - ramp) + ramp * move_progress);
+    let dist = (params::touch_start_dist() + (params::touch_end_dist() - params::touch_start_dist()) * move_eased)
+        * params::touch_scale()
         * scale;
-    let ts = TOUCH_CROSS_SIZE * TOUCH_SCALE * scale;
+    let ts = params::touch_cross_size() * params::touch_scale() * scale;
 
     // ── Regular touch cross (not for holds) ──
     if !matches!(note.note_type, crate::app::types::NoteType::Hold) {
@@ -113,7 +122,7 @@ pub fn draw(
     }
 
     if matches!(note.note_type, crate::app::types::NoteType::Hold) {
-        draw_touch_hold(app, note, t, bpms, center, alpha, move_progress, current_t, scale);
+        draw_touch_hold(app, note, t, bpms, center, alpha, move_eased, current_t, scale);
     }
 }
 
@@ -125,20 +134,20 @@ fn draw_touch_hold(
     bpms: &[crate::app::types::BpmChange],
     center: Vec2,
     alpha: u8,
-    move_progress: f32,
+    move_amount: f32,
     current_t: f32,
     scale: f32,
 ) {
     // Progress through the hold (0..1), used to sweep the border.
     let hold_progress = ((current_t - t.ns) / (hold_tail_time(note, bpms) - t.ns).max(0.01))
         .clamp(0.0, 1.0);
-    let hold_dist = (TOUCHHOLD_START_DIST
-        + (TOUCHHOLD_END_DIST - TOUCHHOLD_START_DIST) * move_progress)
-        * TOUCHHOLD_SCALE
+    let hold_dist = (params::touchhold_start_dist()
+        + (params::touchhold_end_dist() - params::touchhold_start_dist()) * move_amount)
+        * params::touchhold_scale()
         * scale;
     let d = hold_dist * 0.707; // √2/2 for the diagonal arms
-    let hts = TOUCHHOLD_CROSS_BASE * TOUCHHOLD_SCALE * scale;
-    let ro = TOUCHHOLD_ROT_OFFSET;
+    let hts = params::touchhold_cross_base() * params::touchhold_scale() * scale;
+    let ro = params::touchhold_rot_offset();
 
     // Four arms, 45° off the regular touch cross, starting top-right.
     let positions = [
@@ -177,7 +186,7 @@ fn draw_touch_hold(
     // Progress border. The first (transparent) pass is a ghost so the shader
     // only paints the swept portion; `progress` drives the mask shader.
     if let Some(border) = &app.touchhold_border_tex {
-        let bs = TOUCHHOLD_BORDER_BASE * TOUCHHOLD_SCALE * scale;
+        let bs = params::touchhold_border_base() * params::touchhold_scale() * scale;
         draw_texture_ex(
             border,
             center.x - bs * 0.5,

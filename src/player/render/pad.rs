@@ -7,8 +7,9 @@ use macroquad::prelude::{draw_circle, draw_line, draw_rectangle, draw_text, meas
 
 use crate::app::pad_svg;
 use crate::app::types::zone::PadZone;
-use crate::app::types::{PAD_ROTATION_RAD, PadGeom, RectF, TAP_RING_OFFSET};
+use crate::app::types::{PAD_ROTATION_RAD, PadGeom, RectF};
 use crate::player::state::PadPreviewState;
+use crate::app::params;
 
 /// Panel fill plus the "Pad View" label.
 pub fn draw_panel_background(rect: RectF, scale: f32) {
@@ -100,7 +101,7 @@ pub fn draw_zones(app: &PadPreviewState, pad: &PadGeom, scale: f32) {
 /// The eight white dots at the ring positions plus a light connecting octagon
 /// arc. These mark where tap/slide notes land and travel outward.
 pub fn draw_ring_indicators(spawn_cx: Vec2, outer_r: f32, scale: f32) {
-    let dot_r = outer_r + TAP_RING_OFFSET * scale;
+    let dot_r = outer_r + params::tap_ring_offset() * scale;
     let mut a_dots: Vec<Vec2> = Vec::new();
     for i in 0..8 {
         let ang = -std::f32::consts::FRAC_PI_2

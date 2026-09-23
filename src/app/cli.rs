@@ -103,6 +103,7 @@ OPTIONS:
 KEYS:
     Space  play/pause   R  restart   Home  0:00   ←/→  seek ±1s
     ↑/↓    speed        A  toggle audio        1-8/T  lane hits
+    F1     params panel (edit note sizes / slide / touch; Save writes JSON)
 
 EXAMPLES:
     lambda_dx_pad_preview ~/.maichart/324_Jack-the-Ripper◆
