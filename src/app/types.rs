@@ -30,12 +30,12 @@ pub const NOTE_OUTER_DISTANCE: f32 = 4.8;
 pub const NOTE_LOCK_DISTANCE: f32 = 1.225;
 pub const NOTE_VISIBLE_DISTANCE: f32 = -1.275;
 // touch: base values (multiplied by TOUCH_SCALE in code)
-pub const TOUCH_CROSS_SIZE: f32 = 50.0;
+pub const TOUCH_CROSS_SIZE: f32 = 65.0;
 pub const TOUCH_START_DIST: f32 = 30.0;
 pub const TOUCH_END_DIST: f32 = 10.0;
 // touchhold: base values (multiplied by TOUCHHOLD_SCALE in code)
-pub const TOUCHHOLD_CROSS_BASE: f32 = 86.0;
-pub const TOUCHHOLD_BORDER_BASE: f32 = 170.0;
+pub const TOUCHHOLD_CROSS_BASE: f32 = 112.0;
+pub const TOUCHHOLD_BORDER_BASE: f32 = 220.0;
 pub const TOUCHHOLD_START_DIST: f32 = 30.0;
 pub const TOUCHHOLD_END_DIST: f32 = 19.0;
 pub const TOUCHHOLD_ROT_OFFSET: f32 = 0.0;
@@ -44,20 +44,21 @@ pub const TOUCH_GROW_FRAC: f32 = 0.25;
 pub const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub const TAP_SIZE: f32 = 40.0;
+pub const TAP_SIZE: f32 = 52.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub const HOLD_WIDTH: f32 = 40.0;#[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub const TOUCH_SIZE: f32 = 18.0;
+pub const HOLD_WIDTH: f32 = 52.0;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub const TOUCH_SIZE: f32 = 24.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const TOUCH_SCALE: f32 = 1.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const TOUCHHOLD_SCALE: f32 = 0.6;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub const TAP_SIZE: f32 = 80.0;
+pub const TAP_SIZE: f32 = 104.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub const HOLD_WIDTH: f32 = 80.0;
+pub const HOLD_WIDTH: f32 = 104.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub const TOUCH_SIZE: f32 = 70.0;
+pub const TOUCH_SIZE: f32 = 90.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub const TOUCH_SCALE: f32 = 1.5;
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -77,11 +78,11 @@ pub const SCROLL_INVERT: bool = true;
 /// when `None`, use beat-synced `slide_start_delay`.
 pub const FIXED_SLIDE_FADE_IN: Option<f32> = Some(0.3);
 
-pub const SLIDE_TILE_SPACING: f32 = 20.0;
-pub const SLIDE_TILE_SIZE: f32 = 40.0;
-pub const SLIDE_TILE_SCALE: f32 = 0.4;
+pub const SLIDE_TILE_SPACING: f32 = 26.0;
+pub const SLIDE_TILE_SIZE: f32 = 52.0;
+pub const SLIDE_TILE_SCALE: f32 = 0.52;
 pub const SLIDE_MIN_POINTS: usize = 2;
-pub const STAR_SIZE: f32 = 45.0;
+pub const STAR_SIZE: f32 = 58.0;
 pub const SLIDE_TRAVEL_TIME: f32 = 0.55;
 /// Lower bound (seconds) for a slide's rendered travel time. Kept tiny so
 /// short slides from the chart (e.g. `[1040#8:1]` flicks) are not stretched
