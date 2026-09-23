@@ -11,13 +11,13 @@ use crate::player::state::PadPreviewState;
 
 /// Draw all visible notes for `current_t` (seconds).
 ///
-/// Slides are drawn first (trail under the head), then fall through to the zone
-/// branch exactly like the player: a slide on a ring lane draws its head star
-/// inside `slide`, and the ring branch only adds the on-hit ring.
+/// Two passes so the stacking is type-aware:
+/// 1. every non-slide note (tap / hold / touch) — ring or touch art;
+/// 2. every slide note — trail + flying star, plus the on-hit ring.
 ///
-/// The note pass runs forward (later notes on top) or in reverse (earlier notes
-/// on top) depending on `note_earlier_on_top`, so overlapping note art can be
-/// ordered either way.
+/// Slides therefore always sit **above** other notes. `note_earlier_on_top` only
+/// orders items *within* each pass (note vs note, slide vs slide); it no longer
+/// interleaves the two kinds.
 pub fn draw_notes(
     app: &PadPreviewState,
     pad: &PadGeom,
@@ -26,7 +26,24 @@ pub fn draw_notes(
     current_t: f32,
     speed_scale: f32,
 ) {
+    draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, false);
+    draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, true);
+}
+
+/// One stacking pass. `slides == false` draws non-slide notes; `slides == true`
+/// draws slide notes (on top).
+fn draw_pass(
+    app: &PadPreviewState,
+    pad: &PadGeom,
+    scale: f32,
+    spawn_cx: Vec2,
+    current_t: f32,
+    speed_scale: f32,
+    slides: bool,
+) {
     let bpms = &app.chart.bpms;
+    // Forward: later notes on top. Reverse: earlier notes on top. Applied
+    // within the pass only.
     let notes: Box<dyn Iterator<Item = &Note>> = if params::note_earlier_on_top() {
         Box::new(app.chart.notes.iter().rev())
     } else {
@@ -34,6 +51,10 @@ pub fn draw_notes(
     };
 
     for note in notes {
+        let is_slide = matches!(note.note_type, NoteType::Slide);
+        if is_slide != slides {
+            continue;
+        }
         if app.hidden_notes.contains(&note.id) {
             continue;
         }
@@ -43,7 +64,7 @@ pub fn draw_notes(
             continue;
         }
 
-        if matches!(note.note_type, NoteType::Slide) {
+        if is_slide {
             slide::draw(app, note, pad, scale, spawn_cx, pad.outer_r, current_t, &t);
         }
 

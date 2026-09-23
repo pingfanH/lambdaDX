@@ -1,7 +1,7 @@
-#version 330
+#version 100
+precision mediump float;
 
-in vec2 uv;
-out vec4 FragColor;
+varying vec2 uv;
 
 uniform sampler2D Texture;
 uniform float progress;
@@ -9,7 +9,7 @@ uniform float progress;
 const float PI = 3.14159265359;
 
 void main() {
-    vec4 color = texture(Texture, uv);
+    vec4 color = texture2D(Texture, uv);
 
     vec2 center = vec2(0.5, 0.5);
     vec2 dir = uv - center;
@@ -30,5 +30,5 @@ void main() {
     float diff = normalizedAngle - progress;
     float alpha = 1.0 - smoothstep(0.0, 0.03, diff);
 
-    FragColor = vec4(color.rgb, color.a * alpha);
+    gl_FragColor = vec4(color.rgb, color.a * alpha);
 }

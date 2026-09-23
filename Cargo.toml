@@ -7,12 +7,30 @@ edition = "2024"
 name = "lambda_dx_pad_preview"
 path = "src/main.rs"
 
+[[bin]]
+name = "lambda_dx_player_ui"
+path = "src/player_ui_main.rs"
+
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hound = "3"
 minimp3 = "0.5"
+# Enables JPEG (cover art) decoding for macroquad's texture loader, which only
+# pulls in png/tga by default. Feature unification makes this apply upstream.
+image = { version = "0.24.9", default-features = false, features = ["jpeg"] }
 roxmltree = "0.20"
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 egui-macroquad = { version = "0.17", default-features = false }
+
+# The expensive load work (JPEG decode, CJK font parsing, note-texture decode)
+# runs inside dependencies, so an unoptimized `cargo run` is ~7x slower to boot
+# and stutters on cover/song changes. Optimize dependencies even in dev.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Our own debug code also has hot loops (audio decode/resample, pad rendering).
+# opt-level 1 keeps incremental builds quick while removing the worst stalls.
+[profile.dev]
+opt-level = 1

@@ -273,6 +273,14 @@ pub fn draw_slide(
     // The slide head star uses the same radial flight as a Tap note.
     let head_speed = super::types::note_flight_speed(note, base_speed);
     let head_lead = super::types::note_lead_time(head_speed);
+    // Head-star spin, continuous from the moment the star spawns. The radial
+    // `progress` stays 0 while the star grows at the lock radius, so a
+    // progress-based spin only started after the fly-out; this makes it rotate
+    // from birth while keeping one full turn per fly-out duration.
+    let head_flight_s = (super::types::NOTE_OUTER_DISTANCE - super::types::NOTE_LOCK_DISTANCE)
+        / head_speed.max(0.1);
+    let head_spin = ((head_lead - dt_scaled).max(0.0) / head_flight_s.max(0.12))
+        * std::f32::consts::TAU;
     // MajdataView trail fade-in: `fadeInTime = -3.926913 / noteSpeed` seconds
     // before the head, fully visible 0.2s later (in musical time).
     let fade_in_s = slide_fade_in.max(0.0);
@@ -415,7 +423,6 @@ pub fn draw_slide(
                         params::tap_target_offset(),
                     );
                     let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
-                    let fly_progress = head_motion.map(|m| m.progress).unwrap_or(0.0);
 
                     let idx = (note.lane - 1) as f32;
                     let ang = -std::f32::consts::FRAC_PI_2
@@ -426,7 +433,7 @@ pub fn draw_slide(
                     let px = spawn_cx.x + ang.cos() * r;
                     let py = spawn_cx.y + ang.sin() * r;
                     let ss = params::star_size() * scale * size_scale;
-                    let star_rot = fly_progress * std::f32::consts::TAU;
+                    let star_rot = head_spin;
                     let star_used = tex.star.or(tex.star_fallback);
                     if let Some(st) = star_used {
                         draw_texture_ex(
@@ -702,7 +709,6 @@ pub fn draw_slide(
             params::tap_target_offset(),
         );
         let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
-        let fly_progress = head_motion.map(|m| m.progress).unwrap_or(0.0);
         let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
 
         if note.lane <= 8 {
@@ -717,7 +723,7 @@ pub fn draw_slide(
             let py = spawn_cx.y + ang.sin() * r;
 
             let ss = params::star_size() * scale * size_scale;
-            let star_rot = fly_progress * std::f32::consts::TAU;
+            let star_rot = head_spin;
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {
                 draw_texture_ex(
@@ -747,7 +753,7 @@ pub fn draw_slide(
             }
         } else {
             // Touch zone: fade in at centroid
-            let head_rot = fly_progress * std::f32::consts::TAU;
+            let head_rot = head_spin;
             let ss = params::star_size() * scale * size_scale;
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {
