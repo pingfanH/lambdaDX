@@ -32,12 +32,76 @@ fn main() {
             print!("{}", app::cli::help());
         }
         Ok(Some(args)) => {
+            if args.dump {
+                dump_and_exit(&args);
+            }
             Window::from_config(app::window_conf(), run(args));
         }
         Err(e) => {
             eprintln!("error: {e}\n");
             eprint!("{}", app::cli::help());
             std::process::exit(2);
+        }
+    }
+}
+
+/// `--dump`: load the chart synchronously, print it, and exit (no window).
+fn dump_and_exit(args: &LaunchArgs) -> ! {
+    let path = args
+        .chart
+        .clone()
+        .unwrap_or_else(|| platform::asset_dir().join("charts/jack_ripper/chart.json"));
+    match chart::load_chart_from_path(&path, args.diff) {
+        Ok(c) => {
+            dump_chart(&c);
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("error: failed to load chart from {}: {e}", path.display());
+            std::process::exit(2);
+        }
+    }
+}
+
+fn dump_chart(c: &app::types::ChartDoc) {
+    use app::types::{NoteType, measure_to_secs};
+    let mut taps = 0;
+    let mut holds = 0;
+    let mut touches = 0;
+    for n in &c.notes {
+        match n.note_type {
+            NoteType::Tap => taps += 1,
+            NoteType::Hold => holds += 1,
+            NoteType::Touch => touches += 1,
+            NoteType::Slide => {}
+        }
+    }
+    println!("chart: {} — {}", c.title, c.artist);
+    println!("notes: {} (taps {taps}, holds {holds}, touches {touches})", c.notes.len());
+    println!("bpms: {:?}", c.bpms);
+    println!("slides (measure / seconds / lane / shape / end / wait / travel):");
+    for (i, n) in c.notes.iter().enumerate() {
+        if !matches!(n.note_type, NoteType::Slide) {
+            continue;
+        }
+        for (si, s) in n.slide.iter().enumerate() {
+            let seg = &s.segments[0];
+            let end = seg
+                .points
+                .last()
+                .map(|p| p.zone.to_string())
+                .unwrap_or_else(|| "-".into());
+            let shapes: Vec<String> = s.segments.iter().map(|x| format!("{:?}", x.shape)).collect();
+            println!(
+                "  #{i}.{si} m={:.4} s={:.4} lane={} shapes=[{}] end={} wait={:.4} travel={:.4}",
+                n.time,
+                measure_to_secs(n.time, &c.bpms),
+                n.lane,
+                shapes.join(","),
+                end,
+                s.slide_start_delay,
+                s.slide_duration - s.slide_start_delay,
+            );
         }
     }
 }

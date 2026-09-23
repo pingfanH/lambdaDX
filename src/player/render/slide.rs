@@ -3,7 +3,7 @@
 
 use macroquad::math::Vec2;
 
-use crate::app::slide::segmentation;
+use crate::app::slide::segmentation::{self, SlideSegmentation};
 use crate::app::slide_render;
 use crate::app::types::{
     PadGeom, SLIDE_MIN_DURATION_S, SLIDE_TILE_SPACING, mdur_to_secs, note_secs,
@@ -105,8 +105,11 @@ pub fn draw(
             wifi: std::array::from_fn(|i| app.wifi_tex[i].as_ref()),
         };
 
-        // Trail consumption: hide the trail bars the star has already passed, so
-        // the trail disappears following the head instead of lingering whole.
+        // Trail consumption: hide the trail the star has passed. Bars are
+        // hidden **per sensor segment** (a run of bars in one zone), matching
+        // the original player where the engine emitted `HideSlideBars
+        // { end_index }` per judged segment — so several tiles vanish at once
+        // instead of one tile at a time.
         let star_start_s = ns + fade_in_s;
         let travel_s = (slide_dur_s - fade_in_s).max(SLIDE_MIN_DURATION_S);
         let star_t = if current_t <= star_start_s {
@@ -114,11 +117,11 @@ pub fn draw(
         } else {
             ((current_t - star_start_s) / travel_s).clamp(0.0, 1.0)
         };
+        let spacing = SLIDE_TILE_SPACING * scale;
         let path = slide_render::build_slide_path(note, sl, pad, svg, scale, spawn_cx, outer_r);
-        let bar_count = segmentation::build(&path, SLIDE_TILE_SPACING * scale, svg, pad)
-            .bars
-            .len();
-        let hidden_until_bar = consumed_bars(star_t, bar_count);
+        let seg = segmentation::build(&path, spacing, svg, pad);
+        let total_len: f32 = path.windows(2).map(|w| (w[1] - w[0]).length()).sum();
+        let hidden_until_bar = hidden_bars_for_star(&seg, star_t * total_len, spacing);
 
         slide_render::draw_slide(
             note,
@@ -142,28 +145,88 @@ pub fn draw(
     }
 }
 
-/// Number of trail bars behind the star that must be hidden so the trail is
-/// consumed as the star advances. `star_t` is the star's progress along the
-/// path (0 at the head, 1 at the tail); bars are sampled evenly along it.
-fn consumed_bars(star_t: f32, bar_count: usize) -> usize {
-    let t = star_t.clamp(0.0, 1.0);
-    ((t * bar_count as f32).floor() as usize).min(bar_count)
+/// Number of trail bars to hide as the star advances, **grouped by sensor
+/// segment**.
+///
+/// `star_dist` is the star's distance along the path. Every judge segment that
+/// lies entirely behind the star is hidden at once, so the trail disappears in
+/// chunks (a whole zone's worth of tiles) rather than tile by tile.
+fn hidden_bars_for_star(seg: &SlideSegmentation, star_dist: f32, spacing: f32) -> usize {
+    if seg.bars.is_empty() {
+        return 0;
+    }
+    let last = seg.bars.len() - 1;
+    let bar_idx = ((star_dist / spacing.max(1.0)).floor() as usize).min(last);
+    let mut hidden = 0;
+    for s in &seg.judge_segments {
+        // Hide the segment once the star reaches its last bar (so the final
+        // segment still clears when the star lands on the tail).
+        if bar_idx + 1 >= s.end_bar {
+            hidden = s.end_bar;
+        } else {
+            break;
+        }
+    }
+    hidden.min(seg.bars.len())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::consumed_bars;
+    use super::hidden_bars_for_star;
+    use crate::app::slide::segmentation::{SlideBar, SlideJudgeSegment, SlideSegmentation};
+    use crate::app::types::zone::PadZone;
+    use macroquad::math::vec2;
+
+    fn sample_segmentation() -> SlideSegmentation {
+        let bars = (0..10)
+            .map(|i| SlideBar {
+                position: vec2(i as f32, 0.0),
+                rotation: 0.0,
+                zone: None,
+            })
+            .collect();
+        SlideSegmentation {
+            bars,
+            judge_segments: vec![
+                SlideJudgeSegment {
+                    zone: PadZone::A1,
+                    start_bar: 0,
+                    end_bar: 3,
+                },
+                SlideJudgeSegment {
+                    zone: PadZone::A2,
+                    start_bar: 3,
+                    end_bar: 7,
+                },
+                SlideJudgeSegment {
+                    zone: PadZone::A3,
+                    start_bar: 7,
+                    end_bar: 10,
+                },
+            ],
+        }
+    }
 
     #[test]
-    fn trail_is_consumed_as_the_star_advances() {
-        // Nothing hidden at the head, everything hidden once the star lands.
-        assert_eq!(consumed_bars(0.0, 40), 0);
-        assert_eq!(consumed_bars(1.0, 40), 40);
-        // Half-way hides roughly half the bars.
-        assert_eq!(consumed_bars(0.5, 40), 20);
-        // Out-of-range progress is clamped and never exceeds the bar count.
-        assert_eq!(consumed_bars(-1.0, 40), 0);
-        assert_eq!(consumed_bars(2.0, 40), 40);
-        assert_eq!(consumed_bars(0.5, 0), 0);
+    fn trail_hides_in_segment_chunks() {
+        let seg = sample_segmentation();
+        // At the head nothing is consumed.
+        assert_eq!(hidden_bars_for_star(&seg, 0.0, 1.0), 0);
+        // Mid first segment: still nothing fully passed.
+        assert_eq!(hidden_bars_for_star(&seg, 1.0, 1.0), 0);
+        // Star reaches bar 3: the whole first segment (3 tiles) hides at once.
+        assert_eq!(hidden_bars_for_star(&seg, 3.0, 1.0), 3);
+        // Inside the second segment: unchanged (no per-tile hiding).
+        assert_eq!(hidden_bars_for_star(&seg, 5.0, 1.0), 3);
+        // Star reaches bar 7: second segment hides, cumulative 0..7.
+        assert_eq!(hidden_bars_for_star(&seg, 7.0, 1.0), 7);
+        // Star at the end: everything hidden.
+        assert_eq!(hidden_bars_for_star(&seg, 10.0, 1.0), 10);
+    }
+
+    #[test]
+    fn empty_segmentation_is_safe() {
+        let seg = SlideSegmentation::default();
+        assert_eq!(hidden_bars_for_star(&seg, 5.0, 2.0), 0);
     }
 }

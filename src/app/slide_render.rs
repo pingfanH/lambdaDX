@@ -758,16 +758,28 @@ pub fn draw_slide(
     }
 
     // ── Flying star (post-judge, moves along path) ──
+    //
+    // The approaching head star vanishes at the hit; this tracing star then
+    // pops in *at the hit position*: it starts at the original star-head size
+    // and ~50% opacity, and over the slide's pre-trace wait (`start_delay_s`,
+    // i.e. until it begins to trace) it grows to 1.5x and fades to fully
+    // opaque. Then it continues along the path.
     if !show_full && current_t >= ns && current_t <= slide_end_s {
         let (star_pos, angle) = point_at(star_dist_along);
-        let ss = STAR_SIZE * scale;
+        let p = if start_delay_s > 1e-4 {
+            ((current_t - ns) / start_delay_s).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let ss = STAR_SIZE * scale * (1.0 + 0.5 * p);
+        let tint = Color::from_rgba(255, 255, 255, ((0.5 + 0.5 * p) * 255.0) as u8);
         let star_used = tex.star.or(tex.star_fallback);
         if let Some(st) = star_used {
             draw_texture_ex(
                 st,
                 star_pos.x - ss * 0.5,
                 star_pos.y - ss * 0.5,
-                WHITE,
+                tint,
                 DrawTextureParams {
                     dest_size: Some(vec2(ss, ss)),
                     rotation: angle,
@@ -779,7 +791,7 @@ pub fn draw_slide(
                     ex_tex,
                     star_pos.x - ss * 0.5,
                     star_pos.y - ss * 0.5,
-                    WHITE,
+                    tint,
                     DrawTextureParams {
                         dest_size: Some(vec2(ss, ss)),
                         rotation: angle,

@@ -470,14 +470,22 @@ Slide 委托给 `app/slide_render.rs::draw_slide`（`render/slide.rs` 是适配�
    `SlideShape`（Q/QQ/P/PP/Left/Right/Caret/Z/S/Wifi/Line）调用
    `slide/path.rs` 生成屏幕点。`segmentation::build` 以
    `SLIDE_TILE_SPACING·scale` 为间距沿路径采样成 `SlideBar`（位置 + 旋转 + 所属 zone）。
-2. **trail tiles（分段消耗）**：沿采样点铺贴图。`render/slide.rs` 按星星进度算出
-   `hidden_until_bar = floor(star_t · bar_count)`（`consumed_bars`），把**星星已经经过
-   的 bar 隐藏**，于是 trail 是“被星星吃掉”的——跟随星星头部逐段消失，而不是整条一起
-   留到最后。星星到达终点时 `hidden_until_bar = bar_count`，trail 全部消失。
+2. **trail tiles（按“判定段”整段消耗）**：沿采样点铺贴图。`render/slide.rs` 用
+   `segmentation::build` 得到 `bars`（每个贴图）和 `judge_segments`（同一传感器 zone 的
+   连续 bar 组成的段）。`hidden_bars_for_star` 按星星沿路径走过的距离求出当前 bar，
+   然后**把已经整体越过的 `judge_segment` 一次性隐藏**（`hidden_until_bar = 该段
+   end_bar`），所以是“多个贴图作为一段一起消失”，而不是逐个贴图消失。
+   星星到达终点时整条 trail 清空。
+
+   > 这与原 player 一致：原来由裁决引擎发 `HideSlideBars { end_index }`，按传感器段
+   > （`judge_segments`）成段隐藏（`engine.rs::slide_progress_update` →
+   > `RenderCommand::HideSlideBars`）。本项目没有引擎，就用星星进度模拟这个分段时机。
 3. **星标**：
    - 头（`current_t < ns`）：与 tap 同一径向飞行，边飞边转（`rotation = progress·2π`）；
-   - 判定后（`ns <= current_t <= slide_end`）：沿路径行走，位置由
-     `star_dist_along = star_t · total_len` 在路径上插值，方向取该段切线。
+   - 到达判定点后**飞入的头星消失**；轨迹星在命中位置**弹出动画**：在 slide 的**预等待
+     时间 `slide_start_delay`（星星启动前的那一拍，`draw_slide` 的 `start_delay_s`）内，
+     尺寸 `1.0×→1.5×`（原本星头大小 → 放大 0.5 倍）、透明度 `50%→100%`**，动画结束
+     刚好开始沿路径行走（位置由 `star_dist_along = star_t · total_len` 插值，方向取该段切线）。
 4. Wifi 特殊：三条直轨，每条 11 张贴图，且单独飞星。
 
 slide 的 `disappear_time = 0`（`timing.rs::compute`）：星星到达尾端后整个 slide 立即
@@ -485,9 +493,16 @@ slide 的 `disappear_time = 0`（`timing.rs::compute`）：星星到达尾端后
 
 第 1 步里的 Q/P/QQ/PP 由「直线 → B/AD 弧 → 直线」拼成。直线与圆弧的接缝原本是
 硬折角（直线近似沿半径、而圆弧切线垂直于半径，夹角接近 90°），看起来很不自然。
-现在在两条接缝处用 `fillet_corner` 做**切线连续（G1）的二次贝塞尔圆角**：沿入边方向
-起、沿出边方向止，圆角半径 `clamp(arc_radius·0.3, 8·scale, 40·scale)` 并按相邻线段
-长度的一半截断。Left/Right/Caret 的弧两端本就与被连接点重合，无需圆角。
+
+现在两处接缝用 `slide/path.rs` 的 **G1 三次贝塞尔过渡**：`blend_line_to_arc`（直线进入
+圆弧）与 `blend_arc_to_line`（圆弧转出到直线）。做法是把两侧各沿曲线回退 `fillet_r`
+（`clamp(arc_radius·0.3, 8·scale, 40·scale)`），删掉中间被覆盖的弧采样点，插入一段
+**起点切向 = 直线方向、终点切向 = 圆弧切线** 的三次贝塞尔（`push_cubic`），因此接缝
+两侧都切线连续、没有折痕。
+
+> 早先版本用的是只替换单个折角顶点的二次贝塞尔 fillet，半径被“相邻弧采样点间距”
+> 卡到约 10px，太小仍有痕迹；现在回退长度基于弧长而非采样间距，且按弧切线对齐。
+> Left/Right/Caret 的弧两端本就与被连接点重合，无需过渡。
 
 轨迹淡入用 `slide_fade_in`（默认 `3.926913 / note_speed` 秒）配合
 `slide_start_delay` 换算出的 `fade_in_s`。
@@ -630,7 +645,7 @@ slide 的 `disappear_time = 0`（`timing.rs::compute`）：星星到达尾端后
 | `touch::draw` | touch 整段淡入/内移；hold 转 `draw_touch_hold` |
 | `touch::draw_touch_hold` | 4 斜向贴图 + `mask.frag` 进度环 |
 | `slide::draw` | 选贴图、按星星进度隐藏已过的 trail bar，并调用 `slide_render::draw_slide` |
-| `slide::consumed_bars` | 星星进度 → 该隐藏的 trail bar 数量 |
+| `slide::hidden_bars_for_star` | 星星走过的距离 → 该隐藏的 trail bar 数（按 `judge_segments` 整段） |
 | `feedback::draw` | 判定文字覆盖层 |
 | `textures::load_note_textures` | 按候选路径加载全部皮肤（缺失回退图形） |
 
@@ -692,7 +707,7 @@ slide 的 `disappear_time = 0`（`timing.rs::compute`）：星星到达尾端后
 `star_ex_fallback` 留空。
 
 另外，Q/P/QQ/PP 路径的直线↔圆弧接缝是硬折角，本项目在 `slide/path.rs` 用
-`fillet_corner` 做了 G1 圆角（见 §6.4）；tap 越过判定环后继续外飞（见 §6.1）。
+用 G1 三次贝塞尔过渡消除折痕（见 §6.4）；tap 越过判定环后继续外飞（见 §6.1）。
 
 **保持一致的**：`pad.svg` 几何与坐标变换、分区多边形、径向飞行/Hold 头尾同速/整段时长
 等运动公式、贴图与绘制层级、时间换算与可变 BPM。

@@ -22,6 +22,8 @@ pub struct LaunchArgs {
     pub audio: Option<PathBuf>,
     /// 1-based difficulty number to pick from the chart.
     pub diff: Option<i32>,
+    /// Print the parsed chart (bpms + slides) and exit without opening a window.
+    pub dump: bool,
 }
 
 /// Parse the process arguments (excluding argv[0]).
@@ -54,6 +56,7 @@ where
                         .map_err(|_| format!("invalid --diff value: {v}"))?,
                 );
             }
+            "--dump" => out.dump = true,
             other if other.starts_with('-') && other != "-" => {
                 return Err(format!("unknown option: {other}"));
             }
@@ -94,6 +97,7 @@ OPTIONS:
     -c, --chart <PATH>   Same as the first positional argument.
     -a, --audio <PATH>   Same as the second positional argument.
     -d, --diff <N>       Difficulty number to load (e.g. 4).
+    --dump               Print the parsed chart (bpms + slides) and exit.
     -h, --help           Print this help.
 
 KEYS:
