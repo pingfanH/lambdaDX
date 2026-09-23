@@ -205,6 +205,9 @@ pub async fn run() {
     if std::env::var("MAI2_UI_PARAMS").is_ok() {
         app.pad.show_params = true;
     }
+    if std::env::var("MAI2_UI_AUTOPLAY").is_ok() {
+        app.set_autoplay(true);
+    }
     let shot_path = std::env::var("MAI2_UI_SHOT").ok();
     let shot_at = std::env::var("MAI2_UI_SHOT_AT")
         .ok()
@@ -269,6 +272,7 @@ pub async fn run() {
         if !app.scrubbing {
             app.pad.tick_cues();
         }
+        app.tick_autoplay();
         app.pad.tick_feedback();
 
         if app.pad.playback_pending && app.gameplay_presented {

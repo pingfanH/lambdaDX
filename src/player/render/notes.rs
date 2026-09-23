@@ -12,11 +12,11 @@ use crate::player::state::PadPreviewState;
 /// Draw all visible notes for `current_t` (seconds).
 ///
 /// Two passes so the stacking is type-aware:
-/// 1. every non-slide note (tap / hold / touch) — ring or touch art;
-/// 2. every slide note — trail + flying star, plus the on-hit ring.
+/// 1. every slide note — trail + flying star, plus the on-hit ring (behind);
+/// 2. every non-slide note (tap / hold / touch) — ring or touch art (in front).
 ///
-/// Slides therefore always sit **above** other notes. `note_earlier_on_top` only
-/// orders items *within* each pass (note vs note, slide vs slide); it no longer
+/// Notes therefore always sit **above** slides. `note_earlier_on_top` only
+/// orders items *within* each pass (slide vs slide, note vs note); it no longer
 /// interleaves the two kinds.
 pub fn draw_notes(
     app: &PadPreviewState,
@@ -26,12 +26,12 @@ pub fn draw_notes(
     current_t: f32,
     speed_scale: f32,
 ) {
-    draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, false);
     draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, true);
+    draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, false);
 }
 
-/// One stacking pass. `slides == false` draws non-slide notes; `slides == true`
-/// draws slide notes (on top).
+/// One stacking pass. `slides == true` draws slide notes first (behind);
+/// `slides == false` draws non-slide notes on top.
 fn draw_pass(
     app: &PadPreviewState,
     pad: &PadGeom,

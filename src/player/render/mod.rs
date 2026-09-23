@@ -68,6 +68,7 @@ pub mod notes;
 pub mod pad;
 pub mod ring;
 pub mod scale;
+pub mod skin;
 pub mod slide;
 pub mod textures;
 pub mod timing;

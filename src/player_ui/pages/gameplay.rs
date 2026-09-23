@@ -80,6 +80,9 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
             app.pad.toggle_play();
         } else if is_key_pressed(KeyCode::R) {
             app.pad.start_playback_at(0.0);
+        } else if is_key_pressed(KeyCode::A) {
+            let on = !app.autoplay;
+            app.set_autoplay(on);
         }
     } else if is_key_pressed(KeyCode::Escape) {
         app.resume();
@@ -149,11 +152,25 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         theme::TEXT_MUTED,
     );
 
-    // Progress + time.
-    let time_w = 110.0 * scale;
-    let auto_w = 74.0 * scale;
+    // Progress + time. Right side layout: [time] [AUTO] [PLAY] (audio dot).
+    let play_w = 62.0 * scale;
+    let auto_w = 70.0 * scale;
+    let time_w = 100.0 * scale;
+    let right = 16.0 * scale;
+    let play_r = RectF {
+        x: ctx.w - right - play_w,
+        y: 17.0 * scale,
+        w: play_w,
+        h: 32.0 * scale,
+    };
+    let autoplay_r = RectF {
+        x: play_r.x - 8.0 * scale - auto_w,
+        y: 17.0 * scale,
+        w: auto_w,
+        h: 32.0 * scale,
+    };
     let bar_x = tx + (ctx.w * 0.30).max(200.0 * scale);
-    let bar_right = ctx.w - 16.0 * scale - auto_w - 16.0 * scale - time_w;
+    let bar_right = autoplay_r.x - 12.0 * scale - time_w;
     let bar = RectF {
         x: bar_x,
         y: hud_h * 0.5 - 4.0 * scale,
@@ -218,30 +235,35 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     draw::text_right(
         ctx.font.as_ref(),
         &format_time(shown_time),
-        ctx.w - 16.0 * scale - auto_w - 12.0 * scale,
+        autoplay_r.x - 12.0 * scale,
         hud_h * 0.5 + 4.0 * scale,
         time_size,
         theme::TEXT_DIM,
     );
 
-    // AUTO toggle.
-    let auto_r = RectF {
-        x: ctx.w - 16.0 * scale - auto_w,
-        y: 17.0 * scale,
-        w: auto_w,
-        h: 32.0 * scale,
+    // AUTOPLAY toggle.
+    let ap_kind = if app.autoplay {
+        Btn::Primary
+    } else {
+        Btn::Quiet
     };
+    if pages::button(ctx, input, "hud_autoplay", 0, autoplay_r, "AUTO", ap_kind) {
+        let on = !app.autoplay;
+        app.set_autoplay(on);
+    }
+
+    // PLAY / pause.
     let kind = if app.pad.mode == Mode::Playing {
         Btn::Secondary
     } else {
         Btn::Quiet
     };
-    if pages::button(ctx, input, "hud_play", 0, auto_r, "PLAY", kind) {
+    if pages::button(ctx, input, "hud_play", 0, play_r, "PLAY", kind) {
         app.pad.toggle_play();
     }
 
     // Audio indicator.
-    let dot_c = vec2(auto_r.x - 20.0 * scale, hud_h * 0.5);
+    let dot_c = vec2(play_r.x + play_r.w + 12.0 * scale, hud_h * 0.5);
     draw_circle(
         dot_c.x,
         dot_c.y,
@@ -257,7 +279,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     if app.page == Page::Gameplay {
         draw::text_right(
             ctx.font.as_ref(),
-            "SPACE 暂停 · R 重播 · ←/→ 快退/快进 · 拖动进度条 · ESC 暂停",
+            "SPACE 暂停 · R 重播 · A 自动 · ←/→ 快退/快进 · 拖动进度条 · ESC 暂停",
             ctx.w - 16.0 * scale,
             ctx.h - 12.0 * scale,
             11.0 * scale,

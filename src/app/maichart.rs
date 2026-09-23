@@ -303,6 +303,7 @@ fn convert(mai: MaiChart, diff_override: Option<i32>) -> ChartDoc {
 
     notes.sort_by(|a, b| a.time.total_cmp(&b.time));
     mark_double_stars(&mut notes);
+    recompute_each(&mut notes);
 
     ChartDoc {
         version: "maichart-1".to_string(),
@@ -334,6 +335,19 @@ pub(crate) fn mark_double_stars(notes: &mut [Note]) {
     }
     for n in notes.iter_mut().filter(|n| matches!(n.note_type, NoteType::Slide)) {
         n.is_star = counts.get(&key(n)).copied().unwrap_or(0) > 1;
+    }
+}
+
+/// Mark notes that share a hit time with another note (simai "each"). The
+/// `is_each` flag selects the `*_each` skins, so a lone note stays `false`.
+pub(crate) fn recompute_each(notes: &mut [Note]) {
+    let times: Vec<f32> = notes.iter().map(|n| n.time).collect();
+    for i in 0..notes.len() {
+        let m = notes[i].time;
+        notes[i].is_each = times
+            .iter()
+            .enumerate()
+            .any(|(j, t)| j != i && (t - m).abs() < 0.002);
     }
 }
 

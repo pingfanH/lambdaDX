@@ -7,6 +7,7 @@ use crate::app::slide::segmentation::{self, SlideSegmentation};
 use crate::app::slide_render;
 use crate::app::types::{PadGeom, SLIDE_MIN_DURATION_S, mdur_to_secs, note_secs};
 use crate::player::render::timing::NoteTiming;
+use crate::player::render::skin;
 use crate::player::state::PadPreviewState;
 use crate::app::params;
 
@@ -51,57 +52,16 @@ pub fn draw(
             .min(slide_dur_s - 0.001)
             .max(0.001);
 
-        // Pick the correct trail/star variant for this note's flags.
-        let dbl = note.is_star;
-        let trail_tex = if sl.slide_is_break {
-            app.slide_break_tex.as_ref()
-        } else if note.is_each {
-            app.slide_each_tex.as_ref()
-        } else {
-            app.slide_tex.as_ref()
-        };
-        let star_variant = if note.is_break {
-            if dbl {
-                app.star_double_break_tex.as_ref()
-            } else {
-                app.star_break_tex.as_ref()
-            }
-        } else if note.is_each {
-            if dbl {
-                app.star_double_each_tex.as_ref()
-            } else {
-                app.star_each_tex.as_ref()
-            }
-        } else if dbl {
-            app.star_double_tex.as_ref()
-        } else {
-            app.star_tex.as_ref()
-        };
-        let star_fb = if dbl {
-            app.star_double_tex.as_ref()
-        } else {
-            app.star_tex.as_ref()
-        };
-        let ex_variant = if note.is_ex {
-            if dbl {
-                app.star_double_ex_tex.as_ref()
-            } else {
-                app.star_ex_tex.as_ref()
-            }
-        } else {
-            None
-        };
-
-        // `draw_slide` resolves the Ex overlay as
-        // `star_ex.or(star_ex_fallback)`. That fallback must ONLY be offered
-        // when the note really is Ex; otherwise every star head gets an Ex ring
-        // (the upstream player had this bug). Resolve the variant/generic Ex
-        // choice here and leave `star_ex_fallback` empty.
-        let star_ex = if note.is_ex {
-            ex_variant.or(app.star_ex_tex.as_ref())
-        } else {
-            None
-        };
+        // Pick the correct trail/star variant for this note's flags (central
+        // skin table in `render::skin`).
+        let trail_tex = skin::body_or_normal(
+            app,
+            skin::SkinKind::SlideTrail,
+            skin::SkinVariant::of_flags(sl.slide_is_break, note.is_each),
+        );
+        let star_variant = skin::star_body(app, note);
+        let star_fb = skin::body(app, skin::star_kind(note), skin::SkinVariant::Normal);
+        let star_ex = skin::star_ex(app, note);
 
         let tex = slide_render::SlideTextures {
             trail: trail_tex,

@@ -8,6 +8,7 @@ use macroquad::prelude::{DrawTextureParams, draw_circle, draw_circle_lines, draw
 use crate::app::types::{HIT_WINDOW, HOLD_SPAWN_BODY_WIDTH_FRAC, NoteMotion, NoteType, PAD_ROTATION_RAD, note_lock_radius, note_radial_motion, note_radial_motion_continue};
 use crate::app::ui::draw_hold_9slice_segment;
 use crate::player::render::timing::NoteTiming;
+use crate::player::render::skin;
 use crate::player::state::PadPreviewState;
 use crate::app::params;
 
@@ -75,14 +76,8 @@ fn draw_tap(
     scale: f32,
 ) {
     let ts = params::tap_size() * scale * motion_scale;
-    let tap_tex = if note.is_break {
-        app.tap_break_tex.as_ref()
-    } else if note.is_each {
-        app.tap_each_tex.as_ref()
-    } else {
-        app.tap_texture.as_ref()
-    };
-    if let Some(tex) = tap_tex.or(app.tap_texture.as_ref()) {
+    let tap_tex = skin::body_or_normal(app, skin::SkinKind::Tap, skin::SkinVariant::of(note));
+    if let Some(tex) = tap_tex {
         draw_texture_ex(
             tex,
             px - ts * 0.5,
@@ -94,7 +89,7 @@ fn draw_tap(
             },
         );
         if note.is_ex {
-            if let Some(ex_tex) = app.tap_ex_tex.as_ref() {
+            if let Some(ex_tex) = skin::ex(app, skin::SkinKind::Tap) {
                 draw_texture_ex(
                     ex_tex,
                     px - ts * 0.5,
@@ -171,17 +166,11 @@ fn draw_hold(
     let tx = spawn_cx.x + dir.x * tail_r;
     let ty = spawn_cx.y + dir.y * tail_r;
 
-    let hold_tex = if note.is_break {
-        app.hold_break_tex.as_ref()
-    } else if note.is_each {
-        app.hold_each_tex.as_ref()
-    } else {
-        app.hold_texture.as_ref()
-    };
+    let hold_tex = skin::body_or_normal(app, skin::SkinKind::Hold, skin::SkinVariant::of(note));
 
     let head_pos = vec2(hx, hy);
     let tail_pos = vec2(tx, ty);
-    if let Some(tex) = hold_tex.or(app.hold_texture.as_ref()) {
+    if let Some(tex) = hold_tex {
         draw_hold_9slice_segment(
             tex,
             head_pos,
@@ -191,7 +180,7 @@ fn draw_hold(
             dir,
         );
         if note.is_ex {
-            if let Some(ex_tex) = app.hold_ex_tex.as_ref() {
+            if let Some(ex_tex) = skin::ex(app, skin::SkinKind::Hold) {
                 draw_hold_9slice_segment(
                     ex_tex,
                     head_pos,

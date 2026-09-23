@@ -12,6 +12,7 @@ use macroquad::prelude::{DrawTextureParams, draw_texture_ex};
 use crate::app::types::zone::PadZone;
 use crate::app::types::{PadGeom, hold_tail_time, touch_whole_duration};
 use crate::player::render::timing::NoteTiming;
+use crate::player::render::skin;
 use crate::player::state::PadPreviewState;
 use crate::app::params;
 
@@ -70,11 +71,11 @@ pub fn draw(
 
     // ── Regular touch cross (not for holds) ──
     if !matches!(note.note_type, crate::app::types::NoteType::Hold) {
-        let tri_tex = if note.is_each {
-            app.touch_tri_each_tex.as_ref()
-        } else {
-            app.touch_tri_tex.as_ref()
-        };
+        let tri_tex = skin::body_or_normal(
+            app,
+            skin::SkinKind::TouchTri,
+            skin::SkinVariant::of(note),
+        );
         if let Some(tex) = tri_tex {
             let ratio = tex.width() / tex.height();
             let tw = ts;
@@ -101,11 +102,11 @@ pub fn draw(
 
     // Centre dot (holds draw theirs on top later).
     if !matches!(note.note_type, crate::app::types::NoteType::Hold) {
-        let pt_tex = if note.is_each {
-            app.touch_point_each_tex.as_ref()
-        } else {
-            app.touch_point_tex.as_ref()
-        };
+        let pt_tex = skin::body_or_normal(
+            app,
+            skin::SkinKind::TouchPoint,
+            skin::SkinVariant::of(note),
+        );
         if let Some(tex) = pt_tex {
             let ps = ts * 0.4;
             draw_texture_ex(
@@ -217,11 +218,11 @@ fn draw_touch_hold(
     }
 
     // Centre dot on top for holds.
-    let pt_tex = if note.is_each {
-        app.touch_point_each_tex.as_ref()
-    } else {
-        app.touch_point_tex.as_ref()
-    };
+    let pt_tex = skin::body_or_normal(
+        app,
+        skin::SkinKind::TouchPoint,
+        skin::SkinVariant::of(note),
+    );
     if let Some(tex) = pt_tex {
         let ps = hts * 0.4;
         draw_texture_ex(

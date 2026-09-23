@@ -14,7 +14,7 @@
 //! wait** unless an explicit `[delay##…]` delay is given. `is_star` (double
 //! star) is decided by shared heads, exactly like the chart.json path.
 
-use crate::app::maichart::mark_double_stars;
+use crate::app::maichart::{mark_double_stars, recompute_each};
 use crate::app::types::zone::PadZone;
 use crate::app::types::{
     BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
@@ -50,6 +50,7 @@ fn convert(file: SimaiFile, diff: Option<i32>) -> ChartDoc {
     drop_slide_star_taps(&mut notes);
     notes.sort_by(|a, b| a.time.total_cmp(&b.time));
     mark_double_stars(&mut notes);
+    recompute_each(&mut notes);
 
     ChartDoc {
         version: "simai-1".to_string(),
@@ -344,6 +345,19 @@ fn sensor_lane(region: char, position: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::from_maidata;
+
+    #[test]
+    fn simultaneous_notes_are_marked_each() {
+        // `1/2` = two taps at the same time (simai "each"); `3` alone is not.
+        let c = from_maidata("&title=T\n&inote_1=(120){4}1/2,3\n", None).expect("parse");
+        let each: Vec<bool> = c
+            .notes
+            .iter()
+            .filter(|n| matches!(n.note_type, crate::app::types::NoteType::Tap))
+            .map(|n| n.is_each)
+            .collect();
+        assert_eq!(each, vec![true, true, false]);
+    }
 
     #[test]
     fn parses_minimal_maidata() {
