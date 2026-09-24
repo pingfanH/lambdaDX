@@ -2,3 +2,7 @@
 /output
 .DS_Store
 **/.DS_Store
+
+# Large local media / scratch files
+/assets/*.mp4
+/assets/note_params copy.json
