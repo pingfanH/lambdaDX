@@ -3,7 +3,9 @@
 
 use macroquad::color::{Color, WHITE};
 use macroquad::math::{Vec2, vec2};
-use macroquad::prelude::{DrawTextureParams, draw_circle, draw_circle_lines, draw_line, draw_texture_ex};
+use macroquad::prelude::{
+    DrawTextureParams, draw_circle, draw_circle_lines, draw_line, draw_texture_ex,
+};
 
 use crate::app::types::{HIT_WINDOW, HOLD_SPAWN_BODY_WIDTH_FRAC, NoteMotion, NoteType, PAD_ROTATION_RAD, note_lock_radius, note_radial_motion, note_radial_motion_continue};
 use crate::app::ui::draw_hold_9slice_segment;
@@ -46,12 +48,12 @@ pub fn draw(
     let py = spawn_cx.y + dir.y * motion.radius;
 
     if matches!(note.note_type, NoteType::Hold) {
-        draw_hold(app, note, t, dir, scale, spawn_cx, outer_r);
+        draw_hold(app, note, t, ang, dir, scale, spawn_cx, outer_r);
     }
 
     // Slide heads are drawn by the slide renderer; everything else draws a tap.
     if !matches!(note.note_type, NoteType::Hold | NoteType::Slide) {
-        draw_tap(app, note, motion.scale, px, py, scale);
+        draw_tap(app, note, motion, ang, px, py, scale);
     }
 
     // A brief white ring when the note is exactly on its hit instant.
@@ -61,7 +63,7 @@ pub fn draw(
             py,
             params::tap_size() * 0.53 * scale,
             2.0 * scale,
-            Color::from_rgba(255, 255, 255, 220),
+            Color::from_rgba(255, 255, 255, params::judge_ring_alpha() as u8),
         );
     }
 }
@@ -70,13 +72,42 @@ pub fn draw(
 fn draw_tap(
     app: &PadPreviewState,
     note: &crate::app::types::Note,
-    motion_scale: f32,
+    motion: NoteMotion,
+    ang: f32,
     px: f32,
     py: f32,
     scale: f32,
 ) {
+    let motion_scale = motion.scale;
     let ts = params::tap_size() * scale * motion_scale;
     let tap_tex = skin::body_or_normal(app, skin::SkinKind::Tap, skin::SkinVariant::of(note));
+
+    // Guide texture under the tap (normal / each / break variant).
+    if params::tap_guide() {
+        let variant = skin::SkinVariant::of(note);
+        let guide = match variant {
+            skin::SkinVariant::Each => {
+                app.tap_guide_each_tex.as_ref().or(app.tap_guide_tex.as_ref())
+            }
+            skin::SkinVariant::Break => {
+                app.tap_guide_break_tex.as_ref().or(app.tap_guide_tex.as_ref())
+            }
+            skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
+        };
+        if let Some(g) = guide {
+            crate::app::guide::draw(
+                g,
+                tap_tex,
+                params::tap_size() * scale,
+                px,
+                py,
+                ang,
+                motion.progress,
+                scale,
+            );
+        }
+    }
+
     if let Some(tex) = tap_tex {
         draw_texture_ex(
             tex,
@@ -126,6 +157,7 @@ fn draw_hold(
     app: &PadPreviewState,
     note: &crate::app::types::Note,
     t: &NoteTiming,
+    ang: f32,
     dir: Vec2,
     scale: f32,
     spawn_cx: Vec2,
@@ -167,6 +199,55 @@ fn draw_hold(
     let ty = spawn_cx.y + dir.y * tail_r;
 
     let hold_tex = skin::body_or_normal(app, skin::SkinKind::Hold, skin::SkinVariant::of(note));
+
+    // Guides: head (tap guide variant) and tail (Hold_End variant).
+    if params::tap_guide() {
+        let variant = skin::SkinVariant::of(note);
+        let head_guide = match variant {
+            skin::SkinVariant::Each => {
+                app.tap_guide_each_tex.as_ref().or(app.tap_guide_tex.as_ref())
+            }
+            skin::SkinVariant::Break => {
+                app.tap_guide_break_tex.as_ref().or(app.tap_guide_tex.as_ref())
+            }
+            skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
+        };
+        if let Some(g) = head_guide {
+            crate::app::guide::draw(
+                g,
+                hold_tex,
+                params::hold_width() * scale,
+                hx,
+                hy,
+                ang,
+                head_motion.progress,
+                scale,
+            );
+        }
+        let tail_guide = match variant {
+            skin::SkinVariant::Each => app
+                .hold_end_each_guide_tex
+                .as_ref()
+                .or(app.hold_end_guide_tex.as_ref()),
+            skin::SkinVariant::Break => app
+                .hold_end_break_guide_tex
+                .as_ref()
+                .or(app.hold_end_guide_tex.as_ref()),
+            skin::SkinVariant::Normal => app.hold_end_guide_tex.as_ref(),
+        };
+        if let Some(g) = tail_guide {
+            crate::app::guide::draw(
+                g,
+                hold_tex,
+                params::hold_width() * scale,
+                tx,
+                ty,
+                ang,
+                tail_progress,
+                scale,
+            );
+        }
+    }
 
     let head_pos = vec2(hx, hy);
     let tail_pos = vec2(tx, ty);

@@ -338,16 +338,37 @@ pub(crate) fn mark_double_stars(notes: &mut [Note]) {
     }
 }
 
+/// Give every note a unique, non-zero id.
+///
+/// Simai-converted notes all default to `id == 0`; autoplay hides judged notes
+/// by id, so without unique ids a single judgment would hide *every* note.
+pub(crate) fn assign_note_ids(notes: &mut [Note]) {
+    let mut next = notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+    for note in notes.iter_mut() {
+        if note.id == 0 {
+            note.id = next;
+            next += 1;
+        }
+    }
+}
+
 /// Mark notes that share a hit time with another note (simai "each"). The
 /// `is_each` flag selects the `*_each` skins, so a lone note stays `false`.
+///
+/// Slides are only compared against other slides: `1-3/2-5` at the same time is
+/// an each slide, while a slide coinciding with a tap/star is not — the slide
+/// must not inherit the other note's each state.
 pub(crate) fn recompute_each(notes: &mut [Note]) {
+    let is_slide: Vec<bool> = notes
+        .iter()
+        .map(|n| matches!(n.note_type, NoteType::Slide))
+        .collect();
     let times: Vec<f32> = notes.iter().map(|n| n.time).collect();
     for i in 0..notes.len() {
-        let m = notes[i].time;
-        notes[i].is_each = times
-            .iter()
-            .enumerate()
-            .any(|(j, t)| j != i && (t - m).abs() < 0.002);
+        let m = times[i];
+        notes[i].is_each = times.iter().enumerate().any(|(j, t)| {
+            j != i && (t - m).abs() < 0.002 && is_slide[j] == is_slide[i]
+        });
     }
 }
 
@@ -628,5 +649,60 @@ mod tests {
         mark_double_stars(&mut notes);
         assert!(notes[0].is_star && notes[1].is_star);
         assert!(!notes[2].is_star);
+    }
+
+    fn note(kind: NoteType, time: f32) -> Note {
+        Note {
+            time,
+            lane: 1,
+            note_type: kind,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn slide_each_requires_another_slide() {
+        // A slide sharing its time with a tap is *not* an each slide; two slides
+        // at the same time are.
+        let mut notes = vec![
+            note(NoteType::Tap, 5.0),
+            note(NoteType::Slide, 5.0),
+            note(NoteType::Slide, 6.0),
+            note(NoteType::Slide, 6.0),
+        ];
+        recompute_each(&mut notes);
+        assert!(!notes[0].is_each, "lone tap");
+        assert!(!notes[1].is_each, "slide must not inherit the tap's each");
+        assert!(notes[2].is_each && notes[3].is_each, "slide/slide each");
+    }
+
+    #[test]
+    fn slide_each_ignores_coincident_tap() {
+        // A lone slide sharing a time with a lone tap: neither is each.
+        let mut notes = vec![note(NoteType::Tap, 5.0), note(NoteType::Slide, 5.0)];
+        recompute_each(&mut notes);
+        assert!(!notes[0].is_each);
+        assert!(!notes[1].is_each);
+    }
+
+    #[test]
+    fn assign_note_ids_makes_zero_ids_unique() {
+        let mut notes = vec![
+            note(NoteType::Tap, 1.0),
+            note(NoteType::Tap, 2.0),
+            note(NoteType::Slide, 3.0),
+        ];
+        assert!(notes.iter().all(|n| n.id == 0));
+        assign_note_ids(&mut notes);
+        let ids: Vec<u64> = notes.iter().map(|n| n.id).collect();
+        assert!(ids.iter().all(|&id| id != 0));
+        let mut unique = ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len());
+        // Existing non-zero ids are preserved.
+        let mut notes = vec![Note { id: 42, ..note(NoteType::Tap, 1.0) }];
+        assign_note_ids(&mut notes);
+        assert_eq!(notes[0].id, 42);
     }
 }

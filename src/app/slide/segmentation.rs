@@ -145,10 +145,12 @@ mod tests {
     use crate::app::pad_svg::PadSvgDef;
     use crate::app::types::PadGeom;
 
+    // Zone coordinates are relative to the pad origin (`SVG_BG_CX/CY`), so the
+    // fixture sits at the origin and the bars pass just above it.
     const SVG: &str = r#"
         <svg><g id="touch">
-          <rect id="A1" x="420" y="340" width="10" height="10"/>
-          <rect id="A2" x="430" y="340" width="10" height="10"/>
+          <rect id="A1" x="420" y="395" width="10" height="10"/>
+          <rect id="A2" x="430" y="395" width="10" height="10"/>
         </g></svg>
     "#;
 

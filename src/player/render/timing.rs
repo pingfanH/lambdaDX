@@ -7,8 +7,9 @@
 //! See the module docs in `render/mod.rs` for the motion model these values feed.
 
 use crate::app::types::{
-    BpmChange, NOTE_OUTER_DISTANCE, Note, NoteType, hold_tail_time, note_flight_speed,
-    note_lead_time, note_secs, sanitize_note_zone, slide_end_time, touch_whole_duration,
+    BpmChange, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, Note, NoteType, hold_tail_time,
+    note_flight_speed, note_lead_time, note_secs, sanitize_note_zone, slide_end_time,
+    touch_whole_duration,
 };
 use crate::player::state::PadPreviewState;
 
@@ -64,9 +65,13 @@ pub fn compute(
     let touch_flight = note_flight_speed(note, app.touch_speed);
 
     // Ring notes fly in over `note_lead_time`; touch/hold use the touch
-    // whole-duration model; slides use the head's radial lead.
+    // whole-duration model; slides use the head's radial lead. Taps may appear
+    // earlier when `tap_spawn_time` gives them a longer birth animation.
     let lead_time = if zone <= 8 {
-        note_lead_time(speed)
+        match note.note_type {
+            NoteType::Tap => tap_lead_time(speed),
+            _ => note_lead_time(speed),
+        }
     } else {
         match note.note_type {
             NoteType::Touch | NoteType::Hold => touch_whole_duration(touch_flight),
@@ -106,6 +111,17 @@ pub fn compute(
         lead_time,
         disappear_time,
         speed_scale,
+    }
+}
+
+/// Lead time for a tap. When `tap_spawn_time` is set, the tap appears that much
+/// earlier so it can run its scale-up ("birth") animation before flying out.
+fn tap_lead_time(speed: f32) -> f32 {
+    let spawn_t = crate::app::params::tap_spawn_time();
+    if spawn_t > 0.0 {
+        (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / speed.max(0.1) + spawn_t
+    } else {
+        note_lead_time(speed)
     }
 }
 

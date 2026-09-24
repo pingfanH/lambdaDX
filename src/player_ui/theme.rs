@@ -9,15 +9,14 @@ use macroquad::color::Color;
 
 // ── Surfaces ─────────────────────────────────────────────────────────
 pub const VOID: Color = Color::from_rgba(0x17, 0x17, 0x19, 255);
-pub const PANEL: Color = Color::from_rgba(0x20, 0x20, 0x22, 255);
+/// Re-exported from the shared pad renderer so the pad backdrop matches.
+pub use crate::player::render::{BORDER_SOFT, GRID, PANEL};
 pub const PANEL_ALT: Color = Color::from_rgba(0x24, 0x24, 0x27, 255);
 pub const RAISED: Color = Color::from_rgba(0x2a, 0x2a, 0x2e, 255);
 pub const RAISED_HOVER: Color = Color::from_rgba(0x34, 0x34, 0x3a, 255);
 
 // ── Lines ────────────────────────────────────────────────────────────
 pub const BORDER: Color = Color::from_rgba(0x3a, 0x3a, 0x40, 255);
-pub const BORDER_SOFT: Color = Color::from_rgba(0x2b, 0x2b, 0x2f, 255);
-pub const GRID: Color = Color::from_rgba(0x2e, 0x2e, 0x33, 255);
 
 // ── Text ─────────────────────────────────────────────────────────────
 pub const TEXT: Color = Color::from_rgba(0xd6, 0xd6, 0xda, 255);

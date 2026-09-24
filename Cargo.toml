@@ -27,8 +27,15 @@ egui-macroquad = { version = "0.17", default-features = false }
 # The expensive load work (JPEG decode, CJK font parsing, note-texture decode)
 # runs inside dependencies, so an unoptimized `cargo run` is ~7x slower to boot
 # and stutters on cover/song changes. Optimize dependencies even in dev.
+#
+# `debug-assertions = false` for dependencies: egui-miniquad feeds egui a
+# wall-clock (`SystemTime`) time, and emath's `History::add` debug-asserts it is
+# monotonic. A backwards clock tick then panics a `cargo run` build with
+# "Time shouldn't move backwards" even though it is harmless in release. Our own
+# crate keeps its debug assertions.
 [profile.dev.package."*"]
 opt-level = 3
+debug-assertions = false
 
 # Our own debug code also has hot loops (audio decode/resample, pad rendering).
 # opt-level 1 keeps incremental builds quick while removing the worst stalls.

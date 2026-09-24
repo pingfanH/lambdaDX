@@ -23,6 +23,7 @@ use macroquad::prelude::{clear_background, next_frame};
 use macroquad::Window;
 
 use app::cli::LaunchArgs;
+use app::types::MOUSE_POINTER_ID;
 use app::{audio, chart, pad_svg, platform};
 use player::state::PadPreviewState;
 
@@ -154,6 +155,17 @@ async fn run(args: LaunchArgs) {
     // Tunable visual params (override JSON > bundled JSON > built-in defaults).
     app.params = app::params::load();
     app::params::set(app.params.clone());
+    // Apply the persisted default speeds / fade-in to this session.
+    app.note_speed = app.params.note_speed_default;
+    app.touch_speed = app.params.touch_speed_default;
+    app.slide_fade_in = app.params.slide_fade_in;
+    // Persisted default playback speed.
+    app.set_play_speed(app.params.play_speed_default);
+    // Autoplay schedule for the initial chart (toggle with `O` or the panel).
+    player::autoplay::rebuild(&mut app);
+    if std::env::var("MAI2_AUTOPLAY").is_ok() || std::env::var("MAI2_UI_AUTOPLAY").is_ok() {
+        player::autoplay::set_on(&mut app, true);
+    }
 
     // Parse the SVG pad definition.
     match pad_svg::PadSvgDef::from_svg_str(include_str!("../assets/pad.svg")) {
@@ -183,14 +195,47 @@ async fn run(args: LaunchArgs) {
         player::input::handle_global_hotkeys(&mut app);
         player::input::handle_lane_input(&mut app);
         let pointer_events = player::input::collect_pointer_events();
+        let ui_scale = player::render::ui_scale(&app);
+        // The HUD progress bar / AUTO button take priority over pad touches.
+        let hud_consumed = player::hud::handle_input(&mut app, layout.header, ui_scale);
+        let pointer_events: Vec<_> = if hud_consumed {
+            pointer_events
+                .into_iter()
+                .filter(|e| e.id != MOUSE_POINTER_ID)
+                .collect()
+        } else {
+            pointer_events
+        };
         player::input::handle_touch_controls(&mut app, pad_geom, &pointer_events);
 
         audio::service_audio(&mut app).await;
 
         // Fire cue sounds (tap / hold head / hold tail / slide star head).
         app.tick_cues();
+        // Chart-driven autoplay (synthetic touches) for this frame.
+        player::autoplay::tick(&mut app);
 
-        player::render::draw_pad_panel(&app, layout.pad, pad_geom);
+        // Background video (bg.mp4) via the ffmpeg sidecar.
+        let video_cfg = player::video::VideoConfig {
+            enabled: app::params::bg_video(),
+            path: player::video::resolve_path(&app::params::bg_video_path()),
+            start: app::params::bg_video_start(),
+            fps: app::params::bg_video_fps(),
+            height: app::params::bg_video_height().max(2.0) as usize,
+            looping: app::params::bg_video_loop(),
+        };
+        let song_t = app.song_time();
+        app.video_bg.sync(&video_cfg, song_t);
+
+        // Shared themed surface; a bg.mp4 video, when enabled, replaces it.
+        let bg_a = app::params::pad_bg_alpha().clamp(0.0, 255.0) / 255.0;
+        player::render::draw_pad_panel(
+            &app,
+            layout.pad,
+            pad_geom,
+            player::render::PadSurface::themed(bg_a),
+        );
+        player::hud::draw(&app, layout.header, ui_scale);
 
         app.tick_feedback();
 

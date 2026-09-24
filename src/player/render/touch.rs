@@ -35,20 +35,20 @@ pub fn draw(
     };
 
     // Whole-duration progress: 0 when the note first appears, 1 at hit time.
-    // `raw` is the remaining fraction; `progress` is eased.
-    let travel = touch_whole_duration(t.touch_flight);
+    // `raw` is the remaining fraction; `progress` is eased. The total visible
+    // time is the speed-derived duration scaled by `touch_duration_scale`.
+    let travel = touch_whole_duration(t.touch_flight) * params::touch_duration_scale().max(0.05);
     let raw = (travel - t.dt_scaled) / travel;
     let progress = smoothstep(raw.clamp(0.0, 1.0));
 
     // Phases:
-    //   1. fade in  [0, fade_frac)          — appears, no movement
-    //   2. stall    [fade_frac, GROW_FRAC)  — fully opaque, still held at the
+    //   1. fade in  [0, spawn_frac)         — appears, no movement
+    //   2. stall    [spawn_frac, GROW_FRAC) — fully opaque, still held at the
     //                                          outer distance (brief pause)
     //   3. move in  [GROW_FRAC, 1]          — arms travel inward, slow -> fast
     //
-    // The stall is taken out of the fade-in, so the inward-motion window
-    // (`GROW_FRAC..1`, the same 75% as before) keeps its duration.
-    let fade_frac = (params::touch_grow_frac() - params::touch_stall_frac()).max(0.01);
+    // `touch_spawn_frac` sets the birth (fade-in) fraction directly.
+    let fade_frac = params::touch_spawn_frac().clamp(0.001, 0.99);
     let alpha = if progress < fade_frac {
         (progress / fade_frac * 255.0) as u8
     } else {

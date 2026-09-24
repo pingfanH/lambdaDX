@@ -112,6 +112,17 @@ pub struct NoteMotion {
     pub progress: f32,
 }
 
+/// Ease the linear flight progress so notes gradually speed up.
+/// `note_accel = 0` keeps constant speed; `1` makes it fully slow→fast.
+fn accel_progress(p: f32) -> f32 {
+    let a = super::params::note_accel().clamp(0.0, 1.0);
+    if a <= 0.0 {
+        p
+    } else {
+        p * ((1.0 - a) + a * p)
+    }
+}
+
 /// Convert time-until-hit into the MajdataView radial fly-out state.
 /// Notes grow while locked at the inner radius, then travel to the outer ring.
 /// `speed` is the note's flight speed (units/sec, `distance = 4.8 - t*speed`).
@@ -130,10 +141,12 @@ pub fn note_radial_motion(
     }
 
     let scale = (distance * 0.4 + 0.51).clamp(0.0, 1.0);
-    let progress = ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE))
-        .clamp(0.0, 1.0);
+    let progress = accel_progress(
+        ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE))
+            .clamp(0.0, 1.0),
+    );
     let target_r = outer_r + target_offset;
-    let lock_r = target_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
+    let lock_r = target_r * super::params::note_spawn_frac();
     let radius = lock_r + (target_r - lock_r) * progress;
 
     Some(NoteMotion {
@@ -146,7 +159,7 @@ pub fn note_radial_motion(
 /// Inner (lock) radius for a note flying to the given target ring, matching
 /// `note_radial_motion`'s linear scaling.
 pub fn note_lock_radius(outer_r: f32, target_offset: f32) -> f32 {
-    (outer_r + target_offset) * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE
+    (outer_r + target_offset) * super::params::note_spawn_frac()
 }
 
 /// Like [`note_radial_motion`] but the outward progress is **not clamped at 1**.
@@ -165,16 +178,33 @@ pub fn note_radial_motion_continue(
     target_offset: f32,
 ) -> Option<NoteMotion> {
     let distance = NOTE_OUTER_DISTANCE - time_until_hit * speed;
-    if distance < NOTE_VISIBLE_DISTANCE {
-        return None;
-    }
-
-    let scale = (distance * 0.4 + 0.51).clamp(0.0, 1.0);
-    // Only the upper bound is lifted: approach is unchanged, post-hit overshoots.
-    let progress =
-        ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE)).max(0.0);
     let target_r = outer_r + target_offset;
-    let lock_r = target_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
+    let lock_r = target_r * super::params::note_spawn_frac();
+
+    // The pre-flight scale-up ("birth") runs for `tap_spawn_time` seconds when
+    // configured; `0` keeps the original speed-derived distance ramp.
+    let spawn_t = super::params::tap_spawn_time();
+    let scale = if spawn_t > 0.0 {
+        let appear_d = NOTE_LOCK_DISTANCE - speed * spawn_t;
+        if distance < appear_d {
+            return None;
+        }
+        ((distance - appear_d) / (NOTE_LOCK_DISTANCE - appear_d).max(1e-3)).clamp(0.0, 1.0)
+    } else {
+        if distance < NOTE_VISIBLE_DISTANCE {
+            return None;
+        }
+        (distance * 0.4 + 0.51).clamp(0.0, 1.0)
+    };
+
+    // Only the upper bound is lifted: approach is unchanged, post-hit overshoots.
+    let raw = (distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE);
+    let progress = if raw <= 1.0 {
+        accel_progress(raw.max(0.0))
+    } else {
+        // Post-hit overshoot stays linear (and keeps speeding past the ring).
+        raw
+    };
     let radius = lock_r + (target_r - lock_r) * progress;
 
     Some(NoteMotion {
@@ -746,11 +776,29 @@ pub struct TemplateInstance {
 #[cfg(test)]
 mod note_motion_tests {
     use super::{
-        NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NOTE_VISIBLE_DISTANCE, note_radial_motion,
-        note_radial_motion_continue,
+        NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NOTE_VISIBLE_DISTANCE, accel_progress,
+        note_radial_motion, note_radial_motion_continue,
     };
 
     const SPEED: f32 = 7.0; // MajdataView default tap speed.
+
+    /// `note_accel` eases the flight (slow → fast) without moving the endpoints.
+    #[test]
+    fn note_accel_preserves_endpoints() {
+        // Default (accel = 0) is the identity.
+        assert!((accel_progress(0.0) - 0.0).abs() < 1e-6);
+        assert!((accel_progress(0.5) - 0.5).abs() < 1e-6);
+        assert!((accel_progress(1.0) - 1.0).abs() < 1e-6);
+
+        let mut p = crate::app::params::Params::default();
+        p.note_accel = 1.0;
+        crate::app::params::set(p);
+        assert!((accel_progress(0.0) - 0.0).abs() < 1e-6);
+        assert!((accel_progress(1.0) - 1.0).abs() < 1e-6);
+        // Slow start: mid flight is behind the linear position.
+        assert!(accel_progress(0.5) < 0.5);
+        crate::app::params::set(crate::app::params::Params::default());
+    }
 
     #[test]
     fn note_reaches_outer_ring_at_hit_time() {

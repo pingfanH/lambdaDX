@@ -22,6 +22,34 @@ async fn first(paths: &[&str]) -> Option<Texture2D> {
 /// Load every note texture into `app`.
 pub async fn load_note_textures(app: &mut PadPreviewState) {
     app.tap_texture = first(&["Skins/classic/tap.png", "skins/classic/tap.png", "tap.png"]).await;
+    // Optional guide line drawn under taps (drop `tap_guide.png` into the skins
+    // folder). Missing = feature silently disabled.
+    app.tap_guide_tex = first(&[
+        "Skins/classic/tap_guide.png",
+        "skins/classic/tap_guide.png",
+        "tap_guide.png",
+    ])
+    .await;
+    // Per-variant guides (fall back to the normal one in the renderer).
+    app.tap_guide_each_tex = first(&["Skins/classic/Each.png", "skins/classic/Each.png", "Each.png"]).await;
+    app.tap_guide_break_tex =
+        first(&["Skins/classic/Break.png", "skins/classic/Break.png", "Break.png"]).await;
+    app.slide_guide_tex =
+        first(&["Skins/classic/slide_guide.png", "skins/classic/slide_guide.png", "slide_guide.png"]).await;
+    app.hold_end_guide_tex =
+        first(&["Skins/classic/Hold_End.png", "skins/classic/Hold_End.png", "Hold_End.png"]).await;
+    app.hold_end_each_guide_tex = first(&[
+        "Skins/classic/Hold_Each_End.png",
+        "skins/classic/Hold_Each_End.png",
+        "Hold_Each_End.png",
+    ])
+    .await;
+    app.hold_end_break_guide_tex = first(&[
+        "Skins/classic/Hold_Break_End.png",
+        "skins/classic/Hold_Break_End.png",
+        "Hold_Break_End.png",
+    ])
+    .await;
     app.hold_texture =
         first(&["Skins/classic/hold.png", "skins/classic/hold.png", "hold.png"]).await;
     app.touch_tri_tex = first(&["Skins/classic/touch.png", "touch.png"]).await;

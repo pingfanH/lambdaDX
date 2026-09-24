@@ -169,14 +169,9 @@ pub fn pill(
 
 const TRACK: Color = Color::new(0.20, 0.20, 0.22, 1.0);
 
-/// A flat playback/scroll bar with a 1px border.
+/// A flat playback/scroll bar with a 1px border (shared with the pad preview).
 pub fn progress_bar(r: RectF, frac: f32, fill: Color, bg: Color, border: Color) {
-    draw_rectangle(r.x, r.y, r.w, r.h, bg);
-    let w = (r.w * frac.clamp(0.0, 1.0)).max(0.0);
-    if w > 0.0 {
-        draw_rectangle(r.x, r.y, w, r.h, fill);
-    }
-    rect_outline(r, 1.0, border);
+    crate::player::render::progress::progress_bar(r, frac, fill, bg, border);
 }
 
 /// Faint diagonal hatch clipped to `r`. `slope` is dy/dx.

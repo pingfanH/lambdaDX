@@ -4,7 +4,7 @@
 use macroquad::math::Vec2;
 
 use crate::app::slide::segmentation::{self, SlideSegmentation};
-use crate::app::slide_render;
+use crate::app::slide_render::{self, SlideLayer};
 use crate::app::types::{PadGeom, SLIDE_MIN_DURATION_S, mdur_to_secs, note_secs};
 use crate::player::render::timing::NoteTiming;
 use crate::player::render::skin;
@@ -26,6 +26,7 @@ pub fn draw(
     outer_r: f32,
     current_t: f32,
     t: &NoteTiming,
+    layer: SlideLayer,
 ) {
     if note.slide.is_empty() {
         return;
@@ -70,6 +71,7 @@ pub fn draw(
             star_ex,
             star_ex_fallback: None,
             wifi: std::array::from_fn(|i| app.wifi_tex[i].as_ref()),
+            guide: app.slide_guide_tex.as_ref(),
         };
 
         // Trail consumption: hide the trail the star has passed. Bars are
@@ -110,6 +112,7 @@ pub fn draw(
             app.note_speed,
             params::slide_fade_in(),
             hidden_until_bar,
+            layer,
         );
     }
 }

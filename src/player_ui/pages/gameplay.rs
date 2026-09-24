@@ -2,8 +2,9 @@
 
 use macroquad::prelude::*;
 
+use crate::app::params;
 use crate::app::types::{Mode, RectF};
-use crate::player::render::{feedback, notes, pad as padmod};
+use crate::player::render::{self, PadSurface};
 use crate::player::{input as pinput, layout as playout};
 use crate::player_ui::draw;
 use crate::player_ui::input::{self, Input};
@@ -12,18 +13,21 @@ use crate::player_ui::state::{Page, PlayerUiApp};
 use crate::player_ui::theme;
 use crate::player_ui::UiCtx;
 
-/// Draw the pad view. Input is only forwarded on the live gameplay page. This
-/// recomposes the reused render passes over a themed surface (instead of the
-/// preview's default panel) so the "Pad View" placeholder label is dropped.
+/// Draw the pad view. Input is only forwarded on the live gameplay page. Both
+/// binaries share [`render::draw_pad_panel`]; this passes the player's themed
+/// surface (flat panel + dot grid + border) instead of the preview's flat one.
 pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
-    let scale = ctx.scale;
-    let hud_h = 66.0 * scale;
-    let margin = 16.0 * scale;
+    // Feed the pad renderer the current song's cover (updates as it decodes).
+    if let Some(i) = app.loaded.or(Some(app.selected)) {
+        app.pad.cover_texture = app.library.cover(i).cloned();
+    }
+    // Full-window pad panel so the circle is centred on screen (the HUD floats
+    // on top).
     let pad_rect = RectF {
-        x: margin,
-        y: hud_h + margin * 0.5,
-        w: ctx.w - margin * 2.0,
-        h: ctx.h - hud_h - margin * 1.5,
+        x: 0.0,
+        y: 0.0,
+        w: ctx.w,
+        h: ctx.h,
     };
     let pad_geom = playout::compute_pad_geom(pad_rect);
 
@@ -33,34 +37,8 @@ pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
         pinput::handle_touch_controls(&mut app.pad, pad_geom, &pointer_events);
     }
 
-    // Themed pad surface.
-    draw::rect(pad_rect, theme::PANEL);
-    draw::dots(
-        pad_rect,
-        26.0 * scale,
-        draw::with_alpha(theme::GRID, 0.35),
-    );
-    draw::rect_outline(pad_rect, 1.0, theme::BORDER_SOFT);
-
-    padmod::draw_pad_disc(pad_geom.cx, pad_geom.cy, pad_geom.outer_r);
-
-    let spawn_cx = app
-        .pad
-        .pad_svg
-        .as_ref()
-        .and_then(|svg| svg.pad_visual_center(&pad_geom))
-        .unwrap_or(vec2(pad_geom.cx, pad_geom.cy));
-    padmod::draw_spawn_dot(spawn_cx, scale);
-    padmod::draw_zones(&app.pad, &pad_geom, scale);
-    padmod::draw_ring_indicators(spawn_cx, pad_geom.outer_r, scale);
-
-    let current_t = match app.pad.mode {
-        Mode::Playing | Mode::Recording => app.pad.song_time(),
-        Mode::Idle => app.pad.timeline_view_time,
-    };
-    let speed_scale = app.pad.play_speed.max(0.1);
-    notes::draw_notes(&app.pad, &pad_geom, scale, spawn_cx, current_t, speed_scale);
-    feedback::draw(&app.pad, &pad_geom, pad_geom.outer_r, spawn_cx, scale);
+    let bg_a = params::pad_bg_alpha().clamp(0.0, 255.0) / 255.0;
+    render::draw_pad_panel(&app.pad, pad_rect, pad_geom, PadSurface::themed(bg_a));
 }
 
 pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
@@ -81,7 +59,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         } else if is_key_pressed(KeyCode::R) {
             app.pad.start_playback_at(0.0);
         } else if is_key_pressed(KeyCode::A) {
-            let on = !app.autoplay;
+            let on = !app.pad.autoplay;
             app.set_autoplay(on);
         }
     } else if is_key_pressed(KeyCode::Escape) {
@@ -242,13 +220,13 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     );
 
     // AUTOPLAY toggle.
-    let ap_kind = if app.autoplay {
+    let ap_kind = if app.pad.autoplay {
         Btn::Primary
     } else {
         Btn::Quiet
     };
     if pages::button(ctx, input, "hud_autoplay", 0, autoplay_r, "AUTO", ap_kind) {
-        let on = !app.autoplay;
+        let on = !app.pad.autoplay;
         app.set_autoplay(on);
     }
 

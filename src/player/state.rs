@@ -8,7 +8,9 @@ use crate::app::types::zone::PadZone;
 use crate::app::types::{
     ChartDoc, JudgeFeedback, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
 };
+use crate::player::autoplay::AutoplayEvent;
 use crate::player::cues::CueTrack;
+use crate::player::video::VideoBg;
 
 /// Per-sub-slide visual progress. In the standalone preview the trail is never
 /// hidden by judgment, so `hidden_until_bar` stays 0; kept as a typed map so the
@@ -91,6 +93,34 @@ pub struct PadPreviewState {
     pub star_ex_tex: Option<Texture2D>,
     pub star_double_ex_tex: Option<Texture2D>,
     pub mask_material: Option<macroquad::material::Material>,
+    /// Cover art drawn as the pad's circular background (set by the UI player).
+    pub cover_texture: Option<Texture2D>,
+    /// Optional guide texture drawn under each tap (aligned with flight).
+    pub tap_guide_tex: Option<Texture2D>,
+    pub tap_guide_each_tex: Option<Texture2D>,
+    pub tap_guide_break_tex: Option<Texture2D>,
+    /// Guide under slide stars.
+    pub slide_guide_tex: Option<Texture2D>,
+    /// Guides under hold tails (normal / each / break).
+    pub hold_end_guide_tex: Option<Texture2D>,
+    pub hold_end_each_guide_tex: Option<Texture2D>,
+    pub hold_end_break_guide_tex: Option<Texture2D>,
+
+    // ── Autoplay ─────────────────────────────────────────────────────
+    /// When on, the pad presses itself at each note's hit time.
+    pub autoplay: bool,
+    pub autoplay_events: Vec<AutoplayEvent>,
+    pub autoplay_cursor: usize,
+    /// Note ids hidden by autoplay, so a seek can restore them.
+    pub autoplay_hidden: Vec<u64>,
+
+    // ── Progress / seeking ───────────────────────────────────────────
+    /// True while the progress bar is being dragged.
+    pub scrubbing: bool,
+
+    // ── Background video ─────────────────────────────────────────────
+    /// `bg.mp4` decoder (only used by the standalone pad preview).
+    pub video_bg: VideoBg,
 
     // ── Misc ─────────────────────────────────────────────────────────
     pub mobile_ui: bool,
@@ -106,10 +136,15 @@ pub struct PadPreviewState {
 
 impl PadPreviewState {
     pub fn new(
-        chart: ChartDoc,
+        mut chart: ChartDoc,
         audio_source_name: Option<String>,
         audio_wav_pcm: Option<WavPcm>,
     ) -> Self {
+        // Give every note a unique id. Simai-converted notes all default to
+        // `id == 0`; autoplay hides judged notes by id, so without this a single
+        // judgment would hide *every* note.
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
+
         let mobile_ui = std::env::var("MAI2_MOBILE_UI")
             .map(|v| v == "1")
             .unwrap_or(false);
@@ -174,6 +209,20 @@ impl PadPreviewState {
             star_ex_tex: None,
             star_double_ex_tex: None,
             mask_material: None,
+            cover_texture: None,
+            tap_guide_tex: None,
+            tap_guide_each_tex: None,
+            tap_guide_break_tex: None,
+            slide_guide_tex: None,
+            hold_end_guide_tex: None,
+            hold_end_each_guide_tex: None,
+            hold_end_break_guide_tex: None,
+            autoplay: false,
+            autoplay_events: Vec::new(),
+            autoplay_cursor: 0,
+            autoplay_hidden: Vec::new(),
+            scrubbing: false,
+            video_bg: VideoBg::new(),
             mobile_ui,
             ui_scale_override,
             status: "Ready".to_string(),
@@ -278,6 +327,36 @@ impl PadPreviewState {
         if let Some(track) = &mut self.cue_track {
             track.reset(t);
         }
+    }
+
+    /// Song length in seconds (from the decoded PCM; falls back to 1s).
+    pub fn song_duration(&self) -> f32 {
+        self.audio_wav_pcm
+            .as_ref()
+            .map(|pcm| {
+                pcm.samples.len() as f32 / f32::from(pcm.channels.max(1)) / pcm.sample_rate as f32
+            })
+            .unwrap_or(1.0)
+            .max(1.0)
+    }
+
+    /// Update the visible position while dragging the progress bar (no audio
+    /// restart).
+    pub fn scrub_to(&mut self, t: f32) {
+        let t = t.clamp(0.0, self.song_duration());
+        self.mode_song_offset = t;
+        self.timeline_view_time = t;
+        self.mode_wall_anchor = get_time();
+        self.reset_cues(t);
+    }
+
+    /// Commit a seek: reposition the clock and restart audio if playing.
+    pub fn seek_to(&mut self, t: f32) {
+        let t = t.clamp(0.0, self.song_duration());
+        self.seek_audio_to(t);
+        self.mode_song_offset = t;
+        self.timeline_view_time = t;
+        self.mode_wall_anchor = get_time();
     }
 
     /// Fire the one-shot cue sound (`Sfx/answer.wav`).

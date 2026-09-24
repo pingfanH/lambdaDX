@@ -5,7 +5,7 @@
 //! * `Space` — play / pause.
 //! * `R` — restart from 0. `Home` — jump to 0.
 //! * `←` / `→` — seek ∓1 s. `↑` / `↓` — playback speed.
-//! * `A` — toggle audio.
+//! * `A` — toggle audio. `O` — toggle autoplay.
 
 use macroquad::prelude::*;
 
@@ -78,6 +78,10 @@ pub fn handle_global_hotkeys(app: &mut PadPreviewState) {
             app.request_audio_start();
         }
         app.set_status(format!("Audio enabled: {}", app.audio_enabled));
+    }
+    if is_key_pressed(KeyCode::O) {
+        let on = !app.autoplay;
+        crate::player::autoplay::set_on(app, on);
     }
 }
 

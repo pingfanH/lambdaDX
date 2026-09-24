@@ -22,11 +22,12 @@ pub fn compute_layout(app: &PadPreviewState) -> Layout {
         w: sw - margin * 2.0,
         h: header_h,
     };
+    // The pad panel spans the whole window so the circle sits dead centre.
     let pad = RectF {
-        x: margin,
-        y: header_h,
-        w: sw - margin * 2.0,
-        h: sh - header_h - margin,
+        x: 0.0,
+        y: 0.0,
+        w: sw,
+        h: sh,
     };
     Layout {
         header,
@@ -35,11 +36,12 @@ pub fn compute_layout(app: &PadPreviewState) -> Layout {
     }
 }
 
-/// Circle inscribed in `panel` at 42% of its shorter side.
+/// Circle inscribed in `panel` at 42% of its shorter side, scaled by the
+/// overall pad zoom (`params::pad_zoom`).
 pub fn compute_pad_geom(panel: RectF) -> PadGeom {
     PadGeom {
         cx: panel.x + panel.w * 0.5,
         cy: panel.y + panel.h * 0.5,
-        outer_r: panel.w.min(panel.h) * 0.42,
+        outer_r: panel.w.min(panel.h) * 0.42 * crate::app::params::pad_zoom(),
     }
 }

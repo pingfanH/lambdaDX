@@ -47,6 +47,9 @@ fn font_candidates() -> Vec<std::path::PathBuf> {
         out.push(PathBuf::from(p));
     }
     for p in [
+        // Plain `.ttf` first: fontdue rejects many `.ttc` collections.
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
         "/System/Library/Fonts/PingFang.ttc",
         "/System/Library/Fonts/Hiragino Sans GB.ttc",
         "/System/Library/Fonts/STHeiti Medium.ttc",
@@ -146,6 +149,10 @@ pub async fn run() {
 
     app.pad.params = perf::time("boot.params", params::load);
     params::set(app.pad.params.clone());
+    // Gameplay options come from the same config (流速 etc.).
+    app.pad.note_speed = app.pad.params.note_speed_default;
+    app.pad.touch_speed = app.pad.params.touch_speed_default;
+    app.pad.slide_fade_in = app.pad.params.slide_fade_in;
 
     match perf::time("boot.pad_svg", || {
         pad_svg::PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg"))

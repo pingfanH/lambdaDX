@@ -1,9 +1,10 @@
 use crate::app::types::zone::{PadZone, svg_id_to_zone};
 use macroquad::prelude::{Color, Vec2, draw_line, draw_triangle, vec2};
 
-// SVG pad geometry constants (from the viewBox and bg circle)
-const SVG_BG_CX: f32 = 422.9;
-const SVG_BG_CY: f32 = 348.8;
+// SVG pad geometry constants (from `assets/pad.svg`'s `id="bg"` circle, which
+// is the pad / sensor origin).
+const SVG_BG_CX: f32 = 423.1;
+const SVG_BG_CY: f32 = 403.7;
 const SVG_BG_R: f32 = 326.57;
 
 /// A single parsed touch zone from the SVG.
@@ -319,9 +320,12 @@ fn apply_rect_transform(transform_str: &str, corners: &[Vec2; 4]) -> [Vec2; 4] {
 }
 
 /// Transform a point from SVG viewBox coordinates to screen coordinates.
+///
+/// The zone cluster is scaled about the pad centre by `params::pad_zone_scale`,
+/// independent of the pad radius, so the sensor ring can be zoomed on its own.
 fn svg_to_screen(svg_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
     let scale = if pad.outer_r > 0.0 {
-        pad.outer_r / SVG_BG_R
+        pad.outer_r / SVG_BG_R * super::params::pad_zone_scale()
     } else {
         1.0
     };
@@ -333,8 +337,9 @@ fn svg_to_screen(svg_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
 
 /// Transform a point from screen coordinates to SVG viewBox coordinates.
 fn screen_to_svg(screen_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
-    let inv_scale = if pad.outer_r > 0.0 {
-        SVG_BG_R / pad.outer_r
+    let zone = super::params::pad_zone_scale();
+    let inv_scale = if pad.outer_r > 0.0 && zone > 0.0 {
+        SVG_BG_R / (pad.outer_r * zone)
     } else {
         1.0
     };
@@ -537,6 +542,74 @@ mod tests {
         // asset); the value here just guards that the full C polygon is used
         // instead of the C1/C2 construction fragments.
         assert_eq!(pad.zone_def(PadZone::C).expect("center zone").svg_verts.len(), 9);
+    }
+
+    /// The pad origin used by `svg_to_screen` (and therefore by every zone, the
+    /// cover/background and the occlusion mask) must be the SVG's own centre
+    /// marker. The zone artwork exports it as `id="c-C"`; older exports used a
+    /// backing `id="bg"` circle at the same centre. A mismatch shifts all of
+    /// them relative to the disc — a regression this guards against.
+    #[test]
+    fn pad_origin_matches_the_svg_bg_circle() {
+        let doc = roxmltree::Document::parse(include_str!("../../assets/pad.svg"))
+            .expect("bundled pad SVG must parse");
+        let center = doc
+            .descendants()
+            .find(|n| {
+                n.is_element() && matches!(n.attribute("id"), Some("bg") | Some("c-C"))
+            })
+            .expect("pad.svg must have a centre marker (id=\"c-C\")");
+        let cx: f32 = center.attribute("cx").expect("centre cx").parse().unwrap();
+        let cy: f32 = center.attribute("cy").expect("centre cy").parse().unwrap();
+        assert!((cx - super::SVG_BG_CX).abs() < 0.1, "SVG_BG_CX {cx}");
+        assert!((cy - super::SVG_BG_CY).abs() < 0.1, "SVG_BG_CY {cy}");
+    }
+
+    /// The zones (and hence notes, the mask and the background) must be centred
+    /// on the pad circle, not offset from it.
+    #[test]
+    fn pad_visual_center_lands_on_the_pad_centre() {
+        let def = PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg"))
+            .expect("bundled pad SVG must parse");
+        let pad = crate::app::types::PadGeom {
+            cx: 640.0,
+            cy: 380.0,
+            outer_r: super::SVG_BG_R,
+        };
+        let c = def.pad_visual_center(&pad).expect("center zone");
+        assert!((c.x - pad.cx).abs() < 12.0, "cx {}", c.x);
+        assert!((c.y - pad.cy).abs() < 12.0, "cy {}", c.y);
+    }
+
+    /// `pad_zone_scale` zooms the zone cluster about the pad centre without
+    /// touching the pad radius.
+    #[test]
+    fn zone_scale_zooms_the_zone_cluster() {
+        use crate::app::params;
+        use macroquad::prelude::vec2;
+        let pad = crate::app::types::PadGeom {
+            cx: 0.0,
+            cy: 0.0,
+            outer_r: super::SVG_BG_R,
+        };
+        // A point 100 SVG units right of the origin.
+        let probe = || {
+            super::svg_to_screen(vec2(super::SVG_BG_CX + 100.0, super::SVG_BG_CY), &pad).x
+        };
+
+        let mut p = params::get();
+        p.pad_zone_scale = 1.0;
+        params::set(p.clone());
+        let base = probe();
+
+        p.pad_zone_scale = 2.0;
+        params::set(p.clone());
+        let doubled = probe();
+        p.pad_zone_scale = 1.0;
+        params::set(p);
+
+        assert!((base - 100.0).abs() < 0.01, "base {base}");
+        assert!((doubled - 200.0).abs() < 0.01, "doubled {doubled}");
     }
 }
 

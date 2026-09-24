@@ -2,6 +2,7 @@ pub mod audio;
 mod beat_format;
 pub mod chart;
 pub mod cli;
+pub mod guide;
 pub mod maichart;
 pub mod maidata;
 pub mod pad_svg;

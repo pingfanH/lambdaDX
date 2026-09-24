@@ -7,97 +7,11 @@ use std::thread;
 use macroquad::prelude::{Texture2D, get_time};
 
 use crate::app::audio;
-use crate::app::types::zone::PadZone;
-use crate::app::types::{BpmChange, ChartDoc, Note, NoteType, WavPcm, measure_to_secs, note_secs};
+use crate::app::types::{ChartDoc, WavPcm};
+use crate::player::autoplay;
 use crate::player::cues::CueTrack;
 use crate::player::state::PadPreviewState;
 use crate::player_ui::library::{self, Library};
-
-/// Build the sorted autoplay event schedule from a chart: a synthetic touch
-/// press at every note head, a release later, and a "hide" marker for when the
-/// note should vanish (head for taps/touches, tail/end for holds/slides).
-fn autoplay_events_for(notes: &[Note], bpms: &[BpmChange]) -> Vec<AutoplayEvent> {
-    const TAP_RELEASE: f32 = 0.06;
-    let mut events: Vec<AutoplayEvent> = Vec::with_capacity(notes.len() * 2);
-    for note in notes {
-        let zone = PadZone::from(note.lane);
-        let head = note_secs(note, bpms);
-        let (release, hide_at) = match note.note_type {
-            NoteType::Hold => {
-                let tail = measure_to_secs(note.time + note.hold_duration, bpms);
-                (tail, tail)
-            }
-            NoteType::Slide => {
-                let dur = note
-                    .slide
-                    .iter()
-                    .map(|s| s.slide_duration)
-                    .fold(0.0_f32, f32::max);
-                let end = measure_to_secs(note.time + dur, bpms);
-                (end, end)
-            }
-            _ => (head + TAP_RELEASE, head),
-        };
-        events.push(AutoplayEvent {
-            t: head,
-            zone,
-            down: true,
-            hide: (hide_at <= head + 1e-4).then_some(note.id),
-        });
-        events.push(AutoplayEvent {
-            t: release,
-            zone,
-            down: false,
-            hide: (hide_at > head + 1e-4).then_some(note.id),
-        });
-    }
-    events.sort_by(|a, b| a.t.total_cmp(&b.t));
-    events
-}
-
-/// Advance the autoplay cursor to `t`, returning the new cursor and the events
-/// to apply this frame. Events older than 200 ms (jumped past by a seek) are
-/// consumed without applying; a backward seek rewinds the cursor.
-fn autoplay_due(
-    events: &[AutoplayEvent],
-    cursor: usize,
-    t: f32,
-) -> (usize, Vec<AutoplayEvent>) {
-    let mut cursor = cursor;
-    if cursor > 0 && events.get(cursor - 1).is_some_and(|e| e.t > t + 0.02) {
-        cursor = events.partition_point(|e| e.t < t);
-    }
-    let mut due = Vec::new();
-    while let Some(&ev) = events.get(cursor) {
-        if ev.t > t {
-            break;
-        }
-        if t - ev.t <= 0.20 {
-            due.push(ev);
-        }
-        cursor += 1;
-    }
-    (cursor, due)
-}
-
-/// Synthetic pointer id for a zone (kept clear of real touches and the keyboard
-/// lane ids by living just below `u64::MAX`).
-fn autoplay_pointer_id(zone: PadZone) -> u64 {
-    const AUTOPLAY_ID_BASE: u64 = u64::MAX - 3000;
-    AUTOPLAY_ID_BASE - zone.to_id() as u64
-}
-
-fn is_autoplay_pointer_id(id: u64) -> bool {
-    id > u64::MAX - 3100 && id < u64::MAX - 3000
-}
-
-#[derive(Debug, Clone, Copy)]
-struct AutoplayEvent {
-    t: f32,
-    zone: PadZone,
-    down: bool,
-    hide: Option<u64>,
-}
 
 /// Result of a background audio decode.
 type AudioDecoded = (Option<String>, Option<WavPcm>);
@@ -185,14 +99,6 @@ pub struct PlayerUiApp {
     pub loading_song: bool,
     pub loading_song_index: Option<usize>,
 
-    // ── Autoplay (chart-driven, simulates real touches) ───────────────
-    /// When on, the pad presses itself at each note's hit time.
-    pub autoplay: bool,
-    autoplay_events: Vec<AutoplayEvent>,
-    autoplay_cursor: usize,
-    /// Note ids hidden by autoplay, so a seek can restore them.
-    autoplay_hidden: Vec<u64>,
-
     // ── Settings tab ──────────────────────────────────────────────────
     pub settings_section: usize,
 
@@ -241,10 +147,6 @@ impl PlayerUiApp {
             chart_rx: None,
             loading_song: false,
             loading_song_index: None,
-            autoplay: false,
-            autoplay_events: Vec::new(),
-            autoplay_cursor: 0,
-            autoplay_hidden: Vec::new(),
             settings_section: 0,
             list_scroll: 0.0,
             list_scroll_target: 0.0,
@@ -421,113 +323,25 @@ impl PlayerUiApp {
         self.pad.chart = chart;
         // Simai-converted notes all default to id 0; give them unique ids so
         // per-note hiding (autoplay judgment) and slide-progress keys work.
-        let mut next_id = self.pad.chart.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
-        for note in &mut self.pad.chart.notes {
-            if note.id == 0 {
-                note.id = next_id;
-                next_id += 1;
-            }
-        }
+        crate::app::maichart::assign_note_ids(&mut self.pad.chart.notes);
         self.pad.hidden_notes.clear();
         self.pad.slide_progress.clear();
         self.pad.active_pointer_zones.clear();
         self.pad.prev_pointer_pos.clear();
         self.pad.cue_track = Some(CueTrack::from_chart(&self.pad.chart));
-        self.rebuild_autoplay_events();
+        autoplay::rebuild(&mut self.pad);
     }
 
     // ── Autoplay ──────────────────────────────────────────────────────
 
-    /// Rebuild the sorted autoplay schedule for the current chart.
-    fn rebuild_autoplay_events(&mut self) {
-        self.autoplay_events = autoplay_events_for(&self.pad.chart.notes, &self.pad.chart.bpms);
-        self.autoplay_cursor = 0;
-        self.autoplay_hidden.clear();
-    }
-
+    /// Toggle autoplay (delegates to the shared pad implementation).
     pub fn set_autoplay(&mut self, on: bool) {
-        if self.autoplay == on {
-            return;
-        }
-        self.autoplay = on;
-        if !on {
-            self.release_autoplay_touches();
-            self.clear_autoplay_hidden();
-        }
-        let t = self.pad.song_time();
-        self.autoplay_cursor = self.autoplay_events.partition_point(|e| e.t < t);
-        self.status = if on {
-            "Autoplay: ON".to_string()
-        } else {
-            "Autoplay: OFF".to_string()
-        };
+        autoplay::set_on(&mut self.pad, on);
     }
 
-    /// Drive autoplay for this frame: synthesize touches and hide judged notes.
+    /// Drive autoplay for this frame (delegates to the shared implementation).
     pub fn tick_autoplay(&mut self) {
-        if !self.autoplay {
-            return;
-        }
-        if self.pad.mode != crate::app::types::Mode::Playing || self.pad.playback_pending {
-            self.release_autoplay_touches();
-            return;
-        }
-        let t = self.pad.song_time();
-        // Backward seek / restart: rewind instead of dumping a burst.
-        if self.autoplay_cursor > 0
-            && self
-                .autoplay_events
-                .get(self.autoplay_cursor - 1)
-                .is_some_and(|e| e.t > t + 0.02)
-        {
-            self.autoplay_cursor = self.autoplay_events.partition_point(|e| e.t < t);
-            self.release_autoplay_touches();
-            self.clear_autoplay_hidden();
-        }
-        let (cursor, due) = autoplay_due(&self.autoplay_events, self.autoplay_cursor, t);
-        self.autoplay_cursor = cursor;
-        for ev in due {
-            self.apply_autoplay_event(ev);
-        }
-    }
-
-    fn apply_autoplay_event(&mut self, ev: AutoplayEvent) {
-        let id = autoplay_pointer_id(ev.zone);
-        if ev.down {
-            // Synthetic touch: same visual path as a real finger press.
-            self.pad.active_pointer_zones.insert(id, ev.zone);
-            self.pad.push_feedback(ev.zone, 0.12);
-            if let Some(label) = crate::player::input::hit::judge_label_for_zone(&self.pad, ev.zone)
-            {
-                self.pad.push_judgement(ev.zone, label, 0.6);
-            }
-        } else {
-            self.pad.active_pointer_zones.remove(&id);
-        }
-        if let Some(note_id) = ev.hide {
-            // Note disappears the moment it is judged.
-            self.pad.hidden_notes.insert(note_id);
-            self.autoplay_hidden.push(note_id);
-        }
-    }
-
-    fn release_autoplay_touches(&mut self) {
-        let ids: Vec<u64> = self
-            .pad
-            .active_pointer_zones
-            .keys()
-            .copied()
-            .filter(|id| is_autoplay_pointer_id(*id))
-            .collect();
-        for id in ids {
-            self.pad.active_pointer_zones.remove(&id);
-        }
-    }
-
-    fn clear_autoplay_hidden(&mut self) {
-        for id in self.autoplay_hidden.drain(..) {
-            self.pad.hidden_notes.remove(&id);
-        }
+        autoplay::tick(&mut self.pad);
     }
 
     pub fn begin_gameplay(&mut self) -> Result<(), String> {
@@ -685,59 +499,5 @@ impl PlayerUiApp {
             })
             .unwrap_or(1.0)
             .max(1.0)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn chart(simai: &str) -> ChartDoc {
-        crate::app::maidata::from_maidata(simai, None).expect("chart")
-    }
-
-    #[test]
-    fn autoplay_events_press_and_hide_on_judgment() {
-        let c = chart("&title=T\n&inote_1=(120){4}1,2,3,4\n");
-        let events = autoplay_events_for(&c.notes, &c.bpms);
-        // One press + one release per note.
-        assert_eq!(events.len(), c.notes.len() * 2);
-        let presses = events.iter().filter(|e| e.down).count();
-        assert_eq!(presses, c.notes.len());
-        // Taps hide at the head.
-        assert!(events.iter().filter(|e| e.down).all(|e| e.hide.is_some()));
-        assert!(events.windows(2).all(|w| w[0].t <= w[1].t), "sorted");
-    }
-
-    #[test]
-    fn autoplay_due_fires_due_events() {
-        let c = chart("&title=T\n&inote_1=(120){4}1,2,3,4\n");
-        let events = autoplay_events_for(&c.notes, &c.bpms);
-        let (cursor, due) = autoplay_due(&events, 0, 0.05);
-        assert!(cursor >= 1);
-        assert!(due.iter().any(|e| e.down), "the head press is due at t≈0");
-    }
-
-    #[test]
-    fn autoplay_due_skips_stale_events() {
-        let events = vec![
-            AutoplayEvent { t: 0.0, zone: PadZone::from(1), down: true, hide: Some(1) },
-            AutoplayEvent { t: 5.0, zone: PadZone::from(2), down: true, hide: Some(2) },
-        ];
-        let (cursor, due) = autoplay_due(&events, 0, 5.0);
-        assert_eq!(cursor, 2);
-        assert_eq!(due.len(), 1);
-        assert_eq!(due[0].zone, PadZone::from(2));
-    }
-
-    #[test]
-    fn autoplay_due_resyncs_after_backward_seek() {
-        let events = vec![
-            AutoplayEvent { t: 0.0, zone: PadZone::from(1), down: true, hide: Some(1) },
-            AutoplayEvent { t: 1.0, zone: PadZone::from(2), down: true, hide: Some(2) },
-        ];
-        let (cursor, due) = autoplay_due(&events, 2, 0.0);
-        assert_eq!(cursor, 1, "rewinds to the event at t=0");
-        assert_eq!(due[0].zone, PadZone::from(1));
     }
 }
