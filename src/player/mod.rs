@@ -1,5 +1,6 @@
 pub mod autoplay;
 pub mod cues;
+pub mod engine;
 pub mod font;
 pub mod hud;
 pub mod input;

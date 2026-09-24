@@ -173,6 +173,29 @@ async fn run(args: LaunchArgs) {
 
     let mut app = PadPreviewState::new(chart, audio_source_name, audio_wav_pcm);
 
+    // ── lnmai-core judgment engine (only for Simai-sourced charts) ─────
+    match args.chart.as_deref().and_then(chart::read_simai_source) {
+        Some(text) => {
+            let level = app::maidata::inote_key(&text, args.diff).unwrap_or(app.chart.simai_level);
+            match app.load_engine(&text, level) {
+                Ok(()) => {
+                    println!("lnmai-core engine loaded (levelIndex={level})");
+                    app.set_status("lnmai-core engine ready".to_string());
+                }
+                Err(e) => {
+                    eprintln!("warning: lnmai-core engine load failed: {e}");
+                    app.set_status(format!("engine: {e}"));
+                }
+            }
+        }
+        None => {
+            eprintln!(
+                "note: no Simai source (pass a maidata.txt / chart folder); \
+                 lnmai-core judgment is disabled for this chart"
+            );
+        }
+    }
+
     // Tunable visual params (override JSON > bundled JSON > built-in defaults).
     app.params = app::params::load();
     app::params::set(app.params.clone());
@@ -246,6 +269,8 @@ async fn run(args: LaunchArgs) {
         app.tick_cues();
         // Chart-driven autoplay (synthetic touches) for this frame.
         player::autoplay::tick(&mut app);
+        // Step the lnmai-core judgment engine and apply its feedback/sfx.
+        player::engine::step_judge_engine(&mut app);
 
         // Background video (bg.mp4) via the ffmpeg sidecar.
         let video_cfg = player::video::VideoConfig {

@@ -33,6 +33,17 @@ pub fn from_maidata(text: &str, diff: Option<i32>) -> Result<ChartDoc, String> {
     Ok(convert(file, diff))
 }
 
+/// The `&inote_N` key of the chart selected by `diff`.
+///
+/// `lnmai-core`'s `levelIndex` is this `N`, not the difficulty rating stored in
+/// `ChartDoc::simai_level`.
+pub fn inote_key(text: &str, diff: Option<i32>) -> Option<u32> {
+    let file = crate::simai::parse_file(text).ok()?;
+    let order = difficulty_order(&file.charts);
+    let idx = select_chart(&order, diff);
+    file.charts.get(idx).map(|(k, _)| *k)
+}
+
 fn convert(file: SimaiFile, diff: Option<i32>) -> ChartDoc {
     let order = difficulty_order(&file.charts);
     let idx = select_chart(&order, diff);

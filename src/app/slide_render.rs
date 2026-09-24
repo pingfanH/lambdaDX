@@ -251,6 +251,9 @@ pub enum SlideLayer {
 /// `outer_r` — pad outer radius in screen space
 /// `show_full` — true to render the entire trail at full alpha (static view)
 /// `hidden_until_bar` — hide trail bars with indexes lower than this value
+/// `core_driven` — true when `lnmai-core` owns the slide's lifetime, so the
+///                 post-tail time cull is disabled and the slide is only
+///                 removed by core's hide commands
 /// `layer` — draw the trail tiles or the star(s)
 pub fn draw_slide(
     note: &Note,
@@ -270,6 +273,7 @@ pub fn draw_slide(
     base_speed: f32,
     slide_fade_in: f32,
     hidden_until_bar: usize,
+    core_driven: bool,
     layer: SlideLayer,
 ) {
     // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
@@ -311,7 +315,12 @@ pub fn draw_slide(
 
     // ── Time culling (skip when not show_full) ──
     if !show_full {
-        if !(dt_scaled <= head_lead.max(fade_in_s) && current_t <= slide_end_s + 0.2) {
+        // Approach culling is always local: don't draw before the head flies in.
+        let before_head = dt_scaled <= head_lead.max(fade_in_s);
+        // Post-tail culling only applies when no engine owns the slide. When
+        // `core_driven`, the slide stays until lnmai-core hides its bars.
+        let after_end_cull = !core_driven && current_t > slide_end_s + 0.2;
+        if !before_head || after_end_cull {
             return;
         }
     }
@@ -578,7 +587,9 @@ pub fn draw_slide(
 
                 // ── Flying stars, drawn after *all* trail tiles so no wifi
                 // track's trail can cover another track's star. ──
-                if !show_full && current_t >= ns && current_t <= slide_end_s {
+                if !show_full
+                    && (core_driven || (current_t >= ns && current_t <= slide_end_s))
+                {
                     let intro = if current_t < slide_start_s {
                         ((current_t - ns) / (slide_start_s - ns).max(0.001)).clamp(0.0, 1.0)
                     } else {
@@ -897,7 +908,7 @@ pub fn draw_slide(
     // i.e. until it begins to trace) it grows to 1.5x and fades to fully
     // opaque. Then it continues along the path.
     if layer == SlideLayer::Star {
-    if !show_full && current_t >= ns && current_t <= slide_end_s {
+    if !show_full && (core_driven || (current_t >= ns && current_t <= slide_end_s)) {
         let (star_pos, angle) = point_at(star_dist_along);
         let p = if start_delay_s > 1e-4 {
             ((current_t - ns) / start_delay_s).clamp(0.0, 1.0)

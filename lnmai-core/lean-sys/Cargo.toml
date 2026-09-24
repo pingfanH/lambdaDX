@@ -1,0 +1,33 @@
+[package]
+name = "lean-sys"
+version = "0.0.9"
+authors = [
+    "Jad Ghalayini <jeg74@cl.cam.ac.uk>",
+    "Mario Carneiro <mcarneir@andrew.cmu.edu>",
+    "Zhu Yifan <i@zhuyi.fan>"
+]
+edition = "2021"
+description = "Bindings to Lean 4's C API"
+repository = "https://github.com/digama0/lean-sys"
+license = "MIT OR Apache-2.0"
+keywords = ["lean", "math", "bindings"]
+categories = ["external-ffi-bindings"]
+links = "leanshared"
+
+[features]
+small_allocator = []
+mimalloc = ["libmimalloc-sys"]
+extern = []
+static = []
+default = ["mimalloc", "static"]
+
+[dependencies]
+libc = { version = "0.2", default-features = false }
+libmimalloc-sys = { version = "0.1.44", optional = true, features = ["extended"] }
+memoffset = "0.9"
+static_assertions = "1.1.0"
+parking_lot = "0.12"
+
+[dev-dependencies]
+rand = "0.9"
+rand_xoshiro = "0.7"

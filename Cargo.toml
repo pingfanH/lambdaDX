@@ -3,6 +3,9 @@ name = "lambda_dx_pad_preview"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [".", "lnmai-core", "lnmai-core/lean-sys"]
+
 [[bin]]
 name = "lambda_dx_pad_preview"
 path = "src/main.rs"
@@ -23,6 +26,10 @@ image = { version = "0.24.9", default-features = false, features = ["jpeg"] }
 roxmltree = "0.20"
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 egui-macroquad = { version = "0.17", default-features = false }
+lnmai-core = { path = "lnmai-core" }
+
+[build-dependencies]
+lnmai-core = { path = "lnmai-core" }
 
 # The expensive load work (JPEG decode, CJK font parsing, note-texture decode)
 # runs inside dependencies, so an unoptimized `cargo run` is ~7x slower to boot

@@ -119,6 +119,14 @@ pub fn set_on(pad: &mut PadPreviewState, on: bool) {
     }
     let t = pad.song_time();
     pad.autoplay_cursor = pad.autoplay_events.partition_point(|e| e.t < t);
+    if on && pad.has_engine() {
+        let now = (t.max(0.0) * 1e6) as i64;
+        pad.autoplay_tactic_cursor = pad
+            .autoplay_tactic
+            .iter()
+            .position(|e| crate::player::engine::timed_input_tp(e) >= now)
+            .unwrap_or(pad.autoplay_tactic.len());
+    }
     pad.set_status(if on {
         "Autoplay: ON".to_string()
     } else {
@@ -133,6 +141,12 @@ pub fn tick(pad: &mut PadPreviewState) {
     }
     if pad.mode != crate::app::types::Mode::Playing || pad.playback_pending {
         release_touches(pad);
+        return;
+    }
+    // Prefer lnmai-core's default replay tactic when an engine is loaded; the
+    // local schedule below is only a fallback for engine-less charts.
+    if pad.has_engine() && !pad.autoplay_tactic.is_empty() {
+        tick_tactic(pad);
         return;
     }
     let t = pad.song_time();
@@ -154,16 +168,84 @@ pub fn tick(pad: &mut PadPreviewState) {
     }
 }
 
+/// Feed lnmai-core's default tactic events that are due at the current song
+/// time and mirror them onto the pad visuals.
+fn tick_tactic(pad: &mut PadPreviewState) {
+    use crate::player::engine::timed_input_tp;
+    let now = (pad.song_time().max(0.0) * 1e6) as i64;
+    // Backward seek / restart: rewind instead of dumping a burst.
+    if pad.autoplay_tactic_cursor > 0
+        && pad
+            .autoplay_tactic
+            .get(pad.autoplay_tactic_cursor - 1)
+            .is_some_and(|e| timed_input_tp(e) > now + 20_000)
+    {
+        pad.autoplay_tactic_cursor = pad
+            .autoplay_tactic
+            .iter()
+            .position(|e| timed_input_tp(e) >= now)
+            .unwrap_or(pad.autoplay_tactic.len());
+        release_touches(pad);
+        clear_hidden(pad);
+    }
+
+    while let Some(event) = pad.autoplay_tactic.get(pad.autoplay_tactic_cursor).cloned() {
+        if timed_input_tp(&event) > now {
+            break;
+        }
+        mirror_tactic_visual(pad, &event);
+        pad.engine_events.push(event);
+        pad.autoplay_tactic_cursor += 1;
+    }
+}
+
+/// Light the pad for an autoplay event so the sensor shows the core's input.
+fn mirror_tactic_visual(pad: &mut PadPreviewState, event: &lnmai_core::types::TimedInputEvent) {
+    use crate::player::engine::{zone_for_button, zone_for_sensor};
+    use lnmai_core::types::TimedInputEvent;
+
+    let (zone, is_down, is_click) = match event {
+        TimedInputEvent::ButtonClick { zone, .. } => (zone_for_button(*zone), true, true),
+        TimedInputEvent::SensorClick { area, .. } => (zone_for_sensor(*area), true, true),
+        TimedInputEvent::ButtonHold { zone, is_down, .. } => {
+            (zone_for_button(*zone), *is_down, false)
+        }
+        TimedInputEvent::SensorHold { area, is_down, .. } => {
+            (zone_for_sensor(*area), *is_down, false)
+        }
+    };
+
+    if is_click {
+        pad.push_feedback(zone, 0.12);
+        return;
+    }
+    // Synthetic pointer id keyed by zone so holds stay lit until release.
+    let key = u64::from(zone.to_id()) | (1u64 << 40);
+    if is_down {
+        pad.active_pointer_zones.insert(key, zone);
+        pad.push_feedback(zone, 0.12);
+    } else {
+        pad.active_pointer_zones.remove(&key);
+    }
+}
+
 fn apply(pad: &mut PadPreviewState, ev: AutoplayEvent) {
     let id = pointer_id(ev.zone);
     if ev.down {
         pad.active_pointer_zones.insert(id, ev.zone);
         pad.push_feedback(ev.zone, 0.12);
-        if let Some(label) = judge_label_for_zone(pad, ev.zone) {
+        if pad.has_engine() {
+            let tp = (ev.t.max(0.0) * 1e6) as i64;
+            pad.queue_engine_press(ev.zone, tp);
+        } else if let Some(label) = judge_label_for_zone(pad, ev.zone) {
             pad.push_judgement(ev.zone, label, 0.6);
         }
     } else {
         pad.active_pointer_zones.remove(&id);
+        if pad.has_engine() {
+            let tp = (ev.t.max(0.0) * 1e6) as i64;
+            pad.queue_engine_release(ev.zone, tp);
+        }
     }
     if let Some(note_id) = ev.hide {
         pad.hidden_notes.insert(note_id);
@@ -176,7 +258,7 @@ fn release_touches(pad: &mut PadPreviewState) {
         .active_pointer_zones
         .keys()
         .copied()
-        .filter(|id| is_pointer_id(*id))
+        .filter(|id| is_pointer_id(*id) || (id & (1u64 << 40)) != 0)
         .collect();
     for id in ids {
         pad.active_pointer_zones.remove(&id);

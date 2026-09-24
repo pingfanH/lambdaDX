@@ -127,7 +127,15 @@ fn draw_pass(
             continue;
         }
         let t: NoteTiming = timing::compute(note, app, bpms, current_t, speed_scale);
-        if !t.visible() {
+        // Slides owned by lnmai-core stay on screen past their local tail; the
+        // core's `HideSlideBars`/`HideAllSlideBars` commands end them. Without an
+        // engine, fall back to the local tail cull.
+        let is_visible = if is_slide && app.has_engine() {
+            t.dt_scaled <= t.lead_time
+        } else {
+            t.visible()
+        };
+        if !is_visible {
             continue;
         }
         visible.push((note, t));

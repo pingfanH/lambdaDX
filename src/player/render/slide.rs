@@ -38,14 +38,14 @@ pub fn draw(
     };
 
     // Sub-slide order within the note (multi-slide / chained slides).
-    let subs: Box<dyn Iterator<Item = &crate::app::types::Slide>> =
+    let subs: Box<dyn Iterator<Item = (usize, &crate::app::types::Slide)>> =
         if params::slide_sub_reverse() {
-            Box::new(note.slide.iter().rev())
+            Box::new(note.slide.iter().enumerate().rev())
         } else {
-            Box::new(note.slide.iter())
+            Box::new(note.slide.iter().enumerate())
         };
 
-    for sl in subs {
+    for (si, sl) in subs {
         let slide_dur_s =
             mdur_to_secs(sl.slide_duration, note.time, bpms).max(SLIDE_MIN_DURATION_S);
         let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
@@ -87,25 +87,20 @@ pub fn draw(
             guide,
         };
 
-        // Trail consumption: hide the trail the star has passed. Bars are
-        // hidden **per sensor segment** (a run of bars in one zone), matching
-        // the original player where the engine emitted `HideSlideBars
-        // { end_index }` per judged segment — so several tiles vanish at once
-        // instead of one tile at a time.
-        let star_start_s = ns + fade_in_s;
-        let travel_s = (slide_dur_s - fade_in_s).max(SLIDE_MIN_DURATION_S);
-        let star_t = if current_t <= star_start_s {
-            0.0
-        } else {
-            ((current_t - star_start_s) / travel_s).clamp(0.0, 1.0)
-        };
-        let spacing = params::slide_tile_spacing() * scale;
-        let path = slide_render::build_slide_path(note, sl, pad, svg, scale, spawn_cx, outer_r);
-        let head_gap = params::slide_head_gap() * scale;
-        let tail_gap = params::slide_tail_gap() * scale;
-        let seg = segmentation::build(&path, spacing, head_gap, tail_gap, svg, pad);
-        let total_len: f32 = path.windows(2).map(|w| (w[1] - w[0]).length()).sum();
-        let hidden_until_bar = hidden_bars_for_star(&seg, star_t * total_len);
+        // Trail consumption is driven by lnmai-core's render commands
+        // (`HideSlideBars` / `HideAllSlideBars`), stored per sub-slide in
+        // `slide_progress`. Without an engine the trail is fully drawn.
+        let core_driven = app.has_engine();
+        let hidden_until_bar = app
+            .slide_progress
+            .get(&(note.id, si))
+            .map(|progress| progress.hidden_until_bar)
+            .unwrap_or(0);
+        // `HideAllSlideBars` maps to `usize::MAX`; the whole slide (trail and
+        // star) is gone once core reports it.
+        if core_driven && hidden_until_bar == usize::MAX {
+            continue;
+        }
 
         slide_render::draw_slide(
             note,
@@ -125,6 +120,7 @@ pub fn draw(
             app.note_speed,
             params::slide_fade_in(),
             hidden_until_bar,
+            core_driven,
             layer,
         );
     }

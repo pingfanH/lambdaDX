@@ -79,6 +79,35 @@ pub fn load_chart_from_path(path: &Path, diff: Option<i32>) -> Result<ChartDoc, 
     load_chart_from_json(&text).map_err(|e| format!("{}: {e}", file.display()))
 }
 
+/// Raw Simai `maidata.txt` text for a chart path, when the path is Simai.
+///
+/// Used to feed the `lnmai-core` judgment engine, which parses the original
+/// source itself. JSON charts (no Simai source) return `None`.
+pub fn read_simai_source(path: &Path) -> Option<String> {
+    let file = if path.is_dir() {
+        let maidata = path.join("maidata.txt");
+        if maidata.is_file() {
+            maidata
+        } else {
+            return None;
+        }
+    } else {
+        path.to_path_buf()
+    };
+    let is_simai = file
+        .file_name()
+        .map(|n| n.to_string_lossy().eq_ignore_ascii_case("maidata.txt"))
+        .unwrap_or(false)
+        || file
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("txt"))
+            .unwrap_or(false);
+    if !is_simai {
+        return None;
+    }
+    std::fs::read_to_string(&file).ok()
+}
+
 /// Audio file to use for a chart folder, if one is present.
 pub fn find_audio_in_dir(dir: &Path) -> Option<PathBuf> {
     if !dir.is_dir() {

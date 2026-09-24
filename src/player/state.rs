@@ -138,6 +138,15 @@ pub struct PadPreviewState {
     pub params: crate::app::params::Params,
     /// Whether the egui params panel is open (toggle with F1).
     pub show_params: bool,
+
+    // ── lnmai-core judgment engine ───────────────────────────────────
+    /// Loaded lnmai-core judgment session (None until a chart is loaded).
+    pub judge_engine: Option<crate::player::engine::JudgeEngine>,
+    /// Pending input events (pad presses/releases) for the next engine step.
+    pub engine_events: Vec<lnmai_core::types::TimedInputEvent>,
+    /// Autoplay: lnmai-core's default replay tactic, consumed by timestamp.
+    pub autoplay_tactic: Vec<lnmai_core::types::TimedInputEvent>,
+    pub autoplay_tactic_cursor: usize,
 }
 
 impl PadPreviewState {
@@ -238,6 +247,10 @@ impl PadPreviewState {
             status: "Ready".to_string(),
             params: crate::app::params::Params::default(),
             show_params: false,
+            judge_engine: None,
+            engine_events: Vec::new(),
+            autoplay_tactic: Vec::new(),
+            autoplay_tactic_cursor: 0,
         }
     }
 
@@ -308,6 +321,7 @@ impl PadPreviewState {
         self.audio_seek_offset = Some(time.max(0.0));
         self.active_pointer_zones.clear();
         self.prev_pointer_pos.clear();
+        self.slide_progress.clear();
         self.reset_cues(self.mode_song_offset);
     }
 
@@ -367,6 +381,7 @@ impl PadPreviewState {
         self.mode_song_offset = t;
         self.timeline_view_time = t;
         self.mode_wall_anchor = get_time();
+        self.slide_progress.clear();
     }
 
     /// Fire the one-shot cue sound (`Sfx/answer.wav`).
@@ -454,5 +469,63 @@ impl PadPreviewState {
             started: now,
             until: now + duration,
         });
+    }
+
+    // ── lnmai-core judgment engine ───────────────────────────────────
+
+    /// Load `lnmai-core`'s judgment engine for a chart given as Simai text.
+    ///
+    /// `level_index` is the `&inote_N` block to select. Also builds the default
+    /// replay tactic used by autoplay.
+    pub fn load_engine(&mut self, simai_text: &str, level_index: u32) -> Result<(), String> {
+        let engine = crate::player::engine::JudgeEngine::load(simai_text, level_index)?;
+        self.autoplay_tactic = engine.default_tactic().unwrap_or_default();
+        self.autoplay_tactic_cursor = 0;
+        self.judge_engine = Some(engine);
+        self.engine_events.clear();
+        Ok(())
+    }
+
+    pub fn has_engine(&self) -> bool {
+        self.judge_engine.is_some()
+    }
+
+    /// Apply lnmai-core's per-slide trail-consumption state to the chart's
+    /// `(note_id, slide_idx)` keys used by the renderer.
+    pub fn apply_core_slide_progress_updates(
+        &mut self,
+        updates: &[crate::player::engine::SlideProgressUpdate],
+    ) {
+        for update in updates {
+            let Some((note_id, slide_idx)) =
+                crate::player::engine::chart_slide_key(&self.chart, update.runtime_slide_index)
+            else {
+                continue;
+            };
+            self.slide_progress
+                .entry((note_id, slide_idx))
+                .and_modify(|progress| progress.hidden_until_bar = update.hidden_until_bar)
+                .or_insert(SlideProgress {
+                    hidden_until_bar: update.hidden_until_bar,
+                });
+        }
+    }
+
+    /// Queue an lnmai-core sensor press for `zone` at microsecond time `tp`.
+    pub fn queue_engine_press(&mut self, zone: PadZone, tp: i64) {
+        if self.judge_engine.is_none() {
+            return;
+        }
+        self.engine_events
+            .extend(crate::player::engine::press_events_for_zone(zone, tp));
+    }
+
+    /// Queue an lnmai-core sensor release for `zone` at microsecond time `tp`.
+    pub fn queue_engine_release(&mut self, zone: PadZone, tp: i64) {
+        if self.judge_engine.is_none() {
+            return;
+        }
+        self.engine_events
+            .extend(crate::player::engine::release_events_for_zone(zone, tp));
     }
 }
