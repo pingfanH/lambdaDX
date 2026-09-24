@@ -108,17 +108,10 @@ pub fn judge_points(
             });
             let tail_motion =
                 note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
-            // Tail judgment point uses its own radius: no scaling-induced drift.
-            let (tail_raw, tail_progress) = tail_motion
-                .map(|m| (m.radius, m.progress))
-                .unwrap_or((lock_r, 0.0));
-            let body_w = (params::hold_width() * scale * head_motion.scale).max(1.0);
-            let tail_r = hold_tail_radius(
-                tail_raw,
-                tail_progress,
-                head_motion.radius,
-                body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
-            );
+            // Tail judgment point uses the tail's own flight radius (like the
+            // head), so during the spawn/scale phase it stays at the lock point
+            // together with the head instead of sliding as the body grows.
+            let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
             let ho = params::judge_off_hold() * scale;
             let to = params::judge_off_hold_end() * scale;
             vec![
@@ -181,19 +174,9 @@ pub fn draw_guides(
             });
             let tail_motion =
                 note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
-            // Judgment / guide position uses the tail's own radius so it does
-            // NOT move while the hold scales at spawn (the min-body offset is
-            // only for the drawn body).
-            let (tail_raw, tail_progress) = tail_motion
-                .map(|m| (m.radius, m.progress))
-                .unwrap_or((lock_r, 0.0));
-            let body_w = (params::hold_width() * scale * head_motion.scale).max(1.0);
-            let tail_r = hold_tail_radius(
-                tail_raw,
-                tail_progress,
-                head_motion.radius,
-                body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
-            );
+            // Guide uses the tail's own radius (like the head), so it stays at
+            // the lock point during spawn instead of sliding with the body.
+            let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
             let hx = spawn_cx.x + dir.x * head_motion.radius;
             let hy = spawn_cx.y + dir.y * head_motion.radius;
             let tx = spawn_cx.x + dir.x * tail_r;
