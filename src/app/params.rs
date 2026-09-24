@@ -87,8 +87,6 @@ pub struct Params {
     pub touchhold_end_dist: f32,
     pub touchhold_scale: f32,
     pub touchhold_rot_offset: f32,
-    /// Hold sprite offset along the flight direction (design px, + = outward).
-    pub hold_tex_off: f32,
     /// Hold spawn ("birth") time in seconds — how long it scales up before
     /// flying. `0` = follow the note speed (original).
     pub hold_spawn_time: f32,
@@ -239,7 +237,6 @@ impl Default for Params {
             touchhold_end_dist: t::TOUCHHOLD_END_DIST,
             touchhold_scale: t::TOUCHHOLD_SCALE,
             touchhold_rot_offset: t::TOUCHHOLD_ROT_OFFSET,
-            hold_tex_off: 0.0,
             hold_spawn_time: 0.0,
 
             note_speed_default: t::NOTE_SPEED,
@@ -386,7 +383,6 @@ param_accessors!(
     touchhold_end_dist,
     touchhold_scale,
     touchhold_rot_offset,
-    hold_tex_off,
     hold_spawn_time,
     note_speed_default,
     touch_speed_default,

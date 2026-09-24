@@ -35,7 +35,6 @@
   "touchhold_end_dist": 19.0,
   "touchhold_scale": 0.6,
   "touchhold_rot_offset": 0.0,
-  "hold_tex_off": 0.0,
   "hold_spawn_time": 0.0,
   "pad_zoom": 1.0,
   "pad_zone_scale": 1.0,

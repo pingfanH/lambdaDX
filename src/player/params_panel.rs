@@ -134,7 +134,6 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     param(ui, &mut p.touchhold_scale, 0.05, 0.1..=3.0, "touchhold_scale");
                     param(ui, &mut p.touchhold_rot_offset, 0.05, -3.2..=3.2, "touchhold_rot");
                     // hold 贴图偏移 + 出生时间。
-                    param(ui, &mut p.hold_tex_off, 1.0, -300.0..=300.0, "hold_tex_off hold贴图偏移");
                     param(ui, &mut p.hold_spawn_time, 0.02, 0.0..=1.5, "hold_spawn_time hold出生时间(s,0=随流速)");
 
                     ui.separator();
