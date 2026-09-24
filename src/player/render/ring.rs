@@ -108,7 +108,11 @@ pub fn judge_points(
             });
             let tail_motion =
                 note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
-            let (head_r, tail_r) = hold_render_radii(&head_motion, tail_motion, lock_r, scale);
+            // Judgment points sit at the scaling centre: during birth they stay
+            // at the lock point (their own flight radii) instead of following
+            // the sprite's symmetric min-body extension.
+            let head_r = head_motion.radius;
+            let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
             // The hold texture offset shifts the whole hold (sprite + judgment
             // points) so the scaling anchor moves with the offset: offset first,
             // then scale about it.
@@ -175,7 +179,10 @@ pub fn draw_guides(
             });
             let tail_motion =
                 note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
-            let (head_r, tail_r) = hold_render_radii(&head_motion, tail_motion, lock_r, scale);
+            // Guides follow the judgment points (scaling centre), not the
+            // sprite's min-body extension.
+            let head_r = head_motion.radius;
+            let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
             let tex = params::hold_tex_off() * scale;
             let hx = spawn_cx.x + dir.x * head_r;
             let hy = spawn_cx.y + dir.y * head_r;
