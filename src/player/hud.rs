@@ -153,6 +153,39 @@ pub fn draw(app: &PadPreviewState, header: RectF, scale: f32) {
     );
 }
 
+/// Draw the lnmai-core score read-outs down the bottom-left of the pad panel.
+pub fn draw_score_block(app: &PadPreviewState, rect: RectF, scale: f32) {
+    if !app.has_engine() {
+        return;
+    }
+
+    let mut rows: Vec<String> = Vec::new();
+    let state = app.combo_state_label();
+    if state.is_empty() {
+        rows.push(format!("COMBO   {}", app.combo()));
+    } else {
+        rows.push(format!("COMBO   {}  ({state})", app.combo()));
+    }
+    rows.push(format!("P-COMBO {}", app.p_combo()));
+    if let Some(rates) = app.acc_rates() {
+        for (label, value) in rates {
+            rows.push(format!("{label:<7} {value:.4}%"));
+        }
+    }
+    rows.push(format!("DX      {} / {}", app.dx_score(), app.max_dx_score()));
+    rows.push(format!("FAST {}   LATE {}", app.fast_count(), app.late_count()));
+
+    let line_h = 20.0 * scale;
+    let margin = 14.0 * scale;
+    let x = rect.x + margin;
+    // Bottom-aligned block: the last row sits `margin` above the panel bottom.
+    let mut y = rect.y + rect.h - margin;
+    for row in rows.iter().rev() {
+        font::text(row, x, y, 16.0 * scale, ACCENT);
+        y -= line_h;
+    }
+}
+
 fn format_time(seconds: f32) -> String {
     let total = seconds.max(0.0) as u32;
     format!("{:02}:{:02}", total / 60, total % 60)

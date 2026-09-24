@@ -147,6 +147,11 @@ pub struct PadPreviewState {
     /// Autoplay: lnmai-core's default replay tactic, consumed by timestamp.
     pub autoplay_tactic: Vec<lnmai_core::types::TimedInputEvent>,
     pub autoplay_tactic_cursor: usize,
+    /// Latest lnmai-core score snapshot (combo, DX score, judge counts).
+    pub core_score: Option<lnmai_core::types::ScoreState>,
+    /// Simai source + `&inote_N` used to (re)build the engine on restart.
+    simai_source: Option<String>,
+    simai_level: u32,
 }
 
 impl PadPreviewState {
@@ -251,6 +256,9 @@ impl PadPreviewState {
             engine_events: Vec::new(),
             autoplay_tactic: Vec::new(),
             autoplay_tactic_cursor: 0,
+            core_score: None,
+            simai_source: None,
+            simai_level: 0,
         }
     }
 
@@ -322,6 +330,10 @@ impl PadPreviewState {
         self.active_pointer_zones.clear();
         self.prev_pointer_pos.clear();
         self.slide_progress.clear();
+        // Restarting from the top rebuilds the core session so combo/DX reset.
+        if time <= 1e-4 {
+            self.reset_engine();
+        }
         self.reset_cues(self.mode_song_offset);
     }
 
@@ -483,11 +495,117 @@ impl PadPreviewState {
         self.autoplay_tactic_cursor = 0;
         self.judge_engine = Some(engine);
         self.engine_events.clear();
+        self.core_score = None;
+        self.slide_progress.clear();
+        self.simai_source = Some(simai_text.to_string());
+        self.simai_level = level_index;
         Ok(())
+    }
+
+    /// Rebuild the engine (resetting core score/slide state) from the stored
+    /// Simai source, if any. Used on restart.
+    pub fn reset_engine(&mut self) {
+        if let Some(text) = self.simai_source.clone() {
+            let level = self.simai_level;
+            let _ = self.load_engine(&text, level);
+        }
     }
 
     pub fn has_engine(&self) -> bool {
         self.judge_engine.is_some()
+    }
+
+    // ── lnmai-core score read-outs ───────────────────────────────────
+
+    /// Current combo from lnmai-core (0 before the engine reports).
+    pub fn combo(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.combo).unwrap_or(0)
+    }
+
+    /// Pure combo (Perfect-grade chain) from lnmai-core.
+    pub fn p_combo(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.p_combo).unwrap_or(0)
+    }
+
+    /// Critical-perfect combo from lnmai-core.
+    pub fn c_p_combo(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.c_p_combo).unwrap_or(0)
+    }
+
+    pub fn fast_count(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.fast_count).unwrap_or(0)
+    }
+
+    pub fn late_count(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.late_count).unwrap_or(0)
+    }
+
+    /// Achieved DX score.
+    pub fn dx_score(&self) -> i64 {
+        self.core_score
+            .as_ref()
+            .map(|s| s.dx_score_remaining())
+            .unwrap_or(0)
+    }
+
+    pub fn max_dx_score(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.max_dx_score).unwrap_or(0)
+    }
+
+    /// Achievement percentage (lnmai-core's `dxAccMinus101`):
+    /// `earnedBase/totalBase*100 + earnedExtra/totalExtra`.
+    pub fn achievement(&self) -> Option<f32> {
+        let s = self.core_score.as_ref()?;
+        if s.total_base == 0 {
+            return Some(0.0);
+        }
+        let base = s.earned_base as f64 / s.total_base as f64 * 100.0;
+        let extra = if s.total_extra == 0 {
+            0.0
+        } else {
+            s.earned_extra as f64 / s.total_extra as f64
+        };
+        Some((base + extra) as f32)
+    }
+
+    /// The five lnmai-core accuracy rates (percent), matching its `AccRates`:
+    /// classic acc(+), classic acc(-), DX acc101(-), DX acc100(-), DX acc(+).
+    pub fn acc_rates(&self) -> Option<[(&'static str, f32); 5]> {
+        let s = self.core_score.as_ref()?;
+        if s.total_base == 0 {
+            return None;
+        }
+        let tb = s.total_base as f64;
+        let te = s.total_extra.max(1) as f64;
+        let cb = s.earned_base as f64;
+        let ce = s.earned_extra as f64;
+        let cc = s.earned_classic_extra as f64;
+        let earned_base = tb - s.lost_base as f64;
+        let earned_extra = te - s.lost_extra as f64;
+        let classic_plus = (cb + cc) / tb * 100.0;
+        let classic_minus = (earned_base + cc) / tb * 100.0;
+        let dx_101 = (earned_base / tb + earned_extra / (te * 100.0)) * 100.0;
+        let dx_100 = (earned_base / tb + ce / (te * 100.0)) * 100.0;
+        let dx_plus = (cb / tb + ce / (te * 100.0)) * 100.0;
+        Some([
+            ("ACC+", classic_plus as f32),
+            ("ACC-", classic_minus as f32),
+            ("ACC101-", dx_101 as f32),
+            ("ACC100-", dx_100 as f32),
+            ("ACC(+)", dx_plus as f32),
+        ])
+    }
+
+    /// Combo category label (FC / AP / …) from lnmai-core.
+    pub fn combo_state_label(&self) -> &'static str {
+        use lnmai_core::types::ComboState::*;
+        match self.core_score.as_ref().map(|s| s.combo_state()) {
+            Some(FC) => "FC",
+            Some(FCPlus) => "FC+",
+            Some(AP) => "AP",
+            Some(APPlus) => "AP+",
+            _ => "",
+        }
     }
 
     /// Apply lnmai-core's per-slide trail-consumption state to the chart's

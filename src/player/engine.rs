@@ -338,6 +338,7 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
     let result = app.judge_engine.as_mut().unwrap().step(now, events);
     match result {
         Ok(result) => {
+            app.core_score = Some(result.score.clone());
             if let Some(engine) = app.judge_engine.as_ref() {
                 let updates = engine.slide_progress_updates(&result.render_commands);
                 app.apply_core_slide_progress_updates(&updates);
@@ -707,6 +708,36 @@ mod tests {
                 "runtime slide {i} head {core_s:.3}s != chart head {head_s:.3}s"
             );
         }
+    }
+
+    #[test]
+    fn core_reports_combo_and_dx_score() {
+        let text = bundled_maidata();
+        let level = crate::app::maidata::inote_key(&text, None).expect("level");
+        let mut engine = JudgeEngine::load(&text, level).expect("engine");
+        let tactic = engine.default_tactic().expect("tactic");
+
+        let mut cursor = 0usize;
+        let mut max_combo = 0u64;
+        let mut max_dx = 0u64;
+        let mut total_dx = 0u64;
+        let mut t = 0.0_f32;
+        while t < 30.0 {
+            t += 0.05;
+            let now_us = (t * 1e6) as i64;
+            let mut events = Vec::new();
+            while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= now_us {
+                events.push(tactic[cursor].clone());
+                cursor += 1;
+            }
+            let result = engine.step(t, events).expect("step");
+            max_combo = max_combo.max(result.score.combo);
+            max_dx = max_dx.max(result.score.dx_score_remaining() as u64);
+            total_dx = result.score.max_dx_score;
+        }
+        assert!(max_combo > 0, "autoplay tactic should build a combo");
+        assert!(total_dx > 0, "chart should have a DX score total");
+        assert!(max_dx > 0, "autoplay should earn DX score");
     }
 }
 

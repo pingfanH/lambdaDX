@@ -198,4 +198,7 @@ pub fn draw_pad_panel(
         // Judgment-point dots on the very top.
         notes::draw_judge_dots(app, &pad, scale, spawn_cx, current_t, speed_scale);
     }
+
+    // lnmai-core score parameters down the bottom-left of the pad panel.
+    crate::player::hud::draw_score_block(app, rect, scale);
 }
