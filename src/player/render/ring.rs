@@ -113,10 +113,11 @@ pub fn judge_points(
             // the sprite's symmetric min-body extension.
             let head_r = head_motion.radius;
             let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
-            // Judgment position matches taps: own flight radius + `judge_off_*`
-            // only (no texture offset), so it is consistent with tap notes.
-            let ho = params::judge_off_hold() * scale;
-            let to = params::judge_off_hold_end() * scale;
+            // Judgment points share the sprite's scaling centre: both include
+            // `hold_tex_off`, so the dots sit exactly on the sprite's centre.
+            let tex = params::hold_tex_off() * scale;
+            let ho = params::judge_off_hold() * scale + tex;
+            let to = params::judge_off_hold_end() * scale + tex;
             vec![
                 spawn_cx + dir * (head_r + ho),
                 spawn_cx + dir * (tail_r + to),
@@ -181,6 +182,7 @@ pub fn draw_guides(
             // sprite's min-body extension.
             let head_r = head_motion.radius;
             let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
+            let tex = params::hold_tex_off() * scale;
             let hx = spawn_cx.x + dir.x * head_r;
             let hy = spawn_cx.y + dir.y * head_r;
             let tx = spawn_cx.x + dir.x * tail_r;
@@ -196,7 +198,7 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
             };
             if let Some(g) = head_guide {
-                let off = (params::judge_off_hold() + params::hold_guide_off()) * scale;
+                let off = (params::judge_off_hold() + params::hold_guide_off()) * scale + tex;
                 crate::app::guide::draw(
                     g,
                     hold_tex,
@@ -221,7 +223,7 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.hold_end_guide_tex.as_ref(),
             };
             if let Some(g) = tail_guide {
-                let off = (params::judge_off_hold_end() + params::hold_end_guide_off()) * scale;
+                let off = (params::judge_off_hold_end() + params::hold_end_guide_off()) * scale + tex;
                 crate::app::guide::draw(
                     g,
                     hold_tex,
