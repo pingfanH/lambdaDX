@@ -108,10 +108,7 @@ pub fn judge_points(
             });
             let tail_motion =
                 note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
-            // Tail judgment point uses the tail's own flight radius (like the
-            // head), so during the spawn/scale phase it stays at the lock point
-            // together with the head instead of sliding as the body grows.
-            let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
+            let (head_r, tail_r) = hold_render_radii(&head_motion, tail_motion, lock_r, scale);
             // The hold texture offset shifts the whole hold (sprite + judgment
             // points) so the scaling anchor moves with the offset: offset first,
             // then scale about it.
@@ -119,7 +116,7 @@ pub fn judge_points(
             let ho = params::judge_off_hold() * scale + tex;
             let to = params::judge_off_hold_end() * scale + tex;
             vec![
-                spawn_cx + dir * (head_motion.radius + ho),
+                spawn_cx + dir * (head_r + ho),
                 spawn_cx + dir * (tail_r + to),
             ]
         }
@@ -178,12 +175,10 @@ pub fn draw_guides(
             });
             let tail_motion =
                 note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
-            // Guide uses the tail's own radius (like the head), so it stays at
-            // the lock point during spawn instead of sliding with the body.
-            let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
+            let (head_r, tail_r) = hold_render_radii(&head_motion, tail_motion, lock_r, scale);
             let tex = params::hold_tex_off() * scale;
-            let hx = spawn_cx.x + dir.x * head_motion.radius;
-            let hy = spawn_cx.y + dir.y * head_motion.radius;
+            let hx = spawn_cx.x + dir.x * head_r;
+            let hy = spawn_cx.y + dir.y * head_r;
             let tx = spawn_cx.x + dir.x * tail_r;
             let ty = spawn_cx.y + dir.y * tail_r;
             let hold_tex = skin::body_or_normal(app, skin::SkinKind::Hold, variant);
@@ -278,6 +273,26 @@ pub fn draw_guides(
     }
 }
 
+/// Hold head/tail render radii.
+///
+/// The bar has a **minimum length** (so it has a body from birth) that is grown
+/// **symmetrically about its centre**: when the head-tail separation is shorter
+/// than the minimum, the head is extended outward and the tail inward by half
+/// the missing length, so the midpoint stays put while it scales.
+fn hold_render_radii(
+    head: &NoteMotion,
+    tail: Option<NoteMotion>,
+    lock_r: f32,
+    scale: f32,
+) -> (f32, f32) {
+    let head_r = head.radius;
+    let tail_r = tail.map(|m| m.radius).unwrap_or(lock_r);
+    let sep = (head_r - tail_r).max(0.0);
+    let min_body = params::hold_width() * scale * HOLD_SPAWN_BODY_WIDTH_FRAC;
+    let half_extra = (min_body - sep).max(0.0) * 0.5;
+    (head_r + half_extra, tail_r - half_extra)
+}
+
 /// Tap body: a skin texture (plus an Ex overlay) or a fallback pink circle.
 fn draw_tap(
     app: &PadPreviewState,
@@ -361,23 +376,21 @@ fn draw_hold(
         progress: 0.0,
     });
 
-    // Body width follows the head's spawn scale (which already accounts for
-    // `hold_spawn_time`), so it reaches full size exactly at flight start and
-    // does not keep scaling during the flight.
-    let body_w = (params::hold_width() * scale * head_motion.scale).max(1.0);
+    // Body width follows the head's spawn scale but never drops below a
+    // minimum fraction, so the hold has a visible width from birth and scales
+    // about its own centre.
+    let grow = head_motion.scale.clamp(0.35, 1.0);
+    let body_w = params::hold_width() * scale * grow;
 
-    // Tail uses its own flight radius, the **same** as the tail judgment point
-    // and guide, so the sprite's tail endpoint lines up with the judgment point
-    // (no min-body offset that would desync them).
-    let tail_r = note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset())
-        .map(|m| m.radius)
-        .unwrap_or(lock_r);
+    // Head/tail render radii with the symmetric minimum body length.
+    let tail_motion =
+        note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
+    let (head_r, tail_r) = hold_render_radii(&head_motion, tail_motion, lock_r, scale);
 
     // Hold sprite offset (visual only; judgment / guides unaffected).
     let tex_off = params::hold_tex_off() * scale;
-    let hx = spawn_cx.x + dir.x * (head_motion.radius + tex_off);
-    let hy = spawn_cx.y + dir.y * (head_motion.radius + tex_off);
-    // The judgment offset moves only the dot / guide, not the tail sprite.
+    let hx = spawn_cx.x + dir.x * (head_r + tex_off);
+    let hy = spawn_cx.y + dir.y * (head_r + tex_off);
     let tx = spawn_cx.x + dir.x * (tail_r + tex_off);
     let ty = spawn_cx.y + dir.y * (tail_r + tex_off);
 
