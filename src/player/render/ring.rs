@@ -117,7 +117,7 @@ pub fn judge_points(
                 tail_raw,
                 tail_progress,
                 head_motion.radius,
-                params::hold_width() * scale * HOLD_SPAWN_BODY_WIDTH_FRAC,
+                body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
             );
             let ho = params::judge_off_hold() * scale;
             let to = params::judge_off_hold_end() * scale;
@@ -192,7 +192,7 @@ pub fn draw_guides(
                 tail_raw,
                 tail_progress,
                 head_motion.radius,
-                params::hold_width() * scale * HOLD_SPAWN_BODY_WIDTH_FRAC,
+                body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
             );
             let hx = spawn_cx.x + dir.x * head_motion.radius;
             let hy = spawn_cx.y + dir.y * head_motion.radius;
@@ -390,18 +390,16 @@ fn draw_hold(
         tail_raw,
         tail_progress,
         head_motion.radius,
-        params::hold_width() * scale * HOLD_SPAWN_BODY_WIDTH_FRAC,
+        body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
     );
 
     // Hold sprite offset (visual only; judgment / guides unaffected).
     let tex_off = params::hold_tex_off() * scale;
     let hx = spawn_cx.x + dir.x * (head_motion.radius + tex_off);
     let hy = spawn_cx.y + dir.y * (head_motion.radius + tex_off);
-    // The tail's judgment offset also shifts the tail sprite, so adjusting
-    // `judge_off_hold_end` visibly moves the tail (sprite + dot + guide).
-    let tail_off = tex_off + params::judge_off_hold_end() * scale;
-    let tx = spawn_cx.x + dir.x * (tail_r + tail_off);
-    let ty = spawn_cx.y + dir.y * (tail_r + tail_off);
+    // The judgment offset moves only the dot / guide, not the tail sprite.
+    let tx = spawn_cx.x + dir.x * (tail_r + tex_off);
+    let ty = spawn_cx.y + dir.y * (tail_r + tex_off);
 
     let hold_tex = skin::body_or_normal(app, skin::SkinKind::Hold, skin::SkinVariant::of(note));
 
