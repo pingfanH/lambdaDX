@@ -112,8 +112,12 @@ pub fn judge_points(
             // head), so during the spawn/scale phase it stays at the lock point
             // together with the head instead of sliding as the body grows.
             let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
-            let ho = params::judge_off_hold() * scale;
-            let to = params::judge_off_hold_end() * scale;
+            // The hold texture offset shifts the whole hold (sprite + judgment
+            // points) so the scaling anchor moves with the offset: offset first,
+            // then scale about it.
+            let tex = params::hold_tex_off() * scale;
+            let ho = params::judge_off_hold() * scale + tex;
+            let to = params::judge_off_hold_end() * scale + tex;
             vec![
                 spawn_cx + dir * (head_motion.radius + ho),
                 spawn_cx + dir * (tail_r + to),
@@ -177,6 +181,7 @@ pub fn draw_guides(
             // Guide uses the tail's own radius (like the head), so it stays at
             // the lock point during spawn instead of sliding with the body.
             let tail_r = tail_motion.map(|m| m.radius).unwrap_or(lock_r);
+            let tex = params::hold_tex_off() * scale;
             let hx = spawn_cx.x + dir.x * head_motion.radius;
             let hy = spawn_cx.y + dir.y * head_motion.radius;
             let tx = spawn_cx.x + dir.x * tail_r;
@@ -192,7 +197,7 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
             };
             if let Some(g) = head_guide {
-                let off = (params::judge_off_hold() + params::hold_guide_off()) * scale;
+                let off = (params::judge_off_hold() + params::hold_guide_off()) * scale + tex;
                 crate::app::guide::draw(
                     g,
                     hold_tex,
@@ -217,7 +222,7 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.hold_end_guide_tex.as_ref(),
             };
             if let Some(g) = tail_guide {
-                let off = (params::judge_off_hold_end() + params::hold_end_guide_off()) * scale;
+                let off = (params::judge_off_hold_end() + params::hold_end_guide_off()) * scale + tex;
                 crate::app::guide::draw(
                     g,
                     hold_tex,
