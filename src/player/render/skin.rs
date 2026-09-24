@@ -132,10 +132,15 @@ pub fn star_kind(note: &Note) -> SkinKind {
     }
 }
 
-/// Star body: variant texture, falling back to that kind's `Normal`.
+/// Star body: variant texture, falling back to that kind's `Normal`. Star
+/// heads follow the **tap** each rule (`is_each_head`), not the slide trail's.
 pub fn star_body<'a>(app: &'a PadPreviewState, note: &Note) -> Option<&'a Texture2D> {
     let kind = star_kind(note);
-    body_or_normal(app, kind, SkinVariant::of(note))
+    body_or_normal(
+        app,
+        kind,
+        SkinVariant::of_flags(note.is_break, note.is_each_head),
+    )
 }
 
 /// Star Ex overlay, falling back to the single-star Ex.

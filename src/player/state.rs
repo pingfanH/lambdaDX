@@ -390,7 +390,7 @@ impl PadPreviewState {
         } else {
             match cue {
                 Cue::Tap => self.sfx_tap.as_ref(),
-                Cue::SlideHead => self.sfx_slide.as_ref(),
+                Cue::SlideHead => self.sfx_tap.as_ref(),
                 Cue::HoldHead | Cue::HoldTail => self.sfx_hold.as_ref(),
             }
         };

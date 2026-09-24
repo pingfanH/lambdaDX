@@ -355,9 +355,9 @@ pub(crate) fn assign_note_ids(notes: &mut [Note]) {
 /// Mark notes that share a hit time with another note (simai "each"). The
 /// `is_each` flag selects the `*_each` skins, so a lone note stays `false`.
 ///
-/// Slides are only compared against other slides: `1-3/2-5` at the same time is
-/// an each slide, while a slide coinciding with a tap/star is not — the slide
-/// must not inherit the other note's each state.
+/// Slides' **trails** only pair with other slides (`is_each`), while a slide's
+/// **head star** uses `is_each_head`, which follows the tap rule (any note at
+/// the same time) — so a star lights up like a tap when anything lands with it.
 pub(crate) fn recompute_each(notes: &mut [Note]) {
     let is_slide: Vec<bool> = notes
         .iter()
@@ -369,6 +369,10 @@ pub(crate) fn recompute_each(notes: &mut [Note]) {
         notes[i].is_each = times.iter().enumerate().any(|(j, t)| {
             j != i && (t - m).abs() < 0.002 && is_slide[j] == is_slide[i]
         });
+        notes[i].is_each_head = times
+            .iter()
+            .enumerate()
+            .any(|(j, t)| j != i && (t - m).abs() < 0.002);
     }
 }
 
@@ -678,11 +682,13 @@ mod tests {
 
     #[test]
     fn slide_each_ignores_coincident_tap() {
-        // A lone slide sharing a time with a lone tap: neither is each.
+        // A lone slide sharing a time with a lone tap: neither is each, but the
+        // slide *head* follows the tap rule and lights up as each.
         let mut notes = vec![note(NoteType::Tap, 5.0), note(NoteType::Slide, 5.0)];
         recompute_each(&mut notes);
         assert!(!notes[0].is_each);
         assert!(!notes[1].is_each);
+        assert!(notes[1].is_each_head, "slide head follows the tap each rule");
     }
 
     #[test]

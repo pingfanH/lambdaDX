@@ -427,6 +427,10 @@ pub struct Note {
     pub hold_duration: f32,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_each: bool,
+    /// "Each" for a slide **head star**, following the tap rule (any note at the
+    /// same hit time). Slides' trails use `is_each` (slide-only) instead.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_each_head: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_break: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

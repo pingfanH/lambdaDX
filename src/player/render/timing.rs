@@ -70,6 +70,8 @@ pub fn compute(
     let lead_time = if zone <= 8 {
         match note.note_type {
             NoteType::Tap => tap_lead_time(speed),
+            // The slide head star inherits the tap's birth timing / start.
+            NoteType::Slide => tap_lead_time(speed),
             NoteType::Hold => hold_lead_time(speed),
             _ => note_lead_time(speed),
         }

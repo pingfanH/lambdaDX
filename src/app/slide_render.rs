@@ -485,7 +485,7 @@ pub fn draw_slide(
                 // the stars.
                 if tex.guide.is_some() {
                     if !show_full && current_t < ns && !note.is_tapless {
-                        let head_motion = super::types::note_radial_motion(
+                        let head_motion = super::types::note_radial_motion_continue(
                             dt_scaled,
                             head_speed,
                             outer_r,
@@ -529,7 +529,7 @@ pub fn draw_slide(
                 } else if current_t < ns && !note.is_tapless {
                     // Same radial flight as a Tap: grow at the inner lock
                     // radius, then fly out to the target ring.
-                    let head_motion = super::types::note_radial_motion(
+                    let head_motion = super::types::note_radial_motion_continue(
                         dt_scaled,
                         head_speed,
                         outer_r,
@@ -736,7 +736,7 @@ pub fn draw_slide(
         let guide_dir = path[0] - spawn_cx;
         let guide_ang = guide_dir.y.atan2(guide_dir.x);
         if !show_full && dt_scaled > 0.0 && dt_scaled < head_lead && !note.is_tapless {
-            let head_motion = super::types::note_radial_motion(
+            let head_motion = super::types::note_radial_motion_continue(
                 dt_scaled,
                 head_speed,
                 outer_r,
@@ -805,7 +805,7 @@ pub fn draw_slide(
     } else if dt_scaled > 0.0 && dt_scaled < head_lead && !note.is_tapless {
         // Pre-judge flying-in head star (A-zone and touch-zone). Same radial
         // flight as a Tap note.
-        let head_motion = super::types::note_radial_motion(
+        let head_motion = super::types::note_radial_motion_continue(
             dt_scaled,
             head_speed,
             outer_r,
