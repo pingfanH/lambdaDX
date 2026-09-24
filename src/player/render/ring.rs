@@ -204,7 +204,7 @@ pub fn draw_guides(
                     hx + dir.x * off,
                     hy + dir.y * off,
                     ang,
-                    0.0,
+                    head_motion.progress,
                     scale,
                     1.0,
                 );
@@ -229,7 +229,7 @@ pub fn draw_guides(
                     tx + dir.x * off,
                     ty + dir.y * off,
                     ang,
-                    0.0,
+                    tail_motion.map(|m| m.progress).unwrap_or(0.0),
                     scale,
                     1.0,
                 );
