@@ -588,7 +588,8 @@ pub fn draw_slide(
                 // ── Flying stars, drawn after *all* trail tiles so no wifi
                 // track's trail can cover another track's star. ──
                 if !show_full
-                    && (core_driven || (current_t >= ns && current_t <= slide_end_s))
+                    && current_t >= ns
+                    && (core_driven || current_t <= slide_end_s)
                 {
                     let intro = if current_t < slide_start_s {
                         ((current_t - ns) / (slide_start_s - ns).max(0.001)).clamp(0.0, 1.0)
@@ -908,7 +909,7 @@ pub fn draw_slide(
     // i.e. until it begins to trace) it grows to 1.5x and fades to fully
     // opaque. Then it continues along the path.
     if layer == SlideLayer::Star {
-    if !show_full && (core_driven || (current_t >= ns && current_t <= slide_end_s)) {
+    if !show_full && current_t >= ns && (core_driven || current_t <= slide_end_s) {
         let (star_pos, angle) = point_at(star_dist_along);
         let p = if start_delay_s > 1e-4 {
             ((current_t - ns) / start_delay_s).clamp(0.0, 1.0)
