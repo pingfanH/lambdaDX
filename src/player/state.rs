@@ -334,6 +334,7 @@ impl PadPreviewState {
         if time <= 1e-4 {
             self.reset_engine();
         }
+        self.reconcile_slide_progress_for(self.mode_song_offset);
         self.reset_cues(self.mode_song_offset);
     }
 
@@ -384,6 +385,7 @@ impl PadPreviewState {
         self.timeline_view_time = t;
         self.mode_wall_anchor = get_time();
         self.reset_cues(t);
+        self.reconcile_slide_progress_for(t);
     }
 
     /// Commit a seek: reposition the clock and restart audio if playing.
@@ -393,7 +395,7 @@ impl PadPreviewState {
         self.mode_song_offset = t;
         self.timeline_view_time = t;
         self.mode_wall_anchor = get_time();
-        self.slide_progress.clear();
+        self.reconcile_slide_progress_for(t);
     }
 
     /// Fire the one-shot cue sound (`Sfx/answer.wav`).
@@ -605,6 +607,44 @@ impl PadPreviewState {
             Some(AP) => "AP",
             Some(APPlus) => "AP+",
             _ => "",
+        }
+    }
+
+    /// Mark slides whose local tail is already past `t` as hidden and un-hide
+    /// the rest. Used after a seek/scrub so the core-driven slides do not pile
+    /// up: lnmai-core does not backfill slides skipped by a timeline jump.
+    pub fn reconcile_slide_progress_for(&mut self, t: f32) {
+        if self.judge_engine.is_none() {
+            return;
+        }
+        use crate::app::types::{NoteType, mdur_to_secs, note_secs};
+        let bpms = self.chart.bpms.clone();
+        let mut past: Vec<(u64, usize)> = Vec::new();
+        let mut future: Vec<(u64, usize)> = Vec::new();
+        for note in &self.chart.notes {
+            if !matches!(note.note_type, NoteType::Slide) {
+                continue;
+            }
+            let ns = note_secs(note, &bpms);
+            for (si, sl) in note.slide.iter().enumerate() {
+                let end = ns + mdur_to_secs(sl.slide_duration, note.time, &bpms);
+                if end < t {
+                    past.push((note.id, si));
+                } else {
+                    future.push((note.id, si));
+                }
+            }
+        }
+        for key in future {
+            self.slide_progress.remove(&key);
+        }
+        for key in past {
+            self.slide_progress.insert(
+                key,
+                SlideProgress {
+                    hidden_until_bar: usize::MAX,
+                },
+            );
         }
     }
 

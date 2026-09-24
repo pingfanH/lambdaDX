@@ -57,6 +57,7 @@ pub fn handle_global_hotkeys(app: &mut PadPreviewState) {
         app.mode_song_offset = 0.0;
         app.timeline_view_time = 0.0;
         app.mode_wall_anchor = get_time();
+        app.reconcile_slide_progress_for(0.0);
     }
     if is_key_pressed(KeyCode::Left) {
         seek_relative(app, -1.0);
@@ -92,4 +93,5 @@ fn seek_relative(app: &mut PadPreviewState, delta: f32) {
     app.mode_song_offset = t;
     app.timeline_view_time = t;
     app.mode_wall_anchor = get_time();
+    app.reconcile_slide_progress_for(t);
 }
