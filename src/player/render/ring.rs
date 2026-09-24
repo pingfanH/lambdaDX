@@ -397,8 +397,11 @@ fn draw_hold(
     let tex_off = params::hold_tex_off() * scale;
     let hx = spawn_cx.x + dir.x * (head_motion.radius + tex_off);
     let hy = spawn_cx.y + dir.y * (head_motion.radius + tex_off);
-    let tx = spawn_cx.x + dir.x * (tail_r + tex_off);
-    let ty = spawn_cx.y + dir.y * (tail_r + tex_off);
+    // The tail's judgment offset also shifts the tail sprite, so adjusting
+    // `judge_off_hold_end` visibly moves the tail (sprite + dot + guide).
+    let tail_off = tex_off + params::judge_off_hold_end() * scale;
+    let tx = spawn_cx.x + dir.x * (tail_r + tail_off);
+    let ty = spawn_cx.y + dir.y * (tail_r + tail_off);
 
     let hold_tex = skin::body_or_normal(app, skin::SkinKind::Hold, skin::SkinVariant::of(note));
 
