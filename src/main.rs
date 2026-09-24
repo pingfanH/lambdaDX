@@ -36,6 +36,9 @@ fn main() {
             if args.dump {
                 dump_and_exit(&args);
             }
+            if let Some(path) = &args.slides_svg {
+                dump_slides_svg(path);
+            }
             Window::from_config(app::window_conf(), run(args));
         }
         Err(e) => {
@@ -59,6 +62,24 @@ fn dump_and_exit(args: &LaunchArgs) -> ! {
         }
         Err(e) => {
             eprintln!("error: failed to load chart from {}: {e}", path.display());
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `--dump-slides-svg`: write every slide curve to an SVG and exit.
+fn dump_slides_svg(path: &std::path::Path) -> ! {
+    let svg = app::slide::export::all_paths_svg();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::write(path, svg) {
+        Ok(()) => {
+            println!("wrote {}", path.display());
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("error: failed to write {}: {e}", path.display());
             std::process::exit(2);
         }
     }
@@ -194,7 +215,7 @@ async fn run(args: LaunchArgs) {
     ])
     .await;
     app.sfx_slide = audio::load_sfx(&["Sfx/slide.wav"]).await;
-    app.sfx_hold = audio::load_sfx(&["Sfx/hold.wav", "Sfx/touch_Hold_riser.wav"]).await;
+    app.sfx_hold = audio::load_sfx(&["Sfx/hold.wav"]).await;
     app.sfx_break = audio::load_sfx(&["Sfx/break.wav"]).await;
 
     loop {

@@ -214,6 +214,49 @@ pub fn note_radial_motion_continue(
     })
 }
 
+/// Hold head motion. Like [`note_radial_motion`] (clamped: the note parks on
+/// the ring at the hit) but the spawn scale can be driven by an explicit
+/// `spawn_time` in seconds, matching taps: the note appears `spawn_time` before
+/// it starts flying and reaches full size exactly when the flight begins, so it
+/// never keeps scaling during the flight.
+pub fn note_radial_motion_hold(
+    time_until_hit: f32,
+    speed: f32,
+    outer_r: f32,
+    target_offset: f32,
+    spawn_time: f32,
+) -> Option<NoteMotion> {
+    let distance = NOTE_OUTER_DISTANCE - time_until_hit * speed;
+    let target_r = outer_r + target_offset;
+    let lock_r = target_r * super::params::note_spawn_frac();
+
+    let spawn_t = spawn_time.max(0.0);
+    let scale = if spawn_t > 0.0 {
+        let appear_d = NOTE_LOCK_DISTANCE - speed * spawn_t;
+        if distance < appear_d {
+            return None;
+        }
+        ((distance - appear_d) / (NOTE_LOCK_DISTANCE - appear_d).max(1e-3)).clamp(0.0, 1.0)
+    } else {
+        if distance < NOTE_VISIBLE_DISTANCE {
+            return None;
+        }
+        (distance * 0.4 + 0.51).clamp(0.0, 1.0)
+    };
+
+    let progress = accel_progress(
+        ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE))
+            .clamp(0.0, 1.0),
+    );
+    let radius = lock_r + (target_r - lock_r) * progress;
+
+    Some(NoteMotion {
+        radius,
+        scale,
+        progress,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoteType {

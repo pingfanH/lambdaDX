@@ -133,6 +133,9 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     param(ui, &mut p.touchhold_end_dist, 1.0, 0.0..=140.0, "touchhold_end");
                     param(ui, &mut p.touchhold_scale, 0.05, 0.1..=3.0, "touchhold_scale");
                     param(ui, &mut p.touchhold_rot_offset, 0.05, -3.2..=3.2, "touchhold_rot");
+                    // hold 贴图偏移 + 出生时间。
+                    param(ui, &mut p.hold_tex_off, 1.0, -300.0..=300.0, "hold_tex_off hold贴图偏移");
+                    param(ui, &mut p.hold_spawn_time, 0.02, 0.0..=1.5, "hold_spawn_time hold出生时间(s,0=随流速)");
 
                     ui.separator();
                     ui.heading("Gameplay / playfield");
@@ -172,7 +175,9 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     ui.checkbox(&mut p.judge_dot, "judge_dot 判定黑点(最上层)");
                     param(ui, &mut p.judge_dot_size, 0.5, 0.0..=20.0, "judge_dot_size 黑点大小");                    param(ui, &mut p.judge_off_tap, 1.0, -300.0..=300.0, "judge_off_tap tap判定偏移");
                     param(ui, &mut p.judge_off_hold, 1.0, -300.0..=300.0, "judge_off_hold hold判定偏移");
+                    param(ui, &mut p.hold_guide_off, 1.0, -300.0..=300.0, "hold_guide_off hold辅助线偏移");
                     param(ui, &mut p.judge_off_hold_end, 1.0, -300.0..=300.0, "judge_off_hold_end hold尾判定偏移");
+                    param(ui, &mut p.hold_end_guide_off, 1.0, -300.0..=300.0, "hold_end_guide_off hold尾辅助线偏移");
                     ui.checkbox(&mut p.judge_sfx, "judge_sfx 判定音效(tap/slide/hold/break)");
 
             ui.separator();

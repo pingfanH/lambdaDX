@@ -87,6 +87,11 @@ pub struct Params {
     pub touchhold_end_dist: f32,
     pub touchhold_scale: f32,
     pub touchhold_rot_offset: f32,
+    /// Hold sprite offset along the flight direction (design px, + = outward).
+    pub hold_tex_off: f32,
+    /// Hold spawn ("birth") time in seconds — how long it scales up before
+    /// flying. `0` = follow the note speed (original).
+    pub hold_spawn_time: f32,
 
     // ── Gameplay / playfield ─────────────────────────────────────────
     /// Overall pad zoom: scales the pad radius *and* everything drawn on it
@@ -149,6 +154,12 @@ pub struct Params {
     pub judge_off_hold: f32,
     /// Hold-tail judgment-point offset along the flight direction.
     pub judge_off_hold_end: f32,
+    /// Extra hold-**head** guide offset along the flight direction (design px,
+    /// + = outward), on top of `judge_off_hold`.
+    pub hold_guide_off: f32,
+    /// Extra hold-**tail** guide offset along the flight direction (design px,
+    /// + = outward), on top of `judge_off_hold_end`.
+    pub hold_end_guide_off: f32,
     /// Play per-kind judgment SFX (tap/slide/hold/break) instead of the single
     /// `answer.wav`.
     pub judge_sfx: bool,
@@ -228,6 +239,8 @@ impl Default for Params {
             touchhold_end_dist: t::TOUCHHOLD_END_DIST,
             touchhold_scale: t::TOUCHHOLD_SCALE,
             touchhold_rot_offset: t::TOUCHHOLD_ROT_OFFSET,
+            hold_tex_off: 0.0,
+            hold_spawn_time: 0.0,
 
             note_speed_default: t::NOTE_SPEED,
             touch_speed_default: t::NOTE_SPEED * 0.7,
@@ -253,6 +266,8 @@ impl Default for Params {
             judge_off_tap: 0.0,
             judge_off_hold: 0.0,
             judge_off_hold_end: 0.0,
+            hold_guide_off: 0.0,
+            hold_end_guide_off: 0.0,
             judge_sfx: true,
             hide_notes: false,
             hide_zones: false,
@@ -371,6 +386,8 @@ param_accessors!(
     touchhold_end_dist,
     touchhold_scale,
     touchhold_rot_offset,
+    hold_tex_off,
+    hold_spawn_time,
     note_speed_default,
     touch_speed_default,
     pad_zoom,
@@ -394,6 +411,8 @@ param_accessors!(
     judge_off_tap,
     judge_off_hold,
     judge_off_hold_end,
+    hold_guide_off,
+    hold_end_guide_off,
     play_speed_default,
     bg_video_start,
     bg_video_x,
@@ -442,6 +461,17 @@ pub fn judge_dot() -> bool {
 /// Whether per-kind judgment SFX are enabled.
 pub fn judge_sfx() -> bool {
     PARAMS.with(|p| p.borrow().judge_sfx)
+}
+
+/// Effective hold spawn time: `hold_spawn_time`, or `tap_spawn_time` when
+/// unset, so holds share the tap's birth timing by default.
+pub fn hold_spawn_time_effective() -> f32 {
+    let h = PARAMS.with(|p| p.borrow().hold_spawn_time);
+    if h > 0.0 {
+        h
+    } else {
+        tap_spawn_time()
+    }
 }
 
 /// Explicit background-video path (empty = `<assets>/bg.mp4`).

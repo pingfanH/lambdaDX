@@ -7,7 +7,7 @@ use macroquad::prelude::{
     DrawTextureParams, draw_circle, draw_circle_lines, draw_line, draw_texture_ex,
 };
 
-use crate::app::types::{HIT_WINDOW, HOLD_SPAWN_BODY_WIDTH_FRAC, NoteMotion, NoteType, PAD_ROTATION_RAD, note_lock_radius, note_radial_motion, note_radial_motion_continue};
+use crate::app::types::{HIT_WINDOW, HOLD_SPAWN_BODY_WIDTH_FRAC, NoteMotion, NoteType, PAD_ROTATION_RAD, note_lock_radius, note_radial_motion, note_radial_motion_continue, note_radial_motion_hold};
 use crate::app::ui::draw_hold_9slice_segment;
 use crate::player::render::timing::NoteTiming;
 use crate::player::render::skin;
@@ -35,11 +35,21 @@ pub fn draw(
     //
     // Taps use the unclamped variant so they keep flying outward after the
     // judgment point instead of stopping on the ring. Holds keep the clamped
-    // version (the head must stay on the ring while the body is held).
-    let motion = if matches!(note.note_type, NoteType::Tap) {
-        note_radial_motion_continue(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
-    } else {
-        note_radial_motion(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
+    // version (the head must stay on the ring while the body is held) and must
+    // share `draw_hold`'s spawn motion, otherwise the visibility gate would
+    // cull them until *after* they have already scaled up (a visible pop-in).
+    let motion = match note.note_type {
+        NoteType::Tap => {
+            note_radial_motion_continue(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
+        }
+        NoteType::Hold => note_radial_motion_hold(
+            t.dt_scaled,
+            t.speed,
+            outer_r,
+            params::tap_target_offset(),
+            params::hold_spawn_time_effective(),
+        ),
+        _ => note_radial_motion(t.dt_scaled, t.speed, outer_r, params::tap_target_offset()),
     };
     let Some(motion) = motion else {
         return;
@@ -84,15 +94,21 @@ pub fn judge_points(
         NoteType::Slide | NoteType::Touch => Vec::new(),
         NoteType::Hold => {
             let lock_r = note_lock_radius(outer_r, params::tap_target_offset());
-            let head_motion =
-                note_radial_motion(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
-                    .unwrap_or(NoteMotion {
-                        radius: lock_r,
-                        scale: 0.0,
-                        progress: 0.0,
-                    });
+            let head_motion = note_radial_motion_hold(
+                t.dt_scaled,
+                t.speed,
+                outer_r,
+                params::tap_target_offset(),
+                params::hold_spawn_time_effective(),
+            )
+            .unwrap_or(NoteMotion {
+                radius: lock_r,
+                scale: 0.0,
+                progress: 0.0,
+            });
             let tail_motion =
                 note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
+            // Tail judgment point uses its own radius: no scaling-induced drift.
             let (tail_raw, tail_progress) = tail_motion
                 .map(|m| (m.radius, m.progress))
                 .unwrap_or((lock_r, 0.0));
@@ -101,7 +117,7 @@ pub fn judge_points(
                 tail_raw,
                 tail_progress,
                 head_motion.radius,
-                body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
+                params::hold_width() * scale * HOLD_SPAWN_BODY_WIDTH_FRAC,
             );
             let ho = params::judge_off_hold() * scale;
             let to = params::judge_off_hold_end() * scale;
@@ -151,15 +167,23 @@ pub fn draw_guides(
         NoteType::Slide | NoteType::Touch => {}
         NoteType::Hold => {
             let lock_r = note_lock_radius(outer_r, params::tap_target_offset());
-            let head_motion =
-                note_radial_motion(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
-                    .unwrap_or(NoteMotion {
-                        radius: lock_r,
-                        scale: 0.0,
-                        progress: 0.0,
-                    });
+            let head_motion = note_radial_motion_hold(
+                t.dt_scaled,
+                t.speed,
+                outer_r,
+                params::tap_target_offset(),
+                params::hold_spawn_time_effective(),
+            )
+            .unwrap_or(NoteMotion {
+                radius: lock_r,
+                scale: 0.0,
+                progress: 0.0,
+            });
             let tail_motion =
                 note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
+            // Judgment / guide position uses the tail's own radius so it does
+            // NOT move while the hold scales at spawn (the min-body offset is
+            // only for the drawn body).
             let (tail_raw, tail_progress) = tail_motion
                 .map(|m| (m.radius, m.progress))
                 .unwrap_or((lock_r, 0.0));
@@ -168,7 +192,7 @@ pub fn draw_guides(
                 tail_raw,
                 tail_progress,
                 head_motion.radius,
-                body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
+                params::hold_width() * scale * HOLD_SPAWN_BODY_WIDTH_FRAC,
             );
             let hx = spawn_cx.x + dir.x * head_motion.radius;
             let hy = spawn_cx.y + dir.y * head_motion.radius;
@@ -185,7 +209,7 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
             };
             if let Some(g) = head_guide {
-                let off = params::judge_off_hold() * scale;
+                let off = (params::judge_off_hold() + params::hold_guide_off()) * scale;
                 crate::app::guide::draw(
                     g,
                     hold_tex,
@@ -193,7 +217,7 @@ pub fn draw_guides(
                     hx + dir.x * off,
                     hy + dir.y * off,
                     ang,
-                    head_motion.progress,
+                    0.0,
                     scale,
                     1.0,
                 );
@@ -210,7 +234,7 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.hold_end_guide_tex.as_ref(),
             };
             if let Some(g) = tail_guide {
-                let off = params::judge_off_hold_end() * scale;
+                let off = (params::judge_off_hold_end() + params::hold_end_guide_off()) * scale;
                 crate::app::guide::draw(
                     g,
                     hold_tex,
@@ -218,7 +242,7 @@ pub fn draw_guides(
                     tx + dir.x * off,
                     ty + dir.y * off,
                     ang,
-                    tail_progress,
+                    0.0,
                     scale,
                     1.0,
                 );
@@ -336,39 +360,45 @@ fn draw_hold(
     outer_r: f32,
 ) {
     let lock_r = note_lock_radius(outer_r, params::tap_target_offset());
-    let head_motion = note_radial_motion(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
-        .unwrap_or(NoteMotion {
-            radius: lock_r,
-            scale: 0.0,
-            progress: 0.0,
-        });
+    let head_motion = note_radial_motion_hold(
+        t.dt_scaled,
+        t.speed,
+        outer_r,
+        params::tap_target_offset(),
+        params::hold_spawn_time_effective(),
+    )
+    .unwrap_or(NoteMotion {
+        radius: lock_r,
+        scale: 0.0,
+        progress: 0.0,
+    });
 
-    // Width of the 9-slice body (also its minimum length at spawn). Grows with
-    // the head while the hold is spawning.
+    // Body width follows the head's spawn scale (which already accounts for
+    // `hold_spawn_time`), so it reaches full size exactly at flight start and
+    // does not keep scaling during the flight.
     let body_w = (params::hold_width() * scale * head_motion.scale).max(1.0);
 
-    // Tail flies on the same radial model at the hold-end time.
+    // Tail flies on the same radial model at the hold-end time. The drawn tail
+    // and the tail judgment point / guide use the **same** radius (with a
+    // width-proportional min body), so the judgment point is glued to the
+    // sprite and never drifts relative to it.
     let tail_motion = note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
     let (tail_raw, tail_progress) = tail_motion
         .map(|m| (m.radius, m.progress))
         .unwrap_or((lock_r, 0.0));
-
-    // At spawn head and tail share the lock radius, so the raw body length is 0.
-    // Add a short extra length toward the centre. The offset is anchored to the
-    // tail (not the head) so the bar does not lurch forward once the head starts
-    // moving, and it fades out as the tail nears the ring so the tail still
-    // lands exactly on the ring at the hold end.
     let tail_r = hold_tail_radius(
         tail_raw,
         tail_progress,
         head_motion.radius,
-        body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
+        params::hold_width() * scale * HOLD_SPAWN_BODY_WIDTH_FRAC,
     );
 
-    let hx = spawn_cx.x + dir.x * head_motion.radius;
-    let hy = spawn_cx.y + dir.y * head_motion.radius;
-    let tx = spawn_cx.x + dir.x * tail_r;
-    let ty = spawn_cx.y + dir.y * tail_r;
+    // Hold sprite offset (visual only; judgment / guides unaffected).
+    let tex_off = params::hold_tex_off() * scale;
+    let hx = spawn_cx.x + dir.x * (head_motion.radius + tex_off);
+    let hy = spawn_cx.y + dir.y * (head_motion.radius + tex_off);
+    let tx = spawn_cx.x + dir.x * (tail_r + tex_off);
+    let ty = spawn_cx.y + dir.y * (tail_r + tex_off);
 
     let hold_tex = skin::body_or_normal(app, skin::SkinKind::Hold, skin::SkinVariant::of(note));
 

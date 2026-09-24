@@ -70,6 +70,7 @@ pub fn compute(
     let lead_time = if zone <= 8 {
         match note.note_type {
             NoteType::Tap => tap_lead_time(speed),
+            NoteType::Hold => hold_lead_time(speed),
             _ => note_lead_time(speed),
         }
     } else {
@@ -118,6 +119,16 @@ pub fn compute(
 /// earlier so it can run its scale-up ("birth") animation before flying out.
 fn tap_lead_time(speed: f32) -> f32 {
     let spawn_t = crate::app::params::tap_spawn_time();
+    if spawn_t > 0.0 {
+        (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / speed.max(0.1) + spawn_t
+    } else {
+        note_lead_time(speed)
+    }
+}
+
+/// Lead time for a hold head, matching its configurable spawn time.
+fn hold_lead_time(speed: f32) -> f32 {
+    let spawn_t = crate::app::params::hold_spawn_time_effective();
     if spawn_t > 0.0 {
         (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / speed.max(0.1) + spawn_t
     } else {

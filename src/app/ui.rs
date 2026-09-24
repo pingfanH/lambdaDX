@@ -95,10 +95,10 @@ pub fn draw_hold_9slice_segment(
     let tex_h = tex.height().max(3.0);
     let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
     let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
-    let cap_len = (cap_h * (width / tex_w)).max(1.0);
-
-    let min_cap = 4.0;
-    let natural_cap_len = cap_len.max(min_cap);
+    // Caps scale with the body width; the minimum is proportional to the width
+    // (no fixed pixel floor), so a spawning hold grows uniformly from the centre
+    // instead of hitting a constant minimum first.
+    let natural_cap_len = (cap_h * (width / tex_w)).max(width * 0.12);
     let (head_len, tail_len) = (natural_cap_len, natural_cap_len);
     let head_start = from - dir * head_len;
     let tail_start = to;

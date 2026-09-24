@@ -24,6 +24,8 @@ pub struct LaunchArgs {
     pub diff: Option<i32>,
     /// Print the parsed chart (bpms + slides) and exit without opening a window.
     pub dump: bool,
+    /// Write every slide curve to this SVG and exit.
+    pub slides_svg: Option<PathBuf>,
 }
 
 /// Parse the process arguments (excluding argv[0]).
@@ -38,25 +40,39 @@ where
     I: IntoIterator<Item = String>,
 {
     let mut out = LaunchArgs::default();
-    let mut it = args.into_iter();
-
-    while let Some(arg) = it.next() {
+    let args: Vec<String> = args.into_iter().collect();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].clone();
+        let mut advance = 1;
         match arg.as_str() {
             "-h" | "--help" => return Ok(None),
             "-c" | "--chart" => {
-                out.chart = Some(PathBuf::from(next_value(&mut it, &arg)?));
+                out.chart = Some(PathBuf::from(next_value(&args, i, &arg)?));
+                advance = 2;
             }
             "-a" | "--audio" => {
-                out.audio = Some(PathBuf::from(next_value(&mut it, &arg)?));
+                out.audio = Some(PathBuf::from(next_value(&args, i, &arg)?));
+                advance = 2;
             }
             "-d" | "--diff" => {
-                let v = next_value(&mut it, &arg)?;
+                let v = next_value(&args, i, &arg)?;
                 out.diff = Some(
                     v.parse::<i32>()
                         .map_err(|_| format!("invalid --diff value: {v}"))?,
                 );
+                advance = 2;
             }
             "--dump" => out.dump = true,
+            "--dump-slides-svg" => {
+                // Optional path (default `output/slide_curves.svg`).
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    out.slides_svg = Some(PathBuf::from(args[i + 1].clone()));
+                    advance = 2;
+                } else {
+                    out.slides_svg = Some(PathBuf::from("output/slide_curves.svg"));
+                }
+            }
             other if other.starts_with('-') && other != "-" => {
                 return Err(format!("unknown option: {other}"));
             }
@@ -71,13 +87,16 @@ where
                 }
             }
         }
+        i += advance;
     }
 
     Ok(Some(out))
 }
 
-fn next_value<I: Iterator<Item = String>>(it: &mut I, flag: &str) -> Result<String, String> {
-    it.next().ok_or_else(|| format!("{flag} needs a value"))
+fn next_value(args: &[String], i: usize, flag: &str) -> Result<String, String> {
+    args.get(i + 1)
+        .cloned()
+        .ok_or_else(|| format!("{flag} needs a value"))
 }
 
 pub fn help() -> &'static str {
@@ -98,6 +117,9 @@ OPTIONS:
     -a, --audio <PATH>   Same as the second positional argument.
     -d, --diff <N>       Difficulty number to load (e.g. 4).
     --dump               Print the parsed chart (bpms + slides) and exit.
+    --dump-slides-svg [PATH]
+                         Write every possible slide curve to an SVG (default
+                         output/slide_curves.svg) and exit.
     -h, --help           Print this help.
 
 KEYS:
