@@ -301,18 +301,11 @@ pub fn draw_slide(
     let full_fade_s = (fade_in_s - fade_duration_s).max(0.001);
 
     // Draw a star's guide texture (same rules as tap guides) if one is loaded.
-    let star_guide = |x: f32, y: f32, rot: f32, progress: f32| {
+    // `star_px` is the star's *current* on-screen size, so the guide scales
+    // exactly with the note; `progress` adds the displacement scaling.
+    let star_guide = |x: f32, y: f32, rot: f32, progress: f32, star_px: f32| {
         if let Some(g) = tex.guide {
-            super::guide::draw(
-                g,
-                tex.star,
-                params::star_size() * scale,
-                x,
-                y,
-                rot,
-                progress,
-                scale,
-            );
+            super::guide::draw(g, tex.star, star_px, x, y, rot, progress, scale, 1.0);
         }
     };
 
@@ -443,6 +436,11 @@ pub fn draw_slide(
 
                 let sprite_count = 11;
                 let command_hidden_until = hidden_until_bar.min(sprite_count);
+                // Guide orientation = the lane's flight direction (constant), so
+                // the guide does NOT spin with the star.
+                let guide_ang = -std::f32::consts::FRAC_PI_2
+                    + PAD_ROTATION_RAD
+                    + (note.lane.saturating_sub(1)) as f32 * std::f32::consts::TAU / 8.0;
 
                 if layer == SlideLayer::Trail {
                 for (j, target) in targets.iter().enumerate() {
@@ -480,6 +478,31 @@ pub fn draw_slide(
                                 );
                             }
                         }
+                    }
+                }
+
+                // Star guides (trail layer): head + one per track, all under
+                // the stars.
+                if tex.guide.is_some() {
+                    if !show_full && current_t < ns && !note.is_tapless {
+                        let head_motion = super::types::note_radial_motion(
+                            dt_scaled,
+                            head_speed,
+                            outer_r,
+                            params::tap_target_offset(),
+                        );
+                        let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
+                        let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
+                        let r = head_motion.map(|m| m.radius).unwrap_or(lock_r);
+                        let px = spawn_cx.x + guide_ang.cos() * r;
+                        let py = spawn_cx.y + guide_ang.sin() * r;
+                        star_guide(
+                            px,
+                            py,
+                            guide_ang,
+                            head_motion.map(|m| m.progress).unwrap_or(0.0),
+                            params::star_size() * scale * size_scale,
+                        );
                     }
                 }
                 }
@@ -570,7 +593,6 @@ pub fn draw_slide(
                         let angle =
                             dir.y.atan2(dir.x) + std::f32::consts::PI + 112.0_f32.to_radians();
                         let star_pos = start_pos + dir * (star_t * seg_len);
-                        star_guide(star_pos.x, star_pos.y, angle, star_t);
                         if let Some(st) = star_used {
                             draw_texture_ex(
                                 st,
@@ -706,6 +728,41 @@ pub fn draw_slide(
             );
         }
     }
+
+    // Star guides, drawn in the trail layer so **every** guide is under
+    // **every** star (a later sub-slide's guide can no longer cover an earlier
+    // sub-slide's star). Orientation is the constant flight direction.
+    if tex.guide.is_some() {
+        let guide_dir = path[0] - spawn_cx;
+        let guide_ang = guide_dir.y.atan2(guide_dir.x);
+        if !show_full && dt_scaled > 0.0 && dt_scaled < head_lead && !note.is_tapless {
+            let head_motion = super::types::note_radial_motion(
+                dt_scaled,
+                head_speed,
+                outer_r,
+                params::tap_target_offset(),
+            );
+            let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
+            let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
+            let r = head_motion.map(|m| m.radius).unwrap_or(lock_r);
+            let (hx, hy) = if note.lane <= 8 {
+                let idx = (note.lane - 1) as f32;
+                let a = -std::f32::consts::FRAC_PI_2
+                    + PAD_ROTATION_RAD
+                    + idx * std::f32::consts::TAU / 8.0;
+                (spawn_cx.x + a.cos() * r, spawn_cx.y + a.sin() * r)
+            } else {
+                (path[0].x, path[0].y)
+            };
+            star_guide(
+                hx,
+                hy,
+                guide_ang,
+                head_motion.map(|m| m.progress).unwrap_or(0.0),
+                params::star_size() * scale * size_scale,
+            );
+        }
+    }
     }
 
     // ── Original polyline on top of tiles ──
@@ -770,7 +827,6 @@ pub fn draw_slide(
 
             let ss = params::star_size() * scale * size_scale;
             let star_rot = head_spin;
-            star_guide(px, py, star_rot, size_scale);
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {
                 draw_texture_ex(
@@ -802,7 +858,6 @@ pub fn draw_slide(
             // Touch zone: fade in at centroid
             let head_rot = head_spin;
             let ss = params::star_size() * scale * size_scale;
-            star_guide(path[0].x, path[0].y, head_rot, size_scale);
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {
                 draw_texture_ex(
@@ -852,12 +907,6 @@ pub fn draw_slide(
         let ss = params::star_size() * scale * (1.0 + params::star_spawn_scale_gain() * p);
         let a0 = params::star_spawn_alpha_start();
         let tint = Color::from_rgba(255, 255, 255, ((a0 + (1.0 - a0) * p) * 255.0) as u8);
-        star_guide(
-            star_pos.x,
-            star_pos.y,
-            angle,
-            (star_dist_along / total_len.max(1.0)).clamp(0.0, 1.0),
-        );
         let star_used = tex.star.or(tex.star_fallback);
         if let Some(st) = star_used {
             draw_texture_ex(

@@ -22,6 +22,9 @@ use crate::app::params;
 ///
 /// * `note_tex` — the note's own texture, used for the pixel ratio.
 /// * `base_px` — the note's configured on-screen size (e.g. `tap_size * scale`).
+/// * `note_scale` — the note's current size factor (spawn scale); the guide
+///   scales with it so it stays consistent with the note. Pass `1.0` to keep a
+///   fixed size.
 /// * `ang` — flight direction (radians); the guide is oriented along it.
 /// * `progress` — the note's travel progress (0..1) for `tap_guide_grow`.
 pub fn draw(
@@ -33,6 +36,7 @@ pub fn draw(
     ang: f32,
     progress: f32,
     scale: f32,
+    note_scale: f32,
 ) {
     let alpha = params::tap_guide_alpha();
     if alpha <= 0.0 {
@@ -42,7 +46,7 @@ pub fn draw(
         Some(t) if t.width() > 0.0 => guide.width() / t.width(),
         _ => 1.0,
     };
-    let base = base_px * px_ratio * params::tap_guide_size();
+    let base = base_px * px_ratio * params::tap_guide_size() * note_scale.max(0.0);
     let size = base * (1.0 + params::tap_guide_grow() * progress.clamp(0.0, 1.0));
     let aspect = if guide.width() > 0.0 {
         guide.height() / guide.width()

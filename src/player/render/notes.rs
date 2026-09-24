@@ -27,8 +27,35 @@ pub fn draw_notes(
     current_t: f32,
     speed_scale: f32,
 ) {
+    // Guides first, so every guide sits under every note sprite.
+    draw_guide_pass(app, pad, scale, spawn_cx, current_t, speed_scale);
     draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, true);
     draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, false);
+}
+
+/// Draw only the tap / hold guides (slides draw theirs in the trail layer).
+fn draw_guide_pass(
+    app: &PadPreviewState,
+    pad: &PadGeom,
+    scale: f32,
+    spawn_cx: Vec2,
+    current_t: f32,
+    speed_scale: f32,
+) {
+    let bpms = &app.chart.bpms;
+    for note in app.chart.notes.iter() {
+        if matches!(note.note_type, NoteType::Slide) {
+            continue;
+        }
+        if app.hidden_notes.contains(&note.id) {
+            continue;
+        }
+        let t: NoteTiming = timing::compute(note, app, bpms, current_t, speed_scale);
+        if !t.visible() {
+            continue;
+        }
+        ring::draw_guides(app, note, &t, scale, spawn_cx, pad.outer_r);
+    }
 }
 
 /// One stacking pass. `slides == true` draws slide notes first (behind);
