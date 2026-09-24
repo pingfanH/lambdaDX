@@ -275,10 +275,11 @@ pub fn draw_guides(
 
 /// Hold head/tail render radii.
 ///
-/// The bar has a **minimum length** (so it has a body from birth) that is grown
-/// **symmetrically about its centre**: when the head-tail separation is shorter
-/// than the minimum, the head is extended outward and the tail inward by half
-/// the missing length, so the midpoint stays put while it scales.
+/// The bar has a **minimum length** proportional to the note's spawn scale (so
+/// its length:width ratio stays fixed while it is born), grown **symmetrically
+/// about its centre**: when the head-tail separation is shorter than that
+/// minimum, the head is extended outward and the tail inward by half the
+/// missing length, so the midpoint stays put while it scales from 0.
 fn hold_render_radii(
     head: &NoteMotion,
     tail: Option<NoteMotion>,
@@ -288,7 +289,7 @@ fn hold_render_radii(
     let head_r = head.radius;
     let tail_r = tail.map(|m| m.radius).unwrap_or(lock_r);
     let sep = (head_r - tail_r).max(0.0);
-    let min_body = params::hold_width() * scale * HOLD_SPAWN_BODY_WIDTH_FRAC;
+    let min_body = params::hold_width() * scale * head.scale * HOLD_SPAWN_BODY_WIDTH_FRAC;
     let half_extra = (min_body - sep).max(0.0) * 0.5;
     (head_r + half_extra, tail_r - half_extra)
 }
@@ -376,11 +377,10 @@ fn draw_hold(
         progress: 0.0,
     });
 
-    // Body width follows the head's spawn scale but never drops below a
-    // minimum fraction, so the hold has a visible width from birth and scales
-    // about its own centre.
-    let grow = head_motion.scale.clamp(0.35, 1.0);
-    let body_w = params::hold_width() * scale * grow;
+    // The hold scales uniformly from 0 to full: both its length (the min body
+    // above) and its width follow `head_motion.scale`, so the aspect ratio is
+    // fixed during birth and it grows while centred.
+    let body_w = params::hold_width() * scale * head_motion.scale;
 
     // Head/tail render radii with the symmetric minimum body length.
     let tail_motion =
