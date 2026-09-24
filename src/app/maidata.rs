@@ -415,3 +415,4 @@ mod tests {
         assert_eq!(hard.notes.len(), 3);
     }
 }
+

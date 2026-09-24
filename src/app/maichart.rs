@@ -355,9 +355,9 @@ pub(crate) fn assign_note_ids(notes: &mut [Note]) {
 /// Mark notes that share a hit time with another note (simai "each"). The
 /// `is_each` flag selects the `*_each` skins, so a lone note stays `false`.
 ///
-/// Slides' **trails** only pair with other slides (`is_each`), while a slide's
-/// **head star** uses `is_each_head`, which follows the tap rule (any note at
-/// the same time) — so a star lights up like a tap when anything lands with it.
+/// A slide's **trail** (`is_each`) only pairs with other slides, but its **head
+/// star** (`is_each_head`) and every non-slide note use the tap rule: any note
+/// at the same hit time.
 pub(crate) fn recompute_each(notes: &mut [Note]) {
     let is_slide: Vec<bool> = notes
         .iter()
@@ -366,13 +366,20 @@ pub(crate) fn recompute_each(notes: &mut [Note]) {
     let times: Vec<f32> = notes.iter().map(|n| n.time).collect();
     for i in 0..notes.len() {
         let m = times[i];
-        notes[i].is_each = times.iter().enumerate().any(|(j, t)| {
-            j != i && (t - m).abs() < 0.002 && is_slide[j] == is_slide[i]
-        });
-        notes[i].is_each_head = times
+        let any = times
             .iter()
             .enumerate()
             .any(|(j, t)| j != i && (t - m).abs() < 0.002);
+        if is_slide[i] {
+            // Trail: slides only; head star: any note (tap rule).
+            notes[i].is_each = times.iter().enumerate().any(|(j, t)| {
+                j != i && (t - m).abs() < 0.002 && is_slide[j]
+            });
+            notes[i].is_each_head = any;
+        } else {
+            notes[i].is_each = any;
+            notes[i].is_each_head = any;
+        }
     }
 }
 
@@ -666,8 +673,8 @@ mod tests {
 
     #[test]
     fn slide_each_requires_another_slide() {
-        // A slide sharing its time with a tap is *not* an each slide; two slides
-        // at the same time are.
+        // A slide's trail pairs only with another slide; a tap that shares the
+        // time is each (tap rule) but does not make the slide trail each.
         let mut notes = vec![
             note(NoteType::Tap, 5.0),
             note(NoteType::Slide, 5.0),
@@ -675,19 +682,20 @@ mod tests {
             note(NoteType::Slide, 6.0),
         ];
         recompute_each(&mut notes);
-        assert!(!notes[0].is_each, "lone tap");
-        assert!(!notes[1].is_each, "slide must not inherit the tap's each");
+        assert!(notes[0].is_each, "tap shares its time");
+        assert!(!notes[1].is_each, "slide trail must not inherit the tap's each");
         assert!(notes[2].is_each && notes[3].is_each, "slide/slide each");
     }
 
     #[test]
     fn slide_each_ignores_coincident_tap() {
-        // A lone slide sharing a time with a lone tap: neither is each, but the
-        // slide *head* follows the tap rule and lights up as each.
+        // A slide sharing a time with a tap: the slide trail is not each (it
+        // only pairs with slides), but the tap is each and the slide head star
+        // follows the tap rule.
         let mut notes = vec![note(NoteType::Tap, 5.0), note(NoteType::Slide, 5.0)];
         recompute_each(&mut notes);
-        assert!(!notes[0].is_each);
-        assert!(!notes[1].is_each);
+        assert!(notes[0].is_each, "tap shares its time");
+        assert!(!notes[1].is_each, "slide trail only pairs with slides");
         assert!(notes[1].is_each_head, "slide head follows the tap each rule");
     }
 

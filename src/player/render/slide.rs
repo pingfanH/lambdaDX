@@ -64,6 +64,19 @@ pub fn draw(
         let star_fb = skin::body(app, skin::star_kind(note), skin::SkinVariant::Normal);
         let star_ex = skin::star_ex(app, note);
 
+        // The star guide inherits the **tap** guide (same texture/variant), so a
+        // slide head looks like a tap.
+        let head_each = skin::SkinVariant::of_flags(note.is_break, note.is_each_head);
+        let guide = match head_each {
+            skin::SkinVariant::Each => {
+                app.tap_guide_each_tex.as_ref().or(app.tap_guide_tex.as_ref())
+            }
+            skin::SkinVariant::Break => {
+                app.tap_guide_break_tex.as_ref().or(app.tap_guide_tex.as_ref())
+            }
+            skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
+        };
+
         let tex = slide_render::SlideTextures {
             trail: trail_tex,
             star: star_variant.or(star_fb),
@@ -71,7 +84,7 @@ pub fn draw(
             star_ex,
             star_ex_fallback: None,
             wifi: std::array::from_fn(|i| app.wifi_tex[i].as_ref()),
-            guide: app.slide_guide_tex.as_ref(),
+            guide,
         };
 
         // Trail consumption: hide the trail the star has passed. Bars are
