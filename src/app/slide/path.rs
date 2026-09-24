@@ -235,12 +235,13 @@ fn blend_line_to_arc(
     }
     let t_in = lin.normalize();
 
-    let da = (fillet_r / radius).clamp(0.0, std::f32::consts::FRAC_PI_2);
+    let da = ((fillet_r * params::slide_join_arc_influence().max(0.0)) / radius)
+        .clamp(0.0, std::f32::consts::FRAC_PI_2);
     let a1 = a0 + sign * da;
     let p_arc = center + vec2(a1.cos(), a1.sin()) * radius;
     let t_arc = arc_tangent(a1, sign);
 
-    let r = fillet_r.min(lin.length());
+    let r = (fillet_r * params::slide_join_line_influence().max(0.0)).min(lin.length());
     let p0 = corner - t_in * r;
 
     // Drop the arc samples that lie before `a1` (they are replaced by the blend).
@@ -285,12 +286,13 @@ fn blend_arc_to_line(
     }
     let t_out = lout.normalize();
 
-    let da = (fillet_r / radius).clamp(0.0, std::f32::consts::FRAC_PI_2);
+    let da = ((fillet_r * params::slide_join_arc_influence().max(0.0)) / radius)
+        .clamp(0.0, std::f32::consts::FRAC_PI_2);
     let a0 = a1 - sign * da;
     let p_arc = center + vec2(a0.cos(), a0.sin()) * radius;
     let t_arc = arc_tangent(a0, sign);
 
-    let r = fillet_r.min(lout.length());
+    let r = (fillet_r * params::slide_join_line_influence().max(0.0)).min(lout.length());
     let p1 = corner + t_out * r;
 
     // Drop the arc samples that lie after `a0` (they are replaced by the blend).

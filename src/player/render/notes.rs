@@ -1,7 +1,9 @@
 //! Note pass: iterate the chart, derive timing, cull, and dispatch each note to
 //! the appropriate kind-specific renderer (`ring`, `touch`, `slide`).
 
+use macroquad::color::Color;
 use macroquad::math::Vec2;
+use macroquad::prelude::draw_circle;
 
 use crate::app::params;
 use crate::app::slide_render::SlideLayer;
@@ -55,6 +57,38 @@ fn draw_guide_pass(
             continue;
         }
         ring::draw_guides(app, note, &t, scale, spawn_cx, pad.outer_r);
+    }
+}
+
+/// Draw a black dot at every note's judgment point, on the topmost layer.
+pub fn draw_judge_dots(
+    app: &PadPreviewState,
+    pad: &PadGeom,
+    scale: f32,
+    spawn_cx: Vec2,
+    current_t: f32,
+    speed_scale: f32,
+) {
+    if !params::judge_dot() {
+        return;
+    }
+    let bpms = &app.chart.bpms;
+    let r = params::judge_dot_size() * scale;
+    if r <= 0.0 {
+        return;
+    }
+    let color = Color::from_rgba(0, 0, 0, 255);
+    for note in app.chart.notes.iter() {
+        if app.hidden_notes.contains(&note.id) {
+            continue;
+        }
+        let t: NoteTiming = timing::compute(note, app, bpms, current_t, speed_scale);
+        if !t.visible() {
+            continue;
+        }
+        for p in ring::judge_points(note, &t, scale, spawn_cx, pad.outer_r) {
+            draw_circle(p.x, p.y, r, color);
+        }
     }
 }
 

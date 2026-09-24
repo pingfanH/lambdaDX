@@ -48,6 +48,11 @@ pub struct Params {
     pub slide_join_fillet_frac: f32,
     pub slide_join_fillet_min: f32,
     pub slide_join_fillet_max: f32,
+    /// How strongly the join fillet pulls the **arc** back (`1.0` = current).
+    pub slide_join_arc_influence: f32,
+    /// How strongly the join fillet pulls the **straight line** back
+    /// (`1.0` = current).
+    pub slide_join_line_influence: f32,
     /// Empty gap at the slide head / tail (screen px, scaled by ui scale).
     /// The trail samples between `[head_gap, total - tail_gap]`.
     pub slide_head_gap: f32,
@@ -132,6 +137,18 @@ pub struct Params {
     pub pad_bg_scale: f32,
     /// Opacity (0..255) of the outside-the-circle occluding background.
     pub pad_outside_alpha: f32,
+
+    // ── Judgment ─────────────────────────────────────────────────────
+    /// Draw a black dot at each note's judgment point (topmost layer).
+    pub judge_dot: bool,
+    /// Judge-dot radius (design px).
+    pub judge_dot_size: f32,
+    /// Tap judgment-point offset along the flight direction (design px, + out).
+    pub judge_off_tap: f32,
+    /// Hold-head judgment-point offset along the flight direction.
+    pub judge_off_hold: f32,
+    /// Hold-tail judgment-point offset along the flight direction.
+    pub judge_off_hold_end: f32,
     /// Hide the note layer (notes, slide trails, judgment text) — e.g. to see
     /// only the background video.
     pub hide_notes: bool,
@@ -184,6 +201,8 @@ impl Default for Params {
             slide_join_fillet_frac: 0.3,
             slide_join_fillet_min: 8.0,
             slide_join_fillet_max: 40.0,
+            slide_join_arc_influence: 1.0,
+            slide_join_line_influence: 1.0,
             slide_head_gap: 8.0,
             slide_tail_gap: 26.0,
             star_spawn_scale_gain: 0.5,
@@ -226,6 +245,11 @@ impl Default for Params {
             pad_circle_scale: 1.06,
             pad_bg_scale: 1.06,
             pad_outside_alpha: 255.0,
+            judge_dot: true,
+            judge_dot_size: 3.0,
+            judge_off_tap: 0.0,
+            judge_off_hold: 0.0,
+            judge_off_hold_end: 0.0,
             hide_notes: false,
             hide_zones: false,
             play_speed_default: 1.0,
@@ -323,6 +347,8 @@ param_accessors!(
     slide_join_fillet_frac,
     slide_join_fillet_min,
     slide_join_fillet_max,
+    slide_join_arc_influence,
+    slide_join_line_influence,
     slide_head_gap,
     slide_tail_gap,
     star_spawn_scale_gain,
@@ -360,6 +386,10 @@ param_accessors!(
     pad_circle_scale,
     pad_bg_scale,
     pad_outside_alpha,
+    judge_dot_size,
+    judge_off_tap,
+    judge_off_hold,
+    judge_off_hold_end,
     play_speed_default,
     bg_video_start,
     bg_video_x,
@@ -398,6 +428,11 @@ pub fn speed_scales_visuals() -> bool {
 /// Whether the tap guide texture is enabled.
 pub fn tap_guide() -> bool {
     PARAMS.with(|p| p.borrow().tap_guide)
+}
+
+/// Whether the judgment-point black dot is enabled.
+pub fn judge_dot() -> bool {
+    PARAMS.with(|p| p.borrow().judge_dot)
 }
 
 /// Explicit background-video path (empty = `<assets>/bg.mp4`).

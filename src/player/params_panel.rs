@@ -105,6 +105,9 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     param(ui, &mut p.slide_join_fillet_frac, 0.05, 0.0..=1.5, "join_fillet_frac");
                     param(ui, &mut p.slide_join_fillet_min, 2.0, 0.0..=80.0, "join_fillet_min");
                     param(ui, &mut p.slide_join_fillet_max, 2.0, 0.0..=160.0, "join_fillet_max");
+                    // 连接弧的影响程度：对圆(弧) / 对直线。
+                    param(ui, &mut p.slide_join_arc_influence, 0.05, 0.0..=2.0, "join_arc_influence 连接弧影响(圆)");
+                    param(ui, &mut p.slide_join_line_influence, 0.05, 0.0..=2.0, "join_line_influence 连接弧影响(直线)");
                     param(ui, &mut p.slide_head_gap, 1.0, 0.0..=120.0, "head_gap");
                     param(ui, &mut p.slide_tail_gap, 1.0, 0.0..=120.0, "tail_gap");
                     param(ui, &mut p.star_spawn_scale_gain, 0.05, 0.0..=2.0, "spawn_scale_gain");
@@ -165,6 +168,12 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     // 隐藏 notes / 感应区（配合视频背景只剩视频）。
                     ui.checkbox(&mut p.hide_notes, "hide_notes 隐藏notes");
                     ui.checkbox(&mut p.hide_zones, "hide_zones 隐藏感应区");
+                    // 判定点：黑点(最上层) + 相对贴图的偏移(tap/hold/hold尾)。
+                    ui.checkbox(&mut p.judge_dot, "judge_dot 判定黑点(最上层)");
+                    param(ui, &mut p.judge_dot_size, 0.5, 0.0..=20.0, "judge_dot_size 黑点大小");
+                    param(ui, &mut p.judge_off_tap, 1.0, -300.0..=300.0, "judge_off_tap tap判定偏移");
+                    param(ui, &mut p.judge_off_hold, 1.0, -300.0..=300.0, "judge_off_hold hold判定偏移");
+                    param(ui, &mut p.judge_off_hold_end, 1.0, -300.0..=300.0, "judge_off_hold_end hold尾判定偏移");
 
             ui.separator();
             // 默认流速 / 出生速度：立即生效，Save 后持久保存。

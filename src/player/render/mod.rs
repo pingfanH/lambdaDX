@@ -172,19 +172,19 @@ pub fn draw_pad_panel(
     }
 
     // Note layer (notes, slide trails, judgment text). Can be hidden too.
+    let current_t = match app.mode {
+        Mode::Playing | Mode::Recording => app.song_time(),
+        Mode::Idle => app.timeline_view_time,
+    };
+    // `speed_scale` normalizes note flight to wall-clock time. When the user
+    // opts into "整体速度" we pass 1.0 instead, so the visuals scale with the
+    // playback speed (flight, star spin, touch motion all speed up).
+    let speed_scale = if params::speed_scales_visuals() {
+        1.0
+    } else {
+        app.play_speed.max(0.1)
+    };
     if !params::hide_notes() {
-        let current_t = match app.mode {
-            Mode::Playing | Mode::Recording => app.song_time(),
-            Mode::Idle => app.timeline_view_time,
-        };
-        // `speed_scale` normalizes note flight to wall-clock time. When the
-        // user opts into "整体速度" we pass 1.0 instead, so the visuals scale
-        // with the playback speed (flight, star spin, touch motion all speed up).
-        let speed_scale = if params::speed_scales_visuals() {
-            1.0
-        } else {
-            app.play_speed.max(0.1)
-        };
         notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale);
     }
 
@@ -195,5 +195,7 @@ pub fn draw_pad_panel(
     // Overlay.
     if !params::hide_notes() {
         feedback::draw(app, &pad, pad.outer_r, spawn_cx, scale);
+        // Judgment-point dots on the very top.
+        notes::draw_judge_dots(app, &pad, scale, spawn_cx, current_t, speed_scale);
     }
 }

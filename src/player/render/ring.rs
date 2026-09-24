@@ -68,6 +68,66 @@ pub fn draw(
     }
 }
 
+/// The note's judgment point(s) (tap = 1, hold = head + tail). Empty for
+/// slides / touch. `judge_off_*` shifts each point along the flight direction.
+pub fn judge_points(
+    note: &crate::app::types::Note,
+    t: &NoteTiming,
+    scale: f32,
+    spawn_cx: Vec2,
+    outer_r: f32,
+) -> Vec<Vec2> {
+    let idx = (t.zone - 1) as f32;
+    let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+    let dir = vec2(ang.cos(), ang.sin());
+    match note.note_type {
+        NoteType::Slide | NoteType::Touch => Vec::new(),
+        NoteType::Hold => {
+            let lock_r = note_lock_radius(outer_r, params::tap_target_offset());
+            let head_motion =
+                note_radial_motion(t.dt_scaled, t.speed, outer_r, params::tap_target_offset())
+                    .unwrap_or(NoteMotion {
+                        radius: lock_r,
+                        scale: 0.0,
+                        progress: 0.0,
+                    });
+            let tail_motion =
+                note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
+            let (tail_raw, tail_progress) = tail_motion
+                .map(|m| (m.radius, m.progress))
+                .unwrap_or((lock_r, 0.0));
+            let body_w = (params::hold_width() * scale * head_motion.scale).max(1.0);
+            let tail_r = hold_tail_radius(
+                tail_raw,
+                tail_progress,
+                head_motion.radius,
+                body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
+            );
+            let ho = params::judge_off_hold() * scale;
+            let to = params::judge_off_hold_end() * scale;
+            vec![
+                spawn_cx + dir * (head_motion.radius + ho),
+                spawn_cx + dir * (tail_r + to),
+            ]
+        }
+        NoteType::Tap => {
+            if t.zone > 8 {
+                return Vec::new();
+            }
+            let Some(m) = note_radial_motion_continue(
+                t.dt_scaled,
+                t.speed,
+                outer_r,
+                params::tap_target_offset(),
+            ) else {
+                return Vec::new();
+            };
+            let o = params::judge_off_tap() * scale;
+            vec![spawn_cx + dir * (m.radius + o)]
+        }
+    }
+}
+
 /// Draw this note's guide(s) in a standalone pass, so every guide sits under
 /// every note sprite regardless of note kind / pass ordering. Slides are
 /// handled by the slide renderer.
@@ -125,12 +185,13 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
             };
             if let Some(g) = head_guide {
+                let off = params::judge_off_hold() * scale;
                 crate::app::guide::draw(
                     g,
                     hold_tex,
                     params::hold_width() * scale,
-                    hx,
-                    hy,
+                    hx + dir.x * off,
+                    hy + dir.y * off,
                     ang,
                     head_motion.progress,
                     scale,
@@ -149,12 +210,13 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.hold_end_guide_tex.as_ref(),
             };
             if let Some(g) = tail_guide {
+                let off = params::judge_off_hold_end() * scale;
                 crate::app::guide::draw(
                     g,
                     hold_tex,
                     params::hold_width() * scale,
-                    tx,
-                    ty,
+                    tx + dir.x * off,
+                    ty + dir.y * off,
                     ang,
                     tail_progress,
                     scale,
@@ -187,12 +249,13 @@ pub fn draw_guides(
                 skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
             };
             if let Some(g) = guide {
+                let off = params::judge_off_tap() * scale;
                 crate::app::guide::draw(
                     g,
                     tap_tex,
                     params::tap_size() * scale,
-                    px,
-                    py,
+                    px + dir.x * off,
+                    py + dir.y * off,
                     ang,
                     m.progress,
                     scale,
