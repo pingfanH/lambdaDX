@@ -279,11 +279,10 @@ pub fn draw_guides(
 
 /// Hold head/tail render radii.
 ///
-/// The bar has a **minimum length** proportional to the note's spawn scale (so
-/// its length:width ratio stays fixed while it is born), grown **symmetrically
-/// about its centre**: when the head-tail separation is shorter than that
-/// minimum, the head is extended outward and the tail inward by half the
-/// missing length, so the midpoint stays put while it scales from 0.
+/// The bar keeps a **minimum length** proportional to the note's spawn scale, so
+/// its length:width ratio stays fixed while it is born. The extra length is
+/// added **outward from the head only** — the tail stays on its own flight
+/// radius — so the tail never slides (no jump when the flight starts).
 fn hold_render_radii(
     head: &NoteMotion,
     tail: Option<NoteMotion>,
@@ -294,8 +293,8 @@ fn hold_render_radii(
     let tail_r = tail.map(|m| m.radius).unwrap_or(lock_r);
     let sep = (head_r - tail_r).max(0.0);
     let min_body = params::hold_width() * scale * head.scale * HOLD_SPAWN_BODY_WIDTH_FRAC;
-    let half_extra = (min_body - sep).max(0.0) * 0.5;
-    (head_r + half_extra, tail_r - half_extra)
+    let extra = (min_body - sep).max(0.0);
+    (head_r + extra, tail_r)
 }
 
 /// Tap body: a skin texture (plus an Ex overlay) or a fallback pink circle.
