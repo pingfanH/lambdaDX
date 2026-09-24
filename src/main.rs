@@ -185,6 +185,17 @@ async fn run(args: LaunchArgs) {
     if app.answer_sfx.is_none() {
         app.set_status("Cue sound missing: assets/Sfx/answer.wav".to_string());
     }
+    // Per-kind judgment SFX (fall back to `answer.wav` when a file is missing).
+    app.sfx_tap = audio::load_sfx(&[
+        "Sfx/tap_perfect.wav",
+        "Sfx/tap_great.wav",
+        "Sfx/tap_good.wav",
+        "Sfx/tap.wav",
+    ])
+    .await;
+    app.sfx_slide = audio::load_sfx(&["Sfx/slide.wav"]).await;
+    app.sfx_hold = audio::load_sfx(&["Sfx/hold.wav", "Sfx/touch_Hold_riser.wav"]).await;
+    app.sfx_break = audio::load_sfx(&["Sfx/break.wav"]).await;
 
     loop {
         clear_background(Color::from_rgba(30, 30, 30, 255));

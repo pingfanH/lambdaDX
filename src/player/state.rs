@@ -4,6 +4,7 @@ use macroquad::prelude::{Color, Texture2D, Vec2, get_time};
 
 use crate::app::audio::{BgmPcm, BgmPlayer, SfxBuffer};
 use crate::app::pad_svg::PadSvgDef;
+use crate::app::params;
 use crate::app::types::zone::PadZone;
 use crate::app::types::{
     ChartDoc, JudgeFeedback, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
@@ -62,6 +63,11 @@ pub struct PadPreviewState {
     pub bgm_player: Option<BgmPlayer>,
     /// One-shot cue sound (`Sfx/answer.wav`) played at tap / hold head / hold tail.
     pub answer_sfx: Option<SfxBuffer>,
+    /// Judgment cue sounds per kind (tap / slide / hold / break), if present.
+    pub sfx_tap: Option<SfxBuffer>,
+    pub sfx_slide: Option<SfxBuffer>,
+    pub sfx_hold: Option<SfxBuffer>,
+    pub sfx_break: Option<SfxBuffer>,
     /// Time-based cue schedule (built from the chart).
     pub cue_track: Option<CueTrack>,
 
@@ -181,6 +187,10 @@ impl PadPreviewState {
             audio_enabled: true,
             bgm_player: BgmPlayer::new().ok(),
             answer_sfx: None,
+            sfx_tap: None,
+            sfx_slide: None,
+            sfx_hold: None,
+            sfx_break: None,
             cue_track,
             tap_texture: None,
             hold_texture: None,
@@ -361,9 +371,30 @@ impl PadPreviewState {
 
     /// Fire the one-shot cue sound (`Sfx/answer.wav`).
     pub fn play_answer(&self) {
-        if let (Some(player), Some(buf)) = (&self.bgm_player, &self.answer_sfx) {
+        self.play_sfx(self.answer_sfx.as_ref());
+    }
+
+    /// Play a one-shot sound effect, if the player and buffer are present.
+    pub fn play_sfx(&self, buf: Option<&SfxBuffer>) {
+        if let (Some(player), Some(buf)) = (&self.bgm_player, buf) {
             player.play_once(buf, 1.0);
         }
+    }
+
+    /// The judgment cue sound for a note kind/variant (falls back to
+    /// `answer.wav`).
+    fn cue_sfx(&self, cue: crate::player::cues::Cue, is_break: bool) -> Option<&SfxBuffer> {
+        use crate::player::cues::Cue;
+        let picked = if is_break {
+            self.sfx_break.as_ref()
+        } else {
+            match cue {
+                Cue::Tap => self.sfx_tap.as_ref(),
+                Cue::SlideHead => self.sfx_slide.as_ref(),
+                Cue::HoldHead | Cue::HoldTail => self.sfx_hold.as_ref(),
+            }
+        };
+        picked.or(self.answer_sfx.as_ref())
     }
 
     /// Play a cue for every tap/hold head/hold tail crossed this frame.
@@ -372,13 +403,18 @@ impl PadPreviewState {
             return;
         }
         let t = self.song_time();
-        let fired = self
+        let due = self
             .cue_track
             .as_mut()
-            .map(|track| track.take_due(t))
-            .unwrap_or(0);
-        for _ in 0..fired {
-            self.play_answer();
+            .map(|track| track.take_due_cues(t))
+            .unwrap_or_default();
+        for ev in due {
+            let buf = if params::judge_sfx() {
+                self.cue_sfx(ev.cue, ev.is_break)
+            } else {
+                self.answer_sfx.as_ref()
+            };
+            self.play_sfx(buf);
         }
     }
 

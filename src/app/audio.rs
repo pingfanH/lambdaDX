@@ -233,6 +233,18 @@ pub async fn load_answer_sfx() -> Option<SfxBuffer> {
     SfxBuffer::from_bytes(&bytes)
 }
 
+/// Load the first of `candidates` (asset-relative paths) that decodes.
+pub async fn load_sfx(candidates: &[&str]) -> Option<SfxBuffer> {
+    for path in candidates {
+        if let Ok(bytes) = platform::load_asset_bytes(path).await {
+            if let Some(buf) = SfxBuffer::from_bytes(&bytes) {
+                return Some(buf);
+            }
+        }
+    }
+    None
+}
+
 /// Minimal rodio-backed BGM player. One stoppable sink at a time.
 pub struct BgmPlayer {
     _stream: OutputStream,

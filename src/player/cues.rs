@@ -27,6 +27,8 @@ pub enum Cue {
 pub struct CueEvent {
     pub time: f32,
     pub cue: Cue,
+    /// Break note → a break sound can be used instead of the kind's sound.
+    pub is_break: bool,
 }
 
 /// Sorted cue instants plus a monotonic cursor.
@@ -47,20 +49,24 @@ impl CueTrack {
                 NoteType::Tap => events.push(CueEvent {
                     time: note_secs(n, bpms),
                     cue: Cue::Tap,
+                    is_break: n.is_break,
                 }),
                 NoteType::Hold => {
                     events.push(CueEvent {
                         time: note_secs(n, bpms),
                         cue: Cue::HoldHead,
+                        is_break: n.is_break,
                     });
                     events.push(CueEvent {
                         time: hold_tail_time(n, bpms),
                         cue: Cue::HoldTail,
+                        is_break: n.is_break,
                     });
                 }
                 NoteType::Slide => events.push(CueEvent {
                     time: note_secs(n, bpms),
                     cue: Cue::SlideHead,
+                    is_break: n.is_break,
                 }),
                 NoteType::Touch => {}
             }
@@ -83,19 +89,24 @@ impl CueTrack {
     /// Advance to `t` and return how many cues were crossed since the last call.
     /// A backward jump just re-syncs (returns 0).
     pub fn take_due(&mut self, t: f32) -> usize {
+        self.take_due_cues(t).len()
+    }
+
+    /// Advance to `t` and return the cues crossed since the last call.
+    pub fn take_due_cues(&mut self, t: f32) -> Vec<CueEvent> {
         if t < self.last_t {
             self.reset(t);
-            return 0;
+            return Vec::new();
         }
-        let mut fired = 0;
+        let mut out = Vec::new();
         while self.cursor < self.events.len() && self.events[self.cursor].time <= t {
             if self.events[self.cursor].time > self.last_t {
-                fired += 1;
+                out.push(self.events[self.cursor]);
             }
             self.cursor += 1;
         }
         self.last_t = t;
-        fired
+        out
     }
 }
 

@@ -149,6 +149,9 @@ pub struct Params {
     pub judge_off_hold: f32,
     /// Hold-tail judgment-point offset along the flight direction.
     pub judge_off_hold_end: f32,
+    /// Play per-kind judgment SFX (tap/slide/hold/break) instead of the single
+    /// `answer.wav`.
+    pub judge_sfx: bool,
     /// Hide the note layer (notes, slide trails, judgment text) — e.g. to see
     /// only the background video.
     pub hide_notes: bool,
@@ -198,9 +201,9 @@ impl Default for Params {
             slide_tile_size: t::SLIDE_TILE_SIZE,
             slide_trail_alpha: 255.0,
             slide_fade_in: t::SLIDE_STAR_FADE_IN,
-            slide_join_fillet_frac: 0.3,
-            slide_join_fillet_min: 8.0,
-            slide_join_fillet_max: 40.0,
+            slide_join_fillet_frac: 0.5,
+            slide_join_fillet_min: 12.0,
+            slide_join_fillet_max: 160.0,
             slide_join_arc_influence: 1.0,
             slide_join_line_influence: 1.0,
             slide_head_gap: 8.0,
@@ -250,6 +253,7 @@ impl Default for Params {
             judge_off_tap: 0.0,
             judge_off_hold: 0.0,
             judge_off_hold_end: 0.0,
+            judge_sfx: true,
             hide_notes: false,
             hide_zones: false,
             play_speed_default: 1.0,
@@ -433,6 +437,11 @@ pub fn tap_guide() -> bool {
 /// Whether the judgment-point black dot is enabled.
 pub fn judge_dot() -> bool {
     PARAMS.with(|p| p.borrow().judge_dot)
+}
+
+/// Whether per-kind judgment SFX are enabled.
+pub fn judge_sfx() -> bool {
+    PARAMS.with(|p| p.borrow().judge_sfx)
 }
 
 /// Explicit background-video path (empty = `<assets>/bg.mp4`).
