@@ -366,20 +366,12 @@ fn draw_hold(
     // does not keep scaling during the flight.
     let body_w = (params::hold_width() * scale * head_motion.scale).max(1.0);
 
-    // Tail flies on the same radial model at the hold-end time. The drawn tail
-    // and the tail judgment point / guide use the **same** radius (with a
-    // width-proportional min body), so the judgment point is glued to the
-    // sprite and never drifts relative to it.
-    let tail_motion = note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset());
-    let (tail_raw, tail_progress) = tail_motion
-        .map(|m| (m.radius, m.progress))
-        .unwrap_or((lock_r, 0.0));
-    let tail_r = hold_tail_radius(
-        tail_raw,
-        tail_progress,
-        head_motion.radius,
-        body_w * HOLD_SPAWN_BODY_WIDTH_FRAC,
-    );
+    // Tail uses its own flight radius, the **same** as the tail judgment point
+    // and guide, so the sprite's tail endpoint lines up with the judgment point
+    // (no min-body offset that would desync them).
+    let tail_r = note_radial_motion(t.tail_dt_scaled, t.speed, outer_r, params::tap_target_offset())
+        .map(|m| m.radius)
+        .unwrap_or(lock_r);
 
     // Hold sprite offset (visual only; judgment / guides unaffected).
     let tex_off = params::hold_tex_off() * scale;
