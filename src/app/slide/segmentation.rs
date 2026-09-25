@@ -9,6 +9,8 @@ pub struct SlideBar {
     pub position: Vec2,
     pub rotation: f32,
     pub zone: Option<PadZone>,
+    /// Distance from the path start. Used to map the star's progress to a bar.
+    pub distance_along: f32,
 }
 
 /// A consecutive run of trail bars that belongs to one sensor area.
@@ -27,9 +29,19 @@ pub struct SlideSegmentation {
 
 /// Sample the same polyline used for rendering into discrete trail bars and
 /// merge consecutive bars that occupy the same playable sensor area.
-pub fn build(path: &[Vec2], spacing: f32, svg: &PadSvgDef, pad: &PadGeom) -> SlideSegmentation {
+///
+/// `head_gap` / `tail_gap` are the empty gaps (already scaled) at the two ends;
+/// bars are sampled from `total - tail_gap` backwards every `spacing`, down to
+/// `head_gap`. Anchoring to the tail keeps two slides that share a tail aligned.
+pub fn build(
+    path: &[Vec2],
+    spacing: f32,
+    head_gap: f32,
+    tail_gap: f32,
+    svg: &PadSvgDef,
+    pad: &PadGeom,
+) -> SlideSegmentation {
     let spacing = spacing.max(1.0);
-    let mut bars = Vec::new();
 
     let lengths: Vec<f32> = path
         .windows(2)
@@ -38,15 +50,24 @@ pub fn build(path: &[Vec2], spacing: f32, svg: &PadSvgDef, pad: &PadGeom) -> Sli
     let total_length: f32 = lengths.iter().sum();
     if total_length <= f32::EPSILON {
         return SlideSegmentation {
-            bars,
+            bars: Vec::new(),
             judge_segments: Vec::new(),
         };
     }
 
-    // Sample by cumulative path distance. Sampling each polyline segment
-    // independently creates a short, incorrectly-spaced bar at the end.
-    let mut distance = 0.0;
-    while distance <= total_length + f32::EPSILON {
+    // Sample by cumulative path distance, phase anchored to the tail.
+    let first = head_gap.max(0.0);
+    let last = (total_length - tail_gap).max(0.0);
+    let mut distances: Vec<f32> = Vec::new();
+    let mut d = last;
+    while d >= first - f32::EPSILON {
+        distances.push(d);
+        d -= spacing;
+    }
+    distances.reverse(); // ascending along the path (bar 0 = closest to head)
+
+    let mut bars = Vec::with_capacity(distances.len());
+    for distance in distances {
         let mut accumulated = 0.0;
         let mut sample = None;
         for (index, &length) in lengths.iter().enumerate() {
@@ -71,12 +92,8 @@ pub fn build(path: &[Vec2], spacing: f32, svg: &PadSvgDef, pad: &PadGeom) -> Sli
             position,
             rotation,
             zone: svg.hit_test(position, pad),
+            distance_along: distance,
         });
-
-        if distance >= total_length {
-            break;
-        }
-        distance += spacing;
     }
 
     let mut judge_segments = Vec::new();
@@ -128,10 +145,12 @@ mod tests {
     use crate::app::pad_svg::PadSvgDef;
     use crate::app::types::PadGeom;
 
+    // Zone coordinates are relative to the pad origin (`SVG_BG_CX/CY`), so the
+    // fixture sits at the origin and the bars pass just above it.
     const SVG: &str = r#"
         <svg><g id="touch">
-          <rect id="A1" x="420" y="340" width="10" height="10"/>
-          <rect id="A2" x="430" y="340" width="10" height="10"/>
+          <rect id="A1" x="420" y="395" width="10" height="10"/>
+          <rect id="A2" x="430" y="395" width="10" height="10"/>
         </g></svg>
     "#;
 
@@ -146,6 +165,8 @@ mod tests {
         let result = build(
             &[Vec2::new(-1.0, -7.0), Vec2::new(5.0, -7.0)],
             2.0,
+            0.0,
+            0.0,
             &svg,
             &pad,
         );

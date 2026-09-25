@@ -2,15 +2,33 @@
 precision mediump float;
 
 varying vec2 uv;
+
 uniform sampler2D Texture;
 uniform float progress;
 
+const float PI = 3.14159265359;
+
 void main() {
-    vec2 center = vec2(0.5, 0.5);
-    float a = atan(uv.y - center.y, uv.x - center.x);
-    float clock_angle = mod(a + 1.5708, 6.28318);
-    float sweep = progress * 6.28318;
-    float visible = step(clock_angle, sweep);
     vec4 color = texture2D(Texture, uv);
-    gl_FragColor = vec4(color.rgb, color.a * visible);
+
+    vec2 center = vec2(0.5, 0.5);
+    vec2 dir = uv - center;
+
+    // atan returns [-PI, PI]
+    float angle = atan(dir.y, dir.x);
+
+    // start from 12 o'clock
+    angle += PI / 2.0;
+
+    if (angle < 0.0) {
+        angle += PI * 2.0;
+    }
+
+    float normalizedAngle = angle / (PI * 2.0);
+
+    // smooth transition at the progress edge
+    float diff = normalizedAngle - progress;
+    float alpha = 1.0 - smoothstep(0.0, 0.03, diff);
+
+    gl_FragColor = vec4(color.rgb, color.a * alpha);
 }

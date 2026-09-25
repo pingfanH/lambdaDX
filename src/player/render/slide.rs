@@ -1,0 +1,218 @@
+//! Slide notes. Thin adapter over `app::slide_render::draw_slide`, which builds
+//! the sampled path, draws the trail tiles and flies the star.
+
+use macroquad::math::Vec2;
+
+use crate::app::slide::segmentation::{self, SlideSegmentation};
+use crate::app::slide_render::{self, SlideLayer};
+use crate::app::types::{PadGeom, SLIDE_MIN_DURATION_S, mdur_to_secs, note_secs};
+use crate::player::render::timing::NoteTiming;
+use crate::player::render::skin;
+use crate::player::state::PadPreviewState;
+use crate::app::params;
+
+/// Draw every sub-slide of a slide note for the current time.
+///
+/// `ns` is the head time; each sub-slide has its own span
+/// (`slide_duration`) and start delay (`slide_start_delay`), both in measures.
+/// The delay is clamped to just under the span so a zero-delay slide still gets
+/// a tiny fade-in window.
+pub fn draw(
+    app: &PadPreviewState,
+    note: &crate::app::types::Note,
+    pad: &PadGeom,
+    scale: f32,
+    spawn_cx: Vec2,
+    outer_r: f32,
+    current_t: f32,
+    t: &NoteTiming,
+    layer: SlideLayer,
+) {
+    if note.slide.is_empty() {
+        return;
+    }
+    let bpms = &app.chart.bpms;
+    let ns = note_secs(note, bpms);
+    let Some(ref svg) = app.pad_svg else {
+        return;
+    };
+
+    // Sub-slide order within the note (multi-slide / chained slides).
+    let subs: Box<dyn Iterator<Item = (usize, &crate::app::types::Slide)>> =
+        if params::slide_sub_reverse() {
+            Box::new(note.slide.iter().enumerate().rev())
+        } else {
+            Box::new(note.slide.iter().enumerate())
+        };
+
+    for (si, sl) in subs {
+        let slide_dur_s =
+            mdur_to_secs(sl.slide_duration, note.time, bpms).max(SLIDE_MIN_DURATION_S);
+        let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
+            .max(0.0)
+            .min(slide_dur_s - 0.001)
+            .max(0.001);
+
+        // Pick the correct trail/star variant for this note's flags (central
+        // skin table in `render::skin`).
+        let trail_tex = skin::body_or_normal(
+            app,
+            skin::SkinKind::SlideTrail,
+            skin::SkinVariant::of_flags(sl.slide_is_break, note.is_each),
+        );
+        let star_variant = skin::star_body(app, note);
+        let star_fb = skin::body(app, skin::star_kind(note), skin::SkinVariant::Normal);
+        let star_ex = skin::star_ex(app, note);
+
+        // The star guide inherits the **tap** guide (same texture/variant), so a
+        // slide head looks like a tap.
+        let head_each = skin::SkinVariant::of_flags(note.is_break, note.is_each_head);
+        let guide = match head_each {
+            skin::SkinVariant::Each => {
+                app.tap_guide_each_tex.as_ref().or(app.tap_guide_tex.as_ref())
+            }
+            skin::SkinVariant::Break => {
+                app.tap_guide_break_tex.as_ref().or(app.tap_guide_tex.as_ref())
+            }
+            skin::SkinVariant::Normal => app.tap_guide_tex.as_ref(),
+        };
+
+        let tex = slide_render::SlideTextures {
+            trail: trail_tex,
+            star: star_variant.or(star_fb),
+            star_fallback: app.star_tex.as_ref(),
+            star_ex,
+            star_ex_fallback: None,
+            wifi: std::array::from_fn(|i| app.wifi_tex[i].as_ref()),
+            guide,
+        };
+
+        // Trail consumption is driven by lnmai-core's render commands
+        // (`HideSlideBars` / `HideAllSlideBars`), stored per sub-slide in
+        // `slide_progress`. Without an engine the trail is fully drawn.
+        let core_driven = app.has_engine();
+        let hidden_until_bar = app
+            .slide_progress
+            .get(&(note.id, si))
+            .map(|progress| progress.hidden_until_bar)
+            .unwrap_or(0);
+        // `HideAllSlideBars` maps to `usize::MAX`; the whole slide (trail and
+        // star) is gone once core reports it.
+        if core_driven && hidden_until_bar == usize::MAX {
+            continue;
+        }
+
+        slide_render::draw_slide(
+            note,
+            sl,
+            current_t,
+            ns,
+            slide_dur_s,
+            fade_in_s,
+            pad,
+            svg,
+            scale,
+            spawn_cx,
+            outer_r,
+            &tex,
+            false,
+            t.speed_scale,
+            app.note_speed,
+            params::slide_fade_in(),
+            hidden_until_bar,
+            core_driven,
+            layer,
+        );
+    }
+}
+
+/// Number of trail bars to hide as the star advances, **grouped by sensor
+/// segment**.
+///
+/// `star_dist` is the star's distance along the path. Every judge segment that
+/// lies entirely behind the star is hidden at once, so the trail disappears in
+/// chunks (a whole zone's worth of tiles) rather than tile by tile.
+fn hidden_bars_for_star(seg: &SlideSegmentation, star_dist: f32) -> usize {
+    // Bars are ordered by increasing distance from the path start, so the last
+    // bar at or before the star is its current bar.
+    let Some(bar_idx) = seg
+        .bars
+        .iter()
+        .rposition(|b| b.distance_along <= star_dist)
+    else {
+        return 0;
+    };
+    let mut hidden = 0;
+    for s in &seg.judge_segments {
+        // Hide the segment once the star reaches its last bar (so the final
+        // segment still clears when the star lands on the tail).
+        if bar_idx + 1 >= s.end_bar {
+            hidden = s.end_bar;
+        } else {
+            break;
+        }
+    }
+    hidden.min(seg.bars.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hidden_bars_for_star;
+    use crate::app::slide::segmentation::{SlideBar, SlideJudgeSegment, SlideSegmentation};
+    use crate::app::types::zone::PadZone;
+    use macroquad::math::vec2;
+
+    fn sample_segmentation() -> SlideSegmentation {
+        let bars = (0..10)
+            .map(|i| SlideBar {
+                position: vec2(i as f32, 0.0),
+                rotation: 0.0,
+                zone: None,
+                distance_along: i as f32,
+            })
+            .collect();
+        SlideSegmentation {
+            bars,
+            judge_segments: vec![
+                SlideJudgeSegment {
+                    zone: PadZone::A1,
+                    start_bar: 0,
+                    end_bar: 3,
+                },
+                SlideJudgeSegment {
+                    zone: PadZone::A2,
+                    start_bar: 3,
+                    end_bar: 7,
+                },
+                SlideJudgeSegment {
+                    zone: PadZone::A3,
+                    start_bar: 7,
+                    end_bar: 10,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn trail_hides_in_segment_chunks() {
+        let seg = sample_segmentation();
+        // At the head nothing is consumed.
+        assert_eq!(hidden_bars_for_star(&seg, 0.0), 0);
+        // Mid first segment: still nothing fully passed.
+        assert_eq!(hidden_bars_for_star(&seg, 1.0), 0);
+        // Star reaches bar 3: the whole first segment (3 tiles) hides at once.
+        assert_eq!(hidden_bars_for_star(&seg, 3.0), 3);
+        // Inside the second segment: unchanged (no per-tile hiding).
+        assert_eq!(hidden_bars_for_star(&seg, 5.0), 3);
+        // Star reaches bar 7: second segment hides, cumulative 0..7.
+        assert_eq!(hidden_bars_for_star(&seg, 7.0), 7);
+        // Star at the end: everything hidden.
+        assert_eq!(hidden_bars_for_star(&seg, 10.0), 10);
+    }
+
+    #[test]
+    fn empty_segmentation_is_safe() {
+        let seg = SlideSegmentation::default();
+        assert_eq!(hidden_bars_for_star(&seg, 5.0), 0);
+    }
+}

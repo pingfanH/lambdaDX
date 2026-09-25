@@ -1148,8 +1148,12 @@ pub struct ScoreState {
     pub total_extra: u64,
     pub earned_base: u64,
     pub earned_extra: u64,
+    #[serde(default)]
+    pub earned_classic_extra: u64,
     pub lost_base: u64,
     pub lost_extra: u64,
+    #[serde(default)]
+    pub lost_classic_extra: u64,
     /// DX-score loss delta: `0` means no loss, negative values represent lost
     /// DX score. Use [`ScoreState::dx_score_remaining`] for the current
     /// achieved DX score.

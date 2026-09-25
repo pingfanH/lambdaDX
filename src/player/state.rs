@@ -1,341 +1,77 @@
-use super::audio::BgmPcm;
-use super::sfx::{SfxBuffer, SfxPlayer};
-use lambda_dx::app::types::zone::PadZone;
-use macroquad::material::Material;
-use macroquad::prelude::{Vec2, get_time};
-use macroquad::texture::Texture2D;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
-use super::types::{
-    ActiveRecordHold, ChartDoc, DragPart, HOLD_RECORD_MIN_DURATION, HitEvent, JudgeFeedback, Mode,
-    Note, NoteType, PadFeedback, RecordInputId, SLIDE_MIN_POINTS, SPEED_MAX, SPEED_MIN, SlidePoint,
-    WavPcm, is_touch_zone, sdur_to_mdur, secs_to_measure, snap_measure,
+use macroquad::prelude::{Color, Texture2D, Vec2, get_time};
+
+use crate::app::audio::{BgmPcm, BgmPlayer, SfxBuffer};
+use crate::app::pad_svg::PadSvgDef;
+use crate::app::params;
+use crate::app::types::zone::PadZone;
+use crate::app::types::{
+    ChartDoc, JudgeFeedback, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
 };
+use crate::player::autoplay::AutoplayEvent;
+use crate::player::cues::CueTrack;
+use crate::player::video::VideoBg;
 
+/// Per-sub-slide visual progress. In the standalone preview the trail is never
+/// hidden by judgment, so `hidden_until_bar` stays 0; kept as a typed map so the
+/// renderer's lookup matches the original player.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SlideProgress {
-    /// Hide trail bars with indexes lower than this value.
     pub hidden_until_bar: usize,
 }
 
-/// Seconds a slide `just` overlay stays on screen after its judgment.
-pub const SLIDE_JUST_DURATION: f64 = 0.65;
-
-/// Display grade for the slide `just` overlay, collapsing lnmai-core's full
-/// fast/late grade set into the four MajdataView `just` variants we ship.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SlideJustKind {
-    Perfect,
-    Great,
-    Good,
-    Miss,
-}
-
-impl SlideJustKind {
-    pub fn from_grade(grade: lnmai_core::types::JudgeGrade) -> Self {
-        if grade.is_miss_or_too_fast() {
-            SlideJustKind::Miss
-        } else if grade.is_good_grade() {
-            SlideJustKind::Good
-        } else if grade.is_great_grade() {
-            SlideJustKind::Great
-        } else {
-            SlideJustKind::Perfect
-        }
-    }
-
-    pub fn tint(self) -> macroquad::prelude::Color {
-        match self {
-            SlideJustKind::Perfect => macroquad::prelude::Color::from_rgba(255, 244, 179, 255),
-            SlideJustKind::Great => macroquad::prelude::Color::from_rgba(120, 255, 160, 255),
-            SlideJustKind::Good => macroquad::prelude::Color::from_rgba(120, 190, 255, 255),
-            SlideJustKind::Miss => macroquad::prelude::Color::from_rgba(255, 120, 120, 255),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            SlideJustKind::Perfect => "Perfect",
-            SlideJustKind::Great => "Great",
-            SlideJustKind::Good => "Good",
-            SlideJustKind::Miss => "Miss",
-        }
-    }
-}
-
-/// A slide `just` effect recorded when lnmai-core reports a slide judgment.
-#[derive(Debug, Clone, Copy)]
-pub struct SlideJudgeFx {
-    pub kind: SlideJustKind,
-    pub started: f64,
-}
-
-fn timed_input_tp(event: &lnmai_core::types::TimedInputEvent) -> i64 {
-    use lnmai_core::types::TimedInputEvent;
-    match event {
-        TimedInputEvent::ButtonClick { tp, .. }
-        | TimedInputEvent::ButtonHold { tp, .. }
-        | TimedInputEvent::SensorClick { tp, .. }
-        | TimedInputEvent::SensorHold { tp, .. } => *tp,
-    }
-}
-
-fn apply_core_slide_progress_updates_to_chart(
-    chart: &ChartDoc,
-    slide_progress: &mut HashMap<(u64, usize), SlideProgress>,
-    updates: &[super::engine::SlideProgressUpdate],
-) {
-    for update in updates {
-        if let Some((note_id, slide_idx)) =
-            super::engine::chart_slide_key(chart, update.runtime_slide_index)
-        {
-            slide_progress
-                .entry((note_id, slide_idx))
-                .and_modify(|progress| {
-                    progress.hidden_until_bar = update.hidden_until_bar;
-                })
-                .or_insert_with(|| SlideProgress {
-                    hidden_until_bar: update.hidden_until_bar,
-                });
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LibrarySong {
-    pub title: String,
-    pub artist: String,
-    pub designer: String,
-    pub chart_path: PathBuf,
-    pub cover_path: Option<PathBuf>,
-    pub descriptor: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlayerPage {
-    Start,
-    SongSelect,
-    Settings,
-    Gameplay,
-    Pause,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlayerSettingsSection {
-    Audio,
-    Gameplay,
-    Display,
-}
-
-#[derive(Default)]
-struct EngineInputLatch {
-    frame: u64,
-    press_frames: HashMap<PadZone, u64>,
-    pending_releases: HashMap<PadZone, u64>,
-}
-
-impl EngineInputLatch {
-    fn clear(&mut self) {
-        self.press_frames.clear();
-        self.pending_releases.clear();
-    }
-
-    fn record(
-        &mut self,
-        events: &mut Vec<lnmai_core::types::TimedInputEvent>,
-        zone: PadZone,
-        is_down: bool,
-        tp: i64,
-    ) {
-        if is_down {
-            self.pending_releases.remove(&zone);
-            self.press_frames.insert(zone, self.frame);
-            events.extend(super::engine::press_events_for_zone(zone, tp));
-        } else if self.press_frames.get(&zone).copied() == Some(self.frame) {
-            self.pending_releases.insert(zone, self.frame);
-        } else {
-            self.press_frames.remove(&zone);
-            self.pending_releases.remove(&zone);
-            events.extend(super::engine::release_events_for_zone(zone, tp));
-        }
-    }
-
-    fn prepare_frame(&mut self, events: &mut Vec<lnmai_core::types::TimedInputEvent>, tp: i64) {
-        let due: Vec<PadZone> = self
-            .pending_releases
-            .iter()
-            .filter_map(|(zone, frame)| (*frame < self.frame).then_some(*zone))
-            .collect();
-        for zone in due {
-            self.pending_releases.remove(&zone);
-            self.press_frames.remove(&zone);
-            events.extend(super::engine::release_events_for_zone(zone, tp));
-        }
-    }
-
-    fn finish_frame(&mut self) {
-        self.frame = self.frame.saturating_add(1);
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PlayerUiState {
-    pub page: PlayerPage,
-    pub settings_return: PlayerPage,
-    pub selected_song: usize,
-    pub loaded_song: Option<usize>,
-    pub using_custom_song: bool,
-    pub song_error: Option<String>,
-    pub settings_section: PlayerSettingsSection,
-}
-
-impl Default for PlayerUiState {
-    fn default() -> Self {
-        Self {
-            page: PlayerPage::Start,
-            settings_return: PlayerPage::Start,
-            selected_song: 0,
-            loaded_song: None,
-            using_custom_song: false,
-            song_error: None,
-            settings_section: PlayerSettingsSection::Audio,
-        }
-    }
-}
-
-impl PlayerUiState {
-    pub fn open_settings(&mut self) {
-        if self.page != PlayerPage::Settings {
-            self.settings_return = self.page;
-            self.page = PlayerPage::Settings;
-        }
-    }
-
-    pub fn close_settings(&mut self) {
-        self.page = self.settings_return;
-    }
-
-    pub const fn shows_gameplay_background(&self) -> bool {
-        match self.page {
-            PlayerPage::Gameplay | PlayerPage::Pause => true,
-            PlayerPage::Settings => matches!(
-                self.settings_return,
-                PlayerPage::Gameplay | PlayerPage::Pause
-            ),
-            PlayerPage::Start | PlayerPage::SongSelect => false,
-        }
-    }
-}
-
-// #[derive(Debug, serde::Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// struct JudgeEvent {
-//     kind: String,
-//     grade: String,
-//     note_index: u64,
-// }
-
-// #[derive(Debug, serde::Deserialize)]
-// struct RuntimeStepLightResult {
-//     events: Vec<JudgeEvent>,
-// }
-//
-// #[derive(Debug, serde::Deserialize)]
-// struct FfiResult {
-//     ok: bool,
-//     result: Option<RuntimeStepLightResult>,
-// }
-
-/// Runtime mutable state for the editor/simulator.
-pub struct PlayerState {
-    pub player_ui: PlayerUiState,
+/// All mutable state the standalone pad preview needs.
+///
+/// This is the trimmed successor of the player's `PlayerState`: it keeps only
+/// the fields `draw_pad_panel` + audio playback touch, dropping the editor,
+/// judgment engine, song library and template state.
+pub struct PadPreviewState {
+    // ── Timing / playback ─────────────────────────────────────────────
     pub mode: Mode,
     pub mode_wall_anchor: f64,
     pub mode_song_offset: f32,
-    /// Playback is requested but the song clock is frozen until the gameplay
-    /// screen has actually been shown, so loading hitches never eat into the
-    /// chart timeline.
+    /// Playback requested but the song clock is frozen until the first frame.
     pub playback_pending: bool,
+    pub play_speed: f32,
+    pub timeline_view_time: f32,
 
+    // ── Note appearance ──────────────────────────────────────────────
+    pub note_speed: f32,
+    pub touch_speed: f32,
+    pub slide_fade_in: f32,
+
+    // ── Chart ────────────────────────────────────────────────────────
     pub chart: ChartDoc,
-    pub recording_hits: Vec<HitEvent>,
-    pub recording_notes: Vec<Note>,
-    pub active_record_holds: HashMap<RecordInputId, ActiveRecordHold>,
+    pub hidden_notes: HashSet<u64>,
+    pub slide_progress: HashMap<(u64, usize), SlideProgress>,
+
+    // ── Pad interaction ──────────────────────────────────────────────
+    pub pad_svg: Option<PadSvgDef>,
     pub active_pointer_zones: HashMap<u64, PadZone>,
-    pub active_sensor_holds: HashMap<u64, PadZone>,
     pub prev_pointer_pos: HashMap<u64, Vec2>,
     pub pad_feedback: Vec<PadFeedback>,
     pub judge_feedback: Vec<JudgeFeedback>,
-    pub playback_cursor: usize,
-    pub selected_note: Option<u64>,
-    pub dragging_note: Option<u64>,
-    /// Note index detected under the mouse on press; selection is deferred
-    /// until a drag threshold is exceeded.
-    pub press_note_candidate: Option<u64>,
-    pub drag_part: Option<DragPart>,
-    pub drag_start_pos: Option<Vec2>,
-    pub drag_start_time: f32,
-    pub drag_shift: bool,
-    /// Cursor's chart time at the moment of click. Used so dragging tracks the
-    /// mouse's absolute position even if the user scrolls the timeline mid-drag.
-    pub drag_cursor_anchor_t: f32,
-    pub drag_multi_orig: Vec<(u64, f32, u8)>,
-    /// For slide tail/delay dragging, which sub-slide in `note.slide` is active.
-    pub drag_slide_idx: Option<usize>,
-    pub box_start: Option<Vec2>,
-    pub box_end: Option<Vec2>,
-    /// Chart time anchored for the box-select start, so the start point sticks
-    /// to the timeline as the user scrolls during a selection drag.
-    pub box_anchor_t: Option<f32>,
-    /// Currently selected sidebar tool (Tap / Hold / Star).
-    pub place_tool: super::types::PlaceTool,
-    /// Multi-step placement state machine (for Hold and Star tools).
-    pub placement: super::types::PlacementState,
-    /// When `Some(i)`, the user is editing the trajectory of
-    /// chart.notes[i] by clicking zones on the Pad. Only meaningful when the
-    /// note is a Slide and the app is in Idle mode.
-    pub editing_slide_path: Option<usize>,
-    /// Which sub-slide in `chart.notes[editing_slide_path].slide` is being edited.
-    pub editing_slide_idx: Option<usize>,
-    /// Pending slide shape key (e.g. Q, P, S, Z) waiting for a lane number to complete.
-    pub pending_slide_shape: Option<super::types::SlideShape>,
-    pub waveform_data: Vec<f32>,
-    pub waveform_freq_bins: u32,
-    pub waveform_time_res: f32,
-    pub waveform_max_val: f32,
-    pub waveform_threshold: f32,
-    pub record_snap_grid: bool,
-    pub selected_notes: Vec<u64>,
-    pub selected_note_ids: HashSet<u64>,
-    pub drag_orig_note: Option<super::types::Note>,
-    pub timeline_view_time: f32,
-    pub timeline_zoom: f32,
-    pub dragging_progress_bar: bool,
-    pub undo_stack: Vec<super::types::ChartDoc>,
-    pub clipboard: Vec<super::types::Note>,
-    pub pasting: bool,
-    /// When true, B/X hotkeys modify star head flags instead of slide trail.
-    pub editing_star: bool,
-    /// Timestamp of last left-click for double-click detection.
-    pub last_click_time: f64,
-    pub last_click_note: Option<u64>,
 
-    pub record_speed: f32,
-    pub play_speed: f32,
-    pub touch_speed: f32,
-    /// Base note flight speed (流速), matching MajdataView's `noteSpeed`.
-    pub note_speed: f32,
-    /// Seconds before the hit the slide trail starts fading in (slide 显示时机).
-    /// MajdataView uses `fadeInTime = -3.926913 / noteSpeed`.
-    pub slide_fade_in: f32,
-
-    pub show_pad_only: bool,
-    pub mobile_ui: bool,
-    pub ui_scale_override: Option<f32>,
-
+    // ── Audio ────────────────────────────────────────────────────────
     pub audio_source_name: Option<String>,
     pub audio_wav_pcm: Option<WavPcm>,
+    pub audio_cache: HashMap<i32, BgmPcm>,
+    pub audio_seek_offset: Option<f32>,
+    pub pending_audio_start: bool,
+    pub audio_enabled: bool,
+    pub bgm_player: Option<BgmPlayer>,
+    /// One-shot cue sound (`Sfx/answer.wav`) played at tap / hold head / hold tail.
+    pub answer_sfx: Option<SfxBuffer>,
+    /// Judgment cue sounds per kind (tap / slide / hold / break), if present.
+    pub sfx_tap: Option<SfxBuffer>,
+    pub sfx_slide: Option<SfxBuffer>,
+    pub sfx_hold: Option<SfxBuffer>,
+    pub sfx_break: Option<SfxBuffer>,
+    /// Time-based cue schedule (built from the chart).
+    pub cue_track: Option<CueTrack>,
+
+    // ── Note textures ────────────────────────────────────────────────
     pub tap_texture: Option<Texture2D>,
     pub hold_texture: Option<Texture2D>,
     pub touch_tri_tex: Option<Texture2D>,
@@ -354,153 +90,122 @@ pub struct PlayerState {
     pub star_break_tex: Option<Texture2D>,
     pub star_double_tex: Option<Texture2D>,
     pub star_double_each_tex: Option<Texture2D>,
-    // Break textures
     pub tap_break_tex: Option<Texture2D>,
     pub hold_break_tex: Option<Texture2D>,
     pub slide_break_tex: Option<Texture2D>,
     pub star_double_break_tex: Option<Texture2D>,
-    // Ex overlay textures
     pub tap_ex_tex: Option<Texture2D>,
     pub hold_ex_tex: Option<Texture2D>,
     pub star_ex_tex: Option<Texture2D>,
     pub star_double_ex_tex: Option<Texture2D>,
-    pub mask_material: Option<Material>,
-    pub pad_rect: Option<egui_macroquad::egui::Rect>,
-    pub ui_cover_textures: Vec<Option<egui_macroquad::egui::TextureHandle>>,
-    pub ui_logo_texture: Option<egui_macroquad::egui::TextureHandle>,
-    pub ui_assets_loaded: bool,
-    pub song_library: Vec<LibrarySong>,
-    pub song_library_scanned: bool,
-    pub audio_cache: HashMap<i32, BgmPcm>,
-    pub audio_seek_offset: Option<f32>,
-    pub pending_audio_start: bool,
-    pub audio_enabled: bool,
+    pub mask_material: Option<macroquad::material::Material>,
+    /// Cover art drawn as the pad's circular background (set by the UI player).
+    pub cover_texture: Option<Texture2D>,
+    /// Optional guide texture drawn under each tap (aligned with flight).
+    pub tap_guide_tex: Option<Texture2D>,
+    pub tap_guide_each_tex: Option<Texture2D>,
+    pub tap_guide_break_tex: Option<Texture2D>,
+    /// Guide under slide stars.
+    pub slide_guide_tex: Option<Texture2D>,
+    /// Guides under hold tails (normal / each / break).
+    pub hold_end_guide_tex: Option<Texture2D>,
+    pub hold_end_each_guide_tex: Option<Texture2D>,
+    pub hold_end_break_guide_tex: Option<Texture2D>,
 
-    pub pad_svg: Option<super::pad_svg::PadSvgDef>,
-
-    // Low-latency SFX via rodio
-    pub sfx_player: Option<SfxPlayer>,
-    pub sfx_tap: Option<SfxBuffer>,
-    pub sfx_touch: Option<SfxBuffer>,
-    pub sfx_slide: Option<SfxBuffer>,
-    pub sfx_touch_riser: Option<SfxBuffer>,
-    pub sfx_break: Option<SfxBuffer>,
-    pub sfx_break_tap: Option<SfxBuffer>,
-    pub sfx_tap_ex: Option<SfxBuffer>,
-    pub sfx_slide_break_start: Option<SfxBuffer>,
-    pub sfx_break_slide: Option<SfxBuffer>,
-    pub touch_riser_playing: bool,
-    pub next_note_id: u64,
-    pub hidden_notes: HashSet<u64>,
-    /// Per-note, per-sub-slide bar cutoff received from lnmai-core render commands.
-    pub slide_progress: HashMap<(u64, usize), SlideProgress>,
-    /// Per-note, per-sub-slide `just` overlay shown after a slide judgment.
-    pub slide_judge: HashMap<(u64, usize), SlideJudgeFx>,
-
-    /// Loaded lnmai-core judgment session (None until a chart is loaded).
-    pub judge_engine: Option<super::engine::JudgeEngine>,
-    /// Input events collected for the current frame, fed to the engine.
-    pub engine_events: Vec<lnmai_core::types::TimedInputEvent>,
-    engine_input_latch: EngineInputLatch,
-
-    /// Autoplay: feed lnmai-core's default replay tactic instead of user input.
+    // ── Autoplay ─────────────────────────────────────────────────────
+    /// When on, the pad presses itself at each note's hit time.
     pub autoplay: bool,
-    autoplay_events: Vec<lnmai_core::types::TimedInputEvent>,
-    autoplay_cursor: usize,
+    pub autoplay_events: Vec<AutoplayEvent>,
+    pub autoplay_cursor: usize,
+    /// Note ids hidden by autoplay, so a seek can restore them.
+    pub autoplay_hidden: Vec<u64>,
 
+    // ── Progress / seeking ───────────────────────────────────────────
+    /// True while the progress bar is being dragged.
+    pub scrubbing: bool,
+
+    // ── Background video ─────────────────────────────────────────────
+    /// `bg.mp4` decoder (only used by the standalone pad preview).
+    pub video_bg: VideoBg,
+
+    // ── Misc ─────────────────────────────────────────────────────────
+    pub mobile_ui: bool,
+    pub ui_scale_override: Option<f32>,
     pub status: String,
 
-    /// File path input for chart import.
-    pub import_path_input: String,
-    /// Pending file dialog import (triggered from main loop).
-    pub pending_import: bool,
+    // ── Tunable params panel ─────────────────────────────────────────
+    /// Visual parameters (also mirrored into the global `app::params`).
+    pub params: crate::app::params::Params,
+    /// Whether the egui params panel is open (toggle with F1).
+    pub show_params: bool,
 
-    /// Imported Simai file for level switching.
-    pub imported_simai: Option<lambda_dx::simai_io::SimaiFile>,
-    /// Available levels: (number, display_text).
-    pub import_levels: Vec<(u32, String)>,
-    /// Currently selected import level.
-    pub import_selected_level: u32,
+    // ── lnmai-core judgment engine ───────────────────────────────────
+    /// Loaded lnmai-core judgment session (None until a chart is loaded).
+    pub judge_engine: Option<crate::player::engine::JudgeEngine>,
+    /// Pending input events (pad presses/releases) for the next engine step.
+    pub engine_events: Vec<lnmai_core::types::TimedInputEvent>,
+    /// Autoplay: lnmai-core's default replay tactic, consumed by timestamp.
+    pub autoplay_tactic: Vec<lnmai_core::types::TimedInputEvent>,
+    pub autoplay_tactic_cursor: usize,
+    /// Latest lnmai-core score snapshot (combo, DX score, judge counts).
+    pub core_score: Option<lnmai_core::types::ScoreState>,
+    /// Simai source + `&inote_N` used to (re)build the engine on restart.
+    simai_source: Option<String>,
+    simai_level: u32,
 }
 
-impl PlayerState {
+impl PadPreviewState {
     pub fn new(
-        chart: ChartDoc,
+        mut chart: ChartDoc,
         audio_source_name: Option<String>,
         audio_wav_pcm: Option<WavPcm>,
     ) -> Self {
-        let mobile_ui = cfg!(any(target_os = "android", target_os = "ios"))
-            || std::env::var("MAI2_MOBILE_UI")
-                .map(|v| v == "1")
-                .unwrap_or(false);
+        // Give every note a unique id. Simai-converted notes all default to
+        // `id == 0`; autoplay hides judged notes by id, so without this a single
+        // judgment would hide *every* note.
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
 
+        let mobile_ui = std::env::var("MAI2_MOBILE_UI")
+            .map(|v| v == "1")
+            .unwrap_or(false);
         let ui_scale_override = std::env::var("MAI2_UI_SCALE")
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             .map(|v| v.clamp(0.7, 2.4));
 
+        let cue_track = Some(CueTrack::from_chart(&chart));
+
         Self {
-            player_ui: PlayerUiState::default(),
             mode: Mode::Idle,
             mode_wall_anchor: get_time(),
             mode_song_offset: 0.0,
             playback_pending: false,
+            play_speed: 1.0,
+            timeline_view_time: 0.0,
+            note_speed: NOTE_SPEED,
+            touch_speed: NOTE_SPEED*0.7,
+            slide_fade_in: 3.926_913 / NOTE_SPEED,
             chart,
-            recording_hits: Vec::new(),
-            recording_notes: Vec::new(),
-            active_record_holds: HashMap::new(),
+            hidden_notes: HashSet::new(),
+            slide_progress: HashMap::new(),
+            pad_svg: None,
             active_pointer_zones: HashMap::new(),
-            active_sensor_holds: HashMap::new(),
             prev_pointer_pos: HashMap::new(),
             pad_feedback: Vec::new(),
             judge_feedback: Vec::new(),
-            playback_cursor: 0,
-            selected_note: None,
-            dragging_note: None,
-            press_note_candidate: None,
-            drag_part: None,
-            drag_start_pos: None,
-            drag_start_time: 0.0,
-            drag_shift: false,
-            drag_cursor_anchor_t: 0.0,
-            drag_multi_orig: Vec::new(),
-            drag_slide_idx: None,
-            box_start: None,
-            box_end: None,
-            box_anchor_t: None,
-            place_tool: super::types::PlaceTool::Tap,
-            placement: super::types::PlacementState::Idle,
-            editing_slide_path: None,
-            editing_slide_idx: None,
-            pending_slide_shape: None,
-            waveform_data: Vec::new(),
-            waveform_freq_bins: 0,
-            waveform_time_res: 0.0,
-            waveform_max_val: 0.0,
-            waveform_threshold: 0.3,
-            record_snap_grid: true,
-            selected_notes: Vec::new(),
-            selected_note_ids: HashSet::new(),
-            drag_orig_note: None,
-            timeline_view_time: 0.0,
-            timeline_zoom: 1.0,
-            dragging_progress_bar: false,
-            undo_stack: Vec::new(),
-            clipboard: Vec::new(),
-            pasting: false,
-            editing_star: false,
-            last_click_time: 0.0,
-            last_click_note: None,
-            record_speed: 1.0,
-            play_speed: 1.0,
-            touch_speed: 7.5,
-            note_speed: 7.5,
-            slide_fade_in: 3.926_913 / 7.5,
-            show_pad_only: false,
-            mobile_ui,
-            ui_scale_override,
             audio_source_name,
             audio_wav_pcm,
+            audio_cache: HashMap::new(),
+            audio_seek_offset: None,
+            pending_audio_start: false,
+            audio_enabled: true,
+            bgm_player: BgmPlayer::new().ok(),
+            answer_sfx: None,
+            sfx_tap: None,
+            sfx_slide: None,
+            sfx_hold: None,
+            sfx_break: None,
+            cue_track,
             tap_texture: None,
             hold_texture: None,
             touch_tri_tex: None,
@@ -513,9 +218,7 @@ impl PlayerState {
             touchhold_border_tex: None,
             slide_tex: None,
             slide_each_tex: None,
-            wifi_tex: [
-                None, None, None, None, None, None, None, None, None, None, None,
-            ],
+            wifi_tex: std::array::from_fn(|_| None),
             star_tex: None,
             star_each_tex: None,
             star_break_tex: None,
@@ -530,164 +233,49 @@ impl PlayerState {
             star_ex_tex: None,
             star_double_ex_tex: None,
             mask_material: None,
-            pad_rect: None,
-            ui_cover_textures: Vec::new(),
-            ui_logo_texture: None,
-            ui_assets_loaded: false,
-            song_library: Vec::new(),
-            song_library_scanned: false,
-            audio_cache: HashMap::new(),
-            audio_seek_offset: None,
-            pending_audio_start: false,
-            audio_enabled: true,
-            pad_svg: None,
-            sfx_player: None,
-            sfx_tap: None,
-            sfx_touch: None,
-            sfx_slide: None,
-            sfx_touch_riser: None,
-            sfx_break: None,
-            sfx_break_tap: None,
-            sfx_tap_ex: None,
-            sfx_slide_break_start: None,
-            sfx_break_slide: None,
-            touch_riser_playing: false,
-            next_note_id: 1,
-            hidden_notes: HashSet::new(),
-            slide_progress: HashMap::new(),
-            slide_judge: HashMap::new(),
-            judge_engine: None,
-            engine_events: Vec::new(),
-            engine_input_latch: EngineInputLatch::default(),
+            cover_texture: None,
+            tap_guide_tex: None,
+            tap_guide_each_tex: None,
+            tap_guide_break_tex: None,
+            slide_guide_tex: None,
+            hold_end_guide_tex: None,
+            hold_end_each_guide_tex: None,
+            hold_end_break_guide_tex: None,
             autoplay: false,
             autoplay_events: Vec::new(),
             autoplay_cursor: 0,
+            autoplay_hidden: Vec::new(),
+            scrubbing: false,
+            video_bg: VideoBg::new(),
+            mobile_ui,
+            ui_scale_override,
             status: "Ready".to_string(),
-            import_path_input: String::new(),
-            pending_import: false,
-            imported_simai: None,
-            import_levels: Vec::new(),
-            import_selected_level: 0,
-        }
-    }
-
-    // ── Setters with logging ──────────────────────────────────────────
-
-    pub fn set_chart(&mut self, mut chart: ChartDoc) {
-        for note in &mut chart.notes {
-            if note.id == 0 {
-                note.id = self.next_id();
-            }
-        }
-        let n = chart.notes.len();
-        let slides: Vec<_> = chart
-            .notes
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| matches!(n.note_type, NoteType::Slide))
-            .collect();
-        println!("[AppState] set_chart: {n} notes, {} slides", slides.len());
-        for (i, note) in &slides {
-            println!(
-                "  slide #{i}: lane={} slides={} tapless={} star={}",
-                note.lane,
-                note.slide.len(),
-                note.is_tapless,
-                note.is_star
-            );
-            for (si, sl) in note.slide.iter().enumerate() {
-                let shapes: Vec<_> = sl
-                    .segments
-                    .iter()
-                    .map(|seg| format!("{:?}", seg.shape))
-                    .collect();
-                let pt_count: usize = sl.segments.iter().map(|seg| seg.points.len()).sum();
-                println!(
-                    "    slide[{si}]: shapes=[{}] pts={pt_count} dur={:.3} delay={:.3} break={}",
-                    shapes.join(","),
-                    sl.slide_duration,
-                    sl.slide_start_delay,
-                    sl.slide_is_break
-                );
-            }
-        }
-        self.chart = chart;
-        self.slide_progress.clear();
-        self.slide_judge.clear();
-    }
-
-    pub fn clear_active_screen_inputs(&mut self) {
-        self.active_pointer_zones.clear();
-        self.active_sensor_holds.clear();
-        self.prev_pointer_pos.clear();
-        self.engine_events.clear();
-        self.engine_input_latch.clear();
-    }
-
-    pub fn set_selected_note(&mut self, sel: Option<u64>) {
-        if self.selected_note != sel {
-            println!(
-                "[AppState] selected_note: {:?} -> {:?}",
-                self.selected_note, sel
-            );
-        }
-        self.selected_note = sel;
-    }
-
-    pub fn find_note_index(&self, id: u64) -> Option<usize> {
-        self.chart.notes.iter().position(|n| n.id == id)
-    }
-
-    pub fn next_id(&mut self) -> u64 {
-        let id = self.next_note_id;
-        self.next_note_id += 1;
-        id
-    }
-    pub fn push_note(&mut self, mut note: Note) {
-        if note.id == 0 {
-            note.id = self.next_id();
-        }
-        self.chart.notes.push(note);
-    }
-
-    pub fn unhide_all_notes(&mut self) {
-        self.hidden_notes.clear();
-        self.selected_note = None;
-        self.selected_notes.clear();
-        self.selected_note_ids.clear();
-        self.set_status("Unhid all notes".to_string());
-    }
-
-    pub fn set_editing_slide_path(&mut self, v: Option<usize>) {
-        if self.editing_slide_path != v {
-            println!(
-                "[AppState] editing_slide_path: {:?} -> {:?}",
-                self.editing_slide_path, v
-            );
-        }
-        self.editing_slide_path = v;
-        if v.is_none() {
-            self.editing_slide_idx = None;
+            params: crate::app::params::Params::default(),
+            show_params: false,
+            judge_engine: None,
+            engine_events: Vec::new(),
+            autoplay_tactic: Vec::new(),
+            autoplay_tactic_cursor: 0,
+            core_score: None,
+            simai_source: None,
+            simai_level: 0,
         }
     }
 
     pub fn set_status(&mut self, msg: String) {
-        println!("[AppState] status: {}", msg);
         self.status = msg;
     }
 
+    /// Effective playback speed. Idle (paused) has no advancing clock.
     pub fn current_speed(&self) -> f32 {
         match self.mode {
-            Mode::Recording => self.record_speed,
-            Mode::Playing => self.play_speed,
+            Mode::Playing | Mode::Recording => self.play_speed,
             Mode::Idle => 0.0,
         }
     }
 
+    /// Current song position in seconds, derived from a wall-clock anchor.
     pub fn song_time(&self) -> f32 {
-        // While a playback start is pending, hold the clock at the requested
-        // offset so loading the chart/audio cannot advance the timeline before
-        // the gameplay screen is on screen.
         if self.playback_pending {
             return self.mode_song_offset;
         }
@@ -695,52 +283,9 @@ impl PlayerState {
         self.mode_song_offset + elapsed_wall * self.current_speed()
     }
 
-    fn rebase_song_clock(&mut self) {
-        self.mode_song_offset = self.song_time();
-        self.mode_wall_anchor = get_time();
-    }
-
-    fn set_mode(&mut self, mode: Mode) {
-        self.mode = mode;
-        self.mode_wall_anchor = get_time();
-        self.mode_song_offset = 0.0;
-        if mode == Mode::Playing {
-            self.playback_cursor = 0;
-        }
-    }
-
-    pub fn set_record_speed(&mut self, new_speed: f32) {
-        self.record_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
-        if self.mode == Mode::Recording {
-            // Anchor the song clock at the current time, then rebuild audio
-            // from that exact offset at the new speed. Without setting
-            // `audio_seek_offset` the rebuild would start from t=0 and
-            // immediately desync from the chart cursor.
-            self.rebase_song_clock();
-            self.audio_seek_offset = Some(self.mode_song_offset);
-            self.request_audio_start();
-        }
-    }
-
-    pub fn set_play_speed(&mut self, new_speed: f32) {
-        self.play_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
-        if self.mode == Mode::Playing {
-            self.rebase_song_clock();
-            self.audio_seek_offset = Some(self.mode_song_offset);
-            self.request_audio_start();
-        }
-    }
-
-    pub fn set_touch_speed(&mut self, new_speed: f32) {
-        self.touch_speed = new_speed.clamp(
-            lambda_dx::types::TOUCH_SPEED_MIN,
-            lambda_dx::types::TOUCH_SPEED_MAX,
-        );
-    }
-
     pub fn stop_audio_if_any(&mut self) {
-        if let Some(player) = &mut self.sfx_player {
-            player.stop_bgm();
+        if let Some(player) = &mut self.bgm_player {
+            player.stop();
         }
     }
 
@@ -748,73 +293,23 @@ impl PlayerState {
         self.pending_audio_start = true;
     }
 
-    pub fn seek_audio_to(&mut self, time: f32) {
-        self.audio_seek_offset = Some(time);
-        // Only kick off a fresh audio build/play when the user is actually
-        // playing or recording. While Idle (paused), we just remember the
-        // intended seek; resuming via `toggle_play` will use it. Triggering
-        // audio in Idle would call `current_speed() == 0.0`, which clamps to
-        // `SPEED_MIN = 0.1` inside the speed-shift builder, producing
-        // 1/10x-speed audio — that's the "very slow music after pause" bug.
-        if matches!(self.mode, Mode::Playing | Mode::Recording) {
-            self.pending_audio_start = true;
-        } else {
-            // Stop any leftover audio so scrubbing while paused stays silent.
-            self.stop_audio_if_any();
-        }
-    }
-
-    pub fn push_undo(&mut self) {
-        self.undo_stack.push(self.chart.clone());
-        if self.undo_stack.len() > 64 {
-            self.undo_stack.remove(0);
-        }
-    }
-
-    pub fn undo(&mut self) {
-        if let Some(prev) = self.undo_stack.pop() {
-            self.set_chart(prev);
-            self.recompute_each();
-            self.set_status("Undo".to_string());
-        }
-    }
-
-    pub fn recompute_each(&mut self) {
-        let len = self.chart.notes.len();
-        for i in 0..len {
-            let m = self.chart.notes[i].time;
-            let has_sibling = self
-                .chart
-                .notes
-                .iter()
-                .enumerate()
-                .any(|(j, n)| i != j && (n.time - m).abs() < 0.002);
-            self.chart.notes[i].is_each = has_sibling;
-        }
-    }
-
     pub fn toggle_play(&mut self) {
         if self.mode == Mode::Playing {
-            // Pause
             self.mode_song_offset = self.song_time();
             self.mode = Mode::Idle;
             self.mode_wall_anchor = get_time();
             self.playback_pending = false;
             self.stop_audio_if_any();
-            if let Some(player) = &mut self.sfx_player {
-                player.stop_looped();
-            }
-            self.touch_riser_playing = false;
             self.timeline_view_time = self.mode_song_offset;
-            self.clear_active_screen_inputs();
+            self.active_pointer_zones.clear();
+            self.prev_pointer_pos.clear();
             self.set_status(format!("Paused at {:.2}s", self.mode_song_offset));
         } else {
-            // Resume with audio seek
             self.audio_seek_offset = Some(self.mode_song_offset);
             self.mode = Mode::Playing;
             self.mode_wall_anchor = get_time();
             self.playback_pending = false;
-            self.playback_cursor = 0;
+            self.reset_cues(self.mode_song_offset);
             self.request_audio_start();
             self.set_status(format!(
                 "Resumed @ {:.1}x from {:.2}s",
@@ -822,10 +317,9 @@ impl PlayerState {
             ));
         }
     }
-    pub fn toggle_replay(&mut self) {
-        self.start_playback_at(0.0);
-    }
 
+    /// Restart playback from `time` (seconds), freezing the clock until the
+    /// first frame is presented.
     pub fn start_playback_at(&mut self, time: f32) {
         self.mode = Mode::Playing;
         self.timeline_view_time = time.max(0.0);
@@ -833,20 +327,18 @@ impl PlayerState {
         self.mode_wall_anchor = get_time();
         self.playback_pending = true;
         self.audio_seek_offset = Some(time.max(0.0));
-        self.recording_hits.clear();
-        self.recording_notes.clear();
-        self.active_record_holds.clear();
-        self.clear_active_screen_inputs();
+        self.active_pointer_zones.clear();
+        self.prev_pointer_pos.clear();
         self.slide_progress.clear();
-        self.slide_judge.clear();
-        // The lnmai engine's session keeps its own timeline; reload it so the
-        // notes are judged again from the start. Audio is kicked off by
-        // `finalize_playback_start` once the gameplay screen is visible.
-        self.reload_judge_engine();
+        // Restarting from the top rebuilds the core session so combo/DX reset.
+        if time <= 1e-4 {
+            self.reset_engine();
+        }
+        self.reconcile_slide_progress_for(self.mode_song_offset);
+        self.reset_cues(self.mode_song_offset);
     }
 
-    /// Start audio and release the frozen song clock once the gameplay screen
-    /// has been drawn. Called by the main loop after the first gameplay frame.
+    /// Release the frozen clock and start audio after the first frame is drawn.
     pub fn finalize_playback_start(&mut self) {
         if !self.playback_pending {
             return;
@@ -855,59 +347,124 @@ impl PlayerState {
         self.request_audio_start();
     }
 
-    pub fn apply_core_slide_progress_updates(
-        &mut self,
-        updates: &[super::engine::SlideProgressUpdate],
-    ) {
-        apply_core_slide_progress_updates_to_chart(&self.chart, &mut self.slide_progress, updates);
-    }
-
-    /// Record a slide `just` overlay when lnmai-core reports a slide judgment.
-    pub fn record_slide_judge(
-        &mut self,
-        note_id: u64,
-        slide_idx: usize,
-        kind: SlideJustKind,
-    ) {
-        self.slide_judge.insert(
-            (note_id, slide_idx),
-            SlideJudgeFx {
-                kind,
-                started: get_time(),
-            },
-        );
-    }
-
-    pub fn toggle_record(&mut self) {
-        if self.mode == Mode::Recording {
-            self.flush_active_record_holds();
-            self.set_mode(Mode::Idle);
-            self.stop_audio_if_any();
-            self.recording_notes
-                .sort_by(|a, b| a.time.total_cmp(&b.time));
-            self.chart.notes = self.recording_notes.clone();
-            self.set_status(format!(
-                "Record stopped: {} notes @ {:.1}x",
-                self.chart.notes.len(),
-                self.record_speed
-            ));
+    /// Queue an audio seek. While paused this only records the target so a later
+    /// `toggle_play` resumes from it (matching the player's pause-scrub fix).
+    pub fn seek_audio_to(&mut self, time: f32) {
+        self.audio_seek_offset = Some(time);
+        self.reset_cues(time);
+        if self.mode == Mode::Playing {
+            self.pending_audio_start = true;
         } else {
-            self.recording_hits.clear();
-            self.recording_notes.clear();
-            self.active_record_holds.clear();
-            self.clear_active_screen_inputs();
-            self.set_mode(Mode::Recording);
-            self.set_status(format!("Recording started @ {:.1}x", self.record_speed));
+            self.stop_audio_if_any();
+        }
+    }
+
+    /// Reposition the cue schedule without firing anything.
+    fn reset_cues(&mut self, t: f32) {
+        if let Some(track) = &mut self.cue_track {
+            track.reset(t);
+        }
+    }
+
+    /// Song length in seconds (from the decoded PCM; falls back to 1s).
+    pub fn song_duration(&self) -> f32 {
+        self.audio_wav_pcm
+            .as_ref()
+            .map(|pcm| {
+                pcm.samples.len() as f32 / f32::from(pcm.channels.max(1)) / pcm.sample_rate as f32
+            })
+            .unwrap_or(1.0)
+            .max(1.0)
+    }
+
+    /// Update the visible position while dragging the progress bar (no audio
+    /// restart).
+    pub fn scrub_to(&mut self, t: f32) {
+        let t = t.clamp(0.0, self.song_duration());
+        self.mode_song_offset = t;
+        self.timeline_view_time = t;
+        self.mode_wall_anchor = get_time();
+        self.reset_cues(t);
+        self.reconcile_slide_progress_for(t);
+    }
+
+    /// Commit a seek: reposition the clock and restart audio if playing.
+    pub fn seek_to(&mut self, t: f32) {
+        let t = t.clamp(0.0, self.song_duration());
+        self.seek_audio_to(t);
+        self.mode_song_offset = t;
+        self.timeline_view_time = t;
+        self.mode_wall_anchor = get_time();
+        self.reconcile_slide_progress_for(t);
+    }
+
+    /// Fire the one-shot cue sound (`Sfx/answer.wav`).
+    pub fn play_answer(&self) {
+        self.play_sfx(self.answer_sfx.as_ref());
+    }
+
+    /// Play a one-shot sound effect, if the player and buffer are present.
+    pub fn play_sfx(&self, buf: Option<&SfxBuffer>) {
+        if let (Some(player), Some(buf)) = (&self.bgm_player, buf) {
+            player.play_once(buf, 1.0);
+        }
+    }
+
+    /// The judgment cue sound for a note kind/variant (falls back to
+    /// `answer.wav`).
+    fn cue_sfx(&self, cue: crate::player::cues::Cue, is_break: bool) -> Option<&SfxBuffer> {
+        use crate::player::cues::Cue;
+        let picked = if is_break {
+            self.sfx_break.as_ref()
+        } else {
+            match cue {
+                Cue::Tap => self.sfx_tap.as_ref(),
+                Cue::SlideHead => self.sfx_tap.as_ref(),
+                Cue::HoldHead | Cue::HoldTail => self.sfx_hold.as_ref(),
+            }
+        };
+        picked.or(self.answer_sfx.as_ref())
+    }
+
+    /// Play a cue for every tap/hold head/hold tail crossed this frame.
+    pub fn tick_cues(&mut self) {
+        if self.mode != Mode::Playing || self.playback_pending {
+            return;
+        }
+        let t = self.song_time();
+        let due = self
+            .cue_track
+            .as_mut()
+            .map(|track| track.take_due_cues(t))
+            .unwrap_or_default();
+        for ev in due {
+            let buf = if params::judge_sfx() {
+                self.cue_sfx(ev.cue, ev.is_break)
+            } else {
+                self.answer_sfx.as_ref()
+            };
+            self.play_sfx(buf);
+        }
+    }
+
+    pub fn set_play_speed(&mut self, new_speed: f32) {
+        self.play_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
+        if self.mode == Mode::Playing {
+            self.mode_song_offset = self.song_time();
+            self.mode_wall_anchor = get_time();
+            self.audio_seek_offset = Some(self.mode_song_offset);
             self.request_audio_start();
         }
+    }
+
+    pub fn nudge_play_speed(&mut self, delta: f32) {
+        self.set_play_speed(self.play_speed + delta);
     }
 
     pub fn tick_feedback(&mut self) {
         let now = get_time();
         self.pad_feedback.retain(|f| f.until > now);
         self.judge_feedback.retain(|f| f.until > now);
-        self.slide_judge
-            .retain(|_, fx| now - fx.started < SLIDE_JUST_DURATION);
     }
 
     pub fn push_feedback(&mut self, zone: PadZone, duration: f64) {
@@ -917,486 +474,216 @@ impl PlayerState {
         });
     }
 
-    /// Record a zone press/release into the lnmai-core judgment engine's input
-    /// buffer for the current frame.
-    pub fn record_engine_input(&mut self, zone: PadZone, is_down: bool) {
-        if self.judge_engine.is_none() {
-            return;
-        }
-        self.record_loaded_engine_input(zone, is_down);
-    }
-
-    fn record_loaded_engine_input(&mut self, zone: PadZone, is_down: bool) {
-        let tp = (self.song_time().max(0.0) * 1e6) as i64;
-        self.engine_input_latch
-            .record(&mut self.engine_events, zone, is_down, tp);
-    }
-
-    pub fn prepare_engine_frame_events(&mut self) {
-        if self.autoplay {
-            self.prepare_autoplay_frame_events();
-            return;
-        }
-        let tp = (self.song_time().max(0.0) * 1e6) as i64;
-        self.engine_input_latch
-            .prepare_frame(&mut self.engine_events, tp);
-    }
-
-    pub fn finish_engine_frame(&mut self) {
-        self.engine_input_latch.finish_frame();
-    }
-
-    /// Feed lnmai-core's default replay tactic events that are due at the
-    /// current song time. Used instead of the user-input latch in autoplay.
-    fn prepare_autoplay_frame_events(&mut self) {
-        let now = (self.song_time().max(0.0) * 1e6) as i64;
-        while let Some(event) = self.autoplay_events.get(self.autoplay_cursor) {
-            if timed_input_tp(event) > now {
-                break;
-            }
-            // Autoplay clicks the sensing areas like a real player: light up the
-            // pad and hold the zone while the synthesized sensor event is down.
-            let event = event.clone();
-            self.autoplay_visual_feedback(&event);
-            self.engine_events.push(event);
-            self.autoplay_cursor += 1;
-        }
-    }
-
-    /// Mirror an autoplay input event onto the pad visuals so the sensor areas
-    /// light up instead of the judgment appearing out of nowhere.
-    fn autoplay_visual_feedback(&mut self, event: &lnmai_core::types::TimedInputEvent) {
-        use lnmai_core::types::TimedInputEvent;
-        let (zone, is_down, is_click) = match event {
-            TimedInputEvent::ButtonClick { zone, .. } => {
-                (super::engine::zone_for_button(*zone), true, true)
-            }
-            TimedInputEvent::SensorClick { area, .. } => {
-                (super::engine::zone_for_sensor(*area), true, true)
-            }
-            TimedInputEvent::ButtonHold { zone, is_down, .. } => {
-                (super::engine::zone_for_button(*zone), *is_down, false)
-            }
-            TimedInputEvent::SensorHold { area, is_down, .. } => {
-                (super::engine::zone_for_sensor(*area), *is_down, false)
-            }
-        };
-        if is_click {
-            self.push_feedback(zone, 0.12);
-            return;
-        }
-        // Synthetic pointer id keyed by zone so holds stay lit until release.
-        let key = (u64::from(zone.to_id())) | (1u64 << 40);
-        if is_down {
-            self.active_pointer_zones.insert(key, zone);
-            self.push_feedback(zone, 0.12);
-        } else {
-            self.active_pointer_zones.remove(&key);
-        }
-    }
-
-    /// Enable/disable autoplay. Enabling builds lnmai-core's default replay
-    /// tactic for the loaded chart through its FFI.
-    pub fn set_autoplay(&mut self, on: bool) {
-        if self.autoplay == on {
-            return;
-        }
-        self.autoplay = on;
-        self.reset_autoplay_tactic();
-        self.set_status(if on {
-            "Autoplay: ON".to_string()
-        } else {
-            "Autoplay: OFF".to_string()
-        });
-    }
-
-    fn reset_autoplay_tactic(&mut self) {
-        self.autoplay_events.clear();
-        self.autoplay_cursor = 0;
-        if !self.autoplay {
-            return;
-        }
-        let Some(engine) = self.judge_engine.as_ref() else {
-            return;
-        };
-        match engine.default_tactic() {
-            Ok(events) => {
-                // If autoplay is enabled mid-song, skip events already in the
-                // past so they are not dumped as one burst.
-                let now = (self.song_time().max(0.0) * 1e6) as i64;
-                self.autoplay_cursor = events
-                    .iter()
-                    .position(|event| timed_input_tp(event) >= now)
-                    .unwrap_or(events.len());
-                self.autoplay_events = events;
-            }
-            Err(e) => self.set_status(format!("autoplay tactic failed: {e}")),
-        }
-    }
-
-    /// (Re)load the lnmai-core judgment engine for the currently imported chart.
-    pub fn reload_judge_engine(&mut self) {
-        self.judge_engine = None;
-        let Some(file) = self.imported_simai.clone() else {
-            return;
-        };
-        let text = file.source_text().to_string();
-        match super::engine::JudgeEngine::load(&text, self.import_selected_level) {
-            Ok(engine) => {
-                self.judge_engine = Some(engine);
-                self.set_status(format!("判引擎已载入 (Lv.{})", self.import_selected_level));
-                self.reset_autoplay_tactic();
-            }
-            Err(e) => {
-                self.set_status(format!("判引擎载入失败: {e}"));
-            }
-        }
-    }
-
     pub fn push_judgement(&mut self, zone: PadZone, label: &str, duration: f64) {
-        let color = match label {
-            "PERFECT" => macroquad::prelude::Color::from_rgba(250, 204, 21, 255),
-            "GREAT" => macroquad::prelude::Color::from_rgba(52, 211, 153, 255),
-            "GOOD" => macroquad::prelude::Color::from_rgba(96, 165, 250, 255),
-            "SLIDE" => macroquad::prelude::Color::from_rgba(232, 121, 249, 255),
-            _ => macroquad::prelude::Color::from_rgba(248, 113, 113, 255),
-        };
-        self.push_judgement_colored(zone, label, duration, color);
-    }
-
-    /// Push a judge feedback with an explicit color (used by the lnmai engine
-    /// to tint slide feedback with the slide color).
-    pub fn push_judgement_colored(
-        &mut self,
-        zone: PadZone,
-        label: &str,
-        duration: f64,
-        color: macroquad::prelude::Color,
-    ) {
-        let started = get_time();
+        let now = get_time();
         self.judge_feedback.push(JudgeFeedback {
             zone,
             label: label.to_string(),
-            color,
-            started,
-            until: started + duration,
+            color: Color::new(1.0, 1.0, 1.0, 1.0),
+            started: now,
+            until: now + duration,
         });
     }
 
-    pub fn start_record_hold_input(&mut self, input_id: RecordInputId, lane: PadZone) {
-        let start_time = self.song_time();
-        self.active_record_holds
-            .entry(input_id)
-            .or_insert(ActiveRecordHold {
-                lane: lane.to_id(),
-                start_time,
-                slide_zones: vec![SlidePoint {
-                    zone: lane,
-                    beat_offset: 0.0,
-                }],
-            });
+    // ── lnmai-core judgment engine ───────────────────────────────────
+
+    /// Load `lnmai-core`'s judgment engine for a chart given as Simai text.
+    ///
+    /// `level_index` is the `&inote_N` block to select. Also builds the default
+    /// replay tactic used by autoplay.
+    pub fn load_engine(&mut self, simai_text: &str, level_index: u32) -> Result<(), String> {
+        let engine = crate::player::engine::JudgeEngine::load(simai_text, level_index)?;
+        self.autoplay_tactic = engine.default_tactic().unwrap_or_default();
+        self.autoplay_tactic_cursor = 0;
+        self.judge_engine = Some(engine);
+        self.engine_events.clear();
+        self.core_score = None;
+        self.slide_progress.clear();
+        self.simai_source = Some(simai_text.to_string());
+        self.simai_level = level_index;
+        Ok(())
     }
 
-    pub fn finish_record_hold_input(&mut self, input_id: RecordInputId) {
-        let Some(active) = self.active_record_holds.remove(&input_id) else {
-            return;
-        };
-        self.push_recorded_note(active, self.song_time());
-    }
-
-    pub fn flush_active_record_holds(&mut self) {
-        if self.active_record_holds.is_empty() {
-            return;
-        }
-        let end_time = self.song_time();
-        let active: Vec<ActiveRecordHold> =
-            self.active_record_holds.drain().map(|(_, v)| v).collect();
-        for item in active {
-            self.push_recorded_note(item, end_time);
+    /// Rebuild the engine (resetting core score/slide state) from the stored
+    /// Simai source, if any. Used on restart.
+    pub fn reset_engine(&mut self) {
+        if let Some(text) = self.simai_source.clone() {
+            let level = self.simai_level;
+            let _ = self.load_engine(&text, level);
         }
     }
 
-    pub fn record_slide_zone(&mut self, input_id: RecordInputId, zone: PadZone) {
-        let t = self.song_time();
-        if let Some(active) = self.active_record_holds.get_mut(&input_id) {
-            let last_zone = active
-                .slide_zones
-                .last()
-                .map(|sp| sp.zone.to_id())
-                .unwrap_or(active.lane);
-            if zone != last_zone {
-                active.slide_zones.push(SlidePoint {
-                    zone,
-                    beat_offset: t - active.start_time,
-                });
-            }
-        }
+    pub fn has_engine(&self) -> bool {
+        self.judge_engine.is_some()
     }
 
-    fn push_recorded_note(&mut self, active: ActiveRecordHold, end_time: f32) {
-        let bpms = &self.chart.bpms;
-        let duration_secs = (end_time - active.start_time).max(0.0);
-        // Snap start time: convert seconds → measure, snap to 1/384 grid
-        let start_measure = if self.record_snap_grid {
-            snap_measure(secs_to_measure(active.start_time, bpms))
-        } else {
-            secs_to_measure(active.start_time, bpms)
-        };
-        let dur_measure = sdur_to_mdur(duration_secs, active.start_time, bpms);
-        // Unique zones visited
-        let mut visited: Vec<u8> = Vec::new();
-        for sp in &active.slide_zones {
-            let zid = sp.zone.to_id();
-            if visited.last() != Some(&zid) {
-                visited.push(zid);
-            }
+    // ── lnmai-core score read-outs ───────────────────────────────────
+
+    /// Current combo from lnmai-core (0 before the engine reports).
+    pub fn combo(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.combo).unwrap_or(0)
+    }
+
+    /// Pure combo (Perfect-grade chain) from lnmai-core.
+    pub fn p_combo(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.p_combo).unwrap_or(0)
+    }
+
+    /// Critical-perfect combo from lnmai-core.
+    pub fn c_p_combo(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.c_p_combo).unwrap_or(0)
+    }
+
+    pub fn fast_count(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.fast_count).unwrap_or(0)
+    }
+
+    pub fn late_count(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.late_count).unwrap_or(0)
+    }
+
+    /// Achieved DX score.
+    pub fn dx_score(&self) -> i64 {
+        self.core_score
+            .as_ref()
+            .map(|s| s.dx_score_remaining())
+            .unwrap_or(0)
+    }
+
+    pub fn max_dx_score(&self) -> u64 {
+        self.core_score.as_ref().map(|s| s.max_dx_score).unwrap_or(0)
+    }
+
+    /// Achievement percentage (lnmai-core's `dxAccMinus101`):
+    /// `earnedBase/totalBase*100 + earnedExtra/totalExtra`.
+    pub fn achievement(&self) -> Option<f32> {
+        let s = self.core_score.as_ref()?;
+        if s.total_base == 0 {
+            return Some(0.0);
         }
-        let note_type = if visited.len() >= SLIDE_MIN_POINTS && is_touch_zone(active.lane) {
-            NoteType::Slide
-        } else if is_touch_zone(active.lane) {
-            if duration_secs >= HOLD_RECORD_MIN_DURATION {
-                NoteType::Hold
-            } else {
-                NoteType::Touch
-            }
-        } else if duration_secs >= HOLD_RECORD_MIN_DURATION {
-            NoteType::Hold
-        } else {
-            NoteType::Tap
-        };
-
-        let slide_points = active.slide_zones.clone();
-
-        let slide_dur = if matches!(note_type, NoteType::Slide) {
-            dur_measure
-        } else {
+        let base = s.earned_base as f64 / s.total_base as f64 * 100.0;
+        let extra = if s.total_extra == 0 {
             0.0
-        };
-        let default_delay = sdur_to_mdur(0.12, active.start_time, bpms);
-
-        // Phase 4: classify the recorded trajectory against known shape templates.
-        let slide_shape = if matches!(note_type, NoteType::Slide) {
-            lambda_dx::slide_match::match_slide_shape(active.lane, &slide_points)
         } else {
-            None
+            s.earned_extra as f64 / s.total_extra as f64
         };
-
-        let slide_vec = if matches!(note_type, NoteType::Slide) {
-            vec![super::types::Slide {
-                segments: vec![super::types::SlideSegment {
-                    points: slide_points.clone(),
-                    shape: slide_shape.unwrap_or(super::types::SlideShape::Line),
-                }],
-                slide_duration: slide_dur,
-                slide_start_delay: default_delay,
-                slide_is_break: false,
-            }]
-        } else {
-            vec![]
-        };
-        let note_id = self.next_id();
-
-        self.chart.notes.push(Note {
-            id: note_id,
-            time: start_measure,
-            lane: active.lane,
-            note_type,
-            hold_duration: if matches!(note_type, NoteType::Hold) {
-                dur_measure
-            } else {
-                0.0
-            },
-            slide: slide_vec.clone(),
-            ..Default::default()
-        });
-        self.chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
-        self.recompute_each();
-
-        self.recording_notes.push(Note {
-            id: note_id,
-            time: start_measure,
-            lane: active.lane,
-            note_type,
-            hold_duration: if matches!(note_type, NoteType::Hold) {
-                dur_measure
-            } else {
-                0.0
-            },
-            slide: slide_vec,
-            ..Default::default()
-        });
-        self.recording_hits.push(HitEvent {
-            time: active.start_time,
-            lane: active.lane,
-        });
+        Some((base + extra) as f32)
     }
-}
 
-#[cfg(test)]
-mod player_ui_tests {
-    use super::{
-        EngineInputLatch, PlayerPage, PlayerUiState, apply_core_slide_progress_updates_to_chart,
-    };
-    use crate::engine::SlideProgressUpdate;
-    use lambda_dx::types::zone::PadZone;
-    use lambda_dx::types::{BpmChange, ChartDoc, Note, NoteType, Slide, SlideSegment, SlideShape};
-    use lnmai_core::types::{SensorArea, TimedInputEvent};
-    use std::collections::HashMap;
+    /// The five lnmai-core accuracy rates (percent), matching its `AccRates`:
+    /// classic acc(+), classic acc(-), DX acc101(-), DX acc100(-), DX acc(+).
+    pub fn acc_rates(&self) -> Option<[(&'static str, f32); 5]> {
+        let s = self.core_score.as_ref()?;
+        if s.total_base == 0 {
+            return None;
+        }
+        let tb = s.total_base as f64;
+        let te = s.total_extra.max(1) as f64;
+        let cb = s.earned_base as f64;
+        let ce = s.earned_extra as f64;
+        let cc = s.earned_classic_extra as f64;
+        let earned_base = tb - s.lost_base as f64;
+        let earned_extra = te - s.lost_extra as f64;
+        let classic_plus = (cb + cc) / tb * 100.0;
+        let classic_minus = (earned_base + cc) / tb * 100.0;
+        let dx_101 = (earned_base / tb + earned_extra / (te * 100.0)) * 100.0;
+        let dx_100 = (earned_base / tb + ce / (te * 100.0)) * 100.0;
+        let dx_plus = (cb / tb + ce / (te * 100.0)) * 100.0;
+        Some([
+            ("ACC+", classic_plus as f32),
+            ("ACC-", classic_minus as f32),
+            ("ACC101-", dx_101 as f32),
+            ("ACC100-", dx_100 as f32),
+            ("ACC(+)", dx_plus as f32),
+        ])
+    }
 
-    fn test_slide() -> Slide {
-        Slide {
-            segments: vec![SlideSegment {
-                points: vec![],
-                shape: SlideShape::Line,
-            }],
-            slide_duration: 1.0,
-            slide_start_delay: 0.25,
-            slide_is_break: false,
+    /// Combo category label (FC / AP / …) from lnmai-core.
+    pub fn combo_state_label(&self) -> &'static str {
+        use lnmai_core::types::ComboState::*;
+        match self.core_score.as_ref().map(|s| s.combo_state()) {
+            Some(FC) => "FC",
+            Some(FCPlus) => "FC+",
+            Some(AP) => "AP",
+            Some(APPlus) => "AP+",
+            _ => "",
         }
     }
 
-    #[test]
-    fn same_frame_sensor_release_waits_until_next_engine_frame() {
-        let mut latch = EngineInputLatch::default();
-        let mut events = Vec::new();
-        let zone = PadZone::from(1);
-
-        latch.record(&mut events, zone, true, 1);
-        latch.record(&mut events, zone, false, 1);
-
-        assert_eq!(events.len(), 2);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            TimedInputEvent::SensorClick {
-                area: SensorArea::A1,
-                ..
+    /// Mark slides whose local tail is already past `t` as hidden and un-hide
+    /// the rest. Used after a seek/scrub so the core-driven slides do not pile
+    /// up: lnmai-core does not backfill slides skipped by a timeline jump.
+    pub fn reconcile_slide_progress_for(&mut self, t: f32) {
+        if self.judge_engine.is_none() {
+            return;
+        }
+        use crate::app::types::{NoteType, mdur_to_secs, note_secs};
+        let bpms = self.chart.bpms.clone();
+        let mut past: Vec<(u64, usize)> = Vec::new();
+        let mut future: Vec<(u64, usize)> = Vec::new();
+        for note in &self.chart.notes {
+            if !matches!(note.note_type, NoteType::Slide) {
+                continue;
             }
-        )));
-        assert!(events.iter().any(|event| matches!(
-            event,
-            TimedInputEvent::SensorHold {
-                area: SensorArea::A1,
-                is_down: true,
-                ..
+            let ns = note_secs(note, &bpms);
+            for (si, sl) in note.slide.iter().enumerate() {
+                let end = ns + mdur_to_secs(sl.slide_duration, note.time, &bpms);
+                if end < t {
+                    past.push((note.id, si));
+                } else {
+                    future.push((note.id, si));
+                }
             }
-        )));
-        assert!(!events.iter().any(|event| matches!(
-            event,
-            TimedInputEvent::SensorHold {
-                area: SensorArea::A1,
-                is_down: false,
-                ..
-            }
-        )));
-
-        latch.prepare_frame(&mut events, 1);
-        assert_eq!(
-            events.len(),
-            2,
-            "same-frame release must not be drained into the press frame"
-        );
-
-        latch.finish_frame();
-        latch.prepare_frame(&mut events, 2);
-
-        assert!(events.iter().any(|event| matches!(
-            event,
-            TimedInputEvent::SensorHold {
-                area: SensorArea::A1,
-                is_down: false,
-                ..
-            }
-        )));
+        }
+        for key in future {
+            self.slide_progress.remove(&key);
+        }
+        for key in past {
+            self.slide_progress.insert(
+                key,
+                SlideProgress {
+                    hidden_until_bar: usize::MAX,
+                },
+            );
+        }
     }
 
-    #[test]
-    fn core_slide_progress_updates_map_to_chart_slide_order() {
-        let chart = ChartDoc {
-            version: "1.0".to_string(),
-            title: "progress-map".to_string(),
-            artist: String::new(),
-            simai_level: 6,
-            bpm: 120.0,
-            bpms: vec![BpmChange {
-                measure: 1.0,
-                bpm: 120.0,
-            }],
-            audio_offset: 0.0,
-            notes: vec![
-                Note {
-                    id: 10,
-                    time: 1.0,
-                    lane: 1,
-                    note_type: NoteType::Slide,
-                    slide: vec![test_slide(), test_slide()],
-                    ..Default::default()
-                },
-                Note {
-                    id: 20,
-                    time: 2.0,
-                    lane: 2,
-                    note_type: NoteType::Slide,
-                    slide: vec![test_slide()],
-                    ..Default::default()
-                },
-            ],
-            templates: vec![],
-            template_instances: vec![],
-        };
-        let mut progress = HashMap::new();
-
-        apply_core_slide_progress_updates_to_chart(
-            &chart,
-            &mut progress,
-            &[
-                SlideProgressUpdate {
-                    runtime_slide_index: 0,
-                    hidden_until_bar: 1,
-                },
-                SlideProgressUpdate {
-                    runtime_slide_index: 1,
-                    hidden_until_bar: 3,
-                },
-                SlideProgressUpdate {
-                    runtime_slide_index: 2,
-                    hidden_until_bar: 2,
-                },
-            ],
-        );
-
-        assert_eq!(progress[&(10, 0)].hidden_until_bar, 1);
-        assert_eq!(progress[&(10, 1)].hidden_until_bar, 3);
-        assert_eq!(progress[&(20, 0)].hidden_until_bar, 2);
+    /// Apply lnmai-core's per-slide trail-consumption state to the chart's
+    /// `(note_id, slide_idx)` keys used by the renderer.
+    pub fn apply_core_slide_progress_updates(
+        &mut self,
+        updates: &[crate::player::engine::SlideProgressUpdate],
+    ) {
+        for update in updates {
+            let Some((note_id, slide_idx)) =
+                crate::player::engine::chart_slide_key(&self.chart, update.runtime_slide_index)
+            else {
+                continue;
+            };
+            self.slide_progress
+                .entry((note_id, slide_idx))
+                .and_modify(|progress| progress.hidden_until_bar = update.hidden_until_bar)
+                .or_insert(SlideProgress {
+                    hidden_until_bar: update.hidden_until_bar,
+                });
+        }
     }
 
-    #[test]
-    fn settings_returns_to_the_page_that_opened_it() {
-        // Given
-        let mut ui = PlayerUiState {
-            page: PlayerPage::Pause,
-            ..PlayerUiState::default()
-        };
-
-        // When
-        ui.open_settings();
-        ui.close_settings();
-
-        // Then
-        assert_eq!(ui.page, PlayerPage::Pause);
+    /// Queue an lnmai-core sensor press for `zone` at microsecond time `tp`.
+    pub fn queue_engine_press(&mut self, zone: PadZone, tp: i64) {
+        if self.judge_engine.is_none() {
+            return;
+        }
+        self.engine_events
+            .extend(crate::player::engine::press_events_for_zone(zone, tp));
     }
 
-    #[test]
-    fn gameplay_remains_visible_behind_pause_settings() {
-        // Given
-        let mut ui = PlayerUiState {
-            page: PlayerPage::Pause,
-            ..PlayerUiState::default()
-        };
-
-        // When
-        ui.open_settings();
-
-        // Then
-        assert!(ui.shows_gameplay_background());
+    /// Queue an lnmai-core sensor release for `zone` at microsecond time `tp`.
+    pub fn queue_engine_release(&mut self, zone: PadZone, tp: i64) {
+        if self.judge_engine.is_none() {
+            return;
+        }
+        self.engine_events
+            .extend(crate::player::engine::release_events_for_zone(zone, tp));
     }
 }

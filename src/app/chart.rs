@@ -1,15 +1,22 @@
 use super::beat_format;
 use super::platform;
-use super::state::AppState;
 use super::types::{
     BpmChange, ChartDoc, Note, NoteType, RecordingDoc, sdur_to_mdur, secs_to_measure,
 };
 use crate::app::types::zone::PadZone;
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::{Path, PathBuf};
 
-pub async fn load_generated_chart() -> ChartDoc {
-    // Try latest saved chart first, then generated_chart, then fallback
+/// Load the chart for the preview.
+///
+/// Order:
+/// 1. the bundled `.maichart` song (`assets/charts/jack_ripper/chart.json`),
+/// 2. a saved `latest_chart.json` in the writable output dir,
+/// 3. `assets/generated_chart.json`,
+/// 4. the built-in fallback chart.
+pub async fn load_generated_chart(diff: Option<i32>) -> ChartDoc {
+    if let Ok(chart) = super::maichart::load_default_with_diff(diff).await {
+        return chart;
+    }
     if let Ok(s) = platform::read_output_text("latest_chart.json") {
         if let Ok(chart) = load_chart_from_json(&s) {
             return chart;
@@ -27,16 +34,102 @@ pub async fn load_generated_chart() -> ChartDoc {
     }
 }
 
-/// Load a chart from JSON, supporting format C (beat), legacy measure, old seconds formats,
-/// and RecordingDoc (which wraps a chart).
+/// Load a chart from a local path given on the command line.
+///
+/// `path` may be:
+/// * a `.maichart`-style **folder** containing `maidata.txt` (simai) and/or
+///   `chart.json`, or
+/// * any **JSON file** (maichart / internal format) or a **`maidata.txt`**.
+pub fn load_chart_from_path(path: &Path, diff: Option<i32>) -> Result<ChartDoc, String> {
+    // A folder prefers its simai `maidata.txt`, then `chart.json`.
+    let file = if path.is_dir() {
+        let maidata = path.join("maidata.txt");
+        if maidata.is_file() {
+            maidata
+        } else {
+            path.join("chart.json")
+        }
+    } else {
+        path.to_path_buf()
+    };
+
+    let bytes = std::fs::read(&file).map_err(|e| format!("read {}: {e}", file.display()))?;
+
+    // Simai `maidata.txt` (by name or `.txt` extension).
+    let is_simai = file
+        .file_name()
+        .map(|n| n.to_string_lossy().eq_ignore_ascii_case("maidata.txt"))
+        .unwrap_or(false)
+        || file
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("txt"))
+            .unwrap_or(false);
+    if is_simai {
+        let text = String::from_utf8_lossy(&bytes);
+        return super::maidata::from_maidata(&text, diff)
+            .map_err(|e| format!("{}: {e}", file.display()));
+    }
+
+    // maichart chart.json (songName / notes / bpmList …) first.
+    if let Ok(chart) = super::maichart::from_bytes_with_diff(&bytes, diff) {
+        return Ok(chart);
+    }
+    // Fall back to the internal formats.
+    let text = String::from_utf8_lossy(&bytes);
+    load_chart_from_json(&text).map_err(|e| format!("{}: {e}", file.display()))
+}
+
+/// Raw Simai `maidata.txt` text for a chart path, when the path is Simai.
+///
+/// Used to feed the `lnmai-core` judgment engine, which parses the original
+/// source itself. JSON charts (no Simai source) return `None`.
+pub fn read_simai_source(path: &Path) -> Option<String> {
+    let file = if path.is_dir() {
+        let maidata = path.join("maidata.txt");
+        if maidata.is_file() {
+            maidata
+        } else {
+            return None;
+        }
+    } else {
+        path.to_path_buf()
+    };
+    let is_simai = file
+        .file_name()
+        .map(|n| n.to_string_lossy().eq_ignore_ascii_case("maidata.txt"))
+        .unwrap_or(false)
+        || file
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("txt"))
+            .unwrap_or(false);
+    if !is_simai {
+        return None;
+    }
+    std::fs::read_to_string(&file).ok()
+}
+
+/// Audio file to use for a chart folder, if one is present.
+pub fn find_audio_in_dir(dir: &Path) -> Option<PathBuf> {
+    if !dir.is_dir() {
+        return None;
+    }
+    for name in ["track.mp3", "track.wav", "demo.mp3", "demo.wav"] {
+        let p = dir.join(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Load a chart from JSON, supporting the beat format, the legacy measure
+/// format, the old seconds format, and `RecordingDoc` (which wraps a chart).
 fn load_chart_from_json(json: &str) -> Result<ChartDoc, String> {
-    // Try format C (beat) first
     if let Ok(chart) = beat_format::chart_from_json(json) {
         if chart.version.contains("beat") {
             return Ok(chart);
         }
     }
-    // Try as RecordingDoc (wraps a chart inside)
     if let Ok(ser) = serde_json::from_str::<beat_format::SerRecordingDoc>(json) {
         if ser.chart.version.contains("beat") {
             return Ok(beat_format::ser_to_chart(&ser.chart));
@@ -45,7 +138,6 @@ fn load_chart_from_json(json: &str) -> Result<ChartDoc, String> {
     if let Ok(rec) = serde_json::from_str::<RecordingDoc>(json) {
         return Ok(rec.chart);
     }
-    // Legacy: parse as ChartDoc directly and migrate if needed
     match serde_json::from_str::<ChartDoc>(json) {
         Ok(mut chart) => {
             migrate_to_measures(&mut chart);
@@ -55,13 +147,12 @@ fn load_chart_from_json(json: &str) -> Result<ChartDoc, String> {
     }
 }
 
-/// Migrate a chart loaded from JSON: old charts store time in seconds,
-/// new ones in measures.  Detection is based on the version string.
+/// Migrate a chart loaded from JSON: old charts store time in seconds, new
+/// ones in measures. Detection is based on the version string.
 fn migrate_to_measures(chart: &mut ChartDoc) {
     if chart.version.contains("measure") {
         return;
     }
-    // Ensure bpms is populated for old charts
     if chart.bpms.is_empty() && chart.bpm > 0.0 {
         chart.bpms = vec![BpmChange {
             measure: 1.0,
@@ -70,7 +161,7 @@ fn migrate_to_measures(chart: &mut ChartDoc) {
     }
     let bpms = &chart.bpms;
     for note in &mut chart.notes {
-        let t = note.time; // original seconds
+        let t = note.time;
         note.time = secs_to_measure(t, bpms);
         note.hold_duration = sdur_to_mdur(note.hold_duration, t, bpms);
         for sl in &mut note.slide {
@@ -85,9 +176,14 @@ fn migrate_to_measures(chart: &mut ChartDoc) {
     }
 }
 
-fn fallback_chart() -> ChartDoc {
+/// Try to load `latest_chart.json` from the writable output dir.
+pub fn load_latest_saved_chart() -> Result<ChartDoc, String> {
+    let s = platform::read_output_text("latest_chart.json")?;
+    load_chart_from_json(&s)
+}/// Built-in demo chart, used when no JSON asset parses. Times/durations are in
+/// measures (1.0 = first beat, 0.25 = one beat at 4/4).
+pub fn fallback_chart() -> ChartDoc {
     use super::types::{Slide, SlidePoint, SlideSegment, SlideShape};
-    // All times/durations in measures (1.0 = first beat, 0.25 = one beat at 4/4).
     let mk_slide = |pts: Vec<SlidePoint>, dur: f32, delay: f32| -> Vec<Slide> {
         vec![Slide {
             segments: vec![SlideSegment {
@@ -148,7 +244,6 @@ fn fallback_chart() -> ChartDoc {
                 hold_duration: 0.5,
                 ..Default::default()
             },
-            // Slide 1: A1 -> A5
             Note {
                 time: 5.0,
                 lane: 1,
@@ -156,7 +251,6 @@ fn fallback_chart() -> ChartDoc {
                 slide: mk_slide(vec![sp(5)], 0.5, 0.0625),
                 ..Default::default()
             },
-            // Slide 2: A3 -> A7
             Note {
                 time: 6.0,
                 lane: 3,
@@ -164,7 +258,6 @@ fn fallback_chart() -> ChartDoc {
                 slide: mk_slide(vec![sp(7)], 0.5, 0.125),
                 ..Default::default()
             },
-            // Slide 3: A1 -> A3 -> A5
             Note {
                 time: 7.0,
                 lane: 1,
@@ -172,7 +265,6 @@ fn fallback_chart() -> ChartDoc {
                 slide: mk_slide(vec![sp(3), sp(5)], 0.75, 0.0625),
                 ..Default::default()
             },
-            // Slide 4: A2 -> A4 -> A6 -> A8
             Note {
                 time: 8.5,
                 lane: 2,
@@ -180,7 +272,6 @@ fn fallback_chart() -> ChartDoc {
                 slide: mk_slide(vec![sp(4), sp(6), sp(8)], 1.0, 0.25),
                 ..Default::default()
             },
-            // Each pair: two simultaneous slides
             Note {
                 time: 10.0,
                 lane: 1,
@@ -203,33 +294,31 @@ fn fallback_chart() -> ChartDoc {
     }
 }
 
-/// Save full recording and latest chart to a platform-compatible writable folder.
-pub fn save_recording_doc(app: &AppState) -> Result<PathBuf, String> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| format!("time error: {e}"))?
-        .as_millis();
+#[cfg(test)]
+mod tests {
+    use super::{find_audio_in_dir, load_chart_from_path};
+    use std::path::Path;
 
-    let doc = RecordingDoc {
-        created_at_epoch_ms: now,
-        source: "macroquad_sim".to_string(),
-        chart: app.chart.clone(),
-        hits: app.recording_hits.clone(),
-        record_speed: app.record_speed,
-        play_speed: app.play_speed,
-    };
+    fn bundled_dir() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/charts/jack_ripper")
+    }
 
-    let content = beat_format::recording_to_json(&doc)?;
-    let record_name = format!("recording_{now}.json");
-    let path = platform::write_output_text(&record_name, &content)?;
+    #[test]
+    fn loads_bundled_chart_folder_and_file() {
+        let dir = bundled_dir();
+        let from_dir = load_chart_from_path(&dir, None).expect("folder load");
+        assert!(from_dir.title.contains("Jack"), "title = {}", from_dir.title);
 
-    let latest_chart = beat_format::chart_to_json(&app.chart)?;
-    platform::write_output_text("latest_chart.json", &latest_chart)?;
+        let file = dir.join("chart.json");
+        let from_file = load_chart_from_path(&file, Some(1)).expect("file load");
+        // Difficulty 1 is the easiest, so it has fewer notes than the default.
+        assert!(from_file.notes.len() < from_dir.notes.len());
 
-    Ok(path)
-}
+        assert!(find_audio_in_dir(&dir).is_some(), "track auto-detect");
+    }
 
-pub fn load_latest_saved_chart() -> Result<ChartDoc, String> {
-    let s = platform::read_output_text("latest_chart.json")?;
-    load_chart_from_json(&s)
+    #[test]
+    fn missing_path_errors() {
+        assert!(load_chart_from_path(Path::new("does/not/exist.json"), None).is_err());
+    }
 }

@@ -30,39 +30,48 @@ pub const NOTE_OUTER_DISTANCE: f32 = 4.8;
 pub const NOTE_LOCK_DISTANCE: f32 = 1.225;
 pub const NOTE_VISIBLE_DISTANCE: f32 = -1.275;
 // touch: base values (multiplied by TOUCH_SCALE in code)
-pub const TOUCH_CROSS_SIZE: f32 = 50.0;
+pub const TOUCH_CROSS_SIZE: f32 = 65.0;
 pub const TOUCH_START_DIST: f32 = 30.0;
 pub const TOUCH_END_DIST: f32 = 10.0;
 // touchhold: base values (multiplied by TOUCHHOLD_SCALE in code)
-pub const TOUCHHOLD_CROSS_BASE: f32 = 86.0;
-pub const TOUCHHOLD_BORDER_BASE: f32 = 170.0;
+pub const TOUCHHOLD_CROSS_BASE: f32 = 112.0;
+pub const TOUCHHOLD_BORDER_BASE: f32 = 220.0;
 pub const TOUCHHOLD_START_DIST: f32 = 30.0;
 pub const TOUCHHOLD_END_DIST: f32 = 19.0;
 pub const TOUCHHOLD_ROT_OFFSET: f32 = 0.0;
 pub const EACH_WINDOW: f32 = 0.02;
 pub const TOUCH_GROW_FRAC: f32 = 0.25;
+/// After a touch note's fade-in, it holds at the outer start distance for this
+/// fraction of its whole duration before the arms start moving inward. This
+/// stall is carved out of the fade-in (the inward-motion window is unchanged).
+pub const TOUCH_STALL_FRAC: f32 = 0.06;
 pub const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub const TAP_SIZE: f32 = 40.0;
+pub const TAP_SIZE: f32 = 52.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub const HOLD_WIDTH: f32 = 40.0;
+pub const HOLD_WIDTH: f32 = 52.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub const TOUCH_SIZE: f32 = 18.0;
+pub const TOUCH_SIZE: f32 = 24.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const TOUCH_SCALE: f32 = 1.0;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const TOUCHHOLD_SCALE: f32 = 0.6;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub const TAP_SIZE: f32 = 80.0;
+pub const TAP_SIZE: f32 = 104.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub const HOLD_WIDTH: f32 = 80.0;
+pub const HOLD_WIDTH: f32 = 104.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub const TOUCH_SIZE: f32 = 70.0;
+pub const TOUCH_SIZE: f32 = 90.0;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub const TOUCH_SCALE: f32 = 1.5;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub const TOUCHHOLD_SCALE: f32 = 1.0;
+
+/// At spawn the 9-slice hold body is extended toward the centre to at least
+/// this fraction of its rendered width, so it reads as a short bar instead of a
+/// zero-length blob. 1.0 would make it exactly square; lower = shorter.
+pub const HOLD_SPAWN_BODY_WIDTH_FRAC: f32 = 0.3;
 
 pub const PAD_ROTATION_RAD: f32 = std::f32::consts::FRAC_PI_8;
 pub const TAP_RING_OFFSET: f32 = 14.;
@@ -73,11 +82,11 @@ pub const SCROLL_INVERT: bool = true;
 /// when `None`, use beat-synced `slide_start_delay`.
 pub const FIXED_SLIDE_FADE_IN: Option<f32> = Some(0.3);
 
-pub const SLIDE_TILE_SPACING: f32 = 20.0;
-pub const SLIDE_TILE_SIZE: f32 = 40.0;
-pub const SLIDE_TILE_SCALE: f32 = 0.4;
+pub const SLIDE_TILE_SPACING: f32 = 26.0;
+pub const SLIDE_TILE_SIZE: f32 = 52.0;
+pub const SLIDE_TILE_SCALE: f32 = 0.52;
 pub const SLIDE_MIN_POINTS: usize = 2;
-pub const STAR_SIZE: f32 = 45.0;
+pub const STAR_SIZE: f32 = 58.0;
 pub const SLIDE_TRAVEL_TIME: f32 = 0.55;
 /// Lower bound (seconds) for a slide's rendered travel time. Kept tiny so
 /// short slides from the chart (e.g. `[1040#8:1]` flicks) are not stretched
@@ -103,6 +112,17 @@ pub struct NoteMotion {
     pub progress: f32,
 }
 
+/// Ease the linear flight progress so notes gradually speed up.
+/// `note_accel = 0` keeps constant speed; `1` makes it fully slow→fast.
+fn accel_progress(p: f32) -> f32 {
+    let a = super::params::note_accel().clamp(0.0, 1.0);
+    if a <= 0.0 {
+        p
+    } else {
+        p * ((1.0 - a) + a * p)
+    }
+}
+
 /// Convert time-until-hit into the MajdataView radial fly-out state.
 /// Notes grow while locked at the inner radius, then travel to the outer ring.
 /// `speed` is the note's flight speed (units/sec, `distance = 4.8 - t*speed`).
@@ -121,10 +141,12 @@ pub fn note_radial_motion(
     }
 
     let scale = (distance * 0.4 + 0.51).clamp(0.0, 1.0);
-    let progress = ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE))
-        .clamp(0.0, 1.0);
+    let progress = accel_progress(
+        ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE))
+            .clamp(0.0, 1.0),
+    );
     let target_r = outer_r + target_offset;
-    let lock_r = target_r * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE;
+    let lock_r = target_r * super::params::note_spawn_frac();
     let radius = lock_r + (target_r - lock_r) * progress;
 
     Some(NoteMotion {
@@ -137,7 +159,102 @@ pub fn note_radial_motion(
 /// Inner (lock) radius for a note flying to the given target ring, matching
 /// `note_radial_motion`'s linear scaling.
 pub fn note_lock_radius(outer_r: f32, target_offset: f32) -> f32 {
-    (outer_r + target_offset) * NOTE_LOCK_DISTANCE / NOTE_OUTER_DISTANCE
+    (outer_r + target_offset) * super::params::note_spawn_frac()
+}
+
+/// Like [`note_radial_motion`] but the outward progress is **not clamped at 1**.
+///
+/// After a note reaches the judgment ring (`time_until_hit <= 0`), the clamped
+/// version pins it on the ring; this version lets it keep travelling outward at
+/// the same speed. The lower bound stays 0, so the approach phase (growing at
+/// the lock radius) is identical to [`note_radial_motion`].
+///
+/// Used for TAP notes so they fly off past the judgment line instead of
+/// stopping on it. Holds and slide heads keep using the clamped version.
+pub fn note_radial_motion_continue(
+    time_until_hit: f32,
+    speed: f32,
+    outer_r: f32,
+    target_offset: f32,
+) -> Option<NoteMotion> {
+    let distance = NOTE_OUTER_DISTANCE - time_until_hit * speed;
+    let target_r = outer_r + target_offset;
+    let lock_r = target_r * super::params::note_spawn_frac();
+
+    // The pre-flight scale-up ("birth") runs for `tap_spawn_time` seconds when
+    // configured; `0` keeps the original speed-derived distance ramp.
+    let spawn_t = super::params::tap_spawn_time();
+    let scale = if spawn_t > 0.0 {
+        let appear_d = NOTE_LOCK_DISTANCE - speed * spawn_t;
+        if distance < appear_d {
+            return None;
+        }
+        ((distance - appear_d) / (NOTE_LOCK_DISTANCE - appear_d).max(1e-3)).clamp(0.0, 1.0)
+    } else {
+        if distance < NOTE_VISIBLE_DISTANCE {
+            return None;
+        }
+        (distance * 0.4 + 0.51).clamp(0.0, 1.0)
+    };
+
+    // Only the upper bound is lifted: approach is unchanged, post-hit overshoots.
+    let raw = (distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE);
+    let progress = if raw <= 1.0 {
+        accel_progress(raw.max(0.0))
+    } else {
+        // Post-hit overshoot stays linear (and keeps speeding past the ring).
+        raw
+    };
+    let radius = lock_r + (target_r - lock_r) * progress;
+
+    Some(NoteMotion {
+        radius,
+        scale,
+        progress,
+    })
+}
+
+/// Hold head motion. Like [`note_radial_motion`] (clamped: the note parks on
+/// the ring at the hit) but the spawn scale can be driven by an explicit
+/// `spawn_time` in seconds, matching taps: the note appears `spawn_time` before
+/// it starts flying and reaches full size exactly when the flight begins, so it
+/// never keeps scaling during the flight.
+pub fn note_radial_motion_hold(
+    time_until_hit: f32,
+    speed: f32,
+    outer_r: f32,
+    target_offset: f32,
+    spawn_time: f32,
+) -> Option<NoteMotion> {
+    let distance = NOTE_OUTER_DISTANCE - time_until_hit * speed;
+    let target_r = outer_r + target_offset;
+    let lock_r = target_r * super::params::note_spawn_frac();
+
+    let spawn_t = spawn_time.max(0.0);
+    let scale = if spawn_t > 0.0 {
+        let appear_d = NOTE_LOCK_DISTANCE - speed * spawn_t;
+        if distance < appear_d {
+            return None;
+        }
+        ((distance - appear_d) / (NOTE_LOCK_DISTANCE - appear_d).max(1e-3)).clamp(0.0, 1.0)
+    } else {
+        if distance < NOTE_VISIBLE_DISTANCE {
+            return None;
+        }
+        (distance * 0.4 + 0.51).clamp(0.0, 1.0)
+    };
+
+    let progress = accel_progress(
+        ((distance - NOTE_LOCK_DISTANCE) / (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE))
+            .clamp(0.0, 1.0),
+    );
+    let radius = lock_r + (target_r - lock_r) * progress;
+
+    Some(NoteMotion {
+        radius,
+        scale,
+        progress,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,6 +427,10 @@ pub struct Note {
     pub hold_duration: f32,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_each: bool,
+    /// "Each" for a slide **head star**, following the tap rule (any note at the
+    /// same hit time). Slides' trails use `is_each` (slide-only) instead.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_each_head: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_break: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -701,9 +822,30 @@ pub struct TemplateInstance {
 
 #[cfg(test)]
 mod note_motion_tests {
-    use super::{NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NOTE_VISIBLE_DISTANCE, note_radial_motion};
+    use super::{
+        NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NOTE_VISIBLE_DISTANCE, accel_progress,
+        note_radial_motion, note_radial_motion_continue,
+    };
 
     const SPEED: f32 = 7.0; // MajdataView default tap speed.
+
+    /// `note_accel` eases the flight (slow → fast) without moving the endpoints.
+    #[test]
+    fn note_accel_preserves_endpoints() {
+        // Default (accel = 0) is the identity.
+        assert!((accel_progress(0.0) - 0.0).abs() < 1e-6);
+        assert!((accel_progress(0.5) - 0.5).abs() < 1e-6);
+        assert!((accel_progress(1.0) - 1.0).abs() < 1e-6);
+
+        let mut p = crate::app::params::Params::default();
+        p.note_accel = 1.0;
+        crate::app::params::set(p);
+        assert!((accel_progress(0.0) - 0.0).abs() < 1e-6);
+        assert!((accel_progress(1.0) - 1.0).abs() < 1e-6);
+        // Slow start: mid flight is behind the linear position.
+        assert!(accel_progress(0.5) < 0.5);
+        crate::app::params::set(crate::app::params::Params::default());
+    }
 
     #[test]
     fn note_reaches_outer_ring_at_hit_time() {
@@ -742,6 +884,32 @@ mod note_motion_tests {
         // distance below NOTE_VISIBLE_DISTANCE → None.
         let t = (NOTE_OUTER_DISTANCE - NOTE_VISIBLE_DISTANCE + 0.1) / SPEED;
         assert!(note_radial_motion(t, SPEED, 100.0, 15.0).is_none());
+    }
+
+    #[test]
+    fn tap_keeps_flying_past_the_ring_after_the_hit() {
+        // At the hit instant the tap sits exactly on the ring.
+        let at_hit = note_radial_motion_continue(0.0, SPEED, 100.0, 15.0).expect("visible");
+        assert!((at_hit.radius - 115.0).abs() < 0.001);
+
+        // Past the hit it must be strictly beyond the ring, still full size,
+        // and monotonic in time.
+        let after = note_radial_motion_continue(-0.1, SPEED, 100.0, 15.0).expect("visible");
+        let later = note_radial_motion_continue(-0.2, SPEED, 100.0, 15.0).expect("visible");
+        assert!(after.radius > 115.0, "radius = {}", after.radius);
+        assert!(later.radius > after.radius);
+        assert_eq!(after.scale, 1.0);
+
+        // The clamped version stops on the ring, which is the old behaviour.
+        let clamped = note_radial_motion(-0.1, SPEED, 100.0, 15.0).expect("visible");
+        assert!((clamped.radius - 115.0).abs() < 0.001);
+
+        // Approach phase (before the hit) is identical to the clamped version.
+        let t = 0.2;
+        let a = note_radial_motion(t, SPEED, 100.0, 15.0).expect("visible");
+        let b = note_radial_motion_continue(t, SPEED, 100.0, 15.0).expect("visible");
+        assert!((a.radius - b.radius).abs() < 1e-6);
+        assert!((a.progress - b.progress).abs() < 1e-6);
     }
 }
 

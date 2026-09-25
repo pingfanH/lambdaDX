@@ -1,9 +1,16 @@
 use minimp3::{Decoder as Mp3Decoder, Frame as Mp3Frame};
+use rodio::buffer::SamplesBuffer;
+use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use std::io::Cursor;
+use std::sync::Arc;
 
 use super::platform;
-use super::state::AppState;
 use super::types::{SPEED_MAX, SPEED_MIN, WavPcm};
+use crate::player::state::PadPreviewState;
+
+// ---------------------------------------------------------------------------
+// PCM decoding
+// ---------------------------------------------------------------------------
 
 fn load_wav_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
     let mut reader = hound::WavReader::new(Cursor::new(bytes.to_vec()))
@@ -25,9 +32,7 @@ fn load_wav_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
                 samples.push(s);
             }
         }
-        2 => {
-            samples.extend_from_slice(&raw);
-        }
+        2 => samples.extend_from_slice(&raw),
         _ => {
             for frame in raw.chunks(src_ch) {
                 let l = *frame.first().unwrap_or(&0);
@@ -60,8 +65,6 @@ fn load_mp3_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
                 if sample_rate.is_none() {
                     sample_rate = Some(sr as u32);
                 }
-
-                // Normalize to stereo PCM16.
                 match ch {
                     1 => {
                         for s in data {
@@ -69,11 +72,8 @@ fn load_mp3_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
                             all_samples.push(s);
                         }
                     }
-                    2 => {
-                        all_samples.extend_from_slice(&data);
-                    }
+                    2 => all_samples.extend_from_slice(&data),
                     _ => {
-                        // Fallback: take first 2 channels stride.
                         for chunk in data.chunks(ch) {
                             let l = *chunk.first().unwrap_or(&0);
                             let r = *chunk.get(1).unwrap_or(&l);
@@ -92,11 +92,8 @@ fn load_mp3_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
         return Err("mp3 decode produced empty pcm".to_string());
     }
 
-    // MP3 encoder delay: LAME and similar encoders insert priming samples
-    // (typically 576–2304 per channel) at the start of the bitstream.
-    // minimp3 doesn't strip them automatically.  ~1764 stereo samples
-    // (≈ 40 ms @ 44100 Hz) is a good default for LAME-encoded files.
-    let encoder_delay_samples = 1764 * 2; // stereo → 2 i16 per frame
+    // LAME-style encoder delay (~1764 stereo frames ≈ 40 ms @ 44.1 kHz).
+    let encoder_delay_samples = 1764 * 2;
     if all_samples.len() > encoder_delay_samples {
         all_samples.drain(..encoder_delay_samples);
     }
@@ -108,9 +105,14 @@ fn load_mp3_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
     })
 }
 
-/// Load first supported BGM from assets.
+/// Load the first supported BGM from assets. The bundled default song's track
+/// wins, then the generic demo tracks.
 pub async fn load_audio_pcm_from_assets() -> (Option<String>, Option<WavPcm>) {
-    let candidates = ["demo.wav", "demo.mp3"];
+    let candidates = [
+        "charts/jack_ripper/track.mp3",
+        "demo.wav",
+        "demo.mp3",
+    ];
     for name in candidates {
         if let Ok(bytes) = platform::load_asset_bytes(name).await {
             let parsed = if name.ends_with(".wav") {
@@ -126,8 +128,9 @@ pub async fn load_audio_pcm_from_assets() -> (Option<String>, Option<WavPcm>) {
     (None, None)
 }
 
-/// Load audio from raw bytes, auto-detecting format from extension.
-pub fn load_audio_from_bytes(bytes: &[u8], ext: &str) -> Option<WavPcm> {
+/// Decode an audio byte buffer by extension (`.wav` vs anything else = mp3),
+/// normalized to 44.1 kHz.
+pub fn decode_audio_bytes(bytes: &[u8], ext: &str) -> Option<WavPcm> {
     let pcm = if ext.eq_ignore_ascii_case("wav") {
         load_wav_pcm_from_bytes(bytes)
     } else {
@@ -136,11 +139,27 @@ pub fn load_audio_from_bytes(bytes: &[u8], ext: &str) -> Option<WavPcm> {
     pcm.map(normalize_to_44100).ok()
 }
 
+/// Load a BGM from a local file path. Returns the display name and PCM.
+pub fn load_audio_from_path(path: &std::path::Path) -> (Option<String>, Option<WavPcm>) {
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .or_else(|| Some(path.to_string_lossy().to_string()));
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_default();
+    match std::fs::read(path) {
+        Ok(bytes) => (name, decode_audio_bytes(&bytes, &ext)),
+        Err(_) => (name, None),
+    }
+}
+
+/// Resample arbitrary-rate PCM to 44.1 kHz (linear interpolation).
 fn normalize_to_44100(src: WavPcm) -> WavPcm {
     if src.sample_rate == 44_100 {
         return src;
     }
-
     let ch = src.channels.max(1) as usize;
     let in_frames = src.samples.len() / ch;
     if in_frames == 0 {
@@ -150,12 +169,10 @@ fn normalize_to_44100(src: WavPcm) -> WavPcm {
             samples: vec![0; ch],
         };
     }
-
     let ratio = 44_100.0_f32 / src.sample_rate.max(1) as f32;
     let out_frames = ((in_frames as f32) * ratio).max(1.0).round() as usize;
     let max_src = in_frames.saturating_sub(1);
     let mut out = vec![0_i16; out_frames * ch];
-
     for out_i in 0..out_frames {
         let src_pos = ((out_i as f32) / ratio).min(max_src as f32);
         let i0 = src_pos.floor() as usize;
@@ -168,7 +185,6 @@ fn normalize_to_44100(src: WavPcm) -> WavPcm {
             out[out_i * ch + c] = v.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16;
         }
     }
-
     WavPcm {
         sample_rate: 44_100,
         channels: src.channels.max(1),
@@ -176,7 +192,117 @@ fn normalize_to_44100(src: WavPcm) -> WavPcm {
     }
 }
 
-pub async fn service_audio(app: &mut AppState) {
+// ---------------------------------------------------------------------------
+// BGM playback (rodio)
+// ---------------------------------------------------------------------------
+
+/// Pre-decoded f32 BGM samples ready for instant playback.
+#[derive(Clone)]
+pub struct BgmPcm {
+    pub samples: Vec<f32>,
+    pub channels: u16,
+    pub sample_rate: u32,
+}
+
+/// Pre-decoded one-shot sound effect (e.g. `Sfx/answer.wav`).
+#[derive(Clone)]
+pub struct SfxBuffer {
+    samples: Arc<Vec<f32>>,
+    channels: u16,
+    sample_rate: u32,
+}
+
+impl SfxBuffer {
+    /// Decode a WAV file from raw bytes into pre-decoded f32 samples.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let decoder = rodio::Decoder::new(Cursor::new(bytes.to_vec())).ok()?;
+        let sample_rate = decoder.sample_rate();
+        let channels = decoder.channels();
+        let samples: Vec<f32> = decoder.convert_samples::<f32>().collect();
+        Some(Self {
+            samples: Arc::new(samples),
+            channels,
+            sample_rate,
+        })
+    }
+}
+
+/// Load the bundled `Sfx/answer.wav` cue sound.
+pub async fn load_answer_sfx() -> Option<SfxBuffer> {
+    let bytes = platform::load_asset_bytes("Sfx/answer.wav").await.ok()?;
+    SfxBuffer::from_bytes(&bytes)
+}
+
+/// Load the first of `candidates` (asset-relative paths) that decodes.
+pub async fn load_sfx(candidates: &[&str]) -> Option<SfxBuffer> {
+    for path in candidates {
+        if let Ok(bytes) = platform::load_asset_bytes(path).await {
+            if let Some(buf) = SfxBuffer::from_bytes(&bytes) {
+                return Some(buf);
+            }
+        }
+    }
+    None
+}
+
+/// Minimal rodio-backed BGM player. One stoppable sink at a time.
+pub struct BgmPlayer {
+    _stream: OutputStream,
+    handle: OutputStreamHandle,
+    sink: Option<Sink>,
+}
+
+impl BgmPlayer {
+    pub fn new() -> Result<Self, String> {
+        let (stream, handle) =
+            OutputStream::try_default().map_err(|e| format!("rodio output: {e}"))?;
+        Ok(Self {
+            _stream: stream,
+            handle,
+            sink: None,
+        })
+    }
+
+    pub fn play(&mut self, samples: &[f32], channels: u16, sample_rate: u32) {
+        self.stop();
+        let source = SamplesBuffer::new(channels, sample_rate, samples.to_vec());
+        if let Ok(sink) = Sink::try_new(&self.handle) {
+            sink.set_volume(1.0);
+            sink.append(source);
+            self.sink = Some(sink);
+        }
+    }
+
+    /// Fire a one-shot effect on the shared output without touching the BGM.
+    /// `play_raw` mixes it independently of the BGM sink, so it can overlap.
+    pub fn play_once(&self, buf: &SfxBuffer, volume: f32) {
+        let source =
+            SamplesBuffer::new(buf.channels, buf.sample_rate, buf.samples.as_ref().clone())
+                .amplify(volume);
+        let _ = self.handle.play_raw(source.convert_samples());
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(sink) = self.sink.take() {
+            sink.stop();
+        }
+    }
+
+    pub fn is_playing(&self) -> bool {
+        self.sink.as_ref().is_some_and(|s| !s.empty())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Audio servicing
+// ---------------------------------------------------------------------------
+
+fn speed_cache_key(speed: f32) -> i32 {
+    (speed.clamp(SPEED_MIN, SPEED_MAX) * 10.0).round() as i32
+}
+
+/// Build and play the BGM at the current speed if a start was requested.
+pub async fn service_audio(app: &mut PadPreviewState) {
     if !app.pending_audio_start {
         return;
     }
@@ -197,14 +323,11 @@ pub async fn service_audio(app: &mut AppState) {
     if app.audio_wav_pcm.is_some() {
         match load_cached_audio_for_speed(app, speed) {
             Ok(bgm) => {
-                if let Some(player) = &mut app.sfx_player {
+                if let Some(player) = &mut app.bgm_player {
                     app.mode_wall_anchor = macroquad::prelude::get_time();
-                    player.play_bgm(&bgm.samples, bgm.channels, bgm.sample_rate);
+                    player.play(&bgm.samples, bgm.channels, bgm.sample_rate);
                 }
                 app.audio_seek_offset = None;
-                if app.waveform_data.is_empty() {
-                    build_waveform(app);
-                }
                 app.set_status(format!("Audio speed applied: {:.1}x", speed));
             }
             Err(err) => {
@@ -225,32 +348,7 @@ pub async fn service_audio(app: &mut AppState) {
     }
 }
 
-fn speed_cache_key(speed: f32) -> i32 {
-    (speed.clamp(SPEED_MIN, SPEED_MAX) * 10.0).round() as i32
-}
-
-/// Pre-cache audio buffers for commonly used playback speeds.
-pub async fn warm_audio_cache(app: &mut AppState, _primary_speed: f32) {
-    if app.audio_wav_pcm.is_none() {
-        return;
-    }
-    let speeds: &[f32] = &[0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
-    for &spd in speeds {
-        app.set_status(format!("预缓存音频 {:.1}x ...", spd));
-        let _ = load_cached_audio_for_speed(app, spd);
-    }
-    app.set_status("音频缓存就绪".to_string());
-}
-
-/// Pre-decoded f32 BGM samples ready for instant playback.
-#[derive(Clone)]
-pub struct BgmPcm {
-    pub samples: Vec<f32>,
-    pub channels: u16,
-    pub sample_rate: u32,
-}
-
-fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<BgmPcm, String> {
+fn load_cached_audio_for_speed(app: &mut PadPreviewState, speed: f32) -> Result<BgmPcm, String> {
     let key = speed_cache_key(speed);
     let chart_seek = app.audio_seek_offset.unwrap_or(0.0);
     let audio_offset = app.chart.audio_offset;
@@ -266,7 +364,6 @@ fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<BgmPcm,
         .as_ref()
         .ok_or_else(|| "pcm source missing".to_string())?;
     let (samples_i16, channels) = build_speed_pcm(wav, speed, effective_seek);
-    // Convert i16 → f32 once; no WAV encode/decode roundtrip.
     let samples_f32: Vec<f32> = samples_i16.iter().map(|&s| s as f32 / 32768.0).collect();
     let bgm = BgmPcm {
         samples: samples_f32,
@@ -279,94 +376,9 @@ fn load_cached_audio_for_speed(app: &mut AppState, speed: f32) -> Result<BgmPcm,
     Ok(bgm)
 }
 
-/// Construct a WAV file from raw i16 PCM samples by writing a minimal 44-byte
-/// header followed by the raw sample bytes.  This is much faster than using
-/// hound’s per-sample `write_sample` calls (pure memcpy for the data portion).
-fn pcm_to_wav_bytes(samples: &[i16], channels: u16, sample_rate: u32) -> Vec<u8> {
-    let data_size = (samples.len() * 2) as u32;
-    let file_size = 36 + data_size;
-    let byte_rate = sample_rate * channels as u32 * 2;
-    let block_align = channels * 2;
-
-    let mut buf = Vec::with_capacity(44 + data_size as usize);
-    buf.extend_from_slice(b"RIFF");
-    buf.extend_from_slice(&file_size.to_le_bytes());
-    buf.extend_from_slice(b"WAVE");
-    buf.extend_from_slice(b"fmt ");
-    buf.extend_from_slice(&16u32.to_le_bytes());
-    buf.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    buf.extend_from_slice(&channels.to_le_bytes());
-    buf.extend_from_slice(&sample_rate.to_le_bytes());
-    buf.extend_from_slice(&byte_rate.to_le_bytes());
-    buf.extend_from_slice(&block_align.to_le_bytes());
-    buf.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
-    buf.extend_from_slice(b"data");
-    buf.extend_from_slice(&data_size.to_le_bytes());
-    // Safety: i16 slice → u8 slice (same alignment, known layout)
-    let sample_bytes =
-        unsafe { std::slice::from_raw_parts(samples.as_ptr() as *const u8, data_size as usize) };
-    buf.extend_from_slice(sample_bytes);
-    buf
-}
-
-pub fn build_waveform(app: &mut super::state::AppState) {
-    let Some(pcm) = &app.audio_wav_pcm else {
-        return;
-    };
-    let ch = pcm.channels.max(1) as usize;
-    let sr = pcm.sample_rate.max(1) as usize;
-    let total_frames = pcm.samples.len() / ch;
-
-    let fft_size = 1024;
-    let hop = 512;
-    let mut planner = rustfft::FftPlanner::new();
-    let fft = planner.plan_fft_forward(fft_size);
-
-    let mut window: Vec<f32> = (0..fft_size)
-        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (fft_size - 1) as f32).cos())
-        .collect();
-
-    let time_bins = (total_frames.saturating_sub(fft_size)) / hop + 1;
-    let freq_bins = fft_size / 2; // positive frequencies only
-    app.waveform_data.clear();
-    // Store as flat array: time_bin * freq_bins
-    let mut pos = 0;
-    while pos + fft_size <= total_frames {
-        let mut real: Vec<f32> = (0..fft_size)
-            .map(|i| {
-                let s = pcm.samples[(pos + i) * ch] as f32 / 32768.0;
-                s * window[i]
-            })
-            .collect();
-        let mut imag = vec![0.0_f32; fft_size];
-        // interleave to complex
-        let mut complex: Vec<rustfft::num_complex::Complex<f32>> = real
-            .iter()
-            .zip(imag.iter())
-            .map(|(&r, &i)| rustfft::num_complex::Complex::new(r, i))
-            .collect();
-        fft.process(&mut complex);
-        // Magnitudes (positive frequencies only)
-        for i in 0..freq_bins {
-            let mag = complex[i].norm().ln().max(0.0);
-            app.waveform_data.push(mag);
-        }
-        pos += hop;
-    }
-    // Store metadata for rendering
-    app.waveform_freq_bins = freq_bins as u32;
-    app.waveform_time_res = hop as f32 / sr as f32;
-    app.waveform_max_val = app
-        .waveform_data
-        .iter()
-        .cloned()
-        .fold(0.0_f32, f32::max)
-        .max(0.1);
-}
-
-/// Build speed-adjusted raw PCM i16 samples.  Returns (samples, channels).
-/// The caller wraps the result with `pcm_to_wav_bytes` before handing it to
-/// macroquad’s `load_sound_from_bytes`.
+/// Build speed-adjusted raw PCM i16 samples. Returns (samples, channels).
+/// When `speed == 1.0` this is a plain copy from `seek_offset` onward, which is
+/// also what keeps pitch unchanged at the common case.
 fn build_speed_pcm(wav: &WavPcm, speed: f32, seek_offset: f32) -> (Vec<i16>, u16) {
     let speed = speed.clamp(SPEED_MIN, SPEED_MAX);
     let channels = wav.channels.max(1);
@@ -380,7 +392,6 @@ fn build_speed_pcm(wav: &WavPcm, speed: f32, seek_offset: f32) -> (Vec<i16>, u16
         return (vec![0; ch], channels);
     }
 
-    // Fast path: 1.0x speed — plain copy
     if (speed - 1.0).abs() < 0.001 {
         let start = skip_frames * ch;
         return (wav.samples[start..].to_vec(), channels);

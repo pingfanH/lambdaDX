@@ -1,6 +1,310 @@
-use lambda_dx::{run_app, window_conf};
+//! Standalone LambdaDX pad preview.
+//!
+//! Extracted from `macroquad_sim`'s `lambda_dx_player` bin. It keeps the pad
+//! rendering (zones, touch highlights, note flight for tap/hold/touch/slide) and
+//! audio-driven playback, dropping the editor, song library, judgment engine and
+//! egui front-end. See `docs/PAD_PREVIEW.md`.
+//!
+//! A chart folder or JSON file can be passed on the command line; see
+//! `--help` / `app/cli.rs`.
 
-#[macroquad::main(window_conf)]
-async fn main() {
-    run_app().await;
+// The `app` modules are near-verbatim copies of a much larger crate, so they
+// intentionally carry items the preview does not use (editor, judgment, save,
+// alternate render paths). Silencing those keeps the extraction diff small.
+#![allow(dead_code, unused_variables, unused_imports)]
+
+mod app;
+mod player;
+mod simai;
+
+use macroquad::color::Color;
+use macroquad::file::set_pc_assets_folder;
+use macroquad::prelude::{clear_background, next_frame};
+use macroquad::Window;
+
+use app::cli::LaunchArgs;
+use app::types::MOUSE_POINTER_ID;
+use app::{audio, chart, pad_svg, platform};
+use player::state::PadPreviewState;
+
+fn main() {
+    match app::cli::parse_env() {
+        Ok(None) => {
+            print!("{}", app::cli::help());
+        }
+        Ok(Some(args)) => {
+            if args.dump {
+                dump_and_exit(&args);
+            }
+            if let Some(path) = &args.slides_svg {
+                dump_slides_svg(path);
+            }
+            Window::from_config(app::window_conf(), run(args));
+        }
+        Err(e) => {
+            eprintln!("error: {e}\n");
+            eprint!("{}", app::cli::help());
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `--dump`: load the chart synchronously, print it, and exit (no window).
+fn dump_and_exit(args: &LaunchArgs) -> ! {
+    let path = args
+        .chart
+        .clone()
+        .unwrap_or_else(|| platform::asset_dir().join("charts/jack_ripper/chart.json"));
+    match chart::load_chart_from_path(&path, args.diff) {
+        Ok(c) => {
+            dump_chart(&c);
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("error: failed to load chart from {}: {e}", path.display());
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `--dump-slides-svg`: write every slide curve to an SVG and exit.
+fn dump_slides_svg(path: &std::path::Path) -> ! {
+    let svg = app::slide::export::all_paths_svg();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::write(path, svg) {
+        Ok(()) => {
+            println!("wrote {}", path.display());
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("error: failed to write {}: {e}", path.display());
+            std::process::exit(2);
+        }
+    }
+}
+
+fn dump_chart(c: &app::types::ChartDoc) {
+    use app::types::{NoteType, measure_to_secs};
+    let mut taps = 0;
+    let mut holds = 0;
+    let mut touches = 0;
+    for n in &c.notes {
+        match n.note_type {
+            NoteType::Tap => taps += 1,
+            NoteType::Hold => holds += 1,
+            NoteType::Touch => touches += 1,
+            NoteType::Slide => {}
+        }
+    }
+    println!("chart: {} — {}", c.title, c.artist);
+    println!("notes: {} (taps {taps}, holds {holds}, touches {touches})", c.notes.len());
+    println!("bpms: {:?}", c.bpms);
+    println!("slides (measure / seconds / lane / shape / end / wait / travel):");
+    for (i, n) in c.notes.iter().enumerate() {
+        if !matches!(n.note_type, NoteType::Slide) {
+            continue;
+        }
+        for (si, s) in n.slide.iter().enumerate() {
+            let seg = &s.segments[0];
+            let end = seg
+                .points
+                .last()
+                .map(|p| p.zone.to_string())
+                .unwrap_or_else(|| "-".into());
+            let shapes: Vec<String> = s.segments.iter().map(|x| format!("{:?}", x.shape)).collect();
+            println!(
+                "  #{i}.{si} m={:.4} s={:.4} lane={} shapes=[{}] end={} wait={:.4} travel={:.4}",
+                n.time,
+                measure_to_secs(n.time, &c.bpms),
+                n.lane,
+                shapes.join(","),
+                end,
+                s.slide_start_delay,
+                s.slide_duration - s.slide_start_delay,
+            );
+        }
+    }
+}
+
+async fn run(args: LaunchArgs) {
+    // Assets are still used for pad.svg, skins, the mask shader and the cue
+    // sound, even when a chart is loaded from elsewhere.
+    set_pc_assets_folder(&platform::asset_dir().to_string_lossy());
+
+    // ── Chart ──────────────────────────────────────────────────────────
+    let chart = match &args.chart {
+        Some(path) => match chart::load_chart_from_path(path, args.diff) {
+            Ok(c) => {
+                println!(
+                    "Loaded chart '{}' from {} ({} notes)",
+                    c.title,
+                    path.display(),
+                    c.notes.len()
+                );
+                c
+            }
+            Err(e) => {
+                eprintln!("error: failed to load chart from {}: {e}", path.display());
+                std::process::exit(2);
+            }
+        },
+        None => chart::load_generated_chart(args.diff).await,
+    };
+
+    // ── Audio: explicit path > chart-folder track > bundled assets ──────
+    let (audio_source_name, audio_wav_pcm) = if let Some(path) = &args.audio {
+        let (name, pcm) = audio::load_audio_from_path(path);
+        if pcm.is_none() {
+            eprintln!("warning: could not decode audio from {}", path.display());
+        }
+        (name, pcm)
+    } else if let Some(track) = args
+        .chart
+        .as_deref()
+        .filter(|p| p.is_dir())
+        .and_then(chart::find_audio_in_dir)
+    {
+        audio::load_audio_from_path(&track)
+    } else {
+        audio::load_audio_pcm_from_assets().await
+    };
+
+    let mut app = PadPreviewState::new(chart, audio_source_name, audio_wav_pcm);
+
+    // ── lnmai-core judgment engine (only for Simai-sourced charts) ─────
+    match args.chart.as_deref().and_then(chart::read_simai_source) {
+        Some(text) => {
+            let level = app::maidata::inote_key(&text, args.diff).unwrap_or(app.chart.simai_level);
+            match app.load_engine(&text, level) {
+                Ok(()) => {
+                    println!("lnmai-core engine loaded (levelIndex={level})");
+                    app.set_status("lnmai-core engine ready".to_string());
+                }
+                Err(e) => {
+                    eprintln!("warning: lnmai-core engine load failed: {e}");
+                    app.set_status(format!("engine: {e}"));
+                }
+            }
+        }
+        None => {
+            eprintln!(
+                "note: no Simai source (pass a maidata.txt / chart folder); \
+                 lnmai-core judgment is disabled for this chart"
+            );
+        }
+    }
+
+    // Tunable visual params (override JSON > bundled JSON > built-in defaults).
+    app.params = app::params::load();
+    app::params::set(app.params.clone());
+    // Apply the persisted default speeds / fade-in to this session.
+    app.note_speed = app.params.note_speed_default;
+    app.touch_speed = app.params.touch_speed_default;
+    app.slide_fade_in = app.params.slide_fade_in;
+    // Persisted default playback speed.
+    app.set_play_speed(app.params.play_speed_default);
+    // Autoplay schedule for the initial chart (toggle with `O` or the panel).
+    player::autoplay::rebuild(&mut app);
+    if std::env::var("MAI2_AUTOPLAY").is_ok() || std::env::var("MAI2_UI_AUTOPLAY").is_ok() {
+        player::autoplay::set_on(&mut app, true);
+    }
+
+    // Parse the SVG pad definition.
+    match pad_svg::PadSvgDef::from_svg_str(include_str!("../assets/pad.svg")) {
+        Ok(def) => app.pad_svg = Some(def),
+        Err(e) => app.set_status(format!("Failed to parse pad.svg: {e}")),
+    }
+
+    // Note skins + touch-hold border shader.
+    player::render::load_note_textures(&mut app).await;
+    match app::ui::load_mask_material() {
+        Ok(m) => app.mask_material = Some(m),
+        Err(e) => app.set_status(format!("Shader: {e}")),
+    }
+
+    // Cue sound played at tap / hold head / hold tail / slide star head.
+    app.answer_sfx = audio::load_answer_sfx().await;
+    if app.answer_sfx.is_none() {
+        app.set_status("Cue sound missing: assets/Sfx/answer.wav".to_string());
+    }
+    // Per-kind judgment SFX (fall back to `answer.wav` when a file is missing).
+    app.sfx_tap = audio::load_sfx(&[
+        "Sfx/tap_perfect.wav",
+        "Sfx/tap_great.wav",
+        "Sfx/tap_good.wav",
+        "Sfx/tap.wav",
+    ])
+    .await;
+    app.sfx_slide = audio::load_sfx(&["Sfx/slide.wav"]).await;
+    app.sfx_hold = audio::load_sfx(&["Sfx/hold.wav"]).await;
+    app.sfx_break = audio::load_sfx(&["Sfx/break.wav"]).await;
+
+    loop {
+        clear_background(Color::from_rgba(30, 30, 30, 255));
+
+        let layout = player::layout::compute_layout(&app);
+        let pad_geom = player::layout::compute_pad_geom(layout.pad);
+
+        player::input::handle_global_hotkeys(&mut app);
+        player::input::handle_lane_input(&mut app);
+        let pointer_events = player::input::collect_pointer_events();
+        let ui_scale = player::render::ui_scale(&app);
+        // The HUD progress bar / AUTO button take priority over pad touches.
+        let hud_consumed = player::hud::handle_input(&mut app, layout.header, ui_scale);
+        let pointer_events: Vec<_> = if hud_consumed {
+            pointer_events
+                .into_iter()
+                .filter(|e| e.id != MOUSE_POINTER_ID)
+                .collect()
+        } else {
+            pointer_events
+        };
+        player::input::handle_touch_controls(&mut app, pad_geom, &pointer_events);
+
+        audio::service_audio(&mut app).await;
+
+        // Fire cue sounds (tap / hold head / hold tail / slide star head).
+        app.tick_cues();
+        // Chart-driven autoplay (synthetic touches) for this frame.
+        player::autoplay::tick(&mut app);
+        // Step the lnmai-core judgment engine and apply its feedback/sfx.
+        player::engine::step_judge_engine(&mut app);
+
+        // Background video (bg.mp4) via the ffmpeg sidecar.
+        let video_cfg = player::video::VideoConfig {
+            enabled: app::params::bg_video(),
+            path: player::video::resolve_path(&app::params::bg_video_path()),
+            start: app::params::bg_video_start(),
+            fps: app::params::bg_video_fps(),
+            height: app::params::bg_video_height().max(2.0) as usize,
+            looping: app::params::bg_video_loop(),
+        };
+        let song_t = app.song_time();
+        app.video_bg.sync(&video_cfg, song_t);
+
+        // Shared themed surface; a bg.mp4 video, when enabled, replaces it.
+        let bg_a = app::params::pad_bg_alpha().clamp(0.0, 255.0) / 255.0;
+        player::render::draw_pad_panel(
+            &app,
+            layout.pad,
+            pad_geom,
+            player::render::PadSurface::themed(bg_a),
+        );
+        player::hud::draw(&app, layout.header, ui_scale);
+
+        app.tick_feedback();
+
+        // egui params panel on top (F1).
+        egui_macroquad::ui(|ctx| player::params_panel::draw(ctx, &mut app));
+        egui_macroquad::draw();
+
+        // Release the frozen song clock once the first frame is on screen.
+        if app.playback_pending {
+            app.finalize_playback_start();
+        }
+
+        next_frame().await;
+    }
 }

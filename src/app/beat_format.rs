@@ -175,6 +175,7 @@ pub fn ser_to_note(s: &SerNote) -> Note {
         note_type: s.note_type,
         hold_duration,
         is_each: s.is_each,
+        is_each_head: s.is_each,
         is_break: s.is_break,
         is_ex: s.is_ex,
         is_star: s.is_star,

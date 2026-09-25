@@ -1,10 +1,6 @@
 use super::pad_svg::PadSvgDef;
 use super::slide::segmentation;
-use super::types::{
-    Note, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, PAD_ROTATION_RAD, PadGeom, SLIDE_MIN_DURATION_S,
-    SLIDE_TILE_SCALE, SLIDE_TILE_SIZE, SLIDE_TILE_SPACING, STAR_SIZE, Slide, SlideShape,
-    TAP_TARGET_OFFSET,
-};
+use super::types::{Note, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, PAD_ROTATION_RAD, PadGeom, SLIDE_MIN_DURATION_S, Slide, SlideShape};
 use crate::app::slide::path::{
     slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp,
     slide_shape_q, slide_shape_qq, slide_shape_right, slide_shape_s, slide_shape_z,
@@ -12,6 +8,7 @@ use crate::app::slide::path::{
 use crate::app::types::zone::PadZone;
 use macroquad::prelude::*;
 use macroquad::texture::{DrawTextureParams, Texture2D};
+use crate::app::params;
 
 /// Resolved textures for a single draw_slide call.
 /// The caller picks the appropriate variant; the function just uses what's given.
@@ -22,6 +19,8 @@ pub struct SlideTextures<'a> {
     pub star_ex: Option<&'a Texture2D>,
     pub star_ex_fallback: Option<&'a Texture2D>,
     pub wifi: [Option<&'a Texture2D>; 11],
+    /// Optional guide texture drawn under the stars.
+    pub guide: Option<&'a Texture2D>,
 }
 
 /// Draw a filled polygon band over the slide's **last touch judge segment** as
@@ -58,7 +57,15 @@ pub fn draw_slide_judge_band(
     if path.len() < 2 {
         return None;
     }
-    let segmentation = segmentation::build(&path, SLIDE_TILE_SPACING * scale, svg, pad);
+    let spacing = params::slide_tile_spacing() * scale;
+    let segmentation = segmentation::build(
+        &path,
+        spacing,
+        params::slide_head_gap() * scale,
+        params::slide_tail_gap() * scale,
+        svg,
+        pad,
+    );
     let last_segment = segmentation.judge_segments.last()?;
     let start = last_segment.start_bar;
     let end = last_segment.end_bar.min(segmentation.bars.len());
@@ -156,7 +163,7 @@ fn slide_start_point(
         let idx = (note.lane - 1) as f32;
         let angle =
             -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-        let radius = outer_r + TAP_TARGET_OFFSET;
+        let radius = outer_r + params::tap_target_offset();
         Some(spawn_cx + vec2(angle.cos(), angle.sin()) * radius)
     } else {
         svg.zone_screen_centroid(PadZone::from(note.lane), pad)
@@ -220,7 +227,17 @@ fn append_segment(
     }
 }
 
-/// Draw a single slide on the pad surface: path tiles + head star + flying star.
+/// Which half of a slide to draw. Trails and stars are separate layers so the
+/// caller can draw *every* slide trail before *any* slide star — otherwise an
+/// overlapping slide's trail hides another slide's star (e.g. a QQ and a PP
+/// playing at the same time).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlideLayer {
+    Trail,
+    Star,
+}
+
+/// Draw one layer of a single slide on the pad surface.
 ///
 /// `note` — parent note (provides lane, flags)
 /// `slide` — the sub-slide to render
@@ -234,6 +251,10 @@ fn append_segment(
 /// `outer_r` — pad outer radius in screen space
 /// `show_full` — true to render the entire trail at full alpha (static view)
 /// `hidden_until_bar` — hide trail bars with indexes lower than this value
+/// `core_driven` — true when `lnmai-core` owns the slide's lifetime, so the
+///                 post-tail time cull is disabled and the slide is only
+///                 removed by core's hide commands
+/// `layer` — draw the trail tiles or the star(s)
 pub fn draw_slide(
     note: &Note,
     slide: &Slide,
@@ -252,6 +273,8 @@ pub fn draw_slide(
     base_speed: f32,
     slide_fade_in: f32,
     hidden_until_bar: usize,
+    core_driven: bool,
+    layer: SlideLayer,
 ) {
     // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
     // The star motion fills the `[start_delay, total]` window; the travel time
@@ -268,14 +291,36 @@ pub fn draw_slide(
     // The slide head star uses the same radial flight as a Tap note.
     let head_speed = super::types::note_flight_speed(note, base_speed);
     let head_lead = super::types::note_lead_time(head_speed);
+    // Head-star spin, continuous from the moment the star spawns. The radial
+    // `progress` stays 0 while the star grows at the lock radius, so a
+    // progress-based spin only started after the fly-out; this makes it rotate
+    // from birth while keeping one full turn per fly-out duration.
+    let head_flight_s = (super::types::NOTE_OUTER_DISTANCE - super::types::NOTE_LOCK_DISTANCE)
+        / head_speed.max(0.1);
+    let head_spin = ((head_lead - dt_scaled).max(0.0) / head_flight_s.max(0.12))
+        * std::f32::consts::TAU;
     // MajdataView trail fade-in: `fadeInTime = -3.926913 / noteSpeed` seconds
     // before the head, fully visible 0.2s later (in musical time).
     let fade_in_s = slide_fade_in.max(0.0);
     let full_fade_s = (fade_in_s - fade_duration_s).max(0.001);
 
+    // Draw a star's guide texture (same rules as tap guides) if one is loaded.
+    // `star_px` is the star's *current* on-screen size, so the guide scales
+    // exactly with the note; `progress` adds the displacement scaling.
+    let star_guide = |x: f32, y: f32, rot: f32, progress: f32, star_px: f32| {
+        if let Some(g) = tex.guide {
+            super::guide::draw(g, tex.star, star_px, x, y, rot, progress, scale, 1.0);
+        }
+    };
+
     // ── Time culling (skip when not show_full) ──
     if !show_full {
-        if !(dt_scaled <= head_lead.max(fade_in_s) && current_t <= slide_end_s + 0.2) {
+        // Approach culling is always local: don't draw before the head flies in.
+        let before_head = dt_scaled <= head_lead.max(fade_in_s);
+        // Post-tail culling only applies when no engine owns the slide. When
+        // `core_driven`, the slide stays until lnmai-core hides its bars.
+        let after_end_cull = !core_driven && current_t > slide_end_s + 0.2;
+        if !before_head || after_end_cull {
             return;
         }
     }
@@ -288,7 +333,7 @@ pub fn draw_slide(
         let idx = (note.lane - 1) as f32;
         let ang =
             -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-        let target_r = outer_r + TAP_TARGET_OFFSET;
+        let target_r = outer_r + params::tap_target_offset();
         Some(vec2(
             spawn_cx.x + ang.cos() * target_r,
             spawn_cx.y + ang.sin() * target_r,
@@ -336,7 +381,7 @@ pub fn draw_slide(
                     let ang = -std::f32::consts::FRAC_PI_2
                         + PAD_ROTATION_RAD
                         + idx * std::f32::consts::TAU / 8.0;
-                    let target_r = outer_r + TAP_TARGET_OFFSET;
+                    let target_r = outer_r + params::tap_target_offset();
                     vec2(
                         spawn_cx.x + ang.cos() * target_r,
                         spawn_cx.y + ang.sin() * target_r,
@@ -351,7 +396,7 @@ pub fn draw_slide(
                         let ang = -std::f32::consts::FRAC_PI_2
                             + PAD_ROTATION_RAD
                             + idx * std::f32::consts::TAU / 8.0;
-                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                        let target_r = outer_r + params::tap_target_offset();
                         vec2(
                             spawn_cx.x + ang.cos() * target_r,
                             spawn_cx.y + ang.sin() * target_r,
@@ -363,7 +408,7 @@ pub fn draw_slide(
                         let ang = -std::f32::consts::FRAC_PI_2
                             + PAD_ROTATION_RAD
                             + idx * std::f32::consts::TAU / 8.0;
-                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                        let target_r = outer_r + params::tap_target_offset();
                         vec2(
                             spawn_cx.x + ang.cos() * target_r,
                             spawn_cx.y + ang.sin() * target_r,
@@ -375,7 +420,7 @@ pub fn draw_slide(
                         let ang = -std::f32::consts::FRAC_PI_2
                             + PAD_ROTATION_RAD
                             + idx * std::f32::consts::TAU / 8.0;
-                        let target_r = outer_r + TAP_TARGET_OFFSET;
+                        let target_r = outer_r + params::tap_target_offset();
                         vec2(
                             spawn_cx.x + ang.cos() * target_r,
                             spawn_cx.y + ang.sin() * target_r,
@@ -383,10 +428,100 @@ pub fn draw_slide(
                     },
                 ];
 
-                // ── Head star (pre-judge flying in from center) ──
+                // ── Tile alpha ──
+                let a_max = params::slide_trail_alpha();
+                let path_alpha = if show_full || dt_scaled <= full_fade_s {
+                    a_max as u8
+                } else {
+                    ((a_max * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, a_max)) as u8
+                };
+
+                // ── Flying star progress (0..1) ──
+                let star_t = if !show_full && current_t >= slide_start_s {
+                    ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+
+                let sprite_count = 11;
+                let command_hidden_until = hidden_until_bar.min(sprite_count);
+                // Guide orientation = the lane's flight direction (constant), so
+                // the guide does NOT spin with the star.
+                let guide_ang = -std::f32::consts::FRAC_PI_2
+                    + PAD_ROTATION_RAD
+                    + (note.lane.saturating_sub(1)) as f32 * std::f32::consts::TAU / 8.0;
+
+                if layer == SlideLayer::Trail {
+                for (j, target) in targets.iter().enumerate() {
+                    let dir = (*target - start_pos).normalize_or_zero();
+                    let seg_len = (*target - start_pos).length().max(0.001);
+                    let angle = dir.y.atan2(dir.x) + std::f32::consts::PI + 112.0_f32.to_radians();
+                    let step_size = seg_len / (sprite_count - 1) as f32 * 0.83;
+                    // Wifi has three independent straight tracks, so its
+                    // bars do not go through the shared path segmentation.
+
+                    let is_middle = j == 1;
+
+                    // ── Tiles (only middle line gets wifi textures) ──
+                    for i in 0..sprite_count {
+                        if i < command_hidden_until {
+                            continue;
+                        }
+                        let dist = i as f32 * step_size;
+                        let sprite_pos = start_pos + dir * dist;
+
+                        if is_middle {
+                            if let Some(t) = tex.wifi[i] {
+                                let tw = t.width() * scale * params::slide_tile_scale();
+                                let th = t.height() * scale * params::slide_tile_scale();
+                                draw_texture_ex(
+                                    t,
+                                    sprite_pos.x - tw * 0.5,
+                                    sprite_pos.y - th * 0.5,
+                                    Color::from_rgba(255, 255, 255, path_alpha),
+                                    DrawTextureParams {
+                                        dest_size: Some(vec2(tw, th)),
+                                        rotation: angle,
+                                        ..Default::default()
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Star guides (trail layer): head + one per track, all under
+                // the stars.
+                if tex.guide.is_some() {
+                    if !show_full && current_t < ns && !note.is_tapless {
+                        let head_motion = super::types::note_radial_motion_continue(
+                            dt_scaled,
+                            head_speed,
+                            outer_r,
+                            params::tap_target_offset(),
+                        );
+                        let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
+                        let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
+                        let r = head_motion.map(|m| m.radius).unwrap_or(lock_r);
+                        let px = spawn_cx.x + guide_ang.cos() * r;
+                        let py = spawn_cx.y + guide_ang.sin() * r;
+                        star_guide(
+                            px,
+                            py,
+                            guide_ang,
+                            head_motion.map(|m| m.progress).unwrap_or(0.0),
+                            params::star_size() * scale * size_scale,
+                        );
+                    }
+                }
+                }
+
+                if layer == SlideLayer::Star {
+                // ── Head star (pre-judge flying in from center), drawn after
+                // the trails so it stays on top. ──
                 if show_full {
                     let head_pt = path[0];
-                    let ss = STAR_SIZE * scale;
+                    let ss = params::star_size() * scale;
                     let star_used = tex.star.or(tex.star_fallback);
                     if let Some(st) = star_used {
                         draw_texture_ex(
@@ -403,25 +538,24 @@ pub fn draw_slide(
                 } else if current_t < ns && !note.is_tapless {
                     // Same radial flight as a Tap: grow at the inner lock
                     // radius, then fly out to the target ring.
-                    let head_motion = super::types::note_radial_motion(
+                    let head_motion = super::types::note_radial_motion_continue(
                         dt_scaled,
                         head_speed,
                         outer_r,
-                        TAP_TARGET_OFFSET,
+                        params::tap_target_offset(),
                     );
                     let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
-                    let fly_progress = head_motion.map(|m| m.progress).unwrap_or(0.0);
 
                     let idx = (note.lane - 1) as f32;
                     let ang = -std::f32::consts::FRAC_PI_2
                         + PAD_ROTATION_RAD
                         + idx * std::f32::consts::TAU / 8.0;
-                    let lock_r = super::types::note_lock_radius(outer_r, TAP_TARGET_OFFSET);
+                    let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
                     let r = head_motion.map(|m| m.radius).unwrap_or(lock_r);
                     let px = spawn_cx.x + ang.cos() * r;
                     let py = spawn_cx.y + ang.sin() * r;
-                    let ss = STAR_SIZE * scale * size_scale;
-                    let star_rot = fly_progress * std::f32::consts::TAU;
+                    let ss = params::star_size() * scale * size_scale;
+                    let star_rot = head_spin;
                     let star_used = tex.star.or(tex.star_fallback);
                     if let Some(st) = star_used {
                         draw_texture_ex(
@@ -451,71 +585,26 @@ pub fn draw_slide(
                     }
                 }
 
-                // ── Tile alpha ──
-                let path_alpha = if show_full || dt_scaled <= full_fade_s {
-                    220u8
-                } else {
-                    ((220.0 * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, 220.0)) as u8
-                };
-
-                // ── Flying star progress (0..1) ──
-                let star_t = if !show_full && current_t >= slide_start_s {
-                    ((current_t - slide_start_s) / travel_dur_s.max(0.001)).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-
-                let sprite_count = 11;
-                let command_hidden_until = hidden_until_bar.min(sprite_count);
-
-                for (j, target) in targets.iter().enumerate() {
-                    let dir = (*target - start_pos).normalize_or_zero();
-                    let seg_len = (*target - start_pos).length().max(0.001);
-                    let angle = dir.y.atan2(dir.x) + std::f32::consts::PI + 112.0_f32.to_radians();
-                    let star_pos = start_pos + dir * (star_t * seg_len);
-                    let step_size = seg_len / (sprite_count - 1) as f32 * 0.83;
-                    // Wifi has three independent straight tracks, so its
-                    // bars do not go through the shared path segmentation.
-
-                    let is_middle = j == 1;
-
-                    // ── Tiles (only middle line gets wifi textures) ──
-                    for i in 0..sprite_count {
-                        if i < command_hidden_until {
-                            continue;
-                        }
-                        let dist = i as f32 * step_size;
-                        let sprite_pos = start_pos + dir * dist;
-
-                        if is_middle {
-                            if let Some(t) = tex.wifi[i] {
-                                let tw = t.width() * scale * SLIDE_TILE_SCALE;
-                                let th = t.height() * scale * SLIDE_TILE_SCALE;
-                                draw_texture_ex(
-                                    t,
-                                    sprite_pos.x - tw * 0.5,
-                                    sprite_pos.y - th * 0.5,
-                                    Color::from_rgba(255, 255, 255, path_alpha),
-                                    DrawTextureParams {
-                                        dest_size: Some(vec2(tw, th)),
-                                        rotation: angle,
-                                        ..Default::default()
-                                    },
-                                );
-                            }
-                        }
-                    }
-
-                    // ── Flying star (post-judge, along this line) ──
-                    if !show_full && current_t >= ns && current_t <= slide_end_s {
-                        let intro = if current_t < slide_start_s {
-                            ((current_t - ns) / (slide_start_s - ns).max(0.001)).clamp(0.0, 1.0)
-                        } else {
-                            1.0
-                        };
-                        let ss = STAR_SIZE * scale * (0.5 + intro);
-                        let star_alpha = (intro * 255.0) as u8;
-                        let star_used = tex.star.or(tex.star_fallback);
+                // ── Flying stars, drawn after *all* trail tiles so no wifi
+                // track's trail can cover another track's star. ──
+                if !show_full
+                    && current_t >= ns
+                    && (core_driven || current_t <= slide_end_s)
+                {
+                    let intro = if current_t < slide_start_s {
+                        ((current_t - ns) / (slide_start_s - ns).max(0.001)).clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    };
+                    let ss = params::star_size() * scale * (0.5 + intro);
+                    let star_alpha = (intro * 255.0) as u8;
+                    let star_used = tex.star.or(tex.star_fallback);
+                    for target in targets.iter() {
+                        let dir = (*target - start_pos).normalize_or_zero();
+                        let seg_len = (*target - start_pos).length().max(0.001);
+                        let angle =
+                            dir.y.atan2(dir.x) + std::f32::consts::PI + 112.0_f32.to_radians();
+                        let star_pos = start_pos + dir * (star_t * seg_len);
                         if let Some(st) = star_used {
                             draw_texture_ex(
                                 st,
@@ -544,6 +633,7 @@ pub fn draw_slide(
                         }
                     }
                 }
+                }
             }
 
             _ => slide_shape_line(
@@ -569,12 +659,13 @@ pub fn draw_slide(
 
     // ── Alpha & star position ──
     let (path_alpha, star_dist_along) = if show_full {
-        (220u8, -1.0_f32) // all tiles visible, star at start
+        (params::slide_trail_alpha() as u8, -1.0_f32) // all tiles visible, star at start
     } else {
+        let a_max = params::slide_trail_alpha();
         let alpha = if dt_scaled <= full_fade_s {
-            220
+            a_max as u8
         } else {
-            ((220.0 * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, 220.0)) as u8
+            ((a_max * (fade_in_s - dt_scaled) / fade_duration_s).clamp(0.0, a_max)) as u8
         };
         let star_t = if current_t < slide_start_s {
             0.0
@@ -605,20 +696,36 @@ pub fn draw_slide(
     // ── Path tiles ──
     let (tw, th) = if let Some(t) = tex.trail {
         (
-            t.width() * scale * SLIDE_TILE_SCALE,
-            t.height() * scale * SLIDE_TILE_SCALE,
+            t.width() * scale * params::slide_tile_scale(),
+            t.height() * scale * params::slide_tile_scale(),
         )
     } else {
-        (SLIDE_TILE_SIZE * scale, SLIDE_TILE_SIZE * scale)
+        (params::slide_tile_size() * scale, params::slide_tile_size() * scale)
     };
-    let spacing = SLIDE_TILE_SPACING * scale;
+    let spacing = params::slide_tile_spacing() * scale;
 
-    let segmentation = segmentation::build(&path, spacing, svg, pad);
+    let segmentation = segmentation::build(
+        &path,
+        spacing,
+        params::slide_head_gap() * scale,
+        params::slide_tail_gap() * scale,
+        svg,
+        pad,
+    );
     let hidden_until = hidden_until_bar.min(segmentation.bars.len());
-    for (bar_index, bar) in segmentation.bars.iter().enumerate() {
+    // Within one slide, the trail tiles can be drawn forward or reversed so an
+    // overlapping tile's stacking can be chosen.
+    let bar_order: Box<dyn Iterator<Item = usize>> = if params::slide_tile_reverse() {
+        Box::new((0..segmentation.bars.len()).rev())
+    } else {
+        Box::new(0..segmentation.bars.len())
+    };
+    if layer == SlideLayer::Trail {
+    for bar_index in bar_order {
         if bar_index < hidden_until {
             continue;
         }
+        let bar = &segmentation.bars[bar_index];
         if let Some(t) = tex.trail {
             draw_texture_ex(
                 t,
@@ -632,6 +739,42 @@ pub fn draw_slide(
                 },
             );
         }
+    }
+
+    // Star guides, drawn in the trail layer so **every** guide is under
+    // **every** star (a later sub-slide's guide can no longer cover an earlier
+    // sub-slide's star). Orientation is the constant flight direction.
+    if tex.guide.is_some() {
+        let guide_dir = path[0] - spawn_cx;
+        let guide_ang = guide_dir.y.atan2(guide_dir.x);
+        if !show_full && dt_scaled > 0.0 && dt_scaled < head_lead && !note.is_tapless {
+            let head_motion = super::types::note_radial_motion_continue(
+                dt_scaled,
+                head_speed,
+                outer_r,
+                params::tap_target_offset(),
+            );
+            let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
+            let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
+            let r = head_motion.map(|m| m.radius).unwrap_or(lock_r);
+            let (hx, hy) = if note.lane <= 8 {
+                let idx = (note.lane - 1) as f32;
+                let a = -std::f32::consts::FRAC_PI_2
+                    + PAD_ROTATION_RAD
+                    + idx * std::f32::consts::TAU / 8.0;
+                (spawn_cx.x + a.cos() * r, spawn_cx.y + a.sin() * r)
+            } else {
+                (path[0].x, path[0].y)
+            };
+            star_guide(
+                hx,
+                hy,
+                guide_ang,
+                head_motion.map(|m| m.progress).unwrap_or(0.0),
+                params::star_size() * scale * size_scale,
+            );
+        }
+    }
     }
 
     // ── Original polyline on top of tiles ──
@@ -653,10 +796,11 @@ pub fn draw_slide(
     // }
 
     // ── Head star ──
+    if layer == SlideLayer::Star {
     if show_full {
         // Static star at start position
         let head_pt = path[0];
-        let ss = STAR_SIZE * scale;
+        let ss = params::star_size() * scale;
         let star_used = tex.star.or(tex.star_fallback);
         if let Some(st) = star_used {
             draw_texture_ex(
@@ -673,15 +817,14 @@ pub fn draw_slide(
     } else if dt_scaled > 0.0 && dt_scaled < head_lead && !note.is_tapless {
         // Pre-judge flying-in head star (A-zone and touch-zone). Same radial
         // flight as a Tap note.
-        let head_motion = super::types::note_radial_motion(
+        let head_motion = super::types::note_radial_motion_continue(
             dt_scaled,
             head_speed,
             outer_r,
-            TAP_TARGET_OFFSET,
+            params::tap_target_offset(),
         );
         let size_scale = head_motion.map(|m| m.scale).unwrap_or(0.0);
-        let fly_progress = head_motion.map(|m| m.progress).unwrap_or(0.0);
-        let lock_r = super::types::note_lock_radius(outer_r, TAP_TARGET_OFFSET);
+        let lock_r = super::types::note_lock_radius(outer_r, params::tap_target_offset());
 
         if note.lane <= 8 {
             // A-zone: grow at the inner lock radius, then fly to the target.
@@ -694,8 +837,8 @@ pub fn draw_slide(
             let px = spawn_cx.x + ang.cos() * r;
             let py = spawn_cx.y + ang.sin() * r;
 
-            let ss = STAR_SIZE * scale * size_scale;
-            let star_rot = fly_progress * std::f32::consts::TAU;
+            let ss = params::star_size() * scale * size_scale;
+            let star_rot = head_spin;
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {
                 draw_texture_ex(
@@ -725,8 +868,8 @@ pub fn draw_slide(
             }
         } else {
             // Touch zone: fade in at centroid
-            let head_rot = fly_progress * std::f32::consts::TAU;
-            let ss = STAR_SIZE * scale * size_scale;
+            let head_rot = head_spin;
+            let ss = params::star_size() * scale * size_scale;
             let star_used = tex.star.or(tex.star_fallback);
             if let Some(st) = star_used {
                 draw_texture_ex(
@@ -756,18 +899,33 @@ pub fn draw_slide(
             }
         }
     }
+    }
 
     // ── Flying star (post-judge, moves along path) ──
-    if !show_full && current_t >= ns && current_t <= slide_end_s {
+    //
+    // The approaching head star vanishes at the hit; this tracing star then
+    // pops in *at the hit position*: it starts at the original star-head size
+    // and ~50% opacity, and over the slide's pre-trace wait (`start_delay_s`,
+    // i.e. until it begins to trace) it grows to 1.5x and fades to fully
+    // opaque. Then it continues along the path.
+    if layer == SlideLayer::Star {
+    if !show_full && current_t >= ns && (core_driven || current_t <= slide_end_s) {
         let (star_pos, angle) = point_at(star_dist_along);
-        let ss = STAR_SIZE * scale;
+        let p = if start_delay_s > 1e-4 {
+            ((current_t - ns) / start_delay_s).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let ss = params::star_size() * scale * (1.0 + params::star_spawn_scale_gain() * p);
+        let a0 = params::star_spawn_alpha_start();
+        let tint = Color::from_rgba(255, 255, 255, ((a0 + (1.0 - a0) * p) * 255.0) as u8);
         let star_used = tex.star.or(tex.star_fallback);
         if let Some(st) = star_used {
             draw_texture_ex(
                 st,
                 star_pos.x - ss * 0.5,
                 star_pos.y - ss * 0.5,
-                WHITE,
+                tint,
                 DrawTextureParams {
                     dest_size: Some(vec2(ss, ss)),
                     rotation: angle,
@@ -779,7 +937,7 @@ pub fn draw_slide(
                     ex_tex,
                     star_pos.x - ss * 0.5,
                     star_pos.y - ss * 0.5,
-                    WHITE,
+                    tint,
                     DrawTextureParams {
                         dest_size: Some(vec2(ss, ss)),
                         rotation: angle,
@@ -788,5 +946,6 @@ pub fn draw_slide(
                 );
             }
         }
+    }
     }
 }

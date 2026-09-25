@@ -1,10 +1,8 @@
 use crate::app::pad_svg::PadSvgDef;
 use crate::app::types::zone::PadZone;
-use crate::app::types::{
-    Note, PAD_ROTATION_RAD, PadGeom, SLIDE_TILE_SPACING, SlideSegment, SlideShape,
-    TAP_TARGET_OFFSET,
-};
+use crate::app::types::{Note, PAD_ROTATION_RAD, PadGeom, SlideSegment, SlideShape};
 use macroquad::math::{Vec2, vec2};
+use crate::app::params;
 
 // ── Direction ──
 
@@ -18,7 +16,7 @@ enum ArcDir {
 fn a_ring_pos(zone: PadZone, outer_r: f32, spawn_cx: Vec2) -> Vec2 {
     let idx = (zone.to_id() - 1) as f32;
     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
-    let target_r = outer_r + TAP_TARGET_OFFSET;
+    let target_r = outer_r + params::tap_target_offset();
     vec2(
         spawn_cx.x + ang.cos() * target_r,
         spawn_cx.y + ang.sin() * target_r,
@@ -177,6 +175,141 @@ fn push_corner_bezier(path: &mut Vec<Vec2>, corner: Vec2, next: Vec2, radius: f3
 
     path.push(next);
 }
+
+/// Signed smallest angle difference `a - b`, in `(-π, π]`.
+fn signed_delta(a: f32, b: f32) -> f32 {
+    (a - b + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+}
+
+/// Unit tangent of a circle at angle `a` in the travel direction (`sign = +1`
+/// when the angle increases, `-1` when it decreases).
+fn arc_tangent(a: f32, sign: f32) -> Vec2 {
+    vec2(-a.sin(), a.cos()) * sign
+}
+
+/// Append cubic Bézier samples from `p0` to `p3` (excludes `p0`, includes `p3`)
+/// with unit tangents `t0` at `p0` and `t1` at `p3`, so the join is G1.
+fn push_cubic(path: &mut Vec<Vec2>, p0: Vec2, t0: Vec2, p3: Vec2, t1: Vec2, spacing: f32) {
+    let d = (p3 - p0).length();
+    if d < 0.5 {
+        path.push(p3);
+        return;
+    }
+    let k = d / 3.0;
+    let p1 = p0 + t0 * k;
+    let p2 = p3 - t1 * k;
+    let steps = ((d / spacing.max(1.0)).ceil() as usize).max(6);
+    for i in 1..=steps {
+        let t = i as f32 / steps as f32;
+        let u = 1.0 - t;
+        path.push(p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t));
+    }
+}
+
+/// Join a straight segment into the start of a circular arc with a G1 cubic.
+///
+/// `path[idx]` is the arc's first point (angle `a0`), preceded by the straight.
+/// The straight and the arc are pulled back by `fillet_r`, the arc samples in
+/// between are dropped, and a cubic Bézier that is tangent to the straight at
+/// one end and to the arc at the other is inserted. This removes the visible
+/// seam that a small quadratic fillet left behind.
+#[allow(clippy::too_many_arguments)]
+fn blend_line_to_arc(
+    path: &mut Vec<Vec2>,
+    idx: usize,
+    center: Vec2,
+    radius: f32,
+    a0: f32,
+    sign: f32,
+    fillet_r: f32,
+    spacing: f32,
+) {
+    if idx == 0 || radius < 1.0 {
+        return;
+    }
+    let corner = path[idx];
+    let prev = path[idx - 1];
+    let lin = corner - prev;
+    if lin.length() < 1e-3 {
+        return;
+    }
+    let t_in = lin.normalize();
+
+    let da = ((fillet_r * params::slide_join_arc_influence().max(0.0)) / radius)
+        .clamp(0.0, std::f32::consts::FRAC_PI_2);
+    let a1 = a0 + sign * da;
+    let p_arc = center + vec2(a1.cos(), a1.sin()) * radius;
+    let t_arc = arc_tangent(a1, sign);
+
+    let r = (fillet_r * params::slide_join_line_influence().max(0.0)).min(lin.length());
+    let p0 = corner - t_in * r;
+
+    // Drop the arc samples that lie before `a1` (they are replaced by the blend).
+    let mut end = idx + 1;
+    while end < path.len() {
+        let p = path[end];
+        let ang = (p.y - center.y).atan2(p.x - center.x);
+        if signed_delta(ang, a0) * sign >= da {
+            break;
+        }
+        end += 1;
+    }
+
+    let mut repl = vec![p0];
+    push_cubic(&mut repl, p0, t_in, p_arc, t_arc, spacing);
+    path.splice(idx..end, repl);
+}
+
+/// Join the end of a circular arc into a straight segment with a G1 cubic.
+///
+/// `path[idx]` is the arc's last point (angle `a1`) and `path[idx+1]` is the
+/// straight's far end. Symmetric to [`blend_line_to_arc`].
+#[allow(clippy::too_many_arguments)]
+fn blend_arc_to_line(
+    path: &mut Vec<Vec2>,
+    idx: usize,
+    center: Vec2,
+    radius: f32,
+    a1: f32,
+    sign: f32,
+    fillet_r: f32,
+    spacing: f32,
+) {
+    if idx == 0 || idx + 1 >= path.len() || radius < 1.0 {
+        return;
+    }
+    let corner = path[idx];
+    let next = path[idx + 1];
+    let lout = next - corner;
+    if lout.length() < 1e-3 {
+        return;
+    }
+    let t_out = lout.normalize();
+
+    let da = ((fillet_r * params::slide_join_arc_influence().max(0.0)) / radius)
+        .clamp(0.0, std::f32::consts::FRAC_PI_2);
+    let a0 = a1 - sign * da;
+    let p_arc = center + vec2(a0.cos(), a0.sin()) * radius;
+    let t_arc = arc_tangent(a0, sign);
+
+    let r = (fillet_r * params::slide_join_line_influence().max(0.0)).min(lout.length());
+    let p1 = corner + t_out * r;
+
+    // Drop the arc samples that lie after `a0` (they are replaced by the blend).
+    let mut start = idx;
+    while start > 0 {
+        let p = path[start - 1];
+        let ang = (p.y - center.y).atan2(p.x - center.x);
+        if signed_delta(a1, ang) * sign >= da {
+            break;
+        }
+        start -= 1;
+    }
+
+    let mut repl = vec![p_arc];
+    push_cubic(&mut repl, p_arc, t_arc, p1, t_out, spacing);
+    path.splice(start..=idx, repl);
+}
 // ── Shape builders ──
 
 /// Q/P：起点 → 直线 → B弧 → 直线 → 终点（span 由 lane 和 target 自动算出）
@@ -231,14 +364,28 @@ fn build_arc(
             start_pos,
             end,
             20.0 * scale,
-            SLIDE_TILE_SPACING * scale,
+            params::slide_tile_spacing() * scale,
         );
         // path.push(start_pos);
         // path.push(end);
     } else {
+        // Start → B-ring entry (straight), B-arc, B-exit → end (straight).
+        // Smooth both line↔arc junctions with G1 cubics (arc side first so the
+        // earlier index stays valid).
+        let sign = if ep >= bp { 1.0 } else { -1.0 };
+        let start_idx = path.len();
         path.push(start_pos);
-        push_arc(path, bp, ep, b_center, b_radius, SLIDE_TILE_SPACING * scale);
+        push_arc(path, bp, ep, b_center, b_radius, params::slide_tile_spacing() * scale);
+        let end_idx = path.len() - 1;
         path.push(end);
+        let fillet_r = (b_radius * params::slide_join_fillet_frac())
+            .clamp(params::slide_join_fillet_min() * scale, params::slide_join_fillet_max() * scale);
+        blend_arc_to_line(
+            path, end_idx, b_center, b_radius, ep, sign, fillet_r, params::slide_tile_spacing() * scale,
+        );
+        blend_line_to_arc(
+            path, start_idx, b_center, b_radius, bp, sign, fillet_r, params::slide_tile_spacing() * scale,
+        );
     }
 }
 /// PP：与 QQ 相反（CW 弧），同用 AD 环固定圆
@@ -274,7 +421,7 @@ fn build_pp_arc(
     let arc_radius = c_pos.distance(base_pos) / 2.0;
 
     // 弧长：与 QQ 公式相反，从 lane-3 递减（QQ 从 lane+5 递减）
-    let ideal = ((note.lane as i32 + 2) % 8 + 1); // lane+3, opposite of QQ's lane+5
+    let ideal = (note.lane as i32 + 2) % 8 + 1; // lane+3, opposite of QQ's lane+5
     let dist = (target - ideal + 8) % 8;
     let arc_fraction = 1.0 - 0.1 * dist as f32;
     let arc_span = std::f32::consts::TAU * arc_fraction;
@@ -283,6 +430,9 @@ fn build_pp_arc(
     let bp = (c_pos.y - arc_center.y).atan2(c_pos.x - arc_center.x);
     let ep = bp - arc_span;
 
+    // C → arc → target, with G1 cubics at both line↔arc junctions (arc side
+    // first so the earlier index stays valid). PP runs clockwise: sign = -1.
+    let start_idx = path.len();
     path.push(c_pos);
     push_arc(
         path,
@@ -290,9 +440,18 @@ fn build_pp_arc(
         ep,
         arc_center,
         arc_radius,
-        SLIDE_TILE_SPACING * scale,
+        params::slide_tile_spacing() * scale,
     );
+    let end_idx = path.len() - 1;
     path.push(target_end);
+    let fillet_r = (arc_radius * params::slide_join_fillet_frac())
+        .clamp(params::slide_join_fillet_min() * scale, params::slide_join_fillet_max() * scale);
+    blend_arc_to_line(
+        path, end_idx, arc_center, arc_radius, ep, -1.0, fillet_r, params::slide_tile_spacing() * scale,
+    );
+    blend_line_to_arc(
+        path, start_idx, arc_center, arc_radius, bp, -1.0, fillet_r, params::slide_tile_spacing() * scale,
+    );
 }
 
 /// 将 AD 环上的 0..15 索引转回 PadZone
@@ -348,7 +507,7 @@ fn build_edge_arc(
     let arc_radius = c_pos.distance(base_pos) / 2.0;
 
     // 弧长：target=lane+5 → 100%，+4→90%，+3→80%... 单向递减
-    let ideal = ((note.lane as i32 + 4) % 8 + 1); // lane+5 wrapped to 1..8
+    let ideal = (note.lane as i32 + 4) % 8 + 1; // lane+5 wrapped to 1..8
     let dist = (ideal - target + 8) % 8; // 0=ideal, 1..7 递减
     let arc_fraction = 1.0 - 0.1 * dist as f32;
     let arc_span = std::f32::consts::TAU * arc_fraction;
@@ -357,19 +516,28 @@ fn build_edge_arc(
     let bp = (c_pos.y - arc_center.y).atan2(c_pos.x - arc_center.x);
     let ep = bp + arc_span;
 
-    // note.lane → C（直线，note 起点已在 path 中）
+    // note.lane → C（直线），C → 圆弧，圆弧 → 目标终点（直线）。两处接缝用
+    // G1 三次贝塞尔过渡（先处理靠后的接缝，索引不失效）。QQ 逆时针：sign = +1。
+    let start_idx = path.len();
     path.push(c_pos);
-    // C → 圆弧
     push_arc(
         path,
         bp,
         ep,
         arc_center,
         arc_radius,
-        SLIDE_TILE_SPACING * scale,
+        params::slide_tile_spacing() * scale,
     );
-    // AD 环 → 目标终点（直线）
+    let end_idx = path.len() - 1;
     path.push(target_end);
+    let fillet_r = (arc_radius * params::slide_join_fillet_frac())
+        .clamp(params::slide_join_fillet_min() * scale, params::slide_join_fillet_max() * scale);
+    blend_arc_to_line(
+        path, end_idx, arc_center, arc_radius, ep, 1.0, fillet_r, params::slide_tile_spacing() * scale,
+    );
+    blend_line_to_arc(
+        path, start_idx, arc_center, arc_radius, bp, 1.0, fillet_r, params::slide_tile_spacing() * scale,
+    );
 }
 
 /// Left/Right：起点 → 直线 → A弧 → 直线 → 终点（弧在 A 环上，span 由 lane 和 target 自动算出）
@@ -418,7 +586,7 @@ fn build_a_ring_arc(
         }
     }
 
-    push_arc(path, bp, ep, a_center, a_radius, SLIDE_TILE_SPACING * scale);
+    push_arc(path, bp, ep, a_center, a_radius, params::slide_tile_spacing() * scale);
 }
 
 /// Caret：note1 → note2，两点间 B 环弧连接（seg.points 恰好 2 个）
@@ -736,6 +904,139 @@ pub fn slide_shape_line(
             if path.last().map(|p| (*p - c).length() > 1.0).unwrap_or(true) {
                 path.push(c);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{blend_arc_to_line, blend_line_to_arc};
+    use macroquad::math::{Vec2, vec2};
+
+    /// Largest direction change (radians) between consecutive path segments.
+    fn max_turn(points: &[Vec2]) -> f32 {
+        let mut m = 0.0_f32;
+        for w in points.windows(3) {
+            let a = (w[1] - w[0]).normalize_or_zero();
+            let b = (w[2] - w[1]).normalize_or_zero();
+            if a.length_squared() > 0.0 && b.length_squared() > 0.0 {
+                m = m.max(a.dot(b).clamp(-1.0, 1.0).acos());
+            }
+        }
+        m
+    }
+
+    fn arc_pt(c: Vec2, r: f32, a: f32) -> Vec2 {
+        c + vec2(a.cos(), a.sin()) * r
+    }
+    fn arc_pts(c: Vec2, r: f32, a0: f32, a1: f32, n: usize) -> Vec<Vec2> {
+        (1..=n)
+            .map(|i| arc_pt(c, r, a0 + (a1 - a0) * i as f32 / n as f32))
+            .collect()
+    }
+
+    // 90° corner: straight along +x meets a circle whose tangent there is +y.
+    #[test]
+    fn blend_line_to_arc_removes_the_seam() {
+        let c = vec2(0.0, 0.0);
+        let r = 100.0;
+        let (a0, a1) = (0.0_f32, 1.0_f32);
+        let mut path = vec![vec2(40.0, 0.0), arc_pt(c, r, a0)];
+        path.extend(arc_pts(c, r, a0, a1, 12));
+        assert!(max_turn(&path) > 1.0, "expected a sharp corner");
+
+        blend_line_to_arc(&mut path, 1, c, r, a0, 1.0, 30.0, 10.0);
+
+        assert_eq!(path.first().copied(), Some(vec2(40.0, 0.0)));
+        assert!(
+            (max_turn(&path) - 0.0).abs() < 0.6,
+            "junction still bent: {}",
+            max_turn(&path)
+        );
+    }
+
+    #[test]
+    fn blend_arc_to_line_removes_the_seam() {
+        let c = vec2(0.0, 0.0);
+        let r = 100.0;
+        let (a0, a1) = (0.0_f32, 1.0_f32);
+        let mut path = vec![arc_pt(c, r, a0)];
+        path.extend(arc_pts(c, r, a0, a1, 12));
+        let end = *path.last().unwrap();
+        path.push(end + vec2(50.0, 0.0));
+        let idx = path.len() - 2;
+        assert!(max_turn(&path) > 1.0, "expected a sharp corner");
+
+        blend_arc_to_line(&mut path, idx, c, r, a1, 1.0, 30.0, 10.0);
+
+        assert_eq!(path.last().copied(), Some(end + vec2(50.0, 0.0)));
+        assert!(
+            (max_turn(&path) - 0.0).abs() < 0.6,
+            "junction still bent: {}",
+            max_turn(&path)
+        );
+    }
+
+    #[test]
+    fn blend_is_a_noop_on_degenerate_input() {
+        let mut path = vec![vec2(0.0, 0.0), vec2(1.0, 0.0)];
+        let before = path.clone();
+        // No arc point / end point to blend.
+        blend_line_to_arc(&mut path, 0, vec2(0.0, 0.0), 100.0, 0.0, 1.0, 30.0, 10.0);
+        blend_arc_to_line(&mut path, 1, vec2(0.0, 0.0), 100.0, 0.0, 1.0, 30.0, 10.0);
+        assert_eq!(path, before);
+    }
+
+    #[test]
+    fn real_q_and_qq_paths_have_no_sharp_junction() {
+        use crate::app::pad_svg::PadSvgDef;
+        use crate::app::types::zone::PadZone;
+        use crate::app::types::{Note, NoteType, PadGeom, SlidePoint, SlideSegment, SlideShape};
+
+        let svg = PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg")).unwrap();
+        let pad = PadGeom {
+            cx: 400.0,
+            cy: 400.0,
+            outer_r: 300.0,
+        };
+        let spawn = vec2(400.0, 400.0);
+
+        for (shape, end, f) in [
+            (
+                SlideShape::Q,
+                5u8,
+                super::slide_shape_q
+                    as fn(&mut Vec<Vec2>, &Note, &SlideSegment, f32, Vec2, &PadGeom, &PadSvgDef, f32),
+            ),
+            (
+                SlideShape::QQ,
+                5,
+                super::slide_shape_qq
+                    as fn(&mut Vec<Vec2>, &Note, &SlideSegment, f32, Vec2, &PadGeom, &PadSvgDef, f32),
+            ),
+        ] {
+            let note = Note {
+                time: 1.0,
+                lane: 1,
+                note_type: NoteType::Slide,
+                ..Default::default()
+            };
+            let seg = SlideSegment {
+                points: vec![SlidePoint {
+                    zone: PadZone::from(end),
+                    beat_offset: 0.0,
+                }],
+                shape,
+            };
+            // The caller (draw_slide) always seeds the path with the head.
+            let mut path = vec![super::a_ring_pos(PadZone::from(1), 300.0, spawn)];
+            f(&mut path, &note, &seg, 300.0, spawn, &pad, &svg, 1.0);
+            assert!(path.len() > 4, "{shape:?} path too short: {}", path.len());
+            assert!(
+                max_turn(&path) < 0.7,
+                "{shape:?} still has a sharp junction: {}",
+                max_turn(&path)
+            );
         }
     }
 }
