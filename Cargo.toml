@@ -14,8 +14,14 @@ path = "src/main.rs"
 name = "lambda_dx_player_ui"
 path = "src/player_ui_main.rs"
 
+[[bin]]
+name = "macroanimate_test"
+path = "src/macroanimate_test.rs"
+
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
+# Adobe Animate sparrow / texture-atlas parser + renderer (test bin only).
+macroanimate = "0.2.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hound = "3"
