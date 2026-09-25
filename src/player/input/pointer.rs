@@ -2,14 +2,13 @@
 //!
 //! Each pointer id is tracked independently, so multi-touch and slides between
 //! zones all work. A zone transition lights the zone (blue), pulses it orange,
-//! and (via `input::hit`) may add a judgment label.
+//! and forwards judgment input to lnmai-core.
 
 use macroquad::math::Vec2;
 use macroquad::prelude::*;
 
 use crate::app::types::zone::PadZone;
 use crate::app::types::{MOUSE_POINTER_ID, PadGeom, PointerEvent};
-use crate::player::input::hit::judge_label_for_zone;
 use crate::player::state::PadPreviewState;
 
 /// Drain macroquad's touch/mouse state into a uniform pointer-event list.
@@ -91,8 +90,6 @@ pub(super) fn update_pointer_zone(
             if app.has_engine() {
                 let tp = (app.song_time().max(0.0) * 1e6) as i64;
                 app.queue_engine_press(zone, tp);
-            } else if let Some(label) = judge_label_for_zone(app, zone) {
-                app.push_judgement(zone, label, 0.6);
             }
         }
         None => {

@@ -4,9 +4,8 @@
 //! |---|---|
 //! | [`pointer`] | touch/mouse events, zone hit-testing, active highlights |
 //! | [`keyboard`] | lane keys and playback hotkeys |
-//! | [`hit`] | tiny stand-in "judge" that labels a zone hit |
+//! Judgment is provided by `lnmai-core`.
 
-pub mod hit;
 pub mod keyboard;
 pub mod pointer;
 

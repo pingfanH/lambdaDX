@@ -9,7 +9,6 @@ use crate::app::types::zone::PadZone;
 use crate::app::types::{
     ChartDoc, JudgeFeedback, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
 };
-use crate::player::autoplay::AutoplayEvent;
 use crate::player::cues::CueTrack;
 use crate::player::video::VideoBg;
 
@@ -113,12 +112,9 @@ pub struct PadPreviewState {
     pub hold_end_break_guide_tex: Option<Texture2D>,
 
     // ── Autoplay ─────────────────────────────────────────────────────
-    /// When on, the pad presses itself at each note's hit time.
+    /// When on, the pad feeds lnmai-core's default tactic.
     pub autoplay: bool,
-    pub autoplay_events: Vec<AutoplayEvent>,
     pub autoplay_cursor: usize,
-    /// Note ids hidden by autoplay, so a seek can restore them.
-    pub autoplay_hidden: Vec<u64>,
 
     // ── Progress / seeking ───────────────────────────────────────────
     /// True while the progress bar is being dragged.
@@ -242,9 +238,7 @@ impl PadPreviewState {
             hold_end_each_guide_tex: None,
             hold_end_break_guide_tex: None,
             autoplay: false,
-            autoplay_events: Vec::new(),
             autoplay_cursor: 0,
-            autoplay_hidden: Vec::new(),
             scrubbing: false,
             video_bg: VideoBg::new(),
             mobile_ui,
