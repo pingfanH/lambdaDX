@@ -6,3 +6,7 @@
 # Large local media / scratch files
 /assets/*.mp4
 /assets/note_params copy.json
+.vscode/
+examples/
+reference/
+result
