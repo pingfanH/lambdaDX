@@ -46,12 +46,30 @@ pub fn draw(
         };
 
     for (si, sl) in subs {
-        let slide_dur_s =
-            mdur_to_secs(sl.slide_duration, note.time, bpms).max(SLIDE_MIN_DURATION_S);
-        let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
+        let core_timing = if note.slide.iter().any(|part| part.connected_from.is_some()) {
+            app.judge_engine.as_ref().and_then(|engine| {
+                let runtime_index = crate::player::engine::chart_slide_index(&app.chart, note.id, si)?;
+                engine.slide_body_timing(runtime_index)
+            })
+        } else {
+            None
+        };
+        let (start_delay_s, slide_dur_s) = core_timing
+            .map(|(start, end)| (start - ns, end - ns))
+            .unwrap_or_else(|| (
+                mdur_to_secs(sl.slide_start_delay, note.time, bpms),
+                mdur_to_secs(sl.slide_duration, note.time, bpms),
+            ));
+        let slide_dur_s = slide_dur_s.max(SLIDE_MIN_DURATION_S);
+        let fade_in_s = start_delay_s
             .max(0.0)
             .min(slide_dur_s - 0.001)
             .max(0.001);
+        let mut render_note = note.clone();
+        if let Some(start_lane) = sl.connected_from {
+            render_note.lane = start_lane;
+            render_note.is_tapless = true;
+        }
 
         // Pick the correct trail/star variant for this note's flags (central
         // skin table in `render::skin`).
@@ -103,7 +121,7 @@ pub fn draw(
         }
 
         slide_render::draw_slide(
-            note,
+            &render_note,
             sl,
             current_t,
             ns,

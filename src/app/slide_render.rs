@@ -909,7 +909,11 @@ pub fn draw_slide(
     // i.e. until it begins to trace) it grows to 1.5x and fades to fully
     // opaque. Then it continues along the path.
     if layer == SlideLayer::Star {
-    if !show_full && current_t >= ns && (core_driven || current_t <= slide_end_s) {
+    if !show_full
+        && current_t >= ns
+        && (slide.connected_from.is_none() || current_t >= slide_start_s)
+        && (core_driven || current_t <= slide_end_s)
+    {
         let (star_pos, angle) = point_at(star_dist_along);
         let p = if start_delay_s > 1e-4 {
             ((current_t - ns) / start_delay_s).clamp(0.0, 1.0)

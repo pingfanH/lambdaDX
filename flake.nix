@@ -11,6 +11,11 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    nixgl = {
+      url = "github:nix-community/nixGL?rev=b6105297e6f0cd041670c3e8628394d4ee247ed5";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
     lnmai-core-ffi = {
       url = "github:pingfanH/lnmai-core-ffi?ref=master";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -28,7 +33,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, lnmai-core-ffi, lnmai-core, maisimai }:
+  outputs = { self, nixpkgs, flake-utils, nixgl, lnmai-core-ffi, lnmai-core, maisimai }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
@@ -117,22 +122,28 @@
             mkdir -p "$out/share/lambda_dx"
             cp -r "$src/assets" "$out/share/lambda_dx/assets"
             wrapProgram "$out/bin/lambda_dx_player_ui" \
-              --prefix LD_LIBRARY_PATH : "${libraryPath}" \
+              --suffix LD_LIBRARY_PATH : "${libraryPath}" \
+              --run 'if [ -n "''${WAYLAND_DISPLAY:-}" ] && [ -z "''${EGL_PLATFORM:-}" ]; then export EGL_PLATFORM=wayland; fi' \
               --set MAI2_ASSET_DIR "$out/share/lambda_dx/assets" \
               --set MAI2_FONT_PATH "${cjkFontPath}"
           '';
         };
+        playerNixgl = pkgs.writeShellScriptBin "lambda-dx-player-nixgl" ''
+          exec ${nixgl.packages.${system}.nixGLIntel}/bin/nixGLIntel \
+            ${lambdaDxPlayer}/bin/lambda_dx_player_ui "$@"
+        '';
         commonEnv = ''
           export RUST_BACKTRACE=1
           export LNMAI_CORE_ARTIFACTS="${lnmaiCoreArtifacts}"
           export MAI2_FONT_PATH="${cjkFontPath}"
-          export LD_LIBRARY_PATH="${libraryPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="''${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${libraryPath}"
           export LIBRARY_PATH="${libraryPath}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
           export PKG_CONFIG_PATH="${pkgConfigPath}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
         '';
       in {
         packages.default = lambdaDxPlayer;
         packages.player = lambdaDxPlayer;
+        packages.player-nixgl = playerNixgl;
 
         apps.default = {
           type = "app";
@@ -142,6 +153,11 @@
         apps.player = {
           type = "app";
           program = "${lambdaDxPlayer}/bin/lambda_dx_player_ui";
+        };
+
+        apps.player-nixgl = {
+          type = "app";
+          program = "${playerNixgl}/bin/lambda-dx-player-nixgl";
         };
 
         devShells.default = pkgs.mkShell {

@@ -193,6 +193,7 @@ pub fn fallback_chart() -> ChartDoc {
             slide_duration: dur,
             slide_start_delay: delay,
             slide_is_break: false,
+            connected_from: None,
         }]
     };
     let sp = |z: u8| SlidePoint {

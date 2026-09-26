@@ -268,6 +268,7 @@ fn build_slides(
     let mut slides: Vec<Slide> = Vec::new();
     let mut segments: Vec<SlideSegment> = vec![seg(0, end, pattern, reflect)];
     let mut prev_end = end;
+    let mut connected_from = None;
 
     for (cp, ce, cr, is_new_slide) in chain {
         if *is_new_slide {
@@ -276,7 +277,9 @@ fn build_slides(
                 slide_duration: wait + travel,
                 slide_start_delay: wait,
                 slide_is_break: is_break,
+                connected_from,
             });
+            connected_from = Some(prev_end + 1);
         }
         segments.push(seg(prev_end, *ce, *cp, *cr));
         prev_end = *ce;
@@ -287,7 +290,15 @@ fn build_slides(
             slide_duration: wait + travel,
             slide_start_delay: wait,
             slide_is_break: is_break,
+            connected_from,
         });
+    }
+    if slides.len() > 1 {
+        let part_travel = travel / slides.len() as f32;
+        for (index, slide) in slides.iter_mut().enumerate() {
+            slide.slide_start_delay = wait + index as f32 * part_travel;
+            slide.slide_duration = wait + (index + 1) as f32 * part_travel;
+        }
     }
     slides
 }
@@ -356,6 +367,7 @@ fn sensor_lane(region: char, position: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::from_maidata;
+    use crate::app::types::zone::PadZone;
 
     #[test]
     fn simultaneous_notes_are_marked_each() {
@@ -418,6 +430,26 @@ mod tests {
     }
 
     #[test]
+    fn connected_slide_parts_follow_previous_endpoint_and_time() {
+        let text = "&title=D\n&inote_2=(120){4}1-5[4:1]*-3[4:1],E\n";
+        let chart = from_maidata(text, None).expect("parse");
+        let note = chart
+            .notes
+            .iter()
+            .find(|note| note.slide.len() == 2)
+            .expect("connected slide");
+        let first = &note.slide[0];
+        let second = &note.slide[1];
+        assert_eq!(first.connected_from, None);
+        assert_eq!(second.connected_from, Some(5));
+        assert_eq!(first.segments[0].points.last().unwrap().zone, PadZone::A5);
+        assert_eq!(second.segments[0].points.last().unwrap().zone, PadZone::A3);
+        assert!(first.slide_start_delay < first.slide_duration);
+        assert!((second.slide_start_delay - first.slide_duration).abs() < 1e-5);
+        assert!((second.slide_duration - (0.25 + 0.25)).abs() < 1e-5);
+    }
+
+    #[test]
     fn diff_selects_by_position() {
         let text = "&title=D\n&inote_2=(120){4}1,\n&inote_5=(120){4}1,2,3,\n";
         let easy = from_maidata(text, Some(1)).unwrap();
@@ -426,4 +458,3 @@ mod tests {
         assert_eq!(hard.notes.len(), 3);
     }
 }
-

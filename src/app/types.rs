@@ -393,6 +393,9 @@ pub struct Slide {
     /// Whether this slide trail is a break slide.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub slide_is_break: bool,
+    /// Start lane inherited from the preceding connected part (if any).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connected_from: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

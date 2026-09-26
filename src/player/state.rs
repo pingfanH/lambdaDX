@@ -624,7 +624,17 @@ impl PadPreviewState {
             }
             let ns = note_secs(note, &bpms);
             for (si, sl) in note.slide.iter().enumerate() {
-                let end = ns + mdur_to_secs(sl.slide_duration, note.time, &bpms);
+                let core_end = if note.slide.iter().any(|part| part.connected_from.is_some()) {
+                    self.judge_engine.as_ref().and_then(|engine| {
+                        let index =
+                            crate::player::engine::chart_slide_index(&self.chart, note.id, si)?;
+                        engine.slide_body_timing(index).map(|(_, end)| end)
+                    })
+                } else {
+                    None
+                };
+                let end = core_end
+                    .unwrap_or_else(|| ns + mdur_to_secs(sl.slide_duration, note.time, &bpms));
                 if end < t {
                     past.push((note.id, si));
                 } else {

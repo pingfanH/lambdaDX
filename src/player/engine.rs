@@ -166,6 +166,7 @@ pub struct JudgeEngine {
     slide_bindings: HashMap<u64, usize>,
     /// Core slide head timings (µs), indexed by runtime slide index.
     slide_head_timings: Vec<i64>,
+    slide_body_timings: Vec<(i64, i64)>,
 }
 
 fn ensure_runtime() {
@@ -181,11 +182,13 @@ impl JudgeEngine {
         let (loaded, _envelope) = empty
             .load_chart_text(simai_text, level_index)
             .map_err(|e| e.json)?;
-        let (slide_bindings, slide_head_timings) = runtime_slide_bindings(&loaded)?;
+        let (slide_bindings, slide_head_timings, slide_body_timings) =
+            runtime_slide_bindings(&loaded)?;
         Ok(JudgeEngine {
             session: loaded,
             slide_bindings,
             slide_head_timings,
+            slide_body_timings,
         })
     }
 
@@ -223,6 +226,12 @@ impl JudgeEngine {
     /// Core slide head timing (µs) at `runtime_slide_index`.
     pub fn slide_head_timing(&self, runtime_slide_index: usize) -> Option<i64> {
         self.slide_head_timings.get(runtime_slide_index).copied()
+    }
+
+    pub fn slide_body_timing(&self, runtime_slide_index: usize) -> Option<(f32, f32)> {
+        self.slide_body_timings
+            .get(runtime_slide_index)
+            .map(|&(start, end)| (start as f32 / 1e6, end as f32 / 1e6))
     }
 
     /// Build lnmai-core's default replay tactic (autoplay events) for the
@@ -292,7 +301,9 @@ pub struct SlideProgressUpdate {
     pub hidden_until_bar: usize,
 }
 
-fn runtime_slide_bindings(session: &Session<Loaded>) -> Result<(HashMap<u64, usize>, Vec<i64>), String> {
+fn runtime_slide_bindings(
+    session: &Session<Loaded>,
+) -> Result<(HashMap<u64, usize>, Vec<i64>, Vec<(i64, i64)>), String> {
     let envelope = session.get_state_json().map_err(|e| e.json)?;
     let state = envelope
         .decode_result::<GameState>()
@@ -306,7 +317,12 @@ fn runtime_slide_bindings(session: &Session<Loaded>) -> Result<(HashMap<u64, usi
         })
         .collect();
     let head_timings = state.slides.iter().map(|slide| slide.head_timing).collect();
-    Ok((index_by_note, head_timings))
+    let body_timings = state
+        .slides
+        .iter()
+        .map(|slide| (slide.start_timing, slide.start_timing + slide.length))
+        .collect();
+    Ok((index_by_note, head_timings, body_timings))
 }
 
 trait InputTp {
@@ -570,6 +586,21 @@ pub fn chart_slide_key(chart: &ChartDoc, runtime_slide_index: usize) -> Option<(
         })
 }
 
+pub fn chart_slide_index(chart: &ChartDoc, note_id: u64, slide_index: usize) -> Option<usize> {
+    let mut current = 0;
+    for note in chart
+        .notes
+        .iter()
+        .filter(|note| matches!(note.note_type, NoteType::Slide))
+    {
+        if note.id == note_id {
+            return (slide_index < note.slide.len()).then_some(current + slide_index);
+        }
+        current += note.slide.len();
+    }
+    None
+}
+
 fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
     if !app.audio_enabled {
         return;
@@ -780,6 +811,25 @@ mod tests {
                 "runtime slide {i} head {core_s:.3}s != chart head {head_s:.3}s"
             );
         }
+    }
+
+    #[test]
+    fn connected_slide_parts_use_sequential_core_times() {
+        let text = "&first=0\n&inote_2=(120){4}1-5[4:1]*-3[4:1],E\n";
+        let chart = crate::app::maidata::from_maidata(text, None).expect("chart");
+        let note = chart
+            .notes
+            .iter()
+            .find(|note| note.slide.len() == 2)
+            .expect("connected slide");
+        let engine = JudgeEngine::load(text, 2).expect("engine");
+        let (first_start, first_end) = engine.slide_body_timing(0).expect("first body");
+        let (second_start, second_end) = engine.slide_body_timing(1).expect("second body");
+        assert_eq!(engine.slide_count(), 2);
+        assert!(first_start < first_end);
+        assert!((second_start - first_end).abs() < 0.001);
+        assert!(second_start < second_end);
+        assert_eq!(chart_slide_index(&chart, note.id, 1), Some(1));
     }
 
     #[test]

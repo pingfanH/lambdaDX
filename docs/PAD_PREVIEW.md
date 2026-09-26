@@ -20,6 +20,15 @@ cargo run -- ./chart.json ./track.mp3 --diff 4     # maichart JSON + 音频 + �
 cargo run -- --help
 ```
 
+Nix 图形运行可使用 `nix run .#player`。在 Wayland 会话中运行时需继承桌面会话的
+`WAYLAND_DISPLAY` 和 `XDG_RUNTIME_DIR`；运行脚本会在未显式指定时设定
+`EGL_PLATFORM=wayland`，并保留已有的 `LD_LIBRARY_PATH`，以便使用主机 GPU 驱动。
+如果非 NixOS 主机仍报告 EGL `NoDisplay`，可通过 `nixGL` 等方式提供与主机驱动
+匹配的 EGL 库；仅在 flake 中指定 Wayland socket 名称无法修复 GPU 驱动加载失败。
+使用 Mesa 驱动（Intel/AMD）的主机可以直接运行 `nix run .#player-nixgl`；默认的
+`nix run .#player` 不使用 nixGL。NVIDIA 主机需要与本机驱动版本匹配的 nixGL NVIDIA
+包装器，不能用 Mesa 版替代。`player-nixgl` 仍使用原生 Wayland，而非 XWayland。
+
 命令行参数（`src/app/cli.rs`）：
 
 | 参数 | 作用 |

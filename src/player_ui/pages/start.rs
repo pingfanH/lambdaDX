@@ -85,16 +85,6 @@ fn draw_copy(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx, area: RectF)
     );
     y += 34.0 * ctx.scale;
 
-    draw::text(
-        ctx.font.as_ref(),
-        "把节拍变成动作。选择谱面，设定难度，进入你的下一局。",
-        x,
-        y,
-        15.0 * ctx.scale,
-        draw::with_alpha(theme::TEXT_DIM, alpha),
-    );
-    y += 44.0 * ctx.scale;
-
     let bw = (area.w - pad * 2.0).min(360.0 * ctx.scale);
     let bh = 50.0 * ctx.scale;
     let b1 = RectF { x, y, w: bw, h: bh };
