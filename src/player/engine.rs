@@ -328,6 +328,41 @@ pub fn timed_input_tp(event: &TimedInputEvent) -> i64 {
     event.tp()
 }
 
+/// Adapt lnmai-core's outer-button autoplay events to this player's sensor-only
+/// input surface. The pad has no K buttons, so K1..K8 are represented by the
+/// corresponding A1..A8 sensor events before the frame is sent back to core.
+pub fn normalize_tactic_event(event: TimedInputEvent) -> TimedInputEvent {
+    match event {
+        TimedInputEvent::ButtonClick { tp, zone } => TimedInputEvent::SensorClick {
+            tp,
+            area: sensor_area_for_button(zone),
+        },
+        TimedInputEvent::ButtonHold {
+            tp,
+            zone,
+            is_down,
+        } => TimedInputEvent::SensorHold {
+            tp,
+            area: sensor_area_for_button(zone),
+            is_down,
+        },
+        sensor_event => sensor_event,
+    }
+}
+
+fn sensor_area_for_button(zone: ButtonZone) -> SensorArea {
+    match zone {
+        ButtonZone::K1 => SensorArea::A1,
+        ButtonZone::K2 => SensorArea::A2,
+        ButtonZone::K3 => SensorArea::A3,
+        ButtonZone::K4 => SensorArea::A4,
+        ButtonZone::K5 => SensorArea::A5,
+        ButtonZone::K6 => SensorArea::A6,
+        ButtonZone::K7 => SensorArea::A7,
+        ButtonZone::K8 => SensorArea::A8,
+    }
+}
+
 /// Advance the engine and apply the resulting core judge/audio commands.
 pub fn step_judge_engine(app: &mut PadPreviewState) {
     if app.judge_engine.is_none() {
@@ -346,9 +381,8 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
             handle_engine_result(app, result);
         }
         Err(e) => {
-            if !app.status.starts_with("engine") {
-                app.set_status(format!("engine: {e}"));
-            }
+            eprintln!("lnmai-core step failed: {e}");
+            app.set_status(format!("engine: {e}"));
         }
     }
 }
@@ -613,6 +647,44 @@ mod tests {
     }
 
     #[test]
+    fn autoplay_button_tactic_is_normalized_to_a_sensor() {
+        let click = normalize_tactic_event(TimedInputEvent::ButtonClick {
+            tp: 123,
+            zone: ButtonZone::K3,
+        });
+        assert_eq!(
+            click,
+            TimedInputEvent::SensorClick {
+                tp: 123,
+                area: SensorArea::A3,
+            }
+        );
+
+        let hold = normalize_tactic_event(TimedInputEvent::ButtonHold {
+            tp: 456,
+            zone: ButtonZone::K7,
+            is_down: false,
+        });
+        assert_eq!(
+            hold,
+            TimedInputEvent::SensorHold {
+                tp: 456,
+                area: SensorArea::A7,
+                is_down: false,
+            }
+        );
+    }
+
+    #[test]
+    fn autoplay_sensor_tactic_is_unchanged() {
+        let event = TimedInputEvent::SensorClick {
+            tp: 789,
+            area: SensorArea::B2,
+        };
+        assert_eq!(normalize_tactic_event(event.clone()), event);
+    }
+
+    #[test]
     fn chart_slide_key_enumerates_slides_in_parse_order() {
         let text = bundled_maidata();
         let chart = crate::app::maidata::from_maidata(&text, None).expect("chart");
@@ -740,4 +812,3 @@ mod tests {
         assert!(max_dx > 0, "autoplay should earn DX score");
     }
 }
-

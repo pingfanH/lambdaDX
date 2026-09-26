@@ -280,6 +280,7 @@ pub async fn run() {
             app.pad.tick_cues();
         }
         app.tick_autoplay();
+        player::engine::step_judge_engine(&mut app.pad);
         app.pad.tick_feedback();
 
         if app.pad.playback_pending && app.gameplay_presented {

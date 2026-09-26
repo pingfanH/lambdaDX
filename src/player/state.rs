@@ -143,6 +143,7 @@ pub struct PadPreviewState {
     /// Autoplay: lnmai-core's default replay tactic, consumed by timestamp.
     pub autoplay_tactic: Vec<lnmai_core::types::TimedInputEvent>,
     pub autoplay_tactic_cursor: usize,
+    pub autoplay_click_held: Vec<lnmai_core::types::SensorArea>,
     /// Latest lnmai-core score snapshot (combo, DX score, judge counts).
     pub core_score: Option<lnmai_core::types::ScoreState>,
     /// Simai source + `&inote_N` used to (re)build the engine on restart.
@@ -250,6 +251,7 @@ impl PadPreviewState {
             engine_events: Vec::new(),
             autoplay_tactic: Vec::new(),
             autoplay_tactic_cursor: 0,
+            autoplay_click_held: Vec::new(),
             core_score: None,
             simai_source: None,
             simai_level: 0,
@@ -489,6 +491,7 @@ impl PadPreviewState {
         let engine = crate::player::engine::JudgeEngine::load(simai_text, level_index)?;
         self.autoplay_tactic = engine.default_tactic().unwrap_or_default();
         self.autoplay_tactic_cursor = 0;
+        self.autoplay_click_held.clear();
         self.judge_engine = Some(engine);
         self.engine_events.clear();
         self.core_score = None;

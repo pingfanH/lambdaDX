@@ -275,6 +275,7 @@ impl PlayerUiApp {
         self.levels = loaded.levels;
         self.selected_level = loaded.key;
         self.apply_chart(loaded.chart);
+        self.load_core_engine();
 
         self.audio_path = loaded.audio_path;
         self.pad.audio_wav_pcm = None;
@@ -307,9 +308,39 @@ impl PlayerUiApp {
         })?;
         self.selected_level = Some(key);
         self.apply_chart(chart);
+        self.load_core_engine();
         self.error = None;
         self.status = format!("难度已切换至 Lv.{key}");
         Ok(())
+    }
+
+    fn load_core_engine(&mut self) {
+        let Some(text) = self.chart_text.as_deref() else {
+            return;
+        };
+        let level = self
+            .selected_level
+            .or_else(|| crate::app::maidata::inote_key(text, None));
+        let Some(level) = level else {
+            self.error = Some("lnmai-core: chart has no &inote_N level".to_string());
+            return;
+        };
+        match self.pad.load_engine(text, level) {
+            Ok(()) => {
+                self.status = format!(
+                    "lnmai-core ready · {} tactic events · {} slides",
+                    self.pad.autoplay_tactic.len(),
+                    self.pad.judge_engine.as_ref().map_or(0, |engine| engine.slide_count())
+                );
+            }
+            Err(error) => {
+                self.pad.judge_engine = None;
+                self.pad.autoplay_tactic.clear();
+                self.pad.engine_events.clear();
+                self.error = Some(format!("lnmai-core: {error}"));
+                eprintln!("player-ui: lnmai-core engine load failed: {error}");
+            }
+        }
     }
 
     /// Swap the chart into the reused view and rebuild derived state.
@@ -354,6 +385,9 @@ impl PlayerUiApp {
         }
         if self.pad.chart.notes.is_empty() {
             return Err("该谱面没有音符".to_string());
+        }
+        if self.pad.judge_engine.is_none() {
+            self.load_core_engine();
         }
         // Audio already installed (or there is no track): start straight away.
         if self.pad.audio_wav_pcm.is_some() || self.audio_path.is_none() {

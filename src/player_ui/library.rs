@@ -5,6 +5,7 @@
 //! macroquad parser in this crate can provide (no Simai *import* / file dialogs).
 
 use std::collections::VecDeque;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
@@ -253,7 +254,14 @@ fn song_from_folder(folder: &Path) -> Option<LibrarySong> {
             } else {
                 f.artist.clone()
             },
-            f.levels.clone(),
+            {
+                let chart_keys: HashSet<u32> = f.charts.iter().map(|(key, _)| *key).collect();
+                f.levels
+                    .iter()
+                    .filter(|(key, _)| chart_keys.contains(key))
+                    .cloned()
+                    .collect()
+            },
         ),
         None => (folder_name(folder), "未知艺术家".to_string(), Vec::new()),
     };
@@ -360,5 +368,19 @@ mod tests {
         let easy = chart_for_level(text, Some(3)).unwrap();
         let hard = chart_for_level(text, Some(5)).unwrap();
         assert!(easy.notes.len() < hard.notes.len());
+    }
+
+    #[test]
+    fn default_level_ignores_orphan_level_metadata() {
+        let text = "&title=T\n&lv_2=2.0\n&lv_6=\n&inote_2=(120){4}1,2,3,4\n";
+        let file = parse_file(text).expect("file");
+        let chart_keys: HashSet<u32> = file.charts.iter().map(|(key, _)| *key).collect();
+        let levels: Vec<_> = file
+            .levels
+            .iter()
+            .filter(|(key, _)| chart_keys.contains(key))
+            .cloned()
+            .collect();
+        assert_eq!(default_level(&levels), Some(2));
     }
 }
