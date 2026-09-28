@@ -247,9 +247,16 @@ fn convert_note(n: &SimaiNote) -> Option<Note> {
     }
 }
 
-/// Build the sub-slides for a simai slide. A `*` chain entry starts a new
-/// sub-slide (multiple arrows from one head); other chain entries extend the
-/// current one.
+/// Build the sub-slides for a simai slide.
+///
+/// This is the pre-lnmai grouping: a `*` chain entry starts a new sub-slide
+/// (every part reuses the note head), while a continuous chain without `*`
+/// (`>`/`<`/`^`/`v`…) stays **one sub-slide with multiple segments** so the
+/// renderer flies a single star along the whole path.
+///
+/// lnmai-core instead splits a continuous chain into one runtime slide per arc;
+/// that expansion is recorded in [`Slide::runtime_parts`] so the runtime index
+/// still maps back onto this sub-slide (see `engine::chart_slide_key`).
 #[allow(clippy::too_many_arguments)]
 fn build_slides(
     pattern: SlidePattern,
@@ -265,29 +272,30 @@ fn build_slides(
         shape: shape_of(pattern),
     };
 
+    let has_star = chain.iter().any(|(_, _, _, is_new_slide)| *is_new_slide);
+    let make = |segments: Vec<SlideSegment>| Slide {
+        // A `*` part is a single runtime slide; a continuous chain expands to
+        // one runtime slide per segment.
+        runtime_parts: if has_star { 1 } else { segments.len().max(1) },
+        segments,
+        slide_duration: wait + travel,
+        slide_start_delay: wait,
+        slide_is_break: is_break,
+    };
+
     let mut slides: Vec<Slide> = Vec::new();
     let mut segments: Vec<SlideSegment> = vec![seg(0, end, pattern, reflect)];
     let mut prev_end = end;
 
     for (cp, ce, cr, is_new_slide) in chain {
         if *is_new_slide {
-            slides.push(Slide {
-                segments: std::mem::take(&mut segments),
-                slide_duration: wait + travel,
-                slide_start_delay: wait,
-                slide_is_break: is_break,
-            });
+            slides.push(make(std::mem::take(&mut segments)));
         }
-        segments.push(seg(prev_end, *ce, *cp, *cr));
+        segments.push(seg(prev_end + 1, *ce, *cp, *cr));
         prev_end = *ce;
     }
     if !segments.is_empty() {
-        slides.push(Slide {
-            segments,
-            slide_duration: wait + travel,
-            slide_start_delay: wait,
-            slide_is_break: is_break,
-        });
+        slides.push(make(segments));
     }
     slides
 }
@@ -415,6 +423,37 @@ mod tests {
         assert!(sl.slide_start_delay.abs() < 1e-6, "delay {}", sl.slide_start_delay);
         // 0.24 s @120bpm = 0.12 measure travel.
         assert!((sl.slide_duration - 0.12).abs() < 1e-3, "dur {}", sl.slide_duration);
+    }
+
+    #[test]
+    fn continuous_chain_stays_one_sub_slide() {
+        // `1v4>3>2` is one continuous slide: rendered as a single sub-slide with
+        // one star along the whole path (pre-lnmai grouping), but it expands to
+        // one runtime slide per arc for the engine mapping.
+        let text = "&title=D\n&inote_1=(120){4}1v4>3>2[4:1],E\n";
+        let c = from_maidata(text, None).expect("parse");
+        let n = c
+            .notes
+            .iter()
+            .find(|n| matches!(n.note_type, crate::app::types::NoteType::Slide))
+            .expect("slide");
+        assert_eq!(n.slide.len(), 1, "one sub-slide for the whole chain");
+        assert_eq!(n.slide[0].segments.len(), 3, "three chained segments");
+        assert_eq!(n.slide[0].runtime_parts, 3, "lnmai splits it per arc");
+    }
+
+    #[test]
+    fn star_chain_keeps_grouped_parts() {
+        // A `*` chain keeps one sub-slide per part, each a single runtime slide.
+        let text = "&title=D\n&inote_1=(120){4}4-8<4[2:1]*-8>4[2:1],E\n";
+        let c = from_maidata(text, None).expect("parse");
+        let n = c
+            .notes
+            .iter()
+            .find(|n| matches!(n.note_type, crate::app::types::NoteType::Slide))
+            .expect("slide");
+        assert_eq!(n.slide.len(), 2, "one sub-slide per `*` part");
+        assert!(n.slide.iter().all(|s| s.runtime_parts == 1));
     }
 
     #[test]

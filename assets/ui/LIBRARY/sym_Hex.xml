@@ -1,0 +1,24 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="sym_Hex" itemID="8dc30c9d-00000007" symbolType="graphic" lastModified="1790385528">
+  <timeline>
+    <DOMTimeline name="sym_Hex" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="bitmap" color="#4FFF4F" current="true" isSelected="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMBitmapInstance libraryItemName="Hex.png">
+                  <matrix>
+                    <Matrix tx="-96" ty="-96"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point/>
+                  </transformationPoint>
+                </DOMBitmapInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

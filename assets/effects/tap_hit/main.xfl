@@ -1,0 +1,9 @@
+<DOMFlashFile xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" version="2">
+     <files>
+        <DOMFile path="DOMDocument.xml" type="application/vnd.adobe.xfl.document"/>
+        <DOMFile path="LIBRARY/flash_shape.xml"/>
+        <DOMFile path="LIBRARY/ring_shape.xml"/>
+        <DOMFile path="LIBRARY/spark_shape.xml"/>
+        <DOMFile path="LIBRARY/tap_hit.xml"/>
+     </files>
+</DOMFlashFile>

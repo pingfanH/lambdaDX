@@ -6,3 +6,12 @@
 # Large local media / scratch files
 /assets/*.mp4
 /assets/note_params copy.json
+
+# Video export output
+/out.mp4
+
+# Cloned reference / third-party tools
+/XFLProcessor/
+
+# Reference asset dump (MajdataView)
+/assets/mjdataplay/

@@ -1,0 +1,41 @@
+<DOMDocument xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" width="960" height="640" frameRate="60" currentTimeline="1" xflVersion="23.0" creatorInfo="Adobe Animate" platform="Macintosh" versionInfo="Saved by Animate Macintosh 24.0 build 305" majorVersion="24" buildNumber="305" viewAngle3D="84.5182101128788" vanishingPoint3DX="480" vanishingPoint3DY="320" nextSceneIdentifier="2" playOptionsPlayLoop="false" playOptionsPlayPages="false" playOptionsPlayFrameActions="false" filetypeGUID="3CE50BB6-55CF-47A6-B591-01286DDDC64C" fileGUID="B540AEA3001B4200B8EC995EA3E2DF75">
+     <media>
+          <DOMBitmapItem name="Hex.png" itemID="8dc30c9d-0000003f" sourceExternalFilepath="../ui/LIBRARY/Hex.png" sourceLastImported="1790385542" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" href="Hex.png" bitmapDataHRef="M 2 1790385590.dat" frameRight="3840" frameBottom="3840"/>
+     </media>
+     <symbols>
+          <Include href="flash_shape.xml" itemIcon="1" loadImmediate="false" itemID="00000000-00000003" lastModified="1790305159"/>
+          <Include href="ring_shape.xml" itemIcon="1" loadImmediate="false" itemID="00000000-00000002" lastModified="1790305159"/>
+          <Include href="spark_shape.xml" itemIcon="1" loadImmediate="false" itemID="00000000-00000004" lastModified="1790305159"/>
+          <Include href="sym_Hex.xml" itemIcon="1" loadImmediate="false" itemID="8dc30c9d-00000007" lastModified="1790385528"/>
+          <Include href="tap_perfect.xml" loadImmediate="false" itemID="6ab5e534-000001f2" lastModified="1790323313"/>
+          <Include href="TapPerfect.xml" loadImmediate="false" itemID="6ab71dca-00000bd0" lastModified="1790385610"/>
+          <Include href="test.xml" loadImmediate="false" itemID="6ab5e52b-000001f0" lastModified="1790490349"/>
+          <Include href="Tween 1.xml" itemIcon="1" loadImmediate="false" itemID="6ab5c854-000001a0" lastModified="1790298196"/>
+          <Include href="Tween 2.xml" itemIcon="1" loadImmediate="false" itemID="6ab5c854-000001a4" lastModified="1790298196"/>
+     </symbols>
+     <timelines>
+          <DOMTimeline name="Scene 1" layerDepthEnabled="true">
+               <layers>
+                    <DOMLayer name="Layer_2" color="#9933CC">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements/>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+                    <DOMLayer name="Layer_1" color="#00FFFF" current="true" isSelected="true">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements/>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+               </layers>
+          </DOMTimeline>
+     </timelines>
+     <scripts>
+          <GlobalScripts language="Javascript"/>
+     </scripts>
+     <PrinterSettings platform="macintosh"/>
+     <publishHistory/>
+</DOMDocument>

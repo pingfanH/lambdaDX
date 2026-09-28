@@ -96,6 +96,7 @@ pub fn all_paths_svg() -> String {
                     slide_duration: 1.0,
                     slide_start_delay: 0.0,
                     slide_is_break: false,
+                    runtime_parts: 1,
                 };
                 let path = build_slide_path(&note, &slide, &pad, &svg, 1.0, spawn, pad.outer_r);
                 if path.len() < 2 {

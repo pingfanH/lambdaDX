@@ -234,12 +234,16 @@ pub async fn run() {
     egui_macroquad::ui(|_| {});
     egui_macroquad::draw();
 
+    // Load the Animate project (movies referenced by name, e.g. `ui.get(..)`).
+    crate::app::anim::init();
+
     loop {
         let now = get_time();
         let dt = ((now - last) as f32).clamp(0.0, 0.1);
         last = now;
 
         clear_background(theme::VOID);
+        crate::app::anim::tick();
 
         let ctx = UiCtx {
             w: screen_width(),

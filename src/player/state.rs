@@ -7,7 +7,7 @@ use crate::app::pad_svg::PadSvgDef;
 use crate::app::params;
 use crate::app::types::zone::PadZone;
 use crate::app::types::{
-    ChartDoc, JudgeFeedback, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
+    ChartDoc, HitFx, JudgeFeedback, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
 };
 use crate::player::autoplay::AutoplayEvent;
 use crate::player::cues::CueTrack;
@@ -35,6 +35,9 @@ pub struct PadPreviewState {
     pub playback_pending: bool,
     pub play_speed: f32,
     pub timeline_view_time: f32,
+    /// Video export: when `Some`, `song_time()` returns this instead of the
+    /// wall-clock-derived position, so frames render deterministically.
+    pub forced_time: Option<f32>,
 
     // ── Note appearance ──────────────────────────────────────────────
     pub note_speed: f32,
@@ -52,6 +55,8 @@ pub struct PadPreviewState {
     pub prev_pointer_pos: HashMap<u64, Vec2>,
     pub pad_feedback: Vec<PadFeedback>,
     pub judge_feedback: Vec<JudgeFeedback>,
+    /// One-shot tap-hit effects, pruned in `tick_feedback`.
+    pub hit_fx: Vec<HitFx>,
 
     // ── Audio ────────────────────────────────────────────────────────
     pub audio_source_name: Option<String>,
@@ -143,12 +148,12 @@ pub struct PadPreviewState {
     /// Loaded lnmai-core judgment session (None until a chart is loaded).
     pub judge_engine: Option<crate::player::engine::JudgeEngine>,
     /// Pending input events (pad presses/releases) for the next engine step.
-    pub engine_events: Vec<lnmai_core::types::TimedInputEvent>,
+    pub engine_events: Vec<crate::core::types::TimedInputEvent>,
     /// Autoplay: lnmai-core's default replay tactic, consumed by timestamp.
-    pub autoplay_tactic: Vec<lnmai_core::types::TimedInputEvent>,
+    pub autoplay_tactic: Vec<crate::core::types::TimedInputEvent>,
     pub autoplay_tactic_cursor: usize,
     /// Latest lnmai-core score snapshot (combo, DX score, judge counts).
-    pub core_score: Option<lnmai_core::types::ScoreState>,
+    pub core_score: Option<crate::core::types::ScoreState>,
     /// Simai source + `&inote_N` used to (re)build the engine on restart.
     simai_source: Option<String>,
     simai_level: u32,
@@ -182,6 +187,7 @@ impl PadPreviewState {
             playback_pending: false,
             play_speed: 1.0,
             timeline_view_time: 0.0,
+            forced_time: None,
             note_speed: NOTE_SPEED,
             touch_speed: NOTE_SPEED*0.7,
             slide_fade_in: 3.926_913 / NOTE_SPEED,
@@ -193,6 +199,7 @@ impl PadPreviewState {
             prev_pointer_pos: HashMap::new(),
             pad_feedback: Vec::new(),
             judge_feedback: Vec::new(),
+            hit_fx: Vec::new(),
             audio_source_name,
             audio_wav_pcm,
             audio_cache: HashMap::new(),
@@ -276,6 +283,9 @@ impl PadPreviewState {
 
     /// Current song position in seconds, derived from a wall-clock anchor.
     pub fn song_time(&self) -> f32 {
+        if let Some(t) = self.forced_time {
+            return t;
+        }
         if self.playback_pending {
             return self.mode_song_offset;
         }
@@ -462,26 +472,51 @@ impl PadPreviewState {
     }
 
     pub fn tick_feedback(&mut self) {
-        let now = get_time();
+        let now = self.now();
         self.pad_feedback.retain(|f| f.until > now);
         self.judge_feedback.retain(|f| f.until > now);
+        self.hit_fx
+            .retain(|f| now - f.started < f.duration as f64);
+    }
+
+    /// Clock used for transient feedback lifetimes: the deterministic export
+    /// clock when exporting, else macroquad's wall clock.
+    pub fn now(&self) -> f64 {
+        match self.forced_time {
+            Some(t) => t as f64,
+            None => get_time(),
+        }
     }
 
     pub fn push_feedback(&mut self, zone: PadZone, duration: f64) {
         self.pad_feedback.push(PadFeedback {
             zone,
-            until: get_time() + duration,
+            until: self.now() + duration,
         });
     }
 
     pub fn push_judgement(&mut self, zone: PadZone, label: &str, duration: f64) {
-        let now = get_time();
+        let now = self.now();
         self.judge_feedback.push(JudgeFeedback {
             zone,
             label: label.to_string(),
             color: Color::new(1.0, 1.0, 1.0, 1.0),
             started: now,
             until: now + duration,
+        });
+    }
+
+    /// Spawn a one-shot tap-hit effect at `zone`, tinted by the judge `label`
+    /// (break notes are orange; misses grey-red).
+    pub fn push_hit_fx(&mut self, zone: PadZone, label: &str, is_break: bool) {
+        let now = self.now();
+        self.hit_fx.push(HitFx {
+            zone,
+            started: now,
+            duration: params::hit_fx_duration().max(0.05),
+            color: hit_fx_color(label, is_break),
+            is_break,
+            seed: (now.fract() as f32) * std::f32::consts::TAU,
         });
     }
 
@@ -515,6 +550,13 @@ impl PadPreviewState {
 
     pub fn has_engine(&self) -> bool {
         self.judge_engine.is_some()
+    }
+
+    /// Whether lnmai-core should actually drive judging / slide rendering. When
+    /// the `no_core` option is on, the player uses the pre-lnmai local autoplay
+    /// and lets slide stars fly on their own.
+    pub fn use_core(&self) -> bool {
+        self.has_engine() && !crate::app::params::no_core()
     }
 
     // ── lnmai-core score read-outs ───────────────────────────────────
@@ -600,7 +642,7 @@ impl PadPreviewState {
 
     /// Combo category label (FC / AP / …) from lnmai-core.
     pub fn combo_state_label(&self) -> &'static str {
-        use lnmai_core::types::ComboState::*;
+        use crate::core::types::ComboState::*;
         match self.core_score.as_ref().map(|s| s.combo_state()) {
             Some(FC) => "FC",
             Some(FCPlus) => "FC+",
@@ -614,7 +656,7 @@ impl PadPreviewState {
     /// the rest. Used after a seek/scrub so the core-driven slides do not pile
     /// up: lnmai-core does not backfill slides skipped by a timeline jump.
     pub fn reconcile_slide_progress_for(&mut self, t: f32) {
-        if self.judge_engine.is_none() {
+        if !self.use_core() {
             return;
         }
         use crate::app::types::{NoteType, mdur_to_secs, note_secs};
@@ -662,7 +704,12 @@ impl PadPreviewState {
             };
             self.slide_progress
                 .entry((note_id, slide_idx))
-                .and_modify(|progress| progress.hidden_until_bar = update.hidden_until_bar)
+                // A grouped (multi-arc) sub-slide receives one update per runtime
+                // arc; keep the furthest progress so its trail keeps consuming.
+                .and_modify(|progress| {
+                    progress.hidden_until_bar =
+                        progress.hidden_until_bar.max(update.hidden_until_bar)
+                })
                 .or_insert(SlideProgress {
                     hidden_until_bar: update.hidden_until_bar,
                 });
@@ -685,5 +732,49 @@ impl PadPreviewState {
         }
         self.engine_events
             .extend(crate::player::engine::release_events_for_zone(zone, tp));
+    }
+}
+
+/// Judge-label → hit-effect tint.
+fn hit_fx_color(label: &str, is_break: bool) -> Color {
+    let l = label.to_ascii_lowercase();
+    if l.contains("miss") {
+        return Color::from_rgba(200, 90, 90, 255);
+    }
+    if is_break {
+        return Color::from_rgba(255, 150, 60, 255);
+    }
+    if l.contains("perfect") {
+        Color::from_rgba(255, 214, 76, 255)
+    } else if l.contains("great") {
+        Color::from_rgba(120, 220, 255, 255)
+    } else if l.contains("good") {
+        Color::from_rgba(130, 240, 130, 255)
+    } else {
+        Color::from_rgba(255, 255, 255, 255)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rgb(c: Color) -> (u8, u8, u8) {
+        (
+            (c.r * 255.0).round() as u8,
+            (c.g * 255.0).round() as u8,
+            (c.b * 255.0).round() as u8,
+        )
+    }
+
+    #[test]
+    fn hit_fx_color_tracks_grade_and_break() {
+        assert_eq!(rgb(hit_fx_color("Perfect", false)), (255, 214, 76));
+        assert_eq!(rgb(hit_fx_color("Great", false)), (120, 220, 255));
+        assert_eq!(rgb(hit_fx_color("Good", false)), (130, 240, 130));
+        assert_eq!(rgb(hit_fx_color("Miss", false)), (200, 90, 90));
+        // Break overrides the grade tint with orange (except misses).
+        assert_eq!(rgb(hit_fx_color("Perfect", true)), (255, 150, 60));
+        assert_eq!(rgb(hit_fx_color("Miss", true)), (200, 90, 90));
     }
 }

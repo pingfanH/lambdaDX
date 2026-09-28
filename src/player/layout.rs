@@ -10,9 +10,13 @@ use macroquad::prelude::{screen_height, screen_width};
 
 /// Header strip + full-width pad panel below it.
 pub fn compute_layout(app: &PadPreviewState) -> Layout {
+    compute_layout_sized(app, screen_width(), screen_height())
+}
+
+/// Same as [`compute_layout`] but for an explicit framebuffer size (used by the
+/// offscreen video export, which renders at its own resolution).
+pub fn compute_layout_sized(app: &PadPreviewState, sw: f32, sh: f32) -> Layout {
     let scale = ui_scale(app);
-    let sw = screen_width();
-    let sh = screen_height();
     let margin = if app.mobile_ui { 12.0 } else { 20.0 } * scale;
     let header_h = 76.0 * scale;
 

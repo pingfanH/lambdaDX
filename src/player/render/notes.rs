@@ -130,7 +130,7 @@ fn draw_pass(
         // Slides owned by lnmai-core stay on screen past their local tail; the
         // core's `HideSlideBars`/`HideAllSlideBars` commands end them. Without an
         // engine, fall back to the local tail cull.
-        let is_visible = if is_slide && app.has_engine() {
+        let is_visible = if is_slide && app.use_core() {
             t.dt_scaled <= t.lead_time
         } else {
             t.visible()

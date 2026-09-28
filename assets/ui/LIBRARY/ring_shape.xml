@@ -1,0 +1,32 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="ring_shape" itemID="00000000-00000002" symbolType="graphic" lastModified="1790305159" lastUniqueIdentifier="1">
+  <timeline>
+    <DOMTimeline name="ring_shape" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="Layer_1" color="#00FFFF" current="true" isSelected="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" weight="6">
+                        <fill>
+                          <SolidColor color="#FFD64C"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge strokeStyle="1" edges="!880 0S2|863 172!863 172|813 337!813 337|732 489!732 489|622 622!622 622|489 732!489 732|337 813!337 813|172 863!172 863|0 880!0 880|-172 863!-172 863|-337 813!-337 813|-489 732!-489 732|-622 622!-622 622|-732 489!-732 489|-813 337!-813
+ 337|-863 172!-863 172|-880 0!-880 0|-863 -172!-863 -172|-813 -337!-813 -337|-732 -489!-732 -489|-622 -622!-622 -622|-489 -732!-489 -732|-337 -813!-337 -813|-172 -863!-172 -863|0 -880!0 -880|172 -863!172 -863|337 -813!337 -813|489 -732
+!489 -732|622 -622!622 -622|732 -489!732 -489|813 -337!813 -337|863 -172!863 -172|880 0"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

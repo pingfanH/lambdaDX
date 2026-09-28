@@ -14,7 +14,7 @@
 use std::path::PathBuf;
 
 /// Parsed launch options.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct LaunchArgs {
     /// Chart folder or JSON file to load instead of the bundled default.
     pub chart: Option<PathBuf>,
@@ -26,6 +26,38 @@ pub struct LaunchArgs {
     pub dump: bool,
     /// Write every slide curve to this SVG and exit.
     pub slides_svg: Option<PathBuf>,
+
+    // ── Offscreen video export ───────────────────────────────────────
+    /// Render the chart to this video file (via `ffmpeg`) and exit.
+    pub export_video: Option<PathBuf>,
+    /// Audio file to mux into the export (defaults to the chart's track).
+    pub export_audio: Option<PathBuf>,
+    /// Export frame rate (default 60).
+    pub export_fps: Option<u32>,
+    /// Export size `WxH` (default 1920x1080).
+    pub export_size: Option<(u32, u32)>,
+    /// Internal render size `WxH` (default = export size); a smaller value is
+    /// rendered and upscaled — much faster.
+    pub export_render_size: Option<(u32, u32)>,
+    /// Encoder: `auto` | `libx264` | `h264_videotoolbox` | any ffmpeg encoder.
+    pub export_encoder: Option<String>,
+    /// Bitrate for hardware/`Named` encoders (e.g. `12M`).
+    pub export_bitrate: Option<String>,
+    /// x264 CRF (default 18).
+    pub export_crf: Option<u32>,
+    /// x264 preset (default `medium`).
+    pub export_preset: Option<String>,
+    /// Seconds of song to render (default: chart length + 2s).
+    pub export_duration: Option<f32>,
+    /// Song time (seconds) to start rendering at (default 0).
+    pub export_start: Option<f32>,
+    /// Split the export across this many processes (default 1) and concat.
+    pub export_parallel: Option<u32>,
+    /// Video-only export (used by the parallel children).
+    pub export_no_audio: bool,
+    /// Drive the export with lnmai-core judging (accurate slide trails, but much
+    /// slower). Default off: local autoplay + self-sliding stars.
+    pub export_core: bool,
 }
 
 /// Parse the process arguments (excluding argv[0]).
@@ -64,6 +96,78 @@ where
                 advance = 2;
             }
             "--dump" => out.dump = true,
+            "--export-video" => {
+                out.export_video = Some(PathBuf::from(next_value(&args, i, &arg)?));
+                advance = 2;
+            }
+            "--export-audio" => {
+                out.export_audio = Some(PathBuf::from(next_value(&args, i, &arg)?));
+                advance = 2;
+            }
+            "--export-fps" => {
+                let v = next_value(&args, i, &arg)?;
+                out.export_fps = Some(
+                    v.parse::<u32>()
+                        .map_err(|_| format!("invalid --export-fps: {v}"))?,
+                );
+                advance = 2;
+            }
+            "--export-size" => {
+                let v = next_value(&args, i, &arg)?;
+                out.export_size = Some(crate::player::export_video::parse_size(&v)?);
+                advance = 2;
+            }
+            "--export-render-size" => {
+                let v = next_value(&args, i, &arg)?;
+                out.export_render_size = Some(crate::player::export_video::parse_size(&v)?);
+                advance = 2;
+            }
+            "--export-encoder" => {
+                out.export_encoder = Some(next_value(&args, i, &arg)?);
+                advance = 2;
+            }
+            "--export-bitrate" => {
+                out.export_bitrate = Some(next_value(&args, i, &arg)?);
+                advance = 2;
+            }
+            "--export-crf" => {
+                let v = next_value(&args, i, &arg)?;
+                out.export_crf = Some(
+                    v.parse::<u32>()
+                        .map_err(|_| format!("invalid --export-crf: {v}"))?,
+                );
+                advance = 2;
+            }
+            "--export-preset" => {
+                out.export_preset = Some(next_value(&args, i, &arg)?);
+                advance = 2;
+            }
+            "--export-duration" => {
+                let v = next_value(&args, i, &arg)?;
+                out.export_duration = Some(
+                    v.parse::<f32>()
+                        .map_err(|_| format!("invalid --export-duration: {v}"))?,
+                );
+                advance = 2;
+            }
+            "--export-core" => out.export_core = true,
+            "--export-start" => {
+                let v = next_value(&args, i, &arg)?;
+                out.export_start = Some(
+                    v.parse::<f32>()
+                        .map_err(|_| format!("invalid --export-start: {v}"))?,
+                );
+                advance = 2;
+            }
+            "--export-parallel" => {
+                let v = next_value(&args, i, &arg)?;
+                out.export_parallel = Some(
+                    v.parse::<u32>()
+                        .map_err(|_| format!("invalid --export-parallel: {v}"))?,
+                );
+                advance = 2;
+            }
+            "--export-no-audio" => out.export_no_audio = true,
             "--dump-slides-svg" => {
                 // Optional path (default `output/slide_curves.svg`).
                 if i + 1 < args.len() && !args[i + 1].starts_with('-') {
@@ -120,6 +224,28 @@ OPTIONS:
     --dump-slides-svg [PATH]
                          Write every possible slide curve to an SVG (default
                          output/slide_curves.svg) and exit.
+    --export-video <PATH>
+                         Render the chart offscreen to a video file via
+                         `ffmpeg` (H.264) and exit. Autoplay is enabled.
+    --export-audio <PATH>
+                         Audio file to mux into the export (default: the
+                         chart folder's track).
+    --export-fps <N>     Export frame rate (default 60).
+    --export-size <WxH>  Export size (default 1920x1080; rounded to even).
+    --export-render-size <WxH>
+                         Internal render size (default = export size). Smaller
+                         renders + upscales, which is much faster.
+    --export-encoder <E> auto (VideoToolbox on macOS) | libx264 | h264_videotoolbox
+                         | any ffmpeg encoder name.
+    --export-bitrate <B> Bitrate for hardware encoders (default 12M).
+    --export-crf <N>     x264 CRF, lower = better (default 18).
+    --export-preset <P>  x264 preset (default veryfast).
+    --export-duration <SECONDS>  Length to render (default: chart + 2s).
+    --export-start <SECONDS>     Start song time (default 0).
+    --export-parallel <N>        Split the export across N processes and concat
+                                 (uses all cores). Default 1.
+    --export-core        Use lnmai-core judging during export (accurate slide
+                         trails, much slower). Default: local autoplay.
     -h, --help           Print this help.
 
 KEYS:

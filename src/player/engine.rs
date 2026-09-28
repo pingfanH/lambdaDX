@@ -13,8 +13,8 @@
 use crate::app::types::zone::PadZone;
 use crate::app::types::{ChartDoc, NoteType};
 use crate::player::state::PadPreviewState;
-use lnmai_core::session::{self, Empty, Loaded, Session};
-use lnmai_core::types::{
+use crate::core::session::{self, Empty, Loaded, Session};
+use crate::core::types::{
     AudioCommand, ButtonZone, ChartSpec, GameState, JudgeEvent, JudgeEventKind, JudgeGrade,
     RenderCommand, RuntimeStepLightResult, SensorArea, TimedInputBatch, TimedInputEvent,
 };
@@ -233,7 +233,7 @@ impl JudgeEngine {
         let chart: ChartSpec = envelope
             .decode_result()
             .map_err(|e| format!("invalid lowered chart json: {e}"))?;
-        lnmai_core::api::default_tactic_from_chart(&chart)
+        crate::core::api::default_tactic_from_chart(&chart)
             .map(|tactic| tactic.events)
             .map_err(|e| e.json)
     }
@@ -330,7 +330,8 @@ pub fn timed_input_tp(event: &TimedInputEvent) -> i64 {
 
 /// Advance the engine and apply the resulting core judge/audio commands.
 pub fn step_judge_engine(app: &mut PadPreviewState) {
-    if app.judge_engine.is_none() {
+    // `no_core`: bypass lnmai-core entirely (pre-lnmai autoplay + star motion).
+    if !app.use_core() {
         return;
     }
     let now = app.song_time();
@@ -357,6 +358,10 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
     let displays = collect_judge_result_displays(&app.chart, app.judge_engine.as_ref(), &result);
     for display in displays {
         app.push_judgement(display.zone, display.label, display.duration);
+        // Tap-family hits get the ring/spark burst.
+        if matches!(display.kind, JudgeEventKind::Tap | JudgeEventKind::Break) {
+            app.push_hit_fx(display.zone, display.label, display.is_break);
+        }
     }
     for command in &result.audio_commands {
         play_audio_command(app, command);
@@ -368,6 +373,8 @@ struct JudgeResultDisplay {
     zone: PadZone,
     label: &'static str,
     duration: f64,
+    kind: JudgeEventKind,
+    is_break: bool,
 }
 
 /// Map lnmai-core's render/event results onto (zone, label) feedbacks.
@@ -429,10 +436,17 @@ fn make_judge_result_display(
     let zone = judge_result_zone(chart, engine, events, note_index, kind)?;
     let label = display_label_for_grade(grade);
     let duration = if grade.is_miss_or_too_fast() { 0.24 } else { 0.3 };
+    let is_break = events
+        .iter()
+        .find(|e| e.note_index == note_index && e.kind == kind)
+        .map(|e| e.is_break)
+        .unwrap_or(false);
     Some(JudgeResultDisplay {
         zone,
         label,
         duration,
+        kind,
+        is_break,
     })
 }
 
@@ -519,6 +533,9 @@ fn chart_note_head_zone(chart: &ChartDoc, note_index: u64) -> Option<PadZone> {
 }
 
 /// Map a runtime slide index onto the chart's `(note_id, slide_idx)`.
+///
+/// lnmai-core splits a continuous multi-arc slide into one runtime slide per
+/// arc, so each chart sub-slide consumes `slide.runtime_parts` runtime indices.
 pub fn chart_slide_key(chart: &ChartDoc, runtime_slide_index: usize) -> Option<(u64, usize)> {
     let mut current = 0;
     chart
@@ -526,11 +543,13 @@ pub fn chart_slide_key(chart: &ChartDoc, runtime_slide_index: usize) -> Option<(
         .iter()
         .filter(|note| matches!(note.note_type, NoteType::Slide))
         .find_map(|note| {
-            for slide_idx in 0..note.slide.len() {
-                if current == runtime_slide_index {
-                    return Some((note.id, slide_idx));
+            for (slide_idx, slide) in note.slide.iter().enumerate() {
+                for _ in 0..slide.runtime_parts.max(1) {
+                    if current == runtime_slide_index {
+                        return Some((note.id, slide_idx));
+                    }
+                    current += 1;
                 }
-                current += 1;
             }
             None
         })
@@ -710,6 +729,57 @@ mod tests {
         }
     }
 
+    /// Continuous `>`/`<` chains stay **one** chart sub-slide (one star) but
+    /// expand to one runtime slide per arc in lnmai-core; `chart_slide_key` must
+    /// consume `runtime_parts` indices per sub-slide so the mapping stays aligned.
+    #[test]
+    fn multi_arc_chain_maps_runtime_to_grouped_sub_slides() {
+        let text = "&title=T\n&inote_1=(120){4}1v4>3>2[4:1],4-8<4b[2:1]*-8>4b[2:1],5\n";
+        let mut chart = crate::app::maidata::from_maidata(text, None).expect("chart");
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
+        let level = crate::app::maidata::inote_key(text, None).expect("level");
+        let engine = JudgeEngine::load(text, level).expect("engine");
+
+        // Chart sub-slides: `1v4>3>2` = 1 (3 arcs), `4-8<4*-8>4` = 2 parts.
+        let chart_subs: usize = chart
+            .notes
+            .iter()
+            .filter(|n| matches!(n.note_type, NoteType::Slide))
+            .map(|n| n.slide.len())
+            .sum();
+        assert_eq!(chart_subs, 3);
+        // Runtime slides: 3 arcs + 2 `*` parts.
+        assert_eq!(engine.slide_count(), 5);
+
+        // Expand each chart sub-slide into its runtime indices.
+        let mut expected: Vec<(u64, usize)> = Vec::new();
+        for note in chart
+            .notes
+            .iter()
+            .filter(|n| matches!(n.note_type, NoteType::Slide))
+        {
+            for (si, slide) in note.slide.iter().enumerate() {
+                for _ in 0..slide.runtime_parts.max(1) {
+                    expected.push((note.id, si));
+                }
+            }
+        }
+        assert_eq!(expected.len(), engine.slide_count());
+        for (runtime, key) in expected.iter().enumerate() {
+            assert_eq!(chart_slide_key(&chart, runtime), Some(*key));
+        }
+        // Runtime head timings match the owning sub-slide's head.
+        for (runtime, (id, _)) in expected.iter().enumerate() {
+            let note = chart.notes.iter().find(|n| n.id == *id).expect("note");
+            let head_s = crate::app::types::note_secs(note, &chart.bpms);
+            let core_s = engine.slide_head_timing(runtime).expect("timing") as f32 / 1e6;
+            assert!(
+                (core_s - head_s).abs() < 0.5,
+                "runtime slide {runtime} head {core_s:.3}s != chart head {head_s:.3}s"
+            );
+        }
+    }
+
     #[test]
     fn core_reports_combo_and_dx_score() {
         let text = bundled_maidata();
@@ -740,4 +810,5 @@ mod tests {
         assert!(max_dx > 0, "autoplay should earn DX score");
     }
 }
+
 

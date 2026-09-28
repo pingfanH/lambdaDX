@@ -16,6 +16,8 @@
 
 #[path = "app/mod.rs"]
 mod app;
+#[path = "core/mod.rs"]
+mod core;
 #[path = "player/mod.rs"]
 mod player;
 #[path = "player_ui/mod.rs"]

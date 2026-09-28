@@ -393,6 +393,16 @@ pub struct Slide {
     /// Whether this slide trail is a break slide.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub slide_is_break: bool,
+    /// How many runtime slides (lnmai-core "conn parts") this sub-slide expands
+    /// to. A `*`-chain part is one runtime slide; a continuous `>`/`<` chain is
+    /// one sub-slide with multiple segments that lnmai-core splits per arc, so
+    /// it expands to `segments.len()`. Used only to map runtime slide indices
+    /// back onto the chart; rendering keeps one star per sub-slide.
+    #[serde(default = "default_runtime_parts")]
+    pub runtime_parts: usize,
+}
+fn default_runtime_parts() -> usize {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -755,6 +765,19 @@ pub struct JudgeFeedback {
     pub color: macroquad::prelude::Color,
     pub started: f64,
     pub until: f64,
+}
+
+/// A one-shot tap-hit effect (expanding ring + sparks + flash) anchored at the
+/// hit zone. Lifetime is wall-clock seconds; drawn by `render::hit_fx`.
+#[derive(Debug, Clone, Copy)]
+pub struct HitFx {
+    pub zone: PadZone,
+    pub started: f64,
+    pub duration: f32,
+    pub color: macroquad::prelude::Color,
+    pub is_break: bool,
+    /// Per-effect rotation offset so repeated hits do not look identical.
+    pub seed: f32,
 }
 
 /// Hold tail time in seconds (note fields are in measures).

@@ -1,0 +1,228 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="tap_hit" itemID="00000000-00000001" symbolType="movieclip" lastModified="1790305159" lastUniqueIdentifier="9">
+  <timeline>
+    <DOMTimeline name="tap_hit" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="flash" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="flash_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="1.000000" b="0.000000" c="0.000000" d="1.000000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="flash_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="0.300000" b="0.000000" c="0.000000" d="0.300000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="ring" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="ring_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="0.350000" b="0.000000" c="0.000000" d="0.350000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="ring_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="1.700000" b="0.000000" c="0.000000" d="1.700000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="spark0" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="0.450000" b="0.000000" c="-0.000000" d="0.450000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="1.700000" b="0.000000" c="-0.000000" d="1.700000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="spark1" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="0.318198" b="0.318198" c="-0.318198" d="0.318198" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="1.202082" b="1.202082" c="-1.202082" d="1.202082" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="spark2" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="0.000000" b="0.450000" c="-0.450000" d="0.000000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="0.000000" b="1.700000" c="-1.700000" d="0.000000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="spark3" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="-0.318198" b="0.318198" c="-0.318198" d="-0.318198" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="-1.202082" b="1.202082" c="-1.202082" d="-1.202082" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="spark4" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="-0.450000" b="0.000000" c="-0.000000" d="-0.450000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="-1.700000" b="0.000000" c="-0.000000" d="-1.700000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="spark5" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="-0.318198" b="-0.318198" c="0.318198" d="-0.318198" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="-1.202082" b="-1.202082" c="1.202082" d="-1.202082" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="spark6" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="-0.000000" b="-0.450000" c="0.450000" d="-0.000000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="-0.000000" b="-1.700000" c="1.700000" d="-0.000000" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="spark7" color="#9933CC">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="0.318198" b="-0.318198" c="0.318198" d="0.318198" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="1"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" tweenType="motion" motionTweenSnap="true" keyMode="22017">
+              <elements>
+                <DOMSymbolInstance libraryItemName="spark_shape" symbolType="graphic" loop="loop">
+                  <matrix><Matrix a="1.202082" b="-1.202082" c="1.202082" d="1.202082" tx="0.000000" ty="0.000000"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                  <color><Color alphaMultiplier="0"/></color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

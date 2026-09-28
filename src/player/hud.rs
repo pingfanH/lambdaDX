@@ -155,7 +155,17 @@ pub fn draw(app: &PadPreviewState, header: RectF, scale: f32) {
 
 /// Draw the lnmai-core score read-outs down the bottom-left of the pad panel.
 pub fn draw_score_block(app: &PadPreviewState, rect: RectF, scale: f32) {
-    if !app.has_engine() {
+    // Without the core (no engine, or the `no_core` option) there is no score;
+    // show a placeholder instead.
+    if !app.use_core() {
+        let margin = 14.0 * scale;
+        font::text(
+            "None",
+            rect.x + margin,
+            rect.y + rect.h - margin,
+            16.0 * scale,
+            ACCENT,
+        );
         return;
     }
 

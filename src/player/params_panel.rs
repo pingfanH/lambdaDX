@@ -179,6 +179,24 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     param(ui, &mut p.hold_end_guide_off, 1.0, -300.0..=300.0, "hold_end_guide_off hold尾辅助线偏移");
                     ui.checkbox(&mut p.judge_sfx, "judge_sfx 判定音效(tap/slide/hold/break)");
 
+                    ui.separator();
+                    ui.heading("Tap hit FX 击打特效");
+                    ui.checkbox(&mut p.hit_fx, "hit_fx 启用(圆环+火花+闪光)");
+                    ui.checkbox(&mut p.hit_fx_anim, "hit_fx_anim 用Flash影片播放(ui项目)");
+                    ui.checkbox(&mut p.hit_fx_anim_tint, "hit_fx_anim_tint 按判定等级染色(关=用影片原色)");
+                    ui.horizontal(|ui| {
+                        ui.label("clip:");
+                        ui.text_edit_singleline(&mut p.hit_fx_anim_clip);
+                    });
+                    param(ui, &mut p.hit_fx_size, 1.0, 8.0..=200.0, "hit_fx_size 大小");
+                    param(ui, &mut p.hit_fx_duration, 0.01, 0.05..=1.5, "hit_fx_duration 时长(s)");
+                    param(ui, &mut p.hit_fx_alpha, 5.0, 0.0..=255.0, "hit_fx_alpha 透明度");
+                    param(ui, &mut p.hit_fx_ring, 0.5, 0.5..=20.0, "hit_fx_ring 线宽");
+                    param(ui, &mut p.hit_fx_sparks, 1.0, 0.0..=32.0, "hit_fx_sparks 火花数");
+                    param(ui, &mut p.hit_fx_spark_len, 0.1, 0.0..=5.0, "hit_fx_spark_len 火花长度");
+                    param(ui, &mut p.hit_fx_grow, 0.05, 0.0..=4.0, "hit_fx_grow 扩散");
+                    param(ui, &mut p.hit_fx_flash, 0.05, 0.0..=3.0, "hit_fx_flash 中心闪光");
+
             ui.separator();
             // 默认流速 / 出生速度：立即生效，Save 后持久保存。
             ui.heading("Speed 流速 (默认值 · 持久保存)");
@@ -195,6 +213,8 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
             if ui.checkbox(&mut ap, "AUTO (快捷键 O)").changed() {
                 crate::player::autoplay::set_on(app, ap);
             }
+            // 不使用 lnmai-core：旧版 autoplay（星星自己滑，左下角显示 None）。
+            ui.checkbox(&mut p.no_core, "no_core 旧版autoplay(星星自己滑,不判定)");
 
             ui.separator();
             ui.heading("Playback 播放");

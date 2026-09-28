@@ -4,7 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [".", "lnmai-core", "lnmai-core/lean-sys"]
+members = [".", "lnmai-core", "lnmai-rust"]
+
+# Gameplay-core backend selection. Exactly one should be enabled:
+#   backend-rust (default) — pure-Rust port, no Lean/Nix artifacts
+#   backend-lean           — the vendored `lnmai-core/` Lean FFI (needs Nix/Lean)
+#   backend-none           — no gameplay core at all (local preview only)
+[features]
+default = ["backend-rust"]
+backend-rust = ["dep:lnmai-core-rust"]
+backend-lean = ["dep:lnmai-core"]
+backend-none = []
 
 [[bin]]
 name = "lambda_dx_pad_preview"
@@ -21,7 +31,7 @@ path = "src/macroanimate_test.rs"
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 # Adobe Animate sparrow / texture-atlas parser + renderer (test bin only).
-macroanimate = "0.2.1"
+macroanimate = { path = "/Users/pingfanh/project/macroanimate" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hound = "3"
@@ -32,10 +42,10 @@ image = { version = "0.24.9", default-features = false, features = ["jpeg"] }
 roxmltree = "0.20"
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 egui-macroquad = { version = "0.17", default-features = false }
-lnmai-core = { path = "lnmai-core" }
-
-[build-dependencies]
-lnmai-core = { path = "lnmai-core" }
+# Gameplay core backend (see [features]): rust (default) or lean (unmodified
+# vendored crate). Selected by the `backend-*` features.
+lnmai-core = { path = "lnmai-core", optional = true }
+lnmai-core-rust = { path = "lnmai-rust", optional = true }
 
 # The expensive load work (JPEG decode, CJK font parsing, note-texture decode)
 # runs inside dependencies, so an unoptimized `cargo run` is ~7x slower to boot

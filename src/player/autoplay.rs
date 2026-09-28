@@ -119,7 +119,7 @@ pub fn set_on(pad: &mut PadPreviewState, on: bool) {
     }
     let t = pad.song_time();
     pad.autoplay_cursor = pad.autoplay_events.partition_point(|e| e.t < t);
-    if on && pad.has_engine() {
+    if on && pad.use_core() {
         let now = (t.max(0.0) * 1e6) as i64;
         pad.autoplay_tactic_cursor = pad
             .autoplay_tactic
@@ -145,7 +145,7 @@ pub fn tick(pad: &mut PadPreviewState) {
     }
     // Prefer lnmai-core's default replay tactic when an engine is loaded; the
     // local schedule below is only a fallback for engine-less charts.
-    if pad.has_engine() && !pad.autoplay_tactic.is_empty() {
+    if pad.use_core() && !pad.autoplay_tactic.is_empty() {
         tick_tactic(pad);
         return;
     }
@@ -200,9 +200,9 @@ fn tick_tactic(pad: &mut PadPreviewState) {
 }
 
 /// Light the pad for an autoplay event so the sensor shows the core's input.
-fn mirror_tactic_visual(pad: &mut PadPreviewState, event: &lnmai_core::types::TimedInputEvent) {
+fn mirror_tactic_visual(pad: &mut PadPreviewState, event: &crate::core::types::TimedInputEvent) {
     use crate::player::engine::{zone_for_button, zone_for_sensor};
-    use lnmai_core::types::TimedInputEvent;
+    use crate::core::types::TimedInputEvent;
 
     let (zone, is_down, is_click) = match event {
         TimedInputEvent::ButtonClick { zone, .. } => (zone_for_button(*zone), true, true),
@@ -234,15 +234,16 @@ fn apply(pad: &mut PadPreviewState, ev: AutoplayEvent) {
     if ev.down {
         pad.active_pointer_zones.insert(id, ev.zone);
         pad.push_feedback(ev.zone, 0.12);
-        if pad.has_engine() {
+        if pad.use_core() {
             let tp = (ev.t.max(0.0) * 1e6) as i64;
             pad.queue_engine_press(ev.zone, tp);
         } else if let Some(label) = judge_label_for_zone(pad, ev.zone) {
             pad.push_judgement(ev.zone, label, 0.6);
+            pad.push_hit_fx(ev.zone, label, false);
         }
     } else {
         pad.active_pointer_zones.remove(&id);
-        if pad.has_engine() {
+        if pad.use_core() {
             let tp = (ev.t.max(0.0) * 1e6) as i64;
             pad.queue_engine_release(ev.zone, tp);
         }

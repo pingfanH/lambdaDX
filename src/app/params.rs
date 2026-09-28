@@ -161,6 +161,34 @@ pub struct Params {
     /// Play per-kind judgment SFX (tap/slide/hold/break) instead of the single
     /// `answer.wav`.
     pub judge_sfx: bool,
+
+    // ── Tap hit effect ───────────────────────────────────────────────
+    /// Draw a one-shot ring + sparks + flash when a tap is judged.
+    pub hit_fx: bool,
+    /// Effect base radius (design px, scales with the pad).
+    pub hit_fx_size: f32,
+    /// Effect lifetime in seconds.
+    pub hit_fx_duration: f32,
+    /// Peak opacity (0..255).
+    pub hit_fx_alpha: f32,
+    /// Ring / spark line width (design px).
+    pub hit_fx_ring: f32,
+    /// Number of radial sparks (rounded).
+    pub hit_fx_sparks: f32,
+    /// Spark length as a multiple of the base radius.
+    pub hit_fx_spark_len: f32,
+    /// Ring expansion: final radius = `size * (0.5 + grow)`.
+    pub hit_fx_grow: f32,
+    /// Central flash intensity multiplier.
+    pub hit_fx_flash: f32,
+    /// Play the tap effect from an Adobe Animate XFL/`.fla` animation instead of
+    /// the procedural ring/sparks. Falls back to procedural when missing.
+    pub hit_fx_anim: bool,
+    /// Recolor the animated effect per judge grade. `false` uses the colors
+    /// authored in the flash project.
+    pub hit_fx_anim_tint: bool,
+    /// Movie/sprite name inside the loaded `ui` project (e.g. `tap_perfect`).
+    pub hit_fx_anim_clip: String,
     /// Hide the note layer (notes, slide trails, judgment text) — e.g. to see
     /// only the background video.
     pub hide_notes: bool,
@@ -172,6 +200,10 @@ pub struct Params {
     /// touch motion). `false` = audio-only speed change; `true` = everything
     /// scales with the song (整体速度).
     pub speed_scales_visuals: bool,
+    /// Do **not** use lnmai-core: fall back to the pre-lnmai autoplay (local
+    /// chart schedule), let slide stars fly on their own, and show "None" in the
+    /// bottom-left score block. Useful for comparing against the old player.
+    pub no_core: bool,
 
     // ── Background video (pad preview) ───────────────────────────────
     /// Draw a background video behind the pad. Pad preview only.
@@ -270,6 +302,20 @@ impl Default for Params {
             hide_zones: false,
             play_speed_default: 1.0,
             speed_scales_visuals: false,
+            no_core: false,
+
+            hit_fx: true,
+            hit_fx_size: 46.0,
+            hit_fx_duration: 0.28,
+            hit_fx_alpha: 230.0,
+            hit_fx_ring: 2.5,
+            hit_fx_sparks: 8.0,
+            hit_fx_spark_len: 1.6,
+            hit_fx_grow: 1.5,
+            hit_fx_flash: 1.0,
+            hit_fx_anim: true,
+            hit_fx_anim_tint: true,
+            hit_fx_anim_clip: "TapPerfect".to_string(),
 
             bg_video: false,
             bg_video_path: String::new(),
@@ -409,6 +455,14 @@ param_accessors!(
     judge_off_hold_end,
     hold_guide_off,
     hold_end_guide_off,
+    hit_fx_size,
+    hit_fx_duration,
+    hit_fx_alpha,
+    hit_fx_ring,
+    hit_fx_sparks,
+    hit_fx_spark_len,
+    hit_fx_grow,
+    hit_fx_flash,
     play_speed_default,
     bg_video_start,
     bg_video_x,
@@ -444,6 +498,11 @@ pub fn speed_scales_visuals() -> bool {
     PARAMS.with(|p| p.borrow().speed_scales_visuals)
 }
 
+/// Whether the lnmai-core backend is bypassed (pre-lnmai autoplay / rendering).
+pub fn no_core() -> bool {
+    PARAMS.with(|p| p.borrow().no_core)
+}
+
 /// Whether the tap guide texture is enabled.
 pub fn tap_guide() -> bool {
     PARAMS.with(|p| p.borrow().tap_guide)
@@ -457,6 +516,26 @@ pub fn judge_dot() -> bool {
 /// Whether per-kind judgment SFX are enabled.
 pub fn judge_sfx() -> bool {
     PARAMS.with(|p| p.borrow().judge_sfx)
+}
+
+/// Whether the tap hit effect is enabled.
+pub fn hit_fx() -> bool {
+    PARAMS.with(|p| p.borrow().hit_fx)
+}
+
+/// Whether the tap effect plays the Animate XFL/`.fla` animation.
+pub fn hit_fx_anim() -> bool {
+    PARAMS.with(|p| p.borrow().hit_fx_anim)
+}
+
+/// Whether the animated effect is recolored per judge grade.
+pub fn hit_fx_anim_tint() -> bool {
+    PARAMS.with(|p| p.borrow().hit_fx_anim_tint)
+}
+
+/// Movie/sprite name inside the loaded `ui` project for the tap effect.
+pub fn hit_fx_anim_clip() -> String {
+    PARAMS.with(|p| p.borrow().hit_fx_anim_clip.clone())
 }
 
 /// Effective hold spawn time: `hold_spawn_time`, or `tap_spawn_time` when

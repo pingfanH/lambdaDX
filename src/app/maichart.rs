@@ -501,6 +501,7 @@ fn build_slides(
             slide_duration: (delay + travel).max(0.0),
             slide_start_delay: delay.max(0.0),
             slide_is_break: note_is_break,
+            runtime_parts: 1,
         });
     }
     out

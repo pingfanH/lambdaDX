@@ -88,15 +88,16 @@ pub(super) fn update_pointer_zone(
         Some(zone) => {
             app.active_pointer_zones.insert(pointer_id, zone);
             app.push_feedback(zone, 0.12);
-            if app.has_engine() {
+            if app.use_core() {
                 let tp = (app.song_time().max(0.0) * 1e6) as i64;
                 app.queue_engine_press(zone, tp);
             } else if let Some(label) = judge_label_for_zone(app, zone) {
                 app.push_judgement(zone, label, 0.6);
+                app.push_hit_fx(zone, label, false);
             }
         }
         None => {
-            if app.has_engine() {
+            if app.use_core() {
                 if let Some(prev) = old {
                     let tp = (app.song_time().max(0.0) * 1e6) as i64;
                     app.queue_engine_release(prev, tp);

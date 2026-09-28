@@ -64,6 +64,7 @@
 //! path and a star flies the path from start-delay to duration.
 
 pub mod feedback;
+pub mod hit_fx;
 pub mod notes;
 pub mod pad;
 pub mod progress;
@@ -194,6 +195,8 @@ pub fn draw_pad_panel(
 
     // Overlay.
     if !params::hide_notes() {
+        // Hit sparks sit under the judgment text so the label stays readable.
+        hit_fx::draw(app, &pad, pad.outer_r, spawn_cx, scale);
         feedback::draw(app, &pad, pad.outer_r, spawn_cx, scale);
         // Judgment-point dots on the very top.
         notes::draw_judge_dots(app, &pad, scale, spawn_cx, current_t, speed_scale);

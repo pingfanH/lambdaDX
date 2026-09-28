@@ -90,12 +90,16 @@ pub fn draw(
         // Trail consumption is driven by lnmai-core's render commands
         // (`HideSlideBars` / `HideAllSlideBars`), stored per sub-slide in
         // `slide_progress`. Without an engine the trail is fully drawn.
-        let core_driven = app.has_engine();
-        let hidden_until_bar = app
-            .slide_progress
-            .get(&(note.id, si))
-            .map(|progress| progress.hidden_until_bar)
-            .unwrap_or(0);
+        let core_driven = app.use_core();
+        // Ignore any stale core progress when the core is bypassed.
+        let hidden_until_bar = if core_driven {
+            app.slide_progress
+                .get(&(note.id, si))
+                .map(|progress| progress.hidden_until_bar)
+                .unwrap_or(0)
+        } else {
+            0
+        };
         // `HideAllSlideBars` maps to `usize::MAX`; the whole slide (trail and
         // star) is gone once core reports it.
         if core_driven && hidden_until_bar == usize::MAX {
