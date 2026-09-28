@@ -346,7 +346,6 @@ pub fn draw_slide(
     }
 
     let mut curr_note = note.clone();
-    curr_note.lane = note.lane;
     for seg in &slide.segments {
         match seg.shape {
             SlideShape::Q => slide_shape_q(

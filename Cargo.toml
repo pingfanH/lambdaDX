@@ -47,6 +47,10 @@ egui-macroquad = { version = "0.17", default-features = false }
 lnmai-core = { path = "lnmai-core", optional = true }
 lnmai-core-rust = { path = "lnmai-rust", optional = true }
 
+# Desktop Linux multi-touch touchscreen input (kernel Type-B evdev).
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "0.13"
+
 # The expensive load work (JPEG decode, CJK font parsing, note-texture decode)
 # runs inside dependencies, so an unoptimized `cargo run` is ~7x slower to boot
 # and stutters on cover/song changes. Optimize dependencies even in dev.
