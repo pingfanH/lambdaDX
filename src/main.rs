@@ -224,6 +224,12 @@ async fn run(args: LaunchArgs) {
         Err(e) => app.set_status(format!("Shader: {e}")),
     }
 
+    // Desktop Linux: announce the multi-touch touchscreen (if any).
+    #[cfg(target_os = "linux")]
+    if let Some(status) = player::input::touch_evdev::status() {
+        app.set_status(status);
+    }
+
     // Cue sound played at tap / hold head / hold tail / slide star head.
     app.answer_sfx = audio::load_answer_sfx().await;
     if app.answer_sfx.is_none() {
