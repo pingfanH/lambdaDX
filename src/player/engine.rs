@@ -577,8 +577,8 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
     let displays = collect_judge_result_displays(&app.chart, app.judge_engine.as_ref(), &result);
     for display in displays {
         app.push_judgement(display.zone, display.label, display.duration);
-        // Tap-family hits get the ring/spark burst.
-        if matches!(display.kind, JudgeEventKind::Tap | JudgeEventKind::Break) {
+        // Tap-family hits and any break note get the ring/spark burst.
+        if matches!(display.kind, JudgeEventKind::Tap | JudgeEventKind::Break) || display.is_break {
             app.push_hit_fx(display.zone, display.label, display.is_break);
         }
     }
@@ -787,6 +787,9 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
     if !app.audio_enabled {
         return;
     }
+    use crate::player::render::skin::SkinVariant;
+    use crate::player::sfx::{self, SfxKind};
+
     let buf = match command {
         AudioCommand::PlayJudgeSfx {
             kind,
@@ -797,13 +800,15 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
             if !judge_sfx_allowed(*grade) {
                 return;
             }
-            match kind {
-                JudgeEventKind::Break => app.sfx_break.as_ref(),
-                JudgeEventKind::Slide => app.sfx_slide.as_ref(),
-                JudgeEventKind::Hold => app.sfx_hold.as_ref(),
-                _ if *is_break => app.sfx_break.as_ref(),
-                _ => app.sfx_tap.as_ref(),
-            }
+            let sfx_kind = match kind {
+                JudgeEventKind::Tap => SfxKind::Tap,
+                JudgeEventKind::Touch => SfxKind::Touch,
+                JudgeEventKind::Hold => SfxKind::Hold,
+                JudgeEventKind::Slide => SfxKind::SlideJudge,
+                JudgeEventKind::Break => SfxKind::Tap,
+            };
+            let is_break = *is_break || matches!(kind, JudgeEventKind::Break);
+            sfx::select(app, sfx_kind, SkinVariant::of_flags(is_break, false), false)
         }
         AudioCommand::PlaySlideCue {
             note_index,
@@ -815,11 +820,12 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
             if !app.on_slide_cue(*note_index) {
                 return;
             }
-            if *is_break {
-                app.sfx_break.as_ref()
-            } else {
-                app.sfx_slide.as_ref()
-            }
+            sfx::select(
+                app,
+                SfxKind::SlideCue,
+                SkinVariant::of_flags(*is_break, false),
+                false,
+            )
         }
     };
     app.play_sfx(buf.or(app.answer_sfx.as_ref()));

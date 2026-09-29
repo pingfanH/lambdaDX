@@ -353,6 +353,16 @@ mod lean {
             travel += duration(token.length.unwrap_or(0), token.timing, bpms);
         }
 
+        // Break can be signalled on any token of the chain (`is_break`) or as
+        // the slide-specific `is_slide_break`; OR them so a break slide is not
+        // silently rendered/judged as a normal one.
+        let is_break = group.iter().any(|&index| {
+            tokens
+                .get(index)
+                .map(|token| token.is_break || token.is_slide_break)
+                .unwrap_or(false)
+        });
+
         // One star per sub-slide: a continuous `>`/`<` chain expands to one
         // runtime slide per arc, recorded so `engine::chart_slide_key` maps the
         // runtime index back onto this note.
@@ -361,7 +371,7 @@ mod lean {
             time,
             lane: slot_lane(head.slot?),
             note_type: NoteType::Slide,
-            is_break: head.is_break,
+            is_break,
             is_ex: head.is_ex,
             is_tapless: head.is_slide_no_head,
             hi_speed,
@@ -369,7 +379,7 @@ mod lean {
                 segments,
                 slide_duration: wait + travel,
                 slide_start_delay: wait,
-                slide_is_break: head.is_break,
+                slide_is_break: is_break,
                 runtime_parts,
             }],
             ..Default::default()

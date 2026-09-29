@@ -153,6 +153,7 @@ pub async fn run() {
     app.pad.note_speed = app.pad.params.note_speed_default;
     app.pad.touch_speed = app.pad.params.touch_speed_default;
     app.pad.slide_fade_in = app.pad.params.slide_fade_in;
+    app.pad.set_play_speed(app.pad.params.play_speed_default);
 
     match perf::time("boot.pad_svg", || {
         pad_svg::PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg"))
@@ -174,7 +175,7 @@ pub async fn run() {
     }
     {
         let _s = perf::Scope::new("boot.answer_sfx");
-        app.pad.answer_sfx = audio::load_answer_sfx().await;
+        player::sfx::load_pad_sfx(&mut app.pad).await;
     }
 
     {

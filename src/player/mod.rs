@@ -9,5 +9,6 @@ pub mod input;
 pub mod layout;
 pub mod params_panel;
 pub mod render;
+pub mod sfx;
 pub mod state;
 pub mod video;

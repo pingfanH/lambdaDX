@@ -29,6 +29,8 @@ pub struct CueEvent {
     pub cue: Cue,
     /// Break note → a break sound can be used instead of the kind's sound.
     pub is_break: bool,
+    /// Ex note → the Ex sound can be used instead of the kind's sound.
+    pub is_ex: bool,
 }
 
 /// Sorted cue instants plus a monotonic cursor.
@@ -50,23 +52,27 @@ impl CueTrack {
                     time: note_secs(n, bpms),
                     cue: Cue::Tap,
                     is_break: n.is_break,
+                    is_ex: n.is_ex,
                 }),
                 NoteType::Hold => {
                     events.push(CueEvent {
                         time: note_secs(n, bpms),
                         cue: Cue::HoldHead,
                         is_break: n.is_break,
+                        is_ex: n.is_ex,
                     });
                     events.push(CueEvent {
                         time: hold_tail_time(n, bpms),
                         cue: Cue::HoldTail,
                         is_break: n.is_break,
+                        is_ex: n.is_ex,
                     });
                 }
                 NoteType::Slide => events.push(CueEvent {
                     time: note_secs(n, bpms),
                     cue: Cue::SlideHead,
                     is_break: n.is_break,
+                    is_ex: n.is_ex,
                 }),
                 NoteType::Touch => {}
             }

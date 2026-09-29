@@ -32,16 +32,30 @@ impl JudgeEngine {
     pub fn slide_head_timing(&self, _runtime_slide_index: usize) -> Option<i64> {
         None
     }
-    pub fn slide_progress_updates(&self, _commands: &[()]) -> Vec<SlideProgressUpdate> {
+    pub fn slide_queue_total(&self, _runtime_slide_index: usize) -> Option<(u64, u64, u64)> {
+        None
+    }
+    pub fn debug_dump_slide_bindings(&self) {}
+    pub fn slide_progress_updates(&self, _commands: &[()]) -> Vec<SlideArcProgress> {
         Vec::new()
     }
 }
 
-/// Per-sub-slide trail-consumption state (no-op backend never emits any).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SlideProgressUpdate {
+/// Consumed fraction of one runtime slide arc (no-op backend never emits any).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SlideArcProgress {
     pub runtime_slide_index: usize,
-    pub hidden_until_bar: usize,
+    pub frac: f32,
+}
+
+/// Whether the `MAI2_DEBUG_SLIDE` diagnostic trace is enabled (never here).
+pub(crate) fn debug_slide_enabled() -> bool {
+    false
+}
+
+/// Diagnostics are disabled in the no-core backend.
+pub(crate) fn debug_dedup(_tag: impl std::fmt::Display, _key: &str) -> bool {
+    false
 }
 
 /// Microsecond timestamp of a core input event.
@@ -123,6 +137,14 @@ pub fn zone_for_sensor(area: SensorArea) -> PadZone {
 
 /// Map a runtime slide index onto the chart's `(note_id, slide_idx)`.
 pub fn chart_slide_key(chart: &ChartDoc, runtime_slide_index: usize) -> Option<(u64, usize)> {
+    chart_slide_position(chart, runtime_slide_index).map(|(note_id, slide_idx, _, _)| (note_id, slide_idx))
+}
+
+/// Like [`chart_slide_key`] but also resolves the segment within the sub-slide.
+pub fn chart_slide_position(
+    chart: &ChartDoc,
+    runtime_slide_index: usize,
+) -> Option<(u64, usize, usize, usize)> {
     let mut current = 0;
     chart
         .notes
@@ -130,12 +152,11 @@ pub fn chart_slide_key(chart: &ChartDoc, runtime_slide_index: usize) -> Option<(
         .filter(|note| matches!(note.note_type, NoteType::Slide))
         .find_map(|note| {
             for (slide_idx, slide) in note.slide.iter().enumerate() {
-                for _ in 0..slide.runtime_parts.max(1) {
-                    if current == runtime_slide_index {
-                        return Some((note.id, slide_idx));
-                    }
-                    current += 1;
+                let parts = slide.runtime_parts.max(1);
+                if runtime_slide_index < current + parts {
+                    return Some((note.id, slide_idx, runtime_slide_index - current, parts));
                 }
+                current += parts;
             }
             None
         })

@@ -71,11 +71,20 @@ pub struct PadPreviewState {
     pub bgm_player: Option<BgmPlayer>,
     /// One-shot cue sound (`Sfx/answer.wav`) played at tap / hold head / hold tail.
     pub answer_sfx: Option<SfxBuffer>,
-    /// Judgment cue sounds per kind (tap / slide / hold / break), if present.
+    /// Judgment cue sounds per kind, if present. The mapping from a note/event
+    /// to one of these lives in `crate::player::sfx` (a table like the skins).
     pub sfx_tap: Option<SfxBuffer>,
+    pub sfx_touch: Option<SfxBuffer>,
     pub sfx_slide: Option<SfxBuffer>,
     pub sfx_hold: Option<SfxBuffer>,
     pub sfx_break: Option<SfxBuffer>,
+    /// Ex / break variants (`tap_ex.wav`, `break_tap.wav`, `break_slide.wav`,
+    /// `slide_break_start.wav`, `slide_break_slide.wav`).
+    pub sfx_ex: Option<SfxBuffer>,
+    pub sfx_break_tap: Option<SfxBuffer>,
+    pub sfx_break_slide: Option<SfxBuffer>,
+    pub sfx_slide_break_start: Option<SfxBuffer>,
+    pub sfx_slide_break_slide: Option<SfxBuffer>,
     /// Time-based cue schedule (built from the chart).
     pub cue_track: Option<CueTrack>,
 
@@ -212,9 +221,15 @@ impl PadPreviewState {
             bgm_player: BgmPlayer::new().ok(),
             answer_sfx: None,
             sfx_tap: None,
+            sfx_touch: None,
             sfx_slide: None,
             sfx_hold: None,
             sfx_break: None,
+            sfx_ex: None,
+            sfx_break_tap: None,
+            sfx_break_slide: None,
+            sfx_slide_break_start: None,
+            sfx_slide_break_slide: None,
             cue_track,
             tap_texture: None,
             hold_texture: None,
@@ -422,20 +437,24 @@ impl PadPreviewState {
         }
     }
 
-    /// The judgment cue sound for a note kind/variant (falls back to
-    /// `answer.wav`).
-    fn cue_sfx(&self, cue: crate::player::cues::Cue, is_break: bool) -> Option<&SfxBuffer> {
+    /// The judgment cue sound for a note kind/variant, via the central
+    /// `player::sfx` table (falls back to `answer.wav`).
+    fn cue_sfx(
+        &self,
+        cue: crate::player::cues::Cue,
+        is_break: bool,
+        is_ex: bool,
+    ) -> Option<&SfxBuffer> {
+        use crate::player::render::skin::SkinVariant;
+        use crate::player::sfx::{self, SfxKind};
         use crate::player::cues::Cue;
-        let picked = if is_break {
-            self.sfx_break.as_ref()
-        } else {
-            match cue {
-                Cue::Tap => self.sfx_tap.as_ref(),
-                Cue::SlideHead => self.sfx_tap.as_ref(),
-                Cue::HoldHead | Cue::HoldTail => self.sfx_hold.as_ref(),
-            }
+        let kind = match cue {
+            Cue::Tap => SfxKind::Tap,
+            Cue::SlideHead => SfxKind::SlideCue,
+            Cue::HoldHead | Cue::HoldTail => SfxKind::Hold,
         };
-        picked.or(self.answer_sfx.as_ref())
+        let variant = SkinVariant::of_flags(is_break, false);
+        sfx::select(self, kind, variant, is_ex).or(self.answer_sfx.as_ref())
     }
 
     /// Play a cue for every tap/hold head/hold tail crossed this frame.
@@ -451,7 +470,7 @@ impl PadPreviewState {
             .unwrap_or_default();
         for ev in due {
             let buf = if params::judge_sfx() {
-                self.cue_sfx(ev.cue, ev.is_break)
+                self.cue_sfx(ev.cue, ev.is_break, ev.is_ex)
             } else {
                 self.answer_sfx.as_ref()
             };
@@ -540,11 +559,14 @@ impl PadPreviewState {
                 for (si, slide) in note.slide.iter().enumerate() {
                     eprintln!(
                         "[slide/chart] note={} lane={} head={head:.3}s slide_idx={si} \
-                         segments={} runtime_parts={}",
+                         segments={} runtime_parts={} is_break={} is_ex={} is_star={}",
                         note.id,
                         note.lane,
                         slide.segments.len(),
-                        slide.runtime_parts
+                        slide.runtime_parts,
+                        note.is_break,
+                        note.is_ex,
+                        note.is_star,
                     );
                 }
             }

@@ -454,8 +454,21 @@ pub fn draw_slide(
                 } else {
                     seg_frac.iter().sum::<f32>() / seg_frac.len() as f32
                 };
-                let command_hidden_until =
-                    ((overall_frac * sprite_count as f32).round() as usize).min(sprite_count);
+                // Give wifi a judge segmentation too: sample its middle track
+                // and split the sprites across the sensor areas it crosses
+                // (first/last fixed, middle even), matching straight slides.
+                let mid_path = [start_pos, targets[1]];
+                let mid_seg = segmentation::build(
+                    &mid_path,
+                    params::slide_tile_spacing() * scale,
+                    params::slide_head_gap() * scale,
+                    params::slide_tail_gap() * scale,
+                    svg,
+                    pad,
+                );
+                let mid_areas = mid_seg.judge_segments.len().max(1);
+                let mid_passed = (overall_frac.clamp(0.0, 1.0) * mid_areas as f32).round() as usize;
+                let command_hidden_until = area_bar_boundary(sprite_count, mid_areas, mid_passed);
                 // Guide orientation = the lane's flight direction (constant), so
                 // the guide does NOT spin with the star.
                 let guide_ang = -std::f32::consts::FRAC_PI_2
