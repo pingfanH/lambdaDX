@@ -20,8 +20,6 @@ mod app;
 mod player;
 #[path = "player_ui/mod.rs"]
 mod player_ui;
-#[path = "simai/mod.rs"]
-mod simai;
 
 use macroquad::Window;
 

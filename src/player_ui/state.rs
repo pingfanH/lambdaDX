@@ -352,8 +352,8 @@ impl PlayerUiApp {
         self.pad.timeline_view_time = 0.0;
         self.pad.mode_wall_anchor = get_time();
         self.pad.chart = chart;
-        // Simai-converted notes all default to id 0; give them unique ids so
-        // per-note hiding (autoplay judgment) and slide-progress keys work.
+        // Give notes without a core id unique ids for per-note hiding and
+        // slide-progress keys.
         crate::app::maichart::assign_note_ids(&mut self.pad.chart.notes);
         self.pad.hidden_notes.clear();
         self.pad.slide_progress.clear();

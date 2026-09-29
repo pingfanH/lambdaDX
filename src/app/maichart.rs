@@ -340,8 +340,7 @@ pub(crate) fn mark_double_stars(notes: &mut [Note]) {
 
 /// Give every note a unique, non-zero id.
 ///
-/// Simai-converted notes all default to `id == 0`; autoplay hides judged notes
-/// by id, so without unique ids a single judgment would hide *every* note.
+/// Notes without an id need one so autoplay hides only the judged note.
 pub(crate) fn assign_note_ids(notes: &mut [Note]) {
     let mut next = notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
     for note in notes.iter_mut() {

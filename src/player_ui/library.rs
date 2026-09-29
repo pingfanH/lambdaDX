@@ -1,19 +1,16 @@
 //! Chart library: scan a songs directory for `maidata.txt`, read metadata,
 //! decode cover art and convert a chosen difficulty into a [`ChartDoc`].
 //!
-//! Mirrors the original player's `egui/library.rs`, trimmed to what the
-//! macroquad parser in this crate can provide (no Simai *import* / file dialogs).
+//! Charts are parsed by lnmai-core; this module only reads song-list metadata.
 
 use std::collections::VecDeque;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use macroquad::prelude::Texture2D;
 
-use crate::app::maidata::from_maidata;
+use crate::app::maidata::{from_maidata_key, levels as maidata_levels};
 use crate::app::types::ChartDoc;
-use crate::simai::parse_file;
 
 const SONGS_DIR_ENV: &str = "MAI2_SONGS_DIR";
 const MAX_DEPTH: usize = 3;
@@ -241,32 +238,15 @@ fn collect(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
 fn song_from_folder(folder: &Path) -> Option<LibrarySong> {
     let chart_path = folder.join("maidata.txt");
     let text = std::fs::read_to_string(&chart_path).ok()?;
-    let file = parse_file(&text).ok();
-    let (title, artist, levels) = match &file {
-        Some(f) => (
-            if f.title.trim().is_empty() {
-                folder_name(folder)
-            } else {
-                f.title.clone()
-            },
-            if f.artist.trim().is_empty() {
-                "未知艺术家".to_string()
-            } else {
-                f.artist.clone()
-            },
-            {
-                let chart_keys: HashSet<u32> = f.charts.iter().map(|(key, _)| *key).collect();
-                f.levels
-                    .iter()
-                    .filter(|(key, _)| chart_keys.contains(key))
-                    .cloned()
-                    .collect()
-            },
-        ),
-        None => (folder_name(folder), "未知艺术家".to_string(), Vec::new()),
-    };
+    let title = metadata_value(&text, "&title=")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| folder_name(folder));
+    let artist = metadata_value(&text, "&artist=")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "未知艺术家".to_string());
+    let levels = maidata_levels(&text);
     let designer = read_designer(&text).unwrap_or_else(|| "未知谱师".to_string());
-    let diff_count = file.map(|f| f.charts.len()).unwrap_or(0);
+    let diff_count = levels.len();
     let descriptor = if diff_count > 1 {
         format!("{diff_count} 个难度 · 本地谱面")
     } else {
@@ -281,6 +261,15 @@ fn song_from_folder(folder: &Path) -> Option<LibrarySong> {
         chart_path,
         cover_path: find_cover(folder),
         levels,
+    })
+}
+
+fn metadata_value(text: &str, name: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        line.trim()
+            .trim_start_matches('\u{feff}')
+            .strip_prefix(name)
+            .map(|value| value.trim().to_string())
     })
 }
 
@@ -320,23 +309,9 @@ fn find_cover(folder: &Path) -> Option<PathBuf> {
 /// Build a [`ChartDoc`] for `level_key` (an `&inote_N=` slot). `None` picks the
 /// hardest available difficulty.
 pub fn chart_for_level(text: &str, level_key: Option<u32>) -> Result<ChartDoc, String> {
-    let diff = match level_key {
-        Some(key) => {
-            let file = crate::player_ui::perf::time("chart.parse_file(index)", || {
-                parse_file(text).map_err(|e| e.to_string())
-            })?;
-            let mut keys: Vec<u32> = file.charts.iter().map(|(k, _)| *k).collect();
-            keys.sort_unstable();
-            keys.dedup();
-            keys.iter()
-                .position(|k| *k == key)
-                .map(|p| p as i32 + 1)
-        }
-        None => None,
-    };
-    crate::player_ui::perf::time("chart.from_maidata(reparse+convert)", || {
-        from_maidata(text, diff)
-    })
+    let key = level_key.or_else(|| maidata_levels(text).last().map(|(key, _)| *key))
+        .ok_or("maidata has no &inote_N chart")?;
+    crate::player_ui::perf::time("chart.from_core", || from_maidata_key(text, key))
 }
 
 /// A sensible default difficulty key for a freshly-loaded song: the first
@@ -373,14 +348,6 @@ mod tests {
     #[test]
     fn default_level_ignores_orphan_level_metadata() {
         let text = "&title=T\n&lv_2=2.0\n&lv_6=\n&inote_2=(120){4}1,2,3,4\n";
-        let file = parse_file(text).expect("file");
-        let chart_keys: HashSet<u32> = file.charts.iter().map(|(key, _)| *key).collect();
-        let levels: Vec<_> = file
-            .levels
-            .iter()
-            .filter(|(key, _)| chart_keys.contains(key))
-            .cloned()
-            .collect();
-        assert_eq!(default_level(&levels), Some(2));
+        assert_eq!(default_level(&maidata_levels(text)), Some(2));
     }
 }

@@ -64,17 +64,17 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1789001216,
-        "narHash": "sha256-FcwKbTpbgC5xPaS+/rk2rnMOU4d7C8q6YGYg401TqwQ=",
+        "lastModified": 1790644054,
+        "narHash": "sha256-YLu+Y6C4TvHHtcy9WBghB0ZqbmatY429p3e80Mhd5BY=",
         "owner": "Neuron-Group",
         "repo": "lnmai-core",
-        "rev": "a30b0fc63ec5abf60393b979791a199266614bd1",
+        "rev": "9ca93e975bcd8a4240c3bce505f1257d3962f7a9",
         "type": "github"
       },
       "original": {
         "owner": "Neuron-Group",
         "repo": "lnmai-core",
-        "rev": "a30b0fc63ec5abf60393b979791a199266614bd1",
+        "rev": "9ca93e975bcd8a4240c3bce505f1257d3962f7a9",
         "type": "github"
       }
     },

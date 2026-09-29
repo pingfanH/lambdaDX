@@ -15,7 +15,6 @@
 
 mod app;
 mod player;
-mod simai;
 
 use macroquad::color::Color;
 use macroquad::file::set_pc_assets_folder;
