@@ -897,25 +897,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "lnmai-core-rs"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "lnmai-core-rust"
 version = "0.1.0"
 dependencies = [
- "lnmai_core",
+ "lnmai-core-rs",
  "serde",
  "serde_json",
 ]
-
-[[package]]
-name = "lnmai_core"
-version = "0.1.0"
-dependencies = [
- "lnmai_core_verify",
- "serde_json",
-]
-
-[[package]]
-name = "lnmai_core_verify"
-version = "0.1.0"
 
 [[package]]
 name = "lock_api"

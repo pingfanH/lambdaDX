@@ -1,0 +1,6 @@
+[env]
+# Pinned Lake checkout of Neuron-Group/lnmai-core whose FFI schema matches
+# `lnmai-core/shared/rust_ffi_types.rs`. `lnmai-core`'s build script reads this
+# when `LNMAI_CORE_ARTIFACTS` is unset. `force = false` keeps an
+# explicitly-exported value (e.g. a Nix `ffi-artifacts` path) authoritative.
+LNMAI_CORE_LEAN_PROJECT = { value = "/Users/pingfanh/project/Mai2Chart/demo/macroquad_sim/lnmai-core-rs/lnmai-core-ffi/lnmai-core", force = false }

@@ -272,7 +272,7 @@ pub fn draw_slide(
     speed_scale: f32,
     base_speed: f32,
     slide_fade_in: f32,
-    hidden_until_bar: usize,
+    seg_frac: &[f32],
     core_driven: bool,
     layer: SlideLayer,
 ) {
@@ -346,7 +346,11 @@ pub fn draw_slide(
     }
 
     let mut curr_note = note.clone();
+    // Path index at the start of each segment (plus one past the end), used to
+    // convert per-segment core progress into trail-bar ranges.
+    let mut seg_boundaries: Vec<usize> = Vec::with_capacity(slide.segments.len() + 1);
     for seg in &slide.segments {
+        seg_boundaries.push(path.len());
         match seg.shape {
             SlideShape::Q => slide_shape_q(
                 &mut path, &curr_note, seg, outer_r, spawn_cx, pad, svg, scale,
@@ -444,7 +448,14 @@ pub fn draw_slide(
                 };
 
                 let sprite_count = 11;
-                let command_hidden_until = hidden_until_bar.min(sprite_count);
+                // Cumulative consumed fraction across the sub-slide's segments.
+                let overall_frac = if seg_frac.is_empty() {
+                    0.0
+                } else {
+                    seg_frac.iter().sum::<f32>() / seg_frac.len() as f32
+                };
+                let command_hidden_until =
+                    ((overall_frac * sprite_count as f32).round() as usize).min(sprite_count);
                 // Guide orientation = the lane's flight direction (constant), so
                 // the guide does NOT spin with the star.
                 let guide_ang = -std::f32::consts::FRAC_PI_2
@@ -645,6 +656,7 @@ pub fn draw_slide(
             curr_note.lane = last_sp.zone.to_id();
         }
     }
+    seg_boundaries.push(path.len());
 
     if path.len() < 2 {
         return;
@@ -712,7 +724,55 @@ pub fn draw_slide(
         svg,
         pad,
     );
-    let hidden_until = hidden_until_bar.min(segmentation.bars.len());
+    // Core progress is per chart segment; map each segment's consumed fraction
+    // onto its path-distance range to get the trail-bar frontier.
+    let hidden_until = if core_driven && !seg_frac.is_empty() && seg_boundaries.len() >= 2 {
+        let mut cum: Vec<f32> = Vec::with_capacity(path.len());
+        let mut acc = 0.0_f32;
+        cum.push(0.0);
+        for w in path.windows(2) {
+            acc += (w[1] - w[0]).length();
+            cum.push(acc);
+        }
+        let last = cum.len() - 1;
+        let seg_count = seg_frac.len().min(seg_boundaries.len() - 1);
+        // A boundary stores `path.len()` before the segment's first point is
+        // appended, so map it to the previous point's distance (`-1`).
+        let dist_at = |b: usize| cum[b.saturating_sub(1).min(last)];
+        // Segments are consumed in order (state normalises earlier arcs to 1.0),
+        // so the frontier is just the furthest segment with any progress: earlier
+        // ones are fully hidden up to their end, later ones contribute nothing.
+        let frontier = match seg_frac[..seg_count].iter().rposition(|f| *f > 0.0) {
+            Some(j) => {
+                let d0 = dist_at(seg_boundaries[j]);
+                let d1 = dist_at(seg_boundaries[j + 1]);
+                d0 + seg_frac[j].clamp(0.0, 1.0) * (d1 - d0)
+            }
+            None => 0.0,
+        };
+        segmentation
+            .bars
+            .iter()
+            .rposition(|bar| bar.distance_along <= frontier)
+            .map(|index| index + 1)
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let hidden_until = hidden_until.min(segmentation.bars.len());
+    if matches!(layer, SlideLayer::Trail) && crate::player::engine::debug_slide_enabled() {
+        eprintln!(
+            "[slide/player/render] note={} bars={} hidden_until={} seg_frac={:?} \
+             star_dist={:.2}/{:.2} star_t={:.3} core_driven={core_driven}",
+            note.id,
+            segmentation.bars.len(),
+            hidden_until,
+            seg_frac,
+            star_dist_along,
+            total_len,
+            if total_len > 0.0 { star_dist_along / total_len } else { 0.0 },
+        );
+    }
     // Within one slide, the trail tiles can be drawn forward or reversed so an
     // overlapping tile's stacking can be chosen.
     let bar_order: Box<dyn Iterator<Item = usize>> = if params::slide_tile_reverse() {

@@ -166,10 +166,20 @@ pub struct JudgeEngine {
     slide_bindings: HashMap<u64, usize>,
     /// Core slide head timings (µs), indexed by runtime slide index.
     slide_head_timings: Vec<i64>,
+    /// Per runtime slide: `(total_judge_queue_len, track_count,
+    /// initial_queue_remaining)`, indexed by runtime slide index.
+    slide_totals: Vec<(u64, u64, u64)>,
 }
 
 fn ensure_runtime() {
     session::ensure_runtime().expect("lnmai-core runtime must initialize");
+}
+
+/// Whether the `MAI2_DEBUG_SLIDE` diagnostic trace is enabled.
+pub(crate) fn debug_slide_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MAI2_DEBUG_SLIDE").is_some())
 }
 
 impl JudgeEngine {
@@ -181,12 +191,35 @@ impl JudgeEngine {
         let (loaded, _envelope) = empty
             .load_chart_text(simai_text, level_index)
             .map_err(|e| e.json)?;
-        let (slide_bindings, slide_head_timings) = runtime_slide_bindings(&loaded)?;
+        let (slide_bindings, slide_head_timings, slide_totals) = runtime_slide_bindings(&loaded)?;
         Ok(JudgeEngine {
             session: loaded,
             slide_bindings,
             slide_head_timings,
+            slide_totals,
         })
+    }
+
+    /// `(total_judge_queue_len, track_count, initial_queue_remaining)` for a
+    /// runtime slide index.
+    pub fn slide_queue_total(&self, runtime_slide_index: usize) -> Option<(u64, u64, u64)> {
+        self.slide_totals.get(runtime_slide_index).copied()
+    }
+
+    /// Diagnostic (`MAI2_DEBUG_SLIDE`): dump the runtime slide bindings.
+    pub fn debug_dump_slide_bindings(&self) {
+        for (runtime, meta) in self.slide_totals.iter().enumerate() {
+            let note_index = self
+                .slide_bindings
+                .iter()
+                .find(|(_, rt)| **rt == runtime)
+                .map(|(note, _)| *note);
+            eprintln!(
+                "[slide/bindings] rt={runtime} note_index={note_index:?} \
+                 total_judge_queue={} track_count={} initial_remaining={}",
+                meta.0, meta.1, meta.2
+            );
+        }
     }
 
     /// Advance the runtime by one frame with the given input events at
@@ -238,61 +271,87 @@ impl JudgeEngine {
             .map_err(|e| e.json)
     }
 
-    /// Collect the star/slide state updates carried by a frame's render
-    /// commands. `HideAllSlideBars` maps to "hide everything", `HideSlideBars`
-    /// to a per-slide bar cutoff. Progress-only commands are ignored because the
-    /// trail is consumed by hiding, not by a numeric bar index.
-    pub fn slide_progress_updates(&self, commands: &[RenderCommand]) -> Vec<SlideProgressUpdate> {
-        let mut by_slide: HashMap<usize, usize> = HashMap::new();
+    /// Consumed fraction (0..1) of each runtime slide arc, from a frame's render
+    /// commands.
+    ///
+    /// lnmai reports slide progress per **runtime arc** (one `noteIndex` per arc
+    /// of a continuous chain), in its own judge-queue units. The caller slots
+    /// each arc's fraction into that arc's segment range of the chart sub-slide,
+    /// so a later arc can never be hidden by an earlier arc's progress.
+    pub fn slide_progress_updates(&self, commands: &[RenderCommand]) -> Vec<SlideArcProgress> {
+        let mut by_slide: HashMap<usize, f32> = HashMap::new();
         for command in commands {
             let Some(update) = self.slide_progress_update(command) else {
                 continue;
             };
             by_slide
                 .entry(update.runtime_slide_index)
-                .and_modify(|hidden| *hidden = (*hidden).max(update.hidden_until_bar))
-                .or_insert(update.hidden_until_bar);
+                .and_modify(|frac| *frac = frac.max(update.frac))
+                .or_insert(update.frac);
         }
 
         let mut updates: Vec<_> = by_slide
             .into_iter()
-            .map(|(runtime_slide_index, hidden_until_bar)| SlideProgressUpdate {
+            .map(|(runtime_slide_index, frac)| SlideArcProgress {
                 runtime_slide_index,
-                hidden_until_bar,
+                frac,
             })
             .collect();
         updates.sort_by_key(|update| update.runtime_slide_index);
         updates
     }
 
-    fn slide_progress_update(&self, command: &RenderCommand) -> Option<SlideProgressUpdate> {
-        let (note_index, hidden_until_bar) = match command {
-            RenderCommand::UpdateSlideProgress { .. } => return None,
-            RenderCommand::UpdateSlideTrackProgress { .. } => return None,
-            RenderCommand::HideAllSlideBars { note_index } => (*note_index, usize::MAX),
-            RenderCommand::HideSlideBars {
+    fn slide_progress_update(&self, command: &RenderCommand) -> Option<SlideArcProgress> {
+        let (note_index, frac) = match command {
+            // Per-arc judge progress is the authoritative signal: `remaining`
+            // counts down the arc's own judge queue (0 ⇒ arc finished).
+            RenderCommand::UpdateSlideProgress {
                 note_index,
-                end_index,
-            } => (*note_index, *end_index as usize),
+                remaining,
+            } => (*note_index, self.frac_from_remaining(*note_index, *remaining)?),
+            RenderCommand::UpdateSlideTrackProgress {
+                note_index,
+                remaining,
+                ..
+            } => (*note_index, self.frac_from_remaining(*note_index, *remaining)?),
+            // A miss hides the whole arc.
+            RenderCommand::HideAllSlideBars { note_index } => (*note_index, 1.0),
+            // NOTE: `HideSlideBars.endIndex` is in trail-tile units, not judge
+            // queue units (it can exceed `total_judge_queue_len`), so it must not
+            // be normalised by the queue length — ignore it and let the progress
+            // commands drive consumption.
+            RenderCommand::HideSlideBars { .. } => return None,
             RenderCommand::HideSlideTrackBars { .. } => return None,
             RenderCommand::ShowJudgeResult { .. } => return None,
         };
         let runtime_slide_index = self.runtime_slide_index(note_index)?;
-        Some(SlideProgressUpdate {
+        Some(SlideArcProgress {
             runtime_slide_index,
-            hidden_until_bar,
+            frac: frac.clamp(0.0, 1.0),
         })
+    }
+
+    fn frac_from_remaining(&self, note_index: u64, remaining: u64) -> Option<f32> {
+        let runtime = self.runtime_slide_index(note_index)?;
+        let total = self.slide_queue_total(runtime)?.0;
+        if total == 0 {
+            return None;
+        }
+        let consumed = total.saturating_sub(remaining);
+        Some(consumed as f32 / total as f32)
     }
 }
 
-/// Per-sub-slide trail-consumption state pushed by lnmai-core's render commands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SlideProgressUpdate {
+/// Consumed fraction (0..1) of one runtime slide arc.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SlideArcProgress {
     pub runtime_slide_index: usize,
-    pub hidden_until_bar: usize,
+    pub frac: f32,
 }
 
-fn runtime_slide_bindings(session: &Session<Loaded>) -> Result<(HashMap<u64, usize>, Vec<i64>), String> {
+fn runtime_slide_bindings(
+    session: &Session<Loaded>,
+) -> Result<(HashMap<u64, usize>, Vec<i64>, Vec<(u64, u64, u64)>), String> {
     let envelope = session.get_state_json().map_err(|e| e.json)?;
     let state = envelope
         .decode_result::<GameState>()
@@ -306,7 +365,18 @@ fn runtime_slide_bindings(session: &Session<Loaded>) -> Result<(HashMap<u64, usi
         })
         .collect();
     let head_timings = state.slides.iter().map(|slide| slide.head_timing).collect();
-    Ok((index_by_note, head_timings))
+    let totals = state
+        .slides
+        .iter()
+        .map(|slide| {
+            (
+                slide.total_judge_queue_len,
+                slide.track_count,
+                slide.initial_queue_remaining,
+            )
+        })
+        .collect();
+    Ok((index_by_note, head_timings, totals))
 }
 
 trait InputTp {
@@ -328,6 +398,41 @@ pub fn timed_input_tp(event: &TimedInputEvent) -> i64 {
     event.tp()
 }
 
+/// Adapt lnmai-core's outer-button autoplay events to this player's sensor-only
+/// input surface. The pad has no K buttons, so K1..K8 are represented by the
+/// corresponding A1..A8 sensor events before the frame is sent back to core.
+pub fn normalize_tactic_event(event: TimedInputEvent) -> TimedInputEvent {
+    match event {
+        TimedInputEvent::ButtonClick { tp, zone } => TimedInputEvent::SensorClick {
+            tp,
+            area: sensor_area_for_button(zone),
+        },
+        TimedInputEvent::ButtonHold {
+            tp,
+            zone,
+            is_down,
+        } => TimedInputEvent::SensorHold {
+            tp,
+            area: sensor_area_for_button(zone),
+            is_down,
+        },
+        sensor_event => sensor_event,
+    }
+}
+
+fn sensor_area_for_button(zone: ButtonZone) -> SensorArea {
+    match zone {
+        ButtonZone::K1 => SensorArea::A1,
+        ButtonZone::K2 => SensorArea::A2,
+        ButtonZone::K3 => SensorArea::A3,
+        ButtonZone::K4 => SensorArea::A4,
+        ButtonZone::K5 => SensorArea::A5,
+        ButtonZone::K6 => SensorArea::A6,
+        ButtonZone::K7 => SensorArea::A7,
+        ButtonZone::K8 => SensorArea::A8,
+    }
+}
+
 /// Advance the engine and apply the resulting core judge/audio commands.
 pub fn step_judge_engine(app: &mut PadPreviewState) {
     // `no_core`: bypass lnmai-core entirely (pre-lnmai autoplay + star motion).
@@ -341,6 +446,9 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
         Ok(result) => {
             app.core_score = Some(result.score.clone());
             if let Some(engine) = app.judge_engine.as_ref() {
+                if debug_slide_enabled() {
+                    log_lnmai_slide_state(engine, now, &result);
+                }
                 let updates = engine.slide_progress_updates(&result.render_commands);
                 app.apply_core_slide_progress_updates(&updates);
             }
@@ -350,6 +458,82 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
             if !app.status.starts_with("engine") {
                 app.set_status(format!("engine: {e}"));
             }
+        }
+    }
+}
+
+/// Diagnostic: dump lnmai-core's slide state (render commands + slide judge
+/// events) with resolved runtime-slide totals. Enabled by `MAI2_DEBUG_SLIDE`.
+fn log_lnmai_slide_state(engine: &JudgeEngine, now: f32, result: &RuntimeStepLightResult) {
+    for command in &result.render_commands {
+        let (tag, note_index, detail) = match command {
+            RenderCommand::UpdateSlideProgress {
+                note_index,
+                remaining,
+            } => {
+                let total = engine
+                    .runtime_slide_index(*note_index)
+                    .and_then(|rt| engine.slide_queue_total(rt))
+                    .map(|t| t.0);
+                (
+                    "UpdateSlideProgress",
+                    *note_index,
+                    format!(
+                        "remaining={remaining} total_judge_queue={total:?} traveled={:?}",
+                        total.map(|t| t.saturating_sub(*remaining))
+                    ),
+                )
+            }
+            RenderCommand::UpdateSlideTrackProgress {
+                note_index,
+                track_index,
+                remaining,
+            } => {
+                let meta = engine
+                    .runtime_slide_index(*note_index)
+                    .and_then(|rt| engine.slide_queue_total(rt));
+                (
+                    "UpdateSlideTrackProgress",
+                    *note_index,
+                    format!(
+                        "track={track_index}/{:?} remaining={remaining}",
+                        meta.map(|t| t.1)
+                    ),
+                )
+            }
+            RenderCommand::HideSlideBars {
+                note_index,
+                end_index,
+            } => {
+                let meta = engine
+                    .runtime_slide_index(*note_index)
+                    .and_then(|rt| engine.slide_queue_total(rt));
+                (
+                    "HideSlideBars",
+                    *note_index,
+                    format!("end_index={end_index} meta={meta:?}"),
+                )
+            }
+            RenderCommand::HideAllSlideBars { note_index } => {
+                let meta = engine
+                    .runtime_slide_index(*note_index)
+                    .and_then(|rt| engine.slide_queue_total(rt));
+                ("HideAllSlideBars", *note_index, format!("meta={meta:?}"))
+            }
+            _ => continue,
+        };
+        let runtime = engine.runtime_slide_index(note_index);
+        eprintln!(
+            "[slide/lnmai t={now:.3}] {tag} note={note_index} rt={runtime:?} {detail}"
+        );
+    }
+    for event in &result.events {
+        if event.kind == JudgeEventKind::Slide {
+            let runtime = engine.runtime_slide_index(event.note_index);
+            eprintln!(
+                "[slide/lnmai t={now:.3}] JudgeEvent slide note={} rt={runtime:?} grade={:?}",
+                event.note_index, event.grade
+            );
         }
     }
 }
@@ -537,6 +721,16 @@ fn chart_note_head_zone(chart: &ChartDoc, note_index: u64) -> Option<PadZone> {
 /// lnmai-core splits a continuous multi-arc slide into one runtime slide per
 /// arc, so each chart sub-slide consumes `slide.runtime_parts` runtime indices.
 pub fn chart_slide_key(chart: &ChartDoc, runtime_slide_index: usize) -> Option<(u64, usize)> {
+    chart_slide_position(chart, runtime_slide_index).map(|(note_id, slide_idx, _, _)| (note_id, slide_idx))
+}
+
+/// Like [`chart_slide_key`] but also resolves which **segment** (runtime arc)
+/// of the chart sub-slide `runtime_slide_index` is, and how many segments the
+/// sub-slide has: `(note_id, slide_idx, segment_idx, segment_count)`.
+pub fn chart_slide_position(
+    chart: &ChartDoc,
+    runtime_slide_index: usize,
+) -> Option<(u64, usize, usize, usize)> {
     let mut current = 0;
     chart
         .notes
@@ -544,12 +738,11 @@ pub fn chart_slide_key(chart: &ChartDoc, runtime_slide_index: usize) -> Option<(
         .filter(|note| matches!(note.note_type, NoteType::Slide))
         .find_map(|note| {
             for (slide_idx, slide) in note.slide.iter().enumerate() {
-                for _ in 0..slide.runtime_parts.max(1) {
-                    if current == runtime_slide_index {
-                        return Some((note.id, slide_idx));
-                    }
-                    current += 1;
+                let parts = slide.runtime_parts.max(1);
+                if runtime_slide_index < current + parts {
+                    return Some((note.id, slide_idx, runtime_slide_index - current, parts));
                 }
+                current += parts;
             }
             None
         })
@@ -682,7 +875,7 @@ mod tests {
                     "runtime slide {} must map to a chart slide",
                     update.runtime_slide_index
                 );
-                if update.hidden_until_bar == usize::MAX {
+                if update.frac >= 1.0 {
                     full += 1;
                 } else {
                     partial += 1;
@@ -740,7 +933,7 @@ mod tests {
         let level = crate::app::maidata::inote_key(text, None).expect("level");
         let engine = JudgeEngine::load(text, level).expect("engine");
 
-        // Chart sub-slides: `1v4>3>2` = 1 (3 arcs), `4-8<4*-8>4` = 2 parts.
+        // Chart sub-slides: `1v4>3>2` = 1 (3 arcs), `4-8<4` and `-8>4` = 2 more.
         let chart_subs: usize = chart
             .notes
             .iter()
@@ -748,8 +941,8 @@ mod tests {
             .map(|n| n.slide.len())
             .sum();
         assert_eq!(chart_subs, 3);
-        // Runtime slides: 3 arcs + 2 `*` parts.
-        assert_eq!(engine.slide_count(), 5);
+        // Runtime slides: one per arc (3 + 2 + 2).
+        assert_eq!(engine.slide_count(), 7);
 
         // Expand each chart sub-slide into its runtime indices.
         let mut expected: Vec<(u64, usize)> = Vec::new();

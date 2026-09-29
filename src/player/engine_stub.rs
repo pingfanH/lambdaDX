@@ -54,6 +54,11 @@ pub fn timed_input_tp(event: &TimedInputEvent) -> i64 {
     }
 }
 
+/// No core: button tactics are never produced, so this is an identity pass.
+pub fn normalize_tactic_event(event: TimedInputEvent) -> TimedInputEvent {
+    event
+}
+
 /// No core, so presses produce no events.
 pub fn press_events_for_zone(_zone: PadZone, _tp: i64) -> Vec<TimedInputEvent> {
     Vec::new()

@@ -6,8 +6,7 @@ edition = "2021"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Pure-Rust port of the Lean `LnmaiCore` gameplay core (no Lean/Nix artifacts).
-# This crate is a drop-in replacement for the vendored `lnmai-core` (Lean FFI):
-# same JSON schema/API, but in-process and dependency-free. It lives OUTSIDE
-# `lnmai-core/` so that crate stays unmodified.
-lnmai_core_rs = { package = "lnmai_core", path = "/Users/pingfanh/project/Mai2Chart/demo/macroquad_sim/lnmai-core-rs/lnmai-core-ffi/lnmai-core/lnmai-core-rs/crates/lnmai-core" }
+# Pure-Rust `lnmai_core` port. Defaults to the committed stub in `port/` so the
+# crate graph always resolves; point this at the real port (package `lnmai_core`)
+# to use it. The vendored `lnmai-core/` (Lean FFI) is left unmodified.
+lnmai_core_rs = { package = "lnmai-core-rs", path = "port" }

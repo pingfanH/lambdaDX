@@ -12,7 +12,6 @@ use macroquad::prelude::Texture2D;
 
 use crate::app::maidata::from_maidata;
 use crate::app::types::ChartDoc;
-use crate::simai::parse_file;
 
 const SONGS_DIR_ENV: &str = "MAI2_SONGS_DIR";
 const MAX_DEPTH: usize = 3;
@@ -240,27 +239,21 @@ fn collect(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
 fn song_from_folder(folder: &Path) -> Option<LibrarySong> {
     let chart_path = folder.join("maidata.txt");
     let text = std::fs::read_to_string(&chart_path).ok()?;
-    let file = parse_file(&text).ok();
-    let (title, artist, levels) = match &file {
-        Some(f) => (
-            if f.title.trim().is_empty() {
-                folder_name(folder)
-            } else {
-                f.title.clone()
-            },
-            if f.artist.trim().is_empty() {
-                "未知艺术家".to_string()
-            } else {
-                f.artist.clone()
-            },
-            f.levels.clone(),
-        ),
-        None => (folder_name(folder), "未知艺术家".to_string(), Vec::new()),
+    let meta = crate::app::maidata::metadata(&text);
+    let title = if meta.title.trim().is_empty() {
+        folder_name(folder)
+    } else {
+        meta.title.clone()
     };
+    let artist = if meta.artist.trim().is_empty() {
+        "未知艺术家".to_string()
+    } else {
+        meta.artist.clone()
+    };
+    let levels = meta.levels.clone();
     let designer = read_designer(&text).unwrap_or_else(|| "未知谱师".to_string());
-    let diff_count = file.map(|f| f.charts.len()).unwrap_or(0);
-    let descriptor = if diff_count > 1 {
-        format!("{diff_count} 个难度 · 本地谱面")
+    let descriptor = if meta.chart_count > 1 {
+        format!("{} 个难度 · 本地谱面", meta.chart_count)
     } else {
         "本地谱面".to_string()
     };
@@ -312,21 +305,15 @@ fn find_cover(folder: &Path) -> Option<PathBuf> {
 /// Build a [`ChartDoc`] for `level_key` (an `&inote_N=` slot). `None` picks the
 /// hardest available difficulty.
 pub fn chart_for_level(text: &str, level_key: Option<u32>) -> Result<ChartDoc, String> {
+    let keys = crate::app::maidata::inote_keys(text);
     let diff = match level_key {
-        Some(key) => {
-            let file = crate::player_ui::perf::time("chart.parse_file(index)", || {
-                parse_file(text).map_err(|e| e.to_string())
-            })?;
-            let mut keys: Vec<u32> = file.charts.iter().map(|(k, _)| *k).collect();
-            keys.sort_unstable();
-            keys.dedup();
-            keys.iter()
-                .position(|k| *k == key)
-                .map(|p| p as i32 + 1)
-        }
+        Some(key) => keys
+            .iter()
+            .position(|k| *k == key)
+            .map(|position| position as i32 + 1),
         None => None,
     };
-    crate::player_ui::perf::time("chart.from_maidata(reparse+convert)", || {
+    crate::player_ui::perf::time("chart.from_lean(reparse+convert)", || {
         from_maidata(text, diff)
     })
 }

@@ -9,16 +9,15 @@ use crate::app::types::zone::PadZone;
 use crate::app::types::{
     ChartDoc, HitFx, JudgeFeedback, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
 };
-use crate::player::autoplay::AutoplayEvent;
 use crate::player::cues::CueTrack;
 use crate::player::video::VideoBg;
 
-/// Per-sub-slide visual progress. In the standalone preview the trail is never
-/// hidden by judgment, so `hidden_until_bar` stays 0; kept as a typed map so the
-/// renderer's lookup matches the original player.
-#[derive(Debug, Clone, Copy, Default)]
+/// Per-sub-slide visual progress, stored as the consumed fraction (0..1) of each
+/// of the sub-slide's segments (runtime arcs). The renderer maps these onto its
+/// own trail bars using the path's segment boundaries.
+#[derive(Debug, Clone, Default)]
 pub struct SlideProgress {
-    pub hidden_until_bar: usize,
+    pub seg_frac: Vec<f32>,
 }
 
 /// All mutable state the standalone pad preview needs.
@@ -120,10 +119,9 @@ pub struct PadPreviewState {
     // ── Autoplay ─────────────────────────────────────────────────────
     /// When on, the pad presses itself at each note's hit time.
     pub autoplay: bool,
-    pub autoplay_events: Vec<AutoplayEvent>,
-    pub autoplay_cursor: usize,
-    /// Note ids hidden by autoplay, so a seek can restore them.
-    pub autoplay_hidden: Vec<u64>,
+    /// Sensor areas held open by a button-click tactic event, released on the
+    /// next tactic frame so the core sees a hold for the click.
+    pub autoplay_click_held: Vec<crate::core::types::SensorArea>,
 
     // ── Progress / seeking ───────────────────────────────────────────
     /// True while the progress bar is being dragged.
@@ -249,9 +247,7 @@ impl PadPreviewState {
             hold_end_each_guide_tex: None,
             hold_end_break_guide_tex: None,
             autoplay: false,
-            autoplay_events: Vec::new(),
-            autoplay_cursor: 0,
-            autoplay_hidden: Vec::new(),
+            autoplay_click_held: Vec::new(),
             scrubbing: false,
             video_bg: VideoBg::new(),
             mobile_ui,
@@ -528,6 +524,26 @@ impl PadPreviewState {
     /// replay tactic used by autoplay.
     pub fn load_engine(&mut self, simai_text: &str, level_index: u32) -> Result<(), String> {
         let engine = crate::player::engine::JudgeEngine::load(simai_text, level_index)?;
+        if crate::player::engine::debug_slide_enabled() {
+            let bpms = self.chart.bpms.clone();
+            for note in &self.chart.notes {
+                if !matches!(note.note_type, crate::app::types::NoteType::Slide) {
+                    continue;
+                }
+                let head = crate::app::types::note_secs(note, &bpms);
+                for (si, slide) in note.slide.iter().enumerate() {
+                    eprintln!(
+                        "[slide/chart] note={} lane={} head={head:.3}s slide_idx={si} \
+                         segments={} runtime_parts={}",
+                        note.id,
+                        note.lane,
+                        slide.segments.len(),
+                        slide.runtime_parts
+                    );
+                }
+            }
+            engine.debug_dump_slide_bindings();
+        }
         self.autoplay_tactic = engine.default_tactic().unwrap_or_default();
         self.autoplay_tactic_cursor = 0;
         self.judge_engine = Some(engine);
@@ -548,13 +564,25 @@ impl PadPreviewState {
         }
     }
 
+    /// Drop the loaded lnmai-core session (e.g. when switching to a chart with
+    /// no Simai source). After this [`Self::use_core`] is false again.
+    pub fn unload_engine(&mut self) {
+        self.judge_engine = None;
+        self.autoplay_tactic.clear();
+        self.autoplay_tactic_cursor = 0;
+        self.engine_events.clear();
+        self.core_score = None;
+        self.slide_progress.clear();
+        self.simai_source = None;
+        self.simai_level = 0;
+    }
+
     pub fn has_engine(&self) -> bool {
         self.judge_engine.is_some()
     }
 
     /// Whether lnmai-core should actually drive judging / slide rendering. When
-    /// the `no_core` option is on, the player uses the pre-lnmai local autoplay
-    /// and lets slide stars fly on their own.
+    /// the `no_core` option is on, the pad renders without core judging.
     pub fn use_core(&self) -> bool {
         self.has_engine() && !crate::app::params::no_core()
     }
@@ -661,7 +689,7 @@ impl PadPreviewState {
         }
         use crate::app::types::{NoteType, mdur_to_secs, note_secs};
         let bpms = self.chart.bpms.clone();
-        let mut past: Vec<(u64, usize)> = Vec::new();
+        let mut past: Vec<((u64, usize), usize)> = Vec::new();
         let mut future: Vec<(u64, usize)> = Vec::new();
         for note in &self.chart.notes {
             if !matches!(note.note_type, NoteType::Slide) {
@@ -671,7 +699,7 @@ impl PadPreviewState {
             for (si, sl) in note.slide.iter().enumerate() {
                 let end = ns + mdur_to_secs(sl.slide_duration, note.time, &bpms);
                 if end < t {
-                    past.push((note.id, si));
+                    past.push(((note.id, si), sl.runtime_parts));
                 } else {
                     future.push((note.id, si));
                 }
@@ -680,39 +708,62 @@ impl PadPreviewState {
         for key in future {
             self.slide_progress.remove(&key);
         }
-        for key in past {
+        for (key, parts) in past {
             self.slide_progress.insert(
                 key,
                 SlideProgress {
-                    hidden_until_bar: usize::MAX,
+                    seg_frac: vec![1.0; parts.max(1)],
                 },
             );
         }
     }
 
-    /// Apply lnmai-core's per-slide trail-consumption state to the chart's
-    /// `(note_id, slide_idx)` keys used by the renderer.
+    /// Apply lnmai-core's per-runtime-arc consumed fractions to the chart's
+    /// `(note_id, slide_idx)` sub-slides used by the renderer.
+    ///
+    /// lnmai splits a continuous chain into one runtime arc per chart segment, so
+    /// each arc's fraction is slotted into **that segment's** range: an earlier
+    /// arc finishing can no longer hide the whole sub-slide.
     pub fn apply_core_slide_progress_updates(
         &mut self,
-        updates: &[crate::player::engine::SlideProgressUpdate],
+        updates: &[crate::player::engine::SlideArcProgress],
     ) {
         for update in updates {
-            let Some((note_id, slide_idx)) =
-                crate::player::engine::chart_slide_key(&self.chart, update.runtime_slide_index)
+            let Some((note_id, slide_idx, seg_idx, seg_count)) =
+                crate::player::engine::chart_slide_position(&self.chart, update.runtime_slide_index)
             else {
                 continue;
             };
-            self.slide_progress
+            let progress = self
+                .slide_progress
                 .entry((note_id, slide_idx))
-                // A grouped (multi-arc) sub-slide receives one update per runtime
-                // arc; keep the furthest progress so its trail keeps consuming.
-                .and_modify(|progress| {
-                    progress.hidden_until_bar =
-                        progress.hidden_until_bar.max(update.hidden_until_bar)
-                })
-                .or_insert(SlideProgress {
-                    hidden_until_bar: update.hidden_until_bar,
+                .or_insert_with(|| SlideProgress {
+                    seg_frac: vec![0.0; seg_count],
                 });
+            if progress.seg_frac.len() < seg_count {
+                progress.seg_frac.resize(seg_count, 0.0);
+            }
+            let slot = &mut progress.seg_frac[seg_idx];
+            *slot = slot.max(update.frac);
+        }
+
+        // A segment can only be reached once the ones before it are consumed, so
+        // any segment ahead of the furthest active arc is fully done.
+        for progress in self.slide_progress.values_mut() {
+            if let Some(last) = progress.seg_frac.iter().rposition(|f| *f > 0.0) {
+                for f in &mut progress.seg_frac[..last] {
+                    *f = 1.0;
+                }
+            }
+        }
+
+        if crate::player::engine::debug_slide_enabled() {
+            for ((note_id, slide_idx), progress) in &self.slide_progress {
+                eprintln!(
+                    "[slide/player] key=({note_id},{slide_idx}) seg_frac={:?}",
+                    progress.seg_frac
+                );
+            }
         }
     }
 

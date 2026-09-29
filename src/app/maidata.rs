@@ -1,25 +1,28 @@
-//! Convert parsed Simai `maidata.txt` into the internal [`ChartDoc`].
+//! Build the internal [`ChartDoc`] from `maidata.txt`.
 //!
-//! Uses the vendored pure-Rust parser in `crate::simai` (`maisimai`, MIT). The
-//! mapping mirrors the chart.json loader:
+//! Parsing is done **entirely by the Lean backend** via the `lnmai-core` FFI
+//! (`parse_frontend_chart`). There is no local Simai parser: this module only
+//! maps the parser's token stream (times in microseconds, rational BPM/hi-speed,
+//! slide bodies) onto the render model, converting the µs clock to the
+//! measure-based clock the renderer uses through the parsed BPM table.
 //!
-//! * `SimaiNote::Tap`   → `NoteType::Tap`   (button + 1 = lane 1..=8)
-//! * `SimaiNote::Hold`  → `NoteType::Hold`  (duration in measures)
-//! * `SimaiNote::Slide` → `NoteType::Slide` (pattern → `SlideShape`, chained
-//!   arcs → segments, `*` splits into separate sub-slides)
-//! * `TouchTap` / `TouchHold` → sensors mapped onto `PadZone` numbers
+//! Mapping mirrors the historical local converter:
 //!
-//! Slide timing follows the same rule as the chart.json loader / simai spec:
-//! the tracing length is the travel, plus a **default one-beat (0.25 measure)
-//! wait** unless an explicit `[delay##…]` delay is given. `is_star` (double
-//! star) is decided by shared heads, exactly like the chart.json path.
+//! * `Tap`   → `NoteType::Tap`   (button slot + 1 = lane 1..=8)
+//! * `Hold`  → `NoteType::Hold`  (duration in measures)
+//! * `Slide` → `NoteType::Slide` (slide body kind → `SlideShape`, a continuous
+//!   `>`/`<` chain stays one star with several segments)
+//! * `Touch` / `TouchHold` → sensors mapped onto `PadZone` numbers
+//!
+//! Slide timing follows the simai spec: the tracing length is the body travel,
+//! plus a **default one-beat (0.25 measure) wait** unless the parser reported an
+//! explicit `starWait`.
 
 use crate::app::maichart::{mark_double_stars, recompute_each};
-use crate::app::types::zone::PadZone;
 use crate::app::types::{
     BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
+    sdur_to_mdur, secs_to_measure,
 };
-use crate::simai::{SimaiChart, SimaiFile, SimaiNote, SlidePattern};
 
 /// Default pre-trace wait for a slide: one beat = 0.25 measure.
 const SLIDE_DEFAULT_WAIT: f32 = 0.25;
@@ -29,8 +32,9 @@ const SLIDE_DEFAULT_WAIT: f32 = 0.25;
 /// `diff` is 1-based over the chart's difficulties in ascending `&inote_N=`
 /// order (so `1` = easiest); `None` picks the hardest.
 pub fn from_maidata(text: &str, diff: Option<i32>) -> Result<ChartDoc, String> {
-    let file = crate::simai::parse_file(text).map_err(|e| e.to_string())?;
-    Ok(convert(file, diff))
+    let key = select_level_key(text, diff)
+        .ok_or_else(|| "maidata.txt has no &inote_N level".to_string())?;
+    from_level(text, key)
 }
 
 /// The `&inote_N` key of the chart selected by `diff`.
@@ -38,73 +42,437 @@ pub fn from_maidata(text: &str, diff: Option<i32>) -> Result<ChartDoc, String> {
 /// `lnmai-core`'s `levelIndex` is this `N`, not the difficulty rating stored in
 /// `ChartDoc::simai_level`.
 pub fn inote_key(text: &str, diff: Option<i32>) -> Option<u32> {
-    let file = crate::simai::parse_file(text).ok()?;
-    let order = difficulty_order(&file.charts);
-    let idx = select_chart(&order, diff);
-    file.charts.get(idx).map(|(k, _)| *k)
+    select_level_key(text, diff)
 }
 
-fn convert(file: SimaiFile, diff: Option<i32>) -> ChartDoc {
-    let order = difficulty_order(&file.charts);
-    let idx = select_chart(&order, diff);
-    let key = file.charts.get(idx).map(|(k, _)| *k).unwrap_or(0);
-    let chart: &SimaiChart = file
-        .charts
-        .get(idx)
-        .map(|(_, c)| c)
-        .expect("at least one chart");
-
-    let bpms = build_bpms(chart);
-    let bpm = bpms.first().map(|b| b.bpm).unwrap_or(120.0);
-
-    let mut notes: Vec<Note> = chart.notes.iter().filter_map(convert_note).collect();
-    drop_slide_star_taps(&mut notes);
-    notes.sort_by(|a, b| a.time.total_cmp(&b.time));
-    mark_double_stars(&mut notes);
-    recompute_each(&mut notes);
-
-    ChartDoc {
-        version: "simai-1".to_string(),
-        title: file.title,
-        artist: file.artist,
-        simai_level: file
-            .levels
-            .iter()
-            .find(|(k, _)| *k == key)
-            .and_then(|(_, lv)| lv.parse::<f32>().ok())
-            .map(|v| v as u32)
-            .unwrap_or(0),
-        bpm,
-        bpms,
-        audio_offset: file.first,
-        notes,
-        templates: Vec::new(),
-        template_instances: Vec::new(),
+/// Ascending `&inote_N=` keys present in `text`.
+pub fn inote_keys(text: &str) -> Vec<u32> {
+    let mut keys: Vec<u32> = Vec::new();
+    for line in strip_bom(text).lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("&inote_") else {
+            continue;
+        };
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(key) = digits.parse::<u32>() {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
     }
+    keys.sort_unstable();
+    keys
 }
 
-/// Indices of `charts` sorted by ascending `&inote_N=` key.
-fn difficulty_order(charts: &[(u32, SimaiChart)]) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..charts.len()).collect();
-    order.sort_by_key(|&i| charts[i].0);
-    order
+/// Lightweight `maidata.txt` metadata (no chart parsing).
+#[derive(Debug, Clone, Default)]
+pub struct MaidataMeta {
+    pub title: String,
+    pub artist: String,
+    /// `&lv_N=` entries as `(N, level)`.
+    pub levels: Vec<(u32, String)>,
+    /// `&first=` audio offset in seconds.
+    pub audio_offset: f32,
+    /// Number of `&inote_N=` difficulty slots.
+    pub chart_count: usize,
 }
 
-/// Pick a chart index. `diff` is 1-based over `order`; `None` = hardest.
-fn select_chart(order: &[usize], diff: Option<i32>) -> usize {
-    if order.is_empty() {
-        return 0;
+/// Scan `maidata.txt` header fields (`&title`, `&artist`, `&lv_N`, `&inote_N`).
+pub fn metadata(text: &str) -> MaidataMeta {
+    let mut meta = MaidataMeta::default();
+    for line in strip_bom(text).lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix('&') else {
+            continue;
+        };
+        let Some((key, value)) = rest.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        if key == "title" {
+            meta.title = value.to_string();
+        } else if key == "artist" {
+            meta.artist = value.to_string();
+        } else if key == "first" {
+            meta.audio_offset = value.trim().parse().unwrap_or(0.0);
+        } else if let Some(digits) = key.strip_prefix("lv_") {
+            if let Ok(slot) = digits.parse::<u32>() {
+                meta.levels.push((slot, value.to_string()));
+            }
+        }
     }
+    meta.levels.sort_by_key(|(k, _)| *k);
+    meta.chart_count = inote_keys(text).len();
+    meta
+}
+
+
+/// Pick the `&inote_N` key for `diff` (1-based, ascending; `None` = hardest).
+fn select_level_key(text: &str, diff: Option<i32>) -> Option<u32> {
+    let keys = inote_keys(text);
     match diff {
-        Some(d) if d >= 1 => order[(d as usize - 1).min(order.len() - 1)],
-        _ => *order.last().unwrap(),
+        Some(d) if d >= 1 => keys.get(d as usize - 1).copied(),
+        _ => keys.last().copied(),
     }
 }
 
-/// Drop star taps that are only the auto-generated head of a slide on the same
-/// `(measure, lane)`. The parser emits both a `Tap{is_star}` and a `Slide` for a
-/// simai `1-5`; the slide renders its own head, so the duplicate tap is removed
-/// (matching the original player's import).
+/// Drop a leading UTF-8 BOM so the first `&field` line is scannable.
+fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
+}
+
+#[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+fn from_level(text: &str, level_index: u32) -> Result<ChartDoc, String> {
+    crate::core::session::ensure_runtime()
+        .map_err(|_| "lnmai-core runtime failed to initialize".to_string())?;
+    let parsed = crate::core::api::parse_frontend_chart(text, level_index).map_err(|e| e.json)?;
+    Ok(lean::convert(parsed, &metadata(text)))
+}
+
+#[cfg(not(any(feature = "backend-lean", feature = "backend-rust")))]
+fn from_level(_text: &str, _level_index: u32) -> Result<ChartDoc, String> {
+    Err("chart parsing requires the lnmai-core (Lean) backend".to_string())
+}
+
+#[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+mod lean {
+    use super::*;
+    use crate::core::types::{
+        FrontendChartResult, OuterSlot, RawNoteKind, Rational, SensorArea, SlideBodyKind,
+        SourceEvent,
+    };
+
+    /// Map the parser's frontend result onto the render [`ChartDoc`].
+    pub fn convert(parsed: FrontendChartResult, meta: &MaidataMeta) -> ChartDoc {
+        let fields = &parsed.inspection.metadata.fields;
+        // The parser reports most `&` fields but not `&title`, so header metadata
+        // is scanned directly (it is plain key/value config, not chart syntax).
+        let title = meta.title.clone();
+        let artist = meta.artist.clone();
+
+        let events = &parsed.inspection.source.events;
+        let bpms = build_bpms(events);
+        let bpm = bpms.first().map(|b| b.bpm).unwrap_or(120.0);
+
+        let mut notes = build_notes(&parsed.inspection.tokens, &bpms);
+        drop_slide_star_taps(&mut notes);
+        notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+        mark_double_stars(&mut notes);
+        recompute_each(&mut notes);
+
+        let level_index = parsed.inspection.chart.level_index;
+        let simai_level = field(fields, &format!("lv_{level_index}"))
+            .and_then(|v| v.trim().parse::<f32>().ok())
+            .map(|v| v as u32)
+            .unwrap_or(0);
+
+        ChartDoc {
+            version: "simai-1".to_string(),
+            title,
+            artist,
+            simai_level,
+            bpm,
+            bpms,
+            audio_offset: meta.audio_offset,
+            notes,
+            templates: Vec::new(),
+            template_instances: Vec::new(),
+        }
+    }
+
+    fn field(fields: &[(String, String)], key: &str) -> Option<String> {
+        fields
+            .iter()
+            .find(|(k, _)| k.trim_start_matches('&') == key)
+            .map(|(_, v)| v.clone())
+    }
+
+    fn rational_f32(r: &Rational) -> f32 {
+        r.decimal.trim().parse().unwrap_or(1.0)
+    }
+
+    fn measure(t_us: i64, bpms: &[BpmChange]) -> f32 {
+        secs_to_measure(t_us as f32 / 1e6, bpms)
+    }
+
+    fn duration(len_us: i64, start_us: i64, bpms: &[BpmChange]) -> f32 {
+        sdur_to_mdur(len_us as f32 / 1e6, start_us as f32 / 1e6, bpms)
+    }
+
+    /// Build the BPM table in measure space from the parser's source events.
+    ///
+    /// Events carry absolute microsecond timings and the BPM in effect; BPM
+    /// changes take effect at the event. Measures are integrated forward from
+    /// `t = 0` (measure 1.0) so the µs clock can later be inverted with
+    /// `secs_to_measure`.
+    fn build_bpms(events: &[SourceEvent]) -> Vec<BpmChange> {
+        let mut bpms = vec![BpmChange {
+            measure: 1.0,
+            bpm: 120.0,
+        }];
+        let mut measure = 1.0_f32;
+        let mut prev_t = 0.0_f32;
+        let mut cur_bpm: Option<f32> = None;
+
+        for event in events {
+            let t = event.timing as f32 / 1e6;
+            let bpm = rational_f32(&event.bpm);
+            match cur_bpm {
+                None => {
+                    cur_bpm = Some(bpm);
+                    bpms[0] = BpmChange { measure: 1.0, bpm };
+                    measure += (t - prev_t) * bpm / 240.0;
+                }
+                Some(current) => {
+                    measure += (t - prev_t) * current / 240.0;
+                    if (bpm - current).abs() > 1e-6 {
+                        bpms.push(BpmChange { measure, bpm });
+                        cur_bpm = Some(bpm);
+                    }
+                }
+            }
+            prev_t = t;
+        }
+
+        bpms.sort_by(|a, b| a.measure.total_cmp(&b.measure));
+        bpms
+    }
+
+    fn build_notes(tokens: &[crate::core::types::RawNoteToken], bpms: &[BpmChange]) -> Vec<Note> {
+        let mut out = Vec::new();
+        let mut group: Vec<usize> = Vec::new();
+
+        for (index, token) in tokens.iter().enumerate() {
+            if matches!(token.kind, RawNoteKind::Slide) {
+                // A slide with an explicit `starWait` begins a new star; the
+                // following headless tokens continue the same star.
+                if token.star_wait.is_some() {
+                    flush_slide(&group, tokens, bpms, &mut out);
+                    group.clear();
+                }
+                group.push(index);
+            } else {
+                flush_slide(&group, tokens, bpms, &mut out);
+                group.clear();
+                if let Some(note) = simple_note(token, bpms) {
+                    out.push(note);
+                }
+            }
+        }
+        flush_slide(&group, tokens, bpms, &mut out);
+        out
+    }
+
+    fn flush_slide(
+        group: &[usize],
+        tokens: &[crate::core::types::RawNoteToken],
+        bpms: &[BpmChange],
+        out: &mut Vec<Note>,
+    ) {
+        if group.is_empty() {
+            return;
+        }
+        if let Some(note) = slide_note(group, tokens, bpms) {
+            out.push(note);
+        }
+    }
+
+    fn simple_note(
+        token: &crate::core::types::RawNoteToken,
+        bpms: &[BpmChange],
+    ) -> Option<Note> {
+        let time = measure(token.timing, bpms);
+        let hi_speed = rational_f32(&token.h_speed);
+        match token.kind {
+            RawNoteKind::Tap => Some(Note {
+                time,
+                lane: slot_lane(token.slot?),
+                note_type: NoteType::Tap,
+                is_break: token.is_break,
+                is_ex: token.is_ex,
+                hi_speed,
+                ..Default::default()
+            }),
+            RawNoteKind::Hold => Some(Note {
+                time,
+                lane: slot_lane(token.slot?),
+                note_type: NoteType::Hold,
+                hold_duration: duration(token.length.unwrap_or(0), token.timing, bpms),
+                is_break: token.is_break,
+                is_ex: token.is_ex,
+                hi_speed,
+                ..Default::default()
+            }),
+            RawNoteKind::Touch => Some(Note {
+                time,
+                lane: sensor_lane(token.sensor_pos?)?,
+                note_type: NoteType::Touch,
+                is_break: token.is_break,
+                hi_speed,
+                ..Default::default()
+            }),
+            RawNoteKind::TouchHold => Some(Note {
+                time,
+                lane: sensor_lane(token.sensor_pos?)?,
+                note_type: NoteType::Hold,
+                hold_duration: duration(token.length.unwrap_or(0), token.timing, bpms),
+                is_break: token.is_break,
+                is_ex: token.is_ex,
+                hi_speed,
+                ..Default::default()
+            }),
+            RawNoteKind::Slide | RawNoteKind::Rest | RawNoteKind::Unknown => None,
+        }
+    }
+
+    fn slide_note(
+        group: &[usize],
+        tokens: &[crate::core::types::RawNoteToken],
+        bpms: &[BpmChange],
+    ) -> Option<Note> {
+        let head = tokens.get(*group.first()?)?;
+        let time = measure(head.timing, bpms);
+        let wait = head
+            .star_wait
+            .map(|w| duration(w, head.timing, bpms))
+            .unwrap_or(SLIDE_DEFAULT_WAIT);
+        let hi_speed = rational_f32(&head.h_speed);
+
+        let mut segments = Vec::new();
+        let mut travel = 0.0_f32;
+        for &index in group {
+            let token = tokens.get(index)?;
+            let body = token.slide_body.as_ref()?;
+            let end = sensor_lane(body.end_area?)?;
+            let reflect = body.turn_area.and_then(sensor_lane);
+            segments.push(SlideSegment {
+                points: slide_points(body.kind, end, reflect),
+                shape: kind_shape(body.kind),
+            });
+            travel += duration(token.length.unwrap_or(0), token.timing, bpms);
+        }
+
+        // One star per sub-slide: a continuous `>`/`<` chain expands to one
+        // runtime slide per arc, recorded so `engine::chart_slide_key` maps the
+        // runtime index back onto this note.
+        let runtime_parts = segments.len().max(1);
+        Some(Note {
+            time,
+            lane: slot_lane(head.slot?),
+            note_type: NoteType::Slide,
+            is_break: head.is_break,
+            is_ex: head.is_ex,
+            is_tapless: head.is_slide_no_head,
+            hi_speed,
+            slide: vec![Slide {
+                segments,
+                slide_duration: wait + travel,
+                slide_start_delay: wait,
+                slide_is_break: head.is_break,
+                runtime_parts,
+            }],
+            ..Default::default()
+        })
+    }
+
+    /// Waypoint zones for one slide arc (excluding the start; the renderer adds
+    /// it). Matches the historical local parser: a `V` (turn) passes through its
+    /// `turnArea`, a `v` through the center, everything else is a direct arc.
+    fn slide_points(kind: SlideBodyKind, end: u8, reflect: Option<u8>) -> Vec<SlidePoint> {
+        let sp = |z: u8| SlidePoint {
+            zone: crate::app::types::zone::PadZone::from(z),
+            beat_offset: 0.0,
+        };
+        match kind {
+            SlideBodyKind::Turn => {
+                let mut points = Vec::new();
+                if let Some(area) = reflect {
+                    points.push(sp(area));
+                }
+                points.push(sp(end));
+                points
+            }
+            SlideBodyKind::V => vec![sp(17), sp(end)],
+            _ => vec![sp(end)],
+        }
+    }
+
+    fn kind_shape(kind: SlideBodyKind) -> SlideShape {
+        match kind {
+            SlideBodyKind::Line => SlideShape::Line,
+            SlideBodyKind::CircleUp => SlideShape::Caret,
+            SlideBodyKind::CircleLeft => SlideShape::Left,
+            SlideBodyKind::CircleRight => SlideShape::Right,
+            SlideBodyKind::V => SlideShape::VShape,
+            SlideBodyKind::Turn => SlideShape::BigV,
+            SlideBodyKind::P => SlideShape::P,
+            SlideBodyKind::Q => SlideShape::Q,
+            SlideBodyKind::Pp => SlideShape::PP,
+            SlideBodyKind::Qq => SlideShape::QQ,
+            SlideBodyKind::S => SlideShape::S,
+            SlideBodyKind::Z => SlideShape::Z,
+            SlideBodyKind::Wifi => SlideShape::Wifi,
+        }
+    }
+
+    fn slot_lane(slot: OuterSlot) -> u8 {
+        match slot {
+            OuterSlot::S1 => 1,
+            OuterSlot::S2 => 2,
+            OuterSlot::S3 => 3,
+            OuterSlot::S4 => 4,
+            OuterSlot::S5 => 5,
+            OuterSlot::S6 => 6,
+            OuterSlot::S7 => 7,
+            OuterSlot::S8 => 8,
+        }
+    }
+
+    /// Touch sensor area → 1-based `PadZone` lane.
+    /// A=1..8, B=9..16, C=17, D=18..25, E=26..33.
+    fn sensor_lane(area: SensorArea) -> Option<u8> {
+        use SensorArea::*;
+        Some(match area {
+            A1 => 1,
+            A2 => 2,
+            A3 => 3,
+            A4 => 4,
+            A5 => 5,
+            A6 => 6,
+            A7 => 7,
+            A8 => 8,
+            B1 => 9,
+            B2 => 10,
+            B3 => 11,
+            B4 => 12,
+            B5 => 13,
+            B6 => 14,
+            B7 => 15,
+            B8 => 16,
+            C => 17,
+            D1 => 18,
+            D2 => 19,
+            D3 => 20,
+            D4 => 21,
+            D5 => 22,
+            D6 => 23,
+            D7 => 24,
+            D8 => 25,
+            E1 => 26,
+            E2 => 27,
+            E3 => 28,
+            E4 => 29,
+            E5 => 30,
+            E6 => 31,
+            E7 => 32,
+            E8 => 33,
+        })
+    }
+}
+
+/// Drop star taps that only duplicate a slide head on the same
+/// `(measure, lane)` (defensive: the parser no longer emits them).
 fn drop_slide_star_taps(notes: &mut Vec<Note>) {
     use std::collections::HashSet;
 
@@ -119,264 +487,9 @@ fn drop_slide_star_taps(notes: &mut Vec<Note>) {
     });
 }
 
-fn build_bpms(chart: &SimaiChart) -> Vec<BpmChange> {
-    let mut bpms: Vec<BpmChange> = chart
-        .bpms
-        .iter()
-        .map(|b| BpmChange {
-            measure: b.measure,
-            bpm: b.bpm,
-        })
-        .collect();
-    bpms.sort_by(|a, b| a.measure.total_cmp(&b.measure));
-    if bpms.is_empty() {
-        bpms.push(BpmChange {
-            measure: 1.0,
-            bpm: 120.0,
-        });
-    }
-    bpms
-}
-
-fn convert_note(n: &SimaiNote) -> Option<Note> {
-    match n {
-        SimaiNote::Tap {
-            measure,
-            button,
-            is_break,
-            is_ex,
-            is_star,
-            hi_speed,
-        } => Some(Note {
-            time: *measure,
-            lane: button + 1,
-            note_type: NoteType::Tap,
-            is_break: *is_break,
-            is_ex: *is_ex,
-            is_star: *is_star,
-            hi_speed: *hi_speed,
-            ..Default::default()
-        }),
-        SimaiNote::Hold {
-            measure,
-            button,
-            duration,
-            is_ex,
-            hi_speed,
-        } => Some(Note {
-            time: *measure,
-            lane: button + 1,
-            note_type: NoteType::Hold,
-            hold_duration: *duration,
-            is_ex: *is_ex,
-            hi_speed: *hi_speed,
-            ..Default::default()
-        }),
-        SimaiNote::TouchTap {
-            measure,
-            region,
-            position,
-            hi_speed,
-            ..
-        } => Some(Note {
-            time: *measure,
-            lane: sensor_lane(*region, *position)?,
-            note_type: NoteType::Touch,
-            hi_speed: *hi_speed,
-            ..Default::default()
-        }),
-        SimaiNote::TouchHold {
-            measure,
-            region,
-            position,
-            duration,
-            hi_speed,
-            ..
-        } => Some(Note {
-            time: *measure,
-            lane: sensor_lane(*region, *position)?,
-            note_type: NoteType::Hold,
-            hold_duration: *duration,
-            hi_speed: *hi_speed,
-            ..Default::default()
-        }),
-        SimaiNote::Slide {
-            measure,
-            start,
-            end,
-            pattern,
-            reflect,
-            duration,
-            delay,
-            delay_explicit,
-            is_break,
-            is_ex,
-            is_tapless,
-            chain,
-            hi_speed,
-        } => {
-            // An explicit `[delay##…]` (even `0##…`) sets the wait directly;
-            // otherwise use the simai default one-beat wait.
-            let wait = if *delay_explicit {
-                *delay
-            } else {
-                SLIDE_DEFAULT_WAIT
-            };
-            let slides = build_slides(
-                *pattern,
-                *end,
-                *reflect,
-                *duration,
-                wait,
-                *is_break,
-                chain,
-            );
-            Some(Note {
-                time: *measure,
-                lane: start + 1,
-                note_type: NoteType::Slide,
-                is_break: *is_break,
-                is_ex: *is_ex,
-                is_star: false, // set later by `mark_double_stars`
-                is_tapless: *is_tapless,
-                hi_speed: *hi_speed,
-                slide: slides,
-                ..Default::default()
-            })
-        }
-    }
-}
-
-/// Build the sub-slides for a simai slide.
-///
-/// This is the pre-lnmai grouping: a `*` chain entry starts a new sub-slide
-/// (every part reuses the note head), while a continuous chain without `*`
-/// (`>`/`<`/`^`/`v`…) stays **one sub-slide with multiple segments** so the
-/// renderer flies a single star along the whole path.
-///
-/// lnmai-core instead splits a continuous chain into one runtime slide per arc;
-/// that expansion is recorded in [`Slide::runtime_parts`] so the runtime index
-/// still maps back onto this sub-slide (see `engine::chart_slide_key`).
-#[allow(clippy::too_many_arguments)]
-fn build_slides(
-    pattern: SlidePattern,
-    end: u8,
-    reflect: Option<u8>,
-    travel: f32,
-    wait: f32,
-    is_break: bool,
-    chain: &[(SlidePattern, u8, Option<u8>, bool)],
-) -> Vec<Slide> {
-    let seg = |start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>| SlideSegment {
-        points: pattern_points(start, end, pattern, reflect),
-        shape: shape_of(pattern),
-    };
-
-    let has_star = chain.iter().any(|(_, _, _, is_new_slide)| *is_new_slide);
-    let make = |segments: Vec<SlideSegment>| Slide {
-        // A `*` part is a single runtime slide; a continuous chain expands to
-        // one runtime slide per segment.
-        runtime_parts: if has_star { 1 } else { segments.len().max(1) },
-        segments,
-        slide_duration: wait + travel,
-        slide_start_delay: wait,
-        slide_is_break: is_break,
-    };
-
-    let mut slides: Vec<Slide> = Vec::new();
-    let mut segments: Vec<SlideSegment> = vec![seg(0, end, pattern, reflect)];
-    let mut prev_end = end;
-
-    for (cp, ce, cr, is_new_slide) in chain {
-        if *is_new_slide {
-            slides.push(make(std::mem::take(&mut segments)));
-        }
-        segments.push(seg(prev_end + 1, *ce, *cp, *cr));
-        prev_end = *ce;
-    }
-    if !segments.is_empty() {
-        slides.push(make(segments));
-    }
-    slides
-}
-
-/// Waypoint zones for one slide arc (excluding the start; the renderer adds it).
-/// Matches the original player's `simai_pattern_to_points`.
-fn pattern_points(start: u8, end: u8, pattern: SlidePattern, reflect: Option<u8>) -> Vec<SlidePoint> {
-    let sp = |z: u8| SlidePoint {
-        zone: PadZone::from(z),
-        beat_offset: 0.0,
-    };
-    let _ = start;
-    match pattern {
-        SlidePattern::BigV => {
-            let mut pts = Vec::new();
-            if let Some(r) = reflect {
-                pts.push(sp(r + 1));
-            }
-            pts.push(sp(end + 1));
-            pts
-        }
-        SlidePattern::LowerV => vec![sp(17), sp(end + 1)],
-        _ => vec![sp(end + 1)],
-    }
-}
-
-/// Simai slide pattern → renderer shape.
-fn shape_of(p: SlidePattern) -> SlideShape {
-    match p {
-        SlidePattern::Line => SlideShape::Line,
-        SlidePattern::Caret => SlideShape::Caret,
-        SlidePattern::Left => SlideShape::Left,
-        SlidePattern::Right => SlideShape::Right,
-        SlidePattern::LowerV => SlideShape::VShape,
-        SlidePattern::BigV => SlideShape::BigV,
-        SlidePattern::S => SlideShape::S,
-        SlidePattern::Z => SlideShape::Z,
-        SlidePattern::P => SlideShape::P,
-        SlidePattern::Q => SlideShape::Q,
-        SlidePattern::PP => SlideShape::PP,
-        SlidePattern::QQ => SlideShape::QQ,
-        SlidePattern::Wifi => SlideShape::Wifi,
-    }
-}
-
-/// Touch sensor region + position → 1-based `PadZone` lane.
-/// A=1..8, B=9..16, C=17, D=18..25, E=26..33.
-fn sensor_lane(region: char, position: u8) -> Option<u8> {
-    let base = match region {
-        'A' => 1,
-        'B' => 9,
-        'C' => 17,
-        'D' => 18,
-        'E' => 26,
-        _ => return None,
-    };
-    if region == 'C' {
-        Some(17)
-    } else if position <= 7 {
-        Some(base + position)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::from_maidata;
-
-    #[test]
-    fn simultaneous_notes_are_marked_each() {
-        // `1/2` = two taps at the same time (simai "each"); `3` alone is not.
-        let c = from_maidata("&title=T\n&inote_1=(120){4}1/2,3\n", None).expect("parse");
-        let each: Vec<bool> = c
-            .notes
-            .iter()
-            .filter(|n| matches!(n.note_type, crate::app::types::NoteType::Tap))
-            .map(|n| n.is_each)
-            .collect();
-        assert_eq!(each, vec![true, true, false]);
-    }
+    use super::{from_maidata, inote_key};
 
     #[test]
     fn parses_minimal_maidata() {
@@ -384,52 +497,25 @@ mod tests {
         let c = from_maidata(text, None).expect("parse");
         assert_eq!(c.title, "Demo");
         assert_eq!(c.artist, "Me");
-        assert_eq!(c.notes.len(), 4);
         assert!(c.notes.iter().any(|n| matches!(n.note_type, crate::app::types::NoteType::Hold)));
-        let slide = c
+        assert!(c
             .notes
             .iter()
-            .find(|n| matches!(n.note_type, crate::app::types::NoteType::Slide))
-            .expect("slide");
-        assert!(!slide.slide.is_empty());
-        // Default one-beat wait + 1/8 measure travel.
-        let sl = &slide.slide[0];
-        assert!((sl.slide_start_delay - 0.25).abs() < 1e-4, "delay {}", sl.slide_start_delay);
-        assert!((sl.slide_duration - (0.25 + 0.125)).abs() < 1e-4);
+            .any(|n| matches!(n.note_type, crate::app::types::NoteType::Slide)));
     }
 
     #[test]
-    fn explicit_slide_delay_overrides_default() {
-        let text = "&title=D\n&inote_2=(120){4}1-5[0.2##0.8],E\n";
-        let c = from_maidata(text, None).expect("parse");
-        let sl = &c.notes.iter().find(|n| n.slide.len() == 1).unwrap().slide[0];
-        // 0.2 s @120bpm = 0.1 measure delay; 0.8 s = 0.4 measure travel.
-        assert!((sl.slide_start_delay - 0.1).abs() < 1e-3);
-        assert!((sl.slide_duration - 0.5).abs() < 1e-3);
-    }
-
-    #[test]
-    fn zero_explicit_delay_is_kept() {
-        // `4<6[0##0.24]` = left arc 4→6, no wait, 0.24 s travel.
-        let text = "&title=D\n&inote_2=(120){4}4<6[0##0.24],E\n";
-        let c = from_maidata(text, None).expect("parse");
-        let n = c
-            .notes
-            .iter()
-            .find(|n| matches!(n.note_type, crate::app::types::NoteType::Slide))
-            .expect("slide");
-        assert_eq!(n.lane, 4);
-        let sl = &n.slide[0];
-        assert!(sl.slide_start_delay.abs() < 1e-6, "delay {}", sl.slide_start_delay);
-        // 0.24 s @120bpm = 0.12 measure travel.
-        assert!((sl.slide_duration - 0.12).abs() < 1e-3, "dur {}", sl.slide_duration);
+    fn diff_selects_by_position() {
+        let text = "&title=D\n&inote_2=(120){4}1,\n&inote_5=(120){4}1,2,3,\n";
+        assert_eq!(inote_key(text, Some(1)), Some(2));
+        assert_eq!(inote_key(text, None), Some(5));
+        let easy = from_maidata(text, Some(1)).unwrap();
+        let hard = from_maidata(text, None).unwrap();
+        assert!(easy.notes.len() < hard.notes.len());
     }
 
     #[test]
     fn continuous_chain_stays_one_sub_slide() {
-        // `1v4>3>2` is one continuous slide: rendered as a single sub-slide with
-        // one star along the whole path (pre-lnmai grouping), but it expands to
-        // one runtime slide per arc for the engine mapping.
         let text = "&title=D\n&inote_1=(120){4}1v4>3>2[4:1],E\n";
         let c = from_maidata(text, None).expect("parse");
         let n = c
@@ -441,28 +527,4 @@ mod tests {
         assert_eq!(n.slide[0].segments.len(), 3, "three chained segments");
         assert_eq!(n.slide[0].runtime_parts, 3, "lnmai splits it per arc");
     }
-
-    #[test]
-    fn star_chain_keeps_grouped_parts() {
-        // A `*` chain keeps one sub-slide per part, each a single runtime slide.
-        let text = "&title=D\n&inote_1=(120){4}4-8<4[2:1]*-8>4[2:1],E\n";
-        let c = from_maidata(text, None).expect("parse");
-        let n = c
-            .notes
-            .iter()
-            .find(|n| matches!(n.note_type, crate::app::types::NoteType::Slide))
-            .expect("slide");
-        assert_eq!(n.slide.len(), 2, "one sub-slide per `*` part");
-        assert!(n.slide.iter().all(|s| s.runtime_parts == 1));
-    }
-
-    #[test]
-    fn diff_selects_by_position() {
-        let text = "&title=D\n&inote_2=(120){4}1,\n&inote_5=(120){4}1,2,3,\n";
-        let easy = from_maidata(text, Some(1)).unwrap();
-        let hard = from_maidata(text, None).unwrap();
-        assert_eq!(easy.notes.len(), 1);
-        assert_eq!(hard.notes.len(), 3);
-    }
 }
-

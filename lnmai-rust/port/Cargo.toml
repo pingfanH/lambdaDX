@@ -1,0 +1,10 @@
+[package]
+name = "lnmai-core-rs"
+version = "0.1.0"
+edition = "2021"
+
+# Compiled-in fallback for the external pure-Rust port. It keeps Cargo able to
+# resolve `lnmai-core-rust` when the real port is not checked out; every call
+# reports "unavailable" so the player falls back to Lean / no core.
+[dependencies]
+serde_json = "1"

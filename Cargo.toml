@@ -4,14 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [".", "lnmai-core", "lnmai-rust"]
+members = [".", "lnmai-core"]
+# The Rust shim pulls in an external pure-Rust port via an absolute path; it is
+# excluded so a missing port does not break the default (Lean) build. It is only
+# loaded when `backend-rust` is enabled.
+exclude = ["lnmai-rust"]
 
 # Gameplay-core backend selection. Exactly one should be enabled:
-#   backend-rust (default) — pure-Rust port, no Lean/Nix artifacts
-#   backend-lean           — the vendored `lnmai-core/` Lean FFI (needs Nix/Lean)
+#   backend-lean (default) — the vendored `lnmai-core/` Lean FFI (needs Nix/Lean)
+#   backend-rust           — the pure-Rust port shim in `lnmai-rust/`. Its port
+#                            dependency defaults to the committed stub in
+#                            `lnmai-rust/port/`; point it at the real port to use
+#                            it. When the real port is missing, just keep the
+#                            default (Lean) instead of enabling this.
 #   backend-none           — no gameplay core at all (local preview only)
 [features]
-default = ["backend-rust"]
+default = ["backend-lean"]
 backend-rust = ["dep:lnmai-core-rust"]
 backend-lean = ["dep:lnmai-core"]
 backend-none = []

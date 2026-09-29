@@ -87,22 +87,20 @@ pub fn draw(
             guide,
         };
 
-        // Trail consumption is driven by lnmai-core's render commands
-        // (`HideSlideBars` / `HideAllSlideBars`), stored per sub-slide in
+        // Trail consumption is driven by lnmai-core's render commands, mapped
+        // per runtime arc into the sub-slide's segment ranges and stored in
         // `slide_progress`. Without an engine the trail is fully drawn.
         let core_driven = app.use_core();
-        // Ignore any stale core progress when the core is bypassed.
-        let hidden_until_bar = if core_driven {
+        let seg_frac: &[f32] = if core_driven {
             app.slide_progress
                 .get(&(note.id, si))
-                .map(|progress| progress.hidden_until_bar)
-                .unwrap_or(0)
+                .map(|progress| progress.seg_frac.as_slice())
+                .unwrap_or(&[])
         } else {
-            0
+            &[]
         };
-        // `HideAllSlideBars` maps to `usize::MAX`; the whole slide (trail and
-        // star) is gone once core reports it.
-        if core_driven && hidden_until_bar == usize::MAX {
+        // Every segment consumed ⇒ lnmai-core owns it and reports it done.
+        if core_driven && !seg_frac.is_empty() && seg_frac.iter().all(|f| *f >= 1.0) {
             continue;
         }
 
@@ -123,7 +121,7 @@ pub fn draw(
             t.speed_scale,
             app.note_speed,
             params::slide_fade_in(),
-            hidden_until_bar,
+            seg_frac,
             core_driven,
             layer,
         );

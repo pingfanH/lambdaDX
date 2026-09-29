@@ -12,6 +12,8 @@
 
 # Cloned reference / third-party tools
 /XFLProcessor/
+# Checkout of the features/pure branch (git worktree)
+/pure/
 
 # Reference asset dump (MajdataView)
 /assets/mjdataplay/

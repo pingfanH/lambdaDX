@@ -48,7 +48,15 @@ pub fn build() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("missing OUT_DIR"));
     let linker_rsp_path = out_dir.join("lnmai-link.rsp");
     let linker_rsp = build_link_rsp(&lake_args, &resolved);
-    fs::write(&linker_rsp_path, linker_rsp).expect("failed to write linker rsp");
+    fs::write(&linker_rsp_path, linker_rsp.as_bytes()).expect("failed to write linker rsp");
+
+    // Cargo does not forward `cargo:rustc-link-arg` emitted by a dependency's
+    // build script to the final binary link, so the root package's `build.rs`
+    // has to re-emit it. Publish the response file at a stable path the root
+    // build script can locate (see `build.rs` at the workspace root).
+    if let Some(profile_dir) = out_dir.ancestors().nth(3) {
+        let _ = fs::write(profile_dir.join("lnmai-core-link.rsp"), linker_rsp.as_bytes());
+    }
 
     if let Some(parent) = resolved.lean_toolchain_lib_dir.parent() {
         println!("cargo:rustc-link-search=native={}", parent.display());
