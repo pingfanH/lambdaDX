@@ -357,8 +357,11 @@ impl JudgeEngine {
         if total == 0 {
             return None;
         }
-        let consumed = total.saturating_sub(remaining);
-        Some(consumed as f32 / total as f32)
+        // lnmai's queue counts an area as consumed as soon as the star *enters*
+        // it; the first area (A1) is seeded by `on_slide_cue` when the slide
+        // cue fires. Each subsequent area advances the consumed count by one.
+        let touched = total.saturating_sub(remaining).min(total);
+        Some(touched as f32 / total as f32)
     }
 }
 
@@ -802,7 +805,16 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
                 _ => app.sfx_tap.as_ref(),
             }
         }
-        AudioCommand::PlaySlideCue { is_break, .. } => {
+        AudioCommand::PlaySlideCue {
+            note_index,
+            is_break,
+            ..
+        } => {
+            // Play the slide cue once per sub-slide, and use it to seed the
+            // first judge area (the core does not always push A1's progress).
+            if !app.on_slide_cue(*note_index) {
+                return;
+            }
             if *is_break {
                 app.sfx_break.as_ref()
             } else {

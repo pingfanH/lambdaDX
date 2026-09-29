@@ -726,7 +726,15 @@ pub fn draw_slide(
     );
     // Core progress is per chart segment; map each segment's consumed fraction
     // onto its path-distance range to get the trail-bar frontier.
-    let hidden_until = if core_driven && !seg_frac.is_empty() && seg_boundaries.len() >= 2 {
+    let hidden_until = if core_driven && seg_frac.len() == 1 {
+        // Straight-line (single segment) slides: the star crosses one sensor
+        // area per judge step, so distribute the bars evenly across those areas
+        // instead of by raw path distance (the first/last area get a fixed
+        // share, the middle split the rest).
+        let areas = segmentation.judge_segments.len().max(1);
+        let passed = (seg_frac[0].clamp(0.0, 1.0) * areas as f32).round() as usize;
+        area_bar_boundary(segmentation.bars.len(), areas, passed)
+    } else if core_driven && !seg_frac.is_empty() && seg_boundaries.len() >= 2 {
         let mut cum: Vec<f32> = Vec::with_capacity(path.len());
         let mut acc = 0.0_f32;
         cum.push(0.0);
@@ -1008,4 +1016,40 @@ pub fn draw_slide(
         }
     }
     }
+}
+
+/// Trail-bar boundary after `passed` of `areas` sensor areas have been crossed.
+///
+/// Used for single-segment (straight-line) slides: the first and last area hide
+/// a fixed small share, the middle areas split the remaining bars evenly, so the
+/// trail consumes in even per-area steps rather than by raw path distance.
+fn area_bar_boundary(bars: usize, areas: usize, passed: usize) -> usize {
+    if passed == 0 || areas == 0 || bars == 0 {
+        return 0;
+    }
+    let first = 3.min(bars);
+    let last = if areas > 1 {
+        3.min(bars.saturating_sub(first))
+    } else {
+        0
+    };
+    let middle_total = bars.saturating_sub(first + last);
+    let middle_n = areas.saturating_sub(2);
+    let mut acc = 0usize;
+    for i in 0..areas {
+        let count = if i == 0 {
+            first
+        } else if i == areas - 1 {
+            last
+        } else if middle_n > 0 {
+            middle_total / middle_n + usize::from((i - 1) < middle_total % middle_n)
+        } else {
+            0
+        };
+        acc += count;
+        if i + 1 == passed {
+            return acc.min(bars);
+        }
+    }
+    acc.min(bars)
 }

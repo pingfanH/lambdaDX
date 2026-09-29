@@ -47,6 +47,10 @@ pub struct PadPreviewState {
     pub chart: ChartDoc,
     pub hidden_notes: HashSet<u64>,
     pub slide_progress: HashMap<(u64, usize), SlideProgress>,
+    /// Sub-slides whose `PlaySlideCue` has already fired (keyed by `(note_id,
+    /// slide_idx)`), so the slide sound plays once and the first area is seeded
+    /// exactly once.
+    pub slide_cue_played: HashSet<(u64, usize)>,
 
     // ── Pad interaction ──────────────────────────────────────────────
     pub pad_svg: Option<PadSvgDef>,
@@ -192,6 +196,7 @@ impl PadPreviewState {
             chart,
             hidden_notes: HashSet::new(),
             slide_progress: HashMap::new(),
+            slide_cue_played: HashSet::new(),
             pad_svg: None,
             active_pointer_zones: HashMap::new(),
             prev_pointer_pos: HashMap::new(),
@@ -336,6 +341,7 @@ impl PadPreviewState {
         self.active_pointer_zones.clear();
         self.prev_pointer_pos.clear();
         self.slide_progress.clear();
+        self.slide_cue_played.clear();
         // Restarting from the top rebuilds the core session so combo/DX reset.
         if time <= 1e-4 {
             self.reset_engine();
@@ -550,6 +556,7 @@ impl PadPreviewState {
         self.engine_events.clear();
         self.core_score = None;
         self.slide_progress.clear();
+        self.slide_cue_played.clear();
         self.simai_source = Some(simai_text.to_string());
         self.simai_level = level_index;
         Ok(())
@@ -573,6 +580,7 @@ impl PadPreviewState {
         self.engine_events.clear();
         self.core_score = None;
         self.slide_progress.clear();
+        self.slide_cue_played.clear();
         self.simai_source = None;
         self.simai_level = 0;
     }
@@ -774,6 +782,46 @@ impl PadPreviewState {
                 }
             }
         }
+    }
+
+    /// Handle lnmai-core's first `PlaySlideCue` for a sub-slide: returns `true`
+    /// the first time (so the caller plays the cue) and seeds the first judge
+    /// area as passed, covering the case where the core never pushes the A1
+    /// progress update.
+    pub fn on_slide_cue(&mut self, note_index: u64) -> bool {
+        let Some(rt) = self
+            .judge_engine
+            .as_ref()
+            .and_then(|engine| engine.runtime_slide_index(note_index))
+        else {
+            return true;
+        };
+        let Some((note_id, slide_idx, seg_idx, seg_count)) =
+            crate::player::engine::chart_slide_position(&self.chart, rt)
+        else {
+            return true;
+        };
+        let total = self
+            .judge_engine
+            .as_ref()
+            .and_then(|engine| engine.slide_queue_total(rt))
+            .map(|t| t.0)
+            .unwrap_or(0);
+        if !self.slide_cue_played.insert((note_id, slide_idx)) {
+            return false;
+        }
+        let frac = if total > 0 { 1.0 / total as f32 } else { 0.0 };
+        let progress = self
+            .slide_progress
+            .entry((note_id, slide_idx))
+            .or_insert_with(|| SlideProgress {
+                seg_frac: vec![0.0; seg_count],
+            });
+        if progress.seg_frac.len() < seg_count {
+            progress.seg_frac.resize(seg_count, 0.0);
+        }
+        progress.seg_frac[seg_idx] = progress.seg_frac[seg_idx].max(frac);
+        true
     }
 
     /// Queue an lnmai-core sensor press for `zone` at microsecond time `tp`.
