@@ -182,6 +182,26 @@ pub(crate) fn debug_slide_enabled() -> bool {
     *ON.get_or_init(|| std::env::var_os("MAI2_DEBUG_SLIDE").is_some())
 }
 
+/// Returns `true` only the first time `key` is seen for `tag` (or after it
+/// changes), so diagnostics print on transitions instead of every frame.
+pub(crate) fn debug_dedup(tag: impl std::fmt::Display, key: &str) -> bool {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    thread_local! {
+        static LAST: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    }
+    let tag = tag.to_string();
+    LAST.with(|last| {
+        let mut last = last.borrow_mut();
+        if last.get(&tag).map(String::as_str) == Some(key) {
+            false
+        } else {
+            last.insert(tag, key.to_string());
+            true
+        }
+    })
+}
+
 impl JudgeEngine {
     /// Create a session and load the chart at `level_index` (`&inote_N`) from
     /// Simai text.
@@ -462,25 +482,25 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
     }
 }
 
-/// Diagnostic: dump lnmai-core's slide state (render commands + slide judge
-/// events) with resolved runtime-slide totals. Enabled by `MAI2_DEBUG_SLIDE`.
+/// Diagnostic: dump lnmai-core's slide state — for each runtime arc, its
+/// **traveled / total** length (judge-queue units), plus hide commands and slide
+/// judge events. Enabled by `MAI2_DEBUG_SLIDE`.
 fn log_lnmai_slide_state(engine: &JudgeEngine, now: f32, result: &RuntimeStepLightResult) {
     for command in &result.render_commands {
-        let (tag, note_index, detail) = match command {
+        let (tag, note_index, line) = match command {
             RenderCommand::UpdateSlideProgress {
                 note_index,
                 remaining,
             } => {
-                let total = engine
-                    .runtime_slide_index(*note_index)
-                    .and_then(|rt| engine.slide_queue_total(rt))
-                    .map(|t| t.0);
+                let rt = engine.runtime_slide_index(*note_index);
+                let total = rt.and_then(|rt| engine.slide_queue_total(rt)).map(|t| t.0);
+                let traveled = total.map(|t| t.saturating_sub(*remaining));
                 (
-                    "UpdateSlideProgress",
+                    "progress",
                     *note_index,
                     format!(
-                        "remaining={remaining} total_judge_queue={total:?} traveled={:?}",
-                        total.map(|t| t.saturating_sub(*remaining))
+                        "star note={note_index} rt={rt:?} traveled={traveled:?}/{total:?} \
+                         (remaining={remaining}) UpdateSlideProgress"
                     ),
                 )
             }
@@ -489,15 +509,28 @@ fn log_lnmai_slide_state(engine: &JudgeEngine, now: f32, result: &RuntimeStepLig
                 track_index,
                 remaining,
             } => {
-                let meta = engine
-                    .runtime_slide_index(*note_index)
-                    .and_then(|rt| engine.slide_queue_total(rt));
+                let rt = engine.runtime_slide_index(*note_index);
+                let meta = rt.and_then(|rt| engine.slide_queue_total(rt));
+                let total = meta.map(|t| t.0);
+                let tracks = meta.map(|t| t.1);
+                let traveled = total.map(|t| t.saturating_sub(*remaining));
                 (
-                    "UpdateSlideTrackProgress",
+                    "track",
                     *note_index,
                     format!(
-                        "track={track_index}/{:?} remaining={remaining}",
-                        meta.map(|t| t.1)
+                        "star note={note_index} rt={rt:?} traveled={traveled:?}/{total:?} \
+                         (remaining={remaining}) UpdateSlideTrackProgress track={track_index}/{tracks:?}"
+                    ),
+                )
+            }
+            RenderCommand::HideAllSlideBars { note_index } => {
+                let rt = engine.runtime_slide_index(*note_index);
+                let total = rt.and_then(|rt| engine.slide_queue_total(rt)).map(|t| t.0);
+                (
+                    "hideall",
+                    *note_index,
+                    format!(
+                        "star note={note_index} rt={rt:?} traveled={total:?}/{total:?} HideAllSlideBars"
                     ),
                 )
             }
@@ -505,35 +538,34 @@ fn log_lnmai_slide_state(engine: &JudgeEngine, now: f32, result: &RuntimeStepLig
                 note_index,
                 end_index,
             } => {
-                let meta = engine
-                    .runtime_slide_index(*note_index)
-                    .and_then(|rt| engine.slide_queue_total(rt));
+                let rt = engine.runtime_slide_index(*note_index);
+                let total = rt.and_then(|rt| engine.slide_queue_total(rt)).map(|t| t.0);
                 (
-                    "HideSlideBars",
+                    "hidebars",
                     *note_index,
-                    format!("end_index={end_index} meta={meta:?}"),
+                    format!(
+                        "star note={note_index} rt={rt:?} hide_end_index={end_index}/{total:?} \
+                         HideSlideBars (trail-tile units)"
+                    ),
                 )
-            }
-            RenderCommand::HideAllSlideBars { note_index } => {
-                let meta = engine
-                    .runtime_slide_index(*note_index)
-                    .and_then(|rt| engine.slide_queue_total(rt));
-                ("HideAllSlideBars", *note_index, format!("meta={meta:?}"))
             }
             _ => continue,
         };
-        let runtime = engine.runtime_slide_index(note_index);
-        eprintln!(
-            "[slide/lnmai t={now:.3}] {tag} note={note_index} rt={runtime:?} {detail}"
-        );
+        if debug_dedup(format!("lnmai/{tag}/{note_index}"), &line) {
+            eprintln!("[slide/lnmai t={now:.3}] {line}");
+        }
     }
     for event in &result.events {
         if event.kind == JudgeEventKind::Slide {
             let runtime = engine.runtime_slide_index(event.note_index);
-            eprintln!(
-                "[slide/lnmai t={now:.3}] JudgeEvent slide note={} rt={runtime:?} grade={:?}",
+            let line = format!(
+                "judge note={} rt={runtime:?} grade={:?}",
                 event.note_index, event.grade
             );
+            let key = format!("lnmai/judge/{}", event.note_index);
+            if debug_dedup(key, &line) {
+                eprintln!("[slide/lnmai t={now:.3}] {line}");
+            }
         }
     }
 }

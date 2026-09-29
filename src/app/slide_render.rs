@@ -761,17 +761,17 @@ pub fn draw_slide(
     };
     let hidden_until = hidden_until.min(segmentation.bars.len());
     if matches!(layer, SlideLayer::Trail) && crate::player::engine::debug_slide_enabled() {
-        eprintln!(
-            "[slide/player/render] note={} bars={} hidden_until={} seg_frac={:?} \
-             star_dist={:.2}/{:.2} star_t={:.3} core_driven={core_driven}",
-            note.id,
-            segmentation.bars.len(),
-            hidden_until,
-            seg_frac,
-            star_dist_along,
-            total_len,
-            if total_len > 0.0 { star_dist_along / total_len } else { 0.0 },
-        );
+        let key = format!("{hidden_until}|{seg_frac:?}");
+        if crate::player::engine::debug_dedup(format!("player_render/{}", note.id), &key) {
+            eprintln!(
+                "[slide/player t={current_t:.3}] star note={} traveled={star_dist_along:.2}/{total_len:.2} \
+                 bars={hidden_until}/{} seg_frac={:?} star_t={:.3} core_driven={core_driven}",
+                note.id,
+                segmentation.bars.len(),
+                seg_frac,
+                if total_len > 0.0 { star_dist_along / total_len } else { 0.0 },
+            );
+        }
     }
     // Within one slide, the trail tiles can be drawn forward or reversed so an
     // overlapping tile's stacking can be chosen.

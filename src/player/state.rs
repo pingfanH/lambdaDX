@@ -759,10 +759,19 @@ impl PadPreviewState {
 
         if crate::player::engine::debug_slide_enabled() {
             for ((note_id, slide_idx), progress) in &self.slide_progress {
-                eprintln!(
-                    "[slide/player] key=({note_id},{slide_idx}) seg_frac={:?}",
-                    progress.seg_frac
-                );
+                let total = progress.seg_frac.len();
+                let traveled: f32 = progress.seg_frac.iter().sum();
+                let key = format!("{note_id},{slide_idx}|{:?}", progress.seg_frac);
+                if crate::player::engine::debug_dedup(
+                    format!("player_state/{note_id}/{slide_idx}"),
+                    &key,
+                ) {
+                    eprintln!(
+                        "[slide/player] star key=({note_id},{slide_idx}) \
+                         traveled={traveled:.3}/{total} segments seg_frac={:?}",
+                        progress.seg_frac
+                    );
+                }
             }
         }
     }
