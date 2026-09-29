@@ -15,6 +15,15 @@ use crate::player::state::PadPreviewState;
 /// Mouse is only emitted when no touch is active, so desktop mouse and a real
 /// touchscreen never double-fire.
 pub fn collect_pointer_events() -> Vec<PointerEvent> {
+    // On desktop Linux, prefer a real Type-B multitouch touchscreen (evdev) so
+    // individual fingers are tracked. Falls back to macroquad below.
+    #[cfg(target_os = "linux")]
+    if let Some(events) =
+        crate::player::input::touch_evdev::poll(vec2(screen_width(), screen_height()))
+    {
+        return events;
+    }
+
     let touch_events = touches();
     let mut events = Vec::with_capacity(touch_events.len() + 2);
     let has_touch = !touch_events.is_empty();
