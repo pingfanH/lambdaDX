@@ -153,6 +153,66 @@ pub fn draw(app: &PadPreviewState, header: RectF, scale: f32) {
     );
 }
 
+/// Draw the current Simai fragment(s) and the next group, bottom-right of the
+/// pad panel. Same-time fragments (`each`, same-head stars, a conslide's arc
+/// tokens) are shown together so nothing is skipped or shown one group ahead.
+pub fn draw_simai_debug(app: &PadPreviewState, rect: RectF, scale: f32) {
+    let frags = &app.simai_fragments;
+    if frags.is_empty() {
+        return;
+    }
+    let t = app.song_time();
+    let count = frags.partition_point(|f| f.time <= t);
+
+    // Group fragments by equal time (the timeline is time-ordered).
+    let group = |slice: &[crate::app::maidata::SimaiFragment]| -> Vec<usize> {
+        if slice.is_empty() {
+            return Vec::new();
+        }
+        let t0 = slice[0].time;
+        slice
+            .iter()
+            .enumerate()
+            .take_while(|(_, f)| (f.time - t0).abs() < 1e-4)
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let join = |idxs: &[usize]| {
+        idxs.iter()
+            .filter_map(|i| frags.get(*i))
+            .map(|f| f.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    let margin = 14.0 * scale;
+    let right = rect.x + rect.w - margin;
+    let mut y = rect.y + rect.h - margin;
+
+    // Next group (the first group strictly after `count`).
+    if count < frags.len() {
+        let next = group(&frags[count..]);
+        let next: Vec<usize> = next.into_iter().map(|i| i + count).collect();
+        let s = format!("→ {}", join(&next));
+        let w = font::text_width(&s, 13.0 * scale);
+        font::text(&s, right - w, y, 13.0 * scale, TEXT_DIM);
+        y -= 18.0 * scale;
+    }
+    // Current group: the same-time run ending at `count`.
+    if count > 0 {
+        let t_cur = frags[count - 1].time;
+        let start = frags[..count]
+            .iter()
+            .rposition(|f| (f.time - t_cur).abs() >= 1e-4)
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let cur: Vec<usize> = (start..count).collect();
+        let s = format!("▶ {}", join(&cur));
+        let w = font::text_width(&s, 15.0 * scale);
+        font::text(&s, right - w, y, 15.0 * scale, ACCENT);
+    }
+}
+
 /// Draw the lnmai-core score read-outs down the bottom-left of the pad panel.
 pub fn draw_score_block(app: &PadPreviewState, rect: RectF, scale: f32) {
     // Without the core (no engine, or the `no_core` option) there is no score;

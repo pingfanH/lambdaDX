@@ -45,6 +45,11 @@ pub fn inote_key(text: &str, diff: Option<i32>) -> Option<u32> {
     select_level_key(text, diff)
 }
 
+/// Build a [`ChartDoc`] for a specific `&inote_N` key (lnmai `levelIndex`).
+pub fn from_maidata_level(text: &str, level_index: u32) -> Result<ChartDoc, String> {
+    from_level(text, level_index)
+}
+
 /// Ascending `&inote_N=` keys present in `text`.
 pub fn inote_keys(text: &str) -> Vec<u32> {
     let mut keys: Vec<u32> = Vec::new();
@@ -135,6 +140,28 @@ fn from_level(_text: &str, _level_index: u32) -> Result<ChartDoc, String> {
     Err("chart parsing requires the lnmai-core (Lean) backend".to_string())
 }
 
+/// One parsed Simai fragment (token) with its playback time in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimaiFragment {
+    pub time: f32,
+    pub text: String,
+}
+
+/// The raw Simai token stream for `level_index`, timed in seconds (same clock
+/// as `app::types::note_secs`). Used to show which fragment is playing.
+#[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+pub fn simai_timeline(text: &str, level_index: u32) -> Result<Vec<SimaiFragment>, String> {
+    crate::core::session::ensure_runtime()
+        .map_err(|_| "lnmai-core runtime failed to initialize".to_string())?;
+    let parsed = crate::core::api::parse_frontend_chart(text, level_index).map_err(|e| e.json)?;
+    Ok(lean::timeline(&parsed))
+}
+
+#[cfg(not(any(feature = "backend-lean", feature = "backend-rust")))]
+pub fn simai_timeline(_text: &str, _level_index: u32) -> Result<Vec<SimaiFragment>, String> {
+    Ok(Vec::new())
+}
+
 #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
 mod lean {
     use super::*;
@@ -186,6 +213,23 @@ mod lean {
             .iter()
             .find(|(k, _)| k.trim_start_matches('&') == key)
             .map(|(_, v)| v.clone())
+    }
+
+    /// Raw Simai tokens timed in seconds (same clock as the converted notes).
+    pub(super) fn timeline(parsed: &FrontendChartResult) -> Vec<SimaiFragment> {
+        let bpms = build_bpms(&parsed.inspection.source.events);
+        parsed
+            .inspection
+            .tokens
+            .iter()
+            .map(|token| {
+                let m = measure(token.timing, &bpms);
+                SimaiFragment {
+                    time: crate::app::types::measure_to_secs(m, &bpms),
+                    text: token.raw_text.clone(),
+                }
+            })
+            .collect()
     }
 
     fn rational_f32(r: &Rational) -> f32 {

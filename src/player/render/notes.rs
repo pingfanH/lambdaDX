@@ -12,6 +12,11 @@ use crate::player::render::timing::{self, NoteTiming};
 use crate::player::render::{ring, slide, touch};
 use crate::player::state::PadPreviewState;
 
+/// How long after a slide's local tail a core-driven slide stays on screen
+/// before the fallback cull removes it (covers missed conslides that lnmai-core
+/// never reports as hidden).
+const CORE_SLIDE_FALLBACK_GRACE: f32 = 0.35;
+
 /// Draw all visible notes for `current_t` (seconds).
 ///
 /// Two passes so the stacking is type-aware:
@@ -127,11 +132,13 @@ fn draw_pass(
             continue;
         }
         let t: NoteTiming = timing::compute(note, app, bpms, current_t, speed_scale);
-        // Slides owned by lnmai-core stay on screen past their local tail; the
-        // core's `HideSlideBars`/`HideAllSlideBars` commands end them. Without an
-        // engine, fall back to the local tail cull.
+        // Slides owned by lnmai-core stay on screen past their local tail until
+        // the core's `HideSlideBars`/`HideAllSlideBars` ends them. A **missed
+        // conslide** may never get such a command (the core only ends a chain
+        // once its head is touched), so fall back to a local tail cull a short
+        // grace after the slide's end. Without an engine, use the local cull.
         let is_visible = if is_slide && app.use_core() {
-            t.dt_scaled <= t.lead_time
+            t.dt_scaled <= t.lead_time && t.slide_tail_dt >= -CORE_SLIDE_FALLBACK_GRACE
         } else {
             t.visible()
         };

@@ -299,6 +299,41 @@ impl PlayerUiApp {
         );
     }
 
+    /// Re-scan the songs directory (picks up added/removed charts).
+    pub fn refresh_library(&mut self) {
+        self.library.refresh();
+        if self.library.songs.is_empty() {
+            self.selected = 0;
+        } else if self.selected >= self.library.songs.len() {
+            self.selected = self.library.songs.len() - 1;
+        }
+        if self.loaded.is_some_and(|i| i >= self.library.songs.len()) {
+            self.loaded = None;
+            self.chart_text = None;
+        }
+        self.status = format!("曲库已刷新 · {} 首", self.library.songs.len());
+    }
+
+    /// Re-read the current song's `maidata.txt` from disk and reinstall it,
+    /// restarting playback. Picks up chart edits without leaving the app.
+    pub fn reload_current_song(&mut self) -> Result<(), String> {
+        let index = self.loaded.unwrap_or(self.selected);
+        let song = self
+            .library
+            .songs
+            .get(index)
+            .cloned()
+            .ok_or("曲库中没有这首歌")?;
+        let loaded = load_chart_job(&song, index)?;
+        let resume = matches!(self.page, Page::Gameplay | Page::Pause);
+        self.install_loaded(loaded);
+        self.status = format!("已重新载入 {}", self.pad.chart.title);
+        if resume {
+            let _ = self.begin_gameplay();
+        }
+        Ok(())
+    }
+
     /// Switch to a difficulty slot without reloading audio.
     pub fn select_level(&mut self, key: u32) -> Result<(), String> {
         let _s = crate::player_ui::perf::Scope::new(format!("select_level[{key}]"));

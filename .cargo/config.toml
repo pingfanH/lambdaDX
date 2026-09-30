@@ -1,6 +1,7 @@
-[env]
 # Pinned Lake checkout of Neuron-Group/lnmai-core whose FFI schema matches
 # `lnmai-core/shared/rust_ffi_types.rs`. `lnmai-core`'s build script reads this
-# when `LNMAI_CORE_ARTIFACTS` is unset. `force = false` keeps an
-# explicitly-exported value (e.g. a Nix `ffi-artifacts` path) authoritative.
-LNMAI_CORE_LEAN_PROJECT = { value = "/Users/pingfanh/project/Mai2Chart/demo/macroquad_sim/lnmai-core-rs/lnmai-core-ffi/lnmai-core", force = false }
+# when `LNMAI_CORE_ARTIFACTS` is unset. Kept as a plain string (not a
+# `{ value, force }` table) so Cargo can merge this with the `pure/` worktree's
+# `.cargo/config.toml`, which sets the same key as a string.
+[env]
+LNMAI_CORE_LEAN_PROJECT = "/Users/pingfanh/project/Mai2Chart/demo/macroquad_sim/lnmai-core-rs/lnmai-core-ffi/lnmai-core"

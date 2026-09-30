@@ -353,15 +353,16 @@ impl JudgeEngine {
 
     fn frac_from_remaining(&self, note_index: u64, remaining: u64) -> Option<f32> {
         let runtime = self.runtime_slide_index(note_index)?;
-        let total = self.slide_queue_total(runtime)?.0;
-        if total == 0 {
+        let (total, _tracks, initial) = self.slide_queue_total(runtime)?;
+        // Each runtime arc has its own queue (`initial_queue_remaining`); using
+        // the whole-chain `total_judge_queue_len` makes an arc's first update
+        // jump several steps. Normalise against the arc's own queue.
+        let denom = if initial > 0 { initial } else { total };
+        if denom == 0 {
             return None;
         }
-        // lnmai's queue counts an area as consumed as soon as the star *enters*
-        // it; the first area (A1) is seeded by `on_slide_cue` when the slide
-        // cue fires. Each subsequent area advances the consumed count by one.
-        let touched = total.saturating_sub(remaining).min(total);
-        Some(touched as f32 / total as f32)
+        let touched = denom.saturating_sub(remaining).min(denom);
+        Some(touched as f32 / denom as f32)
     }
 }
 
@@ -460,6 +461,11 @@ fn sensor_area_for_button(zone: ButtonZone) -> SensorArea {
 pub fn step_judge_engine(app: &mut PadPreviewState) {
     // `no_core`: bypass lnmai-core entirely (pre-lnmai autoplay + star motion).
     if !app.use_core() {
+        return;
+    }
+    // Only advance while playing: the star/song clock is frozen when paused or
+    // idle, so stepping there would judge at a fixed time and diverge from it.
+    if app.mode != crate::app::types::Mode::Playing {
         return;
     }
     let now = app.song_time();

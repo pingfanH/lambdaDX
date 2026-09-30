@@ -165,6 +165,9 @@ pub struct PadPreviewState {
     pub autoplay_tactic_cursor: usize,
     /// Latest lnmai-core score snapshot (combo, DX score, judge counts).
     pub core_score: Option<crate::core::types::ScoreState>,
+    /// Raw Simai fragments of the loaded chart, timed in seconds — used by the
+    /// HUD to show which fragment is currently playing.
+    pub simai_fragments: Vec<crate::app::maidata::SimaiFragment>,
     /// Simai source + `&inote_N` used to (re)build the engine on restart.
     simai_source: Option<String>,
     simai_level: u32,
@@ -280,6 +283,7 @@ impl PadPreviewState {
             autoplay_tactic: Vec::new(),
             autoplay_tactic_cursor: 0,
             core_score: None,
+            simai_fragments: Vec::new(),
             simai_source: None,
             simai_level: 0,
         }
@@ -581,6 +585,8 @@ impl PadPreviewState {
         self.slide_cue_played.clear();
         self.simai_source = Some(simai_text.to_string());
         self.simai_level = level_index;
+        self.simai_fragments =
+            crate::app::maidata::simai_timeline(simai_text, level_index).unwrap_or_default();
         Ok(())
     }
 
@@ -605,6 +611,7 @@ impl PadPreviewState {
         self.slide_cue_played.clear();
         self.simai_source = None;
         self.simai_level = 0;
+        self.simai_fragments.clear();
     }
 
     pub fn has_engine(&self) -> bool {
@@ -823,16 +830,17 @@ impl PadPreviewState {
         else {
             return true;
         };
-        let total = self
+        let meta = self
             .judge_engine
             .as_ref()
-            .and_then(|engine| engine.slide_queue_total(rt))
-            .map(|t| t.0)
+            .and_then(|engine| engine.slide_queue_total(rt));
+        let denom = meta
+            .map(|t| if t.2 > 0 { t.2 } else { t.0 })
             .unwrap_or(0);
         if !self.slide_cue_played.insert((note_id, slide_idx)) {
             return false;
         }
-        let frac = if total > 0 { 1.0 / total as f32 } else { 0.0 };
+        let frac = if denom > 0 { 1.0 / denom as f32 } else { 0.0 };
         let progress = self
             .slide_progress
             .entry((note_id, slide_idx))
@@ -848,7 +856,7 @@ impl PadPreviewState {
 
     /// Queue an lnmai-core sensor press for `zone` at microsecond time `tp`.
     pub fn queue_engine_press(&mut self, zone: PadZone, tp: i64) {
-        if self.judge_engine.is_none() {
+        if self.judge_engine.is_none() || self.mode != Mode::Playing {
             return;
         }
         self.engine_events
@@ -857,7 +865,7 @@ impl PadPreviewState {
 
     /// Queue an lnmai-core sensor release for `zone` at microsecond time `tp`.
     pub fn queue_engine_release(&mut self, zone: PadZone, tp: i64) {
-        if self.judge_engine.is_none() {
+        if self.judge_engine.is_none() || self.mode != Mode::Playing {
             return;
         }
         self.engine_events

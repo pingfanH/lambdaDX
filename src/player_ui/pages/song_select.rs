@@ -32,6 +32,14 @@ pub fn draw(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         w: tw,
         ..trailing
     };
+    let refresh_btn = RectF {
+        x: settings_btn.x - tw - 8.0 * ctx.scale,
+        w: tw,
+        ..trailing
+    };
+    if pages::button(ctx, input, "ss_refresh", 0, refresh_btn, "刷新", Btn::Quiet) {
+        app.refresh_library();
+    }
     if pages::button(ctx, input, "ss_settings", 0, settings_btn, "设置", Btn::Quiet) {
         app.open_settings();
     }
@@ -42,6 +50,9 @@ pub fn draw(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     if is_key_pressed(KeyCode::Escape) {
         app.go(Page::Start);
         return;
+    }
+    if is_key_pressed(KeyCode::F5) {
+        app.refresh_library();
     }
 
     draw::rect(

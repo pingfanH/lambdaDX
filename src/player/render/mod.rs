@@ -204,4 +204,6 @@ pub fn draw_pad_panel(
 
     // lnmai-core score parameters down the bottom-left of the pad panel.
     crate::player::hud::draw_score_block(app, rect, scale);
+    // Current Simai fragment down the bottom-right.
+    crate::player::hud::draw_simai_debug(app, rect, scale);
 }

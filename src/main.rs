@@ -281,6 +281,26 @@ async fn run(args: LaunchArgs) {
         let pad_geom = player::layout::compute_pad_geom(layout.pad);
 
         player::input::handle_global_hotkeys(&mut app);
+        // F5: re-read the chart from disk and reload (picks up edits live).
+        if macroquad::input::is_key_pressed(macroquad::input::KeyCode::F5) {
+            if let Some(text) = args.chart.as_deref().and_then(chart::read_simai_source) {
+                let level =
+                    app::maidata::inote_key(&text, args.diff).unwrap_or(app.chart.simai_level);
+                match app::maidata::from_maidata_level(&text, level) {
+                    Ok(mut chart) => {
+                        app::maichart::assign_note_ids(&mut chart.notes);
+                        app.chart = chart;
+                        app.cue_track =
+                            Some(player::cues::CueTrack::from_chart(&app.chart));
+                        player::autoplay::rebuild(&mut app);
+                        let _ = app.load_engine(&text, level);
+                        app.start_playback_at(0.0);
+                        app.set_status("谱面已重新载入".to_string());
+                    }
+                    Err(e) => app.set_status(format!("reload: {e}")),
+                }
+            }
+        }
         player::input::handle_lane_input(&mut app);
         let pointer_events = player::input::collect_pointer_events();
         let ui_scale = player::render::ui_scale(&app);

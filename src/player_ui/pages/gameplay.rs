@@ -58,6 +58,10 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
             app.pad.toggle_play();
         } else if is_key_pressed(KeyCode::R) {
             app.pad.start_playback_at(0.0);
+        } else if is_key_pressed(KeyCode::F5) {
+            if let Err(e) = app.reload_current_song() {
+                app.error = Some(e);
+            }
         } else if is_key_pressed(KeyCode::A) {
             let on = !app.pad.autoplay;
             app.set_autoplay(on);

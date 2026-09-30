@@ -154,6 +154,12 @@ pub fn draw_guides(
     if !params::tap_guide() {
         return;
     }
+    // Button guides only: touch-zone notes (B/C/D/E, zone > 8) have no radial
+    // ring guide — the `(zone-1)` angle would wrap back onto lane 1 and draw a
+    // stray hold/tap guide there.
+    if t.zone > 8 {
+        return;
+    }
     let variant = skin::SkinVariant::of(note);
     let idx = (t.zone - 1) as f32;
     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
