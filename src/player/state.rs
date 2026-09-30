@@ -15,9 +15,10 @@ use crate::player::video::VideoBg;
 /// Per-sub-slide visual progress. In the standalone preview the trail is never
 /// hidden by judgment, so `hidden_until_bar` stays 0; kept as a typed map so the
 /// renderer's lookup matches the original player.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SlideProgress {
     pub hidden_until_bar: usize,
+    pub track_hidden_until: HashMap<u64, usize>,
 }
 
 /// All mutable state the standalone pad preview needs.
@@ -650,6 +651,7 @@ impl PadPreviewState {
                 key,
                 SlideProgress {
                     hidden_until_bar: usize::MAX,
+                    track_hidden_until: HashMap::new(),
                 },
             );
         }
@@ -669,9 +671,21 @@ impl PadPreviewState {
             };
             self.slide_progress
                 .entry((note_id, slide_idx))
-                .and_modify(|progress| progress.hidden_until_bar = update.hidden_until_bar)
+                .and_modify(|progress| {
+                    if let Some(track) = update.track_index {
+                        progress.track_hidden_until
+                            .entry(track)
+                            .and_modify(|hidden| *hidden = (*hidden).max(update.hidden_until_bar))
+                            .or_insert(update.hidden_until_bar);
+                    } else {
+                        progress.hidden_until_bar = update.hidden_until_bar;
+                    }
+                })
                 .or_insert(SlideProgress {
-                    hidden_until_bar: update.hidden_until_bar,
+                    hidden_until_bar: if update.track_index.is_none() { update.hidden_until_bar } else { 0 },
+                    track_hidden_until: update.track_index
+                        .map(|track| HashMap::from([(track, update.hidden_until_bar)]))
+                        .unwrap_or_default(),
                 });
         }
     }

@@ -109,16 +109,22 @@ pub fn draw(
         // (`HideSlideBars` / `HideAllSlideBars`), stored per sub-slide in
         // `slide_progress`. Without an engine the trail is fully drawn.
         let core_driven = app.has_engine();
-        let hidden_until_bar = app
+        let progress = app
             .slide_progress
             .get(&(note.id, si))
-            .map(|progress| progress.hidden_until_bar)
-            .unwrap_or(0);
+            .cloned()
+            .unwrap_or_default();
         // `HideAllSlideBars` maps to `usize::MAX`; the whole slide (trail and
         // star) is gone once core reports it.
-        if core_driven && hidden_until_bar == usize::MAX {
+        if core_driven && progress.hidden_until_bar == usize::MAX {
             continue;
         }
+
+        let hidden_until_bar = progress
+            .track_hidden_until
+            .get(&(si as u64))
+            .copied()
+            .unwrap_or(progress.hidden_until_bar);
 
         slide_render::draw_slide(
             &render_note,

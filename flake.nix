@@ -23,7 +23,7 @@
       inputs.lnmai-core.follows = "lnmai-core";
     };
     lnmai-core = {
-      url = "github:Neuron-Group/lnmai-core?rev=9ca93e975bcd8a4240c3bce505f1257d3962f7a9";
+      url = "github:Neuron-Group/lnmai-core?rev=4efad7ea302f787bff7c40f3b255443808d7e4cb";
       inputs.nixpkgs.url = "github:NixOS/nixpkgs/567a49d1913ce81ac6e9582e3553dd90a955875f";
     };
     maisimai = {
@@ -72,16 +72,14 @@
           nativeBuildInputs = [pkgs.rsync];
         } ''
           mkdir -p \
-            "$out/lnmai-core-rs" \
             "$out/maisimai" \
-            "$out/lnmai-core-rs/lnmai-core-ffi" \
-            "$out/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
+            "$out/lnmai-core-ffi" \
+            "$out/lnmai-core-ffi/lnmai-core"
 
           rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
             --exclude .git/ \
             --exclude target/ \
             --exclude result \
-            --exclude lnmai-core-rs/ \
             --exclude maisimai/ \
             ${self}/ "$out/"
           rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
@@ -94,13 +92,13 @@
             --exclude target/ \
             --exclude result \
             --exclude lnmai-core/ \
-            ${lnmai-core-ffi}/. "$out/lnmai-core-rs/lnmai-core-ffi/"
+            ${lnmai-core-ffi}/. "$out/lnmai-core-ffi/"
           rsync -a --chmod=Du+w,Dgo+rx,Fu+w,Fgo+r \
             --exclude .git/ \
             --exclude target/ \
             --exclude result \
             --exclude .lake/ \
-            ${lnmai-core}/. "$out/lnmai-core-rs/lnmai-core-ffi/lnmai-core/"
+            ${lnmai-core}/. "$out/lnmai-core-ffi/lnmai-core/"
 
           chmod -R u+w "$out"
         '';
@@ -120,6 +118,7 @@
         buildInputs = libs ++ devLibs;
 
         LNMAI_CORE_ARTIFACTS = "${lnmaiCoreArtifacts}";
+        LNMAI_CORE_LEAN_PROJECT = "${stagedSource}/lnmai-core-ffi/lnmai-core";
         LIBRARY_PATH = libraryPath;
         LD_LIBRARY_PATH = libraryPath;
         PKG_CONFIG_PATH = pkgConfigPath;
@@ -143,6 +142,7 @@
       commonEnv = ''
         export RUST_BACKTRACE=1
         export LNMAI_CORE_ARTIFACTS="${lnmaiCoreArtifacts}"
+        export LNMAI_CORE_LEAN_PROJECT="${stagedSource}/lnmai-core-ffi/lnmai-core"
         export MAI2_FONT_PATH="${cjkFontPath}"
         export LD_LIBRARY_PATH="''${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${libraryPath}"
         export LIBRARY_PATH="${libraryPath}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
@@ -183,6 +183,7 @@
         buildInputs = libs ++ devLibs;
 
         LNMAI_CORE_ARTIFACTS = "${lnmaiCoreArtifacts}";
+        LNMAI_CORE_LEAN_PROJECT = "${stagedSource}/lnmai-core-ffi/lnmai-core";
         LD_LIBRARY_PATH = libraryPath;
         LIBRARY_PATH = libraryPath;
         PKG_CONFIG_PATH = pkgConfigPath;

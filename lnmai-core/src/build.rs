@@ -87,7 +87,7 @@ fn find_lean_project() -> PathBuf {
     // emits the legacy `timing` field and fails deserialization.
     let workspace_root = workspace_root();
     let candidates = [
-        workspace_root.join("lnmai-core-rs/lnmai-core-ffi/lnmai-core"),
+        workspace_root.join("lnmai-core-ffi/lnmai-core"),
         workspace_root.join("../lnmai-core"),
         workspace_root.join("lnmai-core-lean"),
         workspace_root.join("../lnmai-core-lean"),

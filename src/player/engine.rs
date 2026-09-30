@@ -247,26 +247,25 @@ impl JudgeEngine {
             .map_err(|e| e.json)
     }
 
-    /// Collect the star/slide state updates carried by a frame's render
-    /// commands. `HideAllSlideBars` maps to "hide everything", `HideSlideBars`
-    /// to a per-slide bar cutoff. Progress-only commands are ignored because the
-    /// trail is consumed by hiding, not by a numeric bar index.
+    /// Collect slide state updates. Track-specific hide commands retain their
+    /// track identity so separate bodies are never merged into one cutoff.
     pub fn slide_progress_updates(&self, commands: &[RenderCommand]) -> Vec<SlideProgressUpdate> {
-        let mut by_slide: HashMap<usize, usize> = HashMap::new();
+        let mut by_slide: HashMap<(usize, Option<u64>), usize> = HashMap::new();
         for command in commands {
             let Some(update) = self.slide_progress_update(command) else {
                 continue;
             };
             by_slide
-                .entry(update.runtime_slide_index)
+                .entry((update.runtime_slide_index, update.track_index))
                 .and_modify(|hidden| *hidden = (*hidden).max(update.hidden_until_bar))
                 .or_insert(update.hidden_until_bar);
         }
 
         let mut updates: Vec<_> = by_slide
             .into_iter()
-            .map(|(runtime_slide_index, hidden_until_bar)| SlideProgressUpdate {
+            .map(|((runtime_slide_index, track_index), hidden_until_bar)| SlideProgressUpdate {
                 runtime_slide_index,
+                track_index,
                 hidden_until_bar,
             })
             .collect();
@@ -275,20 +274,23 @@ impl JudgeEngine {
     }
 
     fn slide_progress_update(&self, command: &RenderCommand) -> Option<SlideProgressUpdate> {
-        let (note_index, hidden_until_bar) = match command {
+        let (note_index, hidden_until_bar, track_index) = match command {
             RenderCommand::UpdateSlideProgress { .. } => return None,
             RenderCommand::UpdateSlideTrackProgress { .. } => return None,
-            RenderCommand::HideAllSlideBars { note_index } => (*note_index, usize::MAX),
+            RenderCommand::HideAllSlideBars { note_index } => (*note_index, usize::MAX, None),
             RenderCommand::HideSlideBars {
                 note_index,
                 end_index,
-            } => (*note_index, *end_index as usize),
-            RenderCommand::HideSlideTrackBars { .. } => return None,
+            } => (*note_index, *end_index as usize, None),
+            RenderCommand::HideSlideTrackBars { note_index, track_index, end_index } => {
+                (*note_index, *end_index as usize, Some(*track_index))
+            }
             RenderCommand::ShowJudgeResult { .. } => return None,
         };
         let runtime_slide_index = self.runtime_slide_index(note_index)?;
         Some(SlideProgressUpdate {
             runtime_slide_index,
+            track_index,
             hidden_until_bar,
         })
     }
@@ -298,6 +300,7 @@ impl JudgeEngine {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlideProgressUpdate {
     pub runtime_slide_index: usize,
+    pub track_index: Option<u64>,
     pub hidden_until_bar: usize,
 }
 
