@@ -583,14 +583,76 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
     let displays = collect_judge_result_displays(&app.chart, app.judge_engine.as_ref(), &result);
     for display in displays {
         app.push_judgement(display.zone, display.label, display.duration);
-        // Tap-family hits and any break note get the ring/spark burst.
-        if matches!(display.kind, JudgeEventKind::Tap | JudgeEventKind::Break) || display.is_break {
+        // Tap-family hits and any break note get the ring/spark burst — only on
+        // an actual hit (a miss shows the text but no burst).
+        if display.is_hit
+            && (matches!(display.kind, JudgeEventKind::Tap | JudgeEventKind::Break)
+                || display.is_break)
+        {
             app.push_hit_fx(display.zone, display.label, display.is_break);
         }
+    }
+    // Record slide judgments so the renderer can show the `slideok` overlay.
+    for fx in collect_slide_judge_fx(&app.chart, app.judge_engine.as_ref(), &result) {
+        app.record_slide_judge(fx.note_id, fx.slide_idx, fx.grade);
     }
     for command in &result.audio_commands {
         play_audio_command(app, command);
     }
+}
+
+/// A slide judgment mapped onto a chart sub-slide, for the `slideok` overlay.
+struct SlideJudgeFxResult {
+    note_id: u64,
+    slide_idx: usize,
+    grade: crate::player::state::SlideJudgeGrade,
+}
+
+/// Collect lnmai-core's slide judgments and map each runtime note onto the
+/// chart's `(note_id, slide_idx)` key used by the renderer's per-sub-slide fx.
+fn collect_slide_judge_fx(
+    chart: &ChartDoc,
+    engine: Option<&JudgeEngine>,
+    result: &RuntimeStepLightResult,
+) -> Vec<SlideJudgeFxResult> {
+    use crate::player::state::SlideJudgeGrade;
+
+    let mut out = Vec::new();
+    let mut seen: HashSet<(u64, usize)> = HashSet::new();
+    let mut push = |note_index: u64, grade: JudgeGrade| {
+        let Some(engine) = engine else { return };
+        let Some(runtime_slide_index) = engine.runtime_slide_index(note_index) else {
+            return;
+        };
+        let Some((note_id, slide_idx)) = chart_slide_key(chart, runtime_slide_index) else {
+            return;
+        };
+        if seen.insert((note_id, slide_idx)) {
+            out.push(SlideJudgeFxResult {
+                note_id,
+                slide_idx,
+                grade: SlideJudgeGrade::from_grade(grade),
+            });
+        }
+    };
+
+    for command in &result.render_commands {
+        if let RenderCommand::ShowJudgeResult {
+            kind: JudgeEventKind::Slide,
+            grade,
+            note_index,
+            ..
+        } = command
+        {
+            push(*note_index, *grade);
+        }
+    }
+    for event in &result.events {
+        if event.kind == JudgeEventKind::Slide {
+            push(event.note_index, event.grade);
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -600,6 +662,8 @@ struct JudgeResultDisplay {
     duration: f64,
     kind: JudgeEventKind,
     is_break: bool,
+    /// True when the note was actually hit (not a miss / too-fast).
+    is_hit: bool,
 }
 
 /// Map lnmai-core's render/event results onto (zone, label) feedbacks.
@@ -672,6 +736,7 @@ fn make_judge_result_display(
         duration,
         kind,
         is_break,
+        is_hit: !grade.is_miss_or_too_fast(),
     })
 }
 
@@ -796,25 +861,27 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
     use crate::player::render::skin::SkinVariant;
     use crate::player::sfx::{self, SfxKind};
 
-    let buf = match command {
+    // The per-kind hit SFX comes from actual hits (answer cue is timeline-driven
+    // in `state::tick_cues`).
+    let mut hit: Option<&crate::app::audio::SfxBuffer> = None;
+    match command {
         AudioCommand::PlayJudgeSfx {
             kind,
             grade,
             is_break,
             ..
         } => {
-            if !judge_sfx_allowed(*grade) {
-                return;
+            if judge_sfx_allowed(*grade) {
+                let sfx_kind = match kind {
+                    JudgeEventKind::Tap => SfxKind::Tap,
+                    JudgeEventKind::Touch => SfxKind::Touch,
+                    JudgeEventKind::Hold => SfxKind::Hold,
+                    JudgeEventKind::Slide => SfxKind::SlideJudge,
+                    JudgeEventKind::Break => SfxKind::Tap,
+                };
+                let is_break = *is_break || matches!(kind, JudgeEventKind::Break);
+                hit = sfx::select(app, sfx_kind, SkinVariant::of_flags(is_break, false), false);
             }
-            let sfx_kind = match kind {
-                JudgeEventKind::Tap => SfxKind::Tap,
-                JudgeEventKind::Touch => SfxKind::Touch,
-                JudgeEventKind::Hold => SfxKind::Hold,
-                JudgeEventKind::Slide => SfxKind::SlideJudge,
-                JudgeEventKind::Break => SfxKind::Tap,
-            };
-            let is_break = *is_break || matches!(kind, JudgeEventKind::Break);
-            sfx::select(app, sfx_kind, SkinVariant::of_flags(is_break, false), false)
         }
         AudioCommand::PlaySlideCue {
             note_index,
@@ -826,15 +893,18 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
             if !app.on_slide_cue(*note_index) {
                 return;
             }
-            sfx::select(
+            hit = sfx::select(
                 app,
                 SfxKind::SlideCue,
                 SkinVariant::of_flags(*is_break, false),
                 false,
-            )
+            );
         }
-    };
-    app.play_sfx(buf.or(app.answer_sfx.as_ref()));
+    }
+
+    if crate::app::params::hit_sfx() {
+        app.play_sfx(hit);
+    }
 }
 
 #[cfg(test)]

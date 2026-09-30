@@ -131,6 +131,126 @@ fn draw_polyline_band(path: &[Vec2], width: f32, color: Color) {
     }
 }
 
+/// Draw the MajdataView `slideok` judgment overlay for one sub-slide.
+///
+/// Registration differs by shape:
+/// * normal slides — the sprite's edge sits on the end of the curve and trails
+///   back along the tail direction;
+/// * wifi — the sprite's **up axis** follows the middle track's tail direction
+///   (start lane → opposite lane), with its top edge attached to the tail.
+///
+/// `adj` (per shape family) scales the sprite, nudges it in screen px and can
+/// mirror it on either axis.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_slide_just(
+    note: &Note,
+    slide: &Slide,
+    pad: &PadGeom,
+    svg: &PadSvgDef,
+    scale: f32,
+    spawn_cx: Vec2,
+    outer_r: f32,
+    tex: &Texture2D,
+    tint: Color,
+    adj: crate::app::params::SlideJustParams,
+) {
+    let aspect = tex.height() / tex.width().max(1.0);
+    let size = adj.scale.max(0.01);
+    let offset = vec2(adj.off_x, adj.off_y) * params::pad_scale();
+
+    let (w, h, center, rotation) = if slide
+        .segments
+        .iter()
+        .any(|s| matches!(s.shape, SlideShape::Wifi))
+    {
+        // A-ring point of a lane (same geometry as the wifi renderer).
+        let ring = |lane: u8| -> Vec2 {
+            let idx = lane.saturating_sub(1) as f32;
+            let ang = -std::f32::consts::FRAC_PI_2
+                + PAD_ROTATION_RAD
+                + idx * std::f32::consts::TAU / 8.0;
+            let r = outer_r + params::tap_target_offset();
+            spawn_cx + vec2(ang.cos(), ang.sin()) * r
+        };
+        let lane = note.lane;
+        let start = ring(lane);
+        let mid_lane = ((lane as i32 + 4 - 1).rem_euclid(8) + 1) as u8;
+        let mid = ring(mid_lane);
+        let dir = (mid - start).normalize_or_zero();
+        if dir == Vec2::ZERO {
+            return;
+        }
+        let w = (2.0 * outer_r).max(1.0) * size;
+        let h = (w * aspect).max(1.0);
+        // Up axis (local -y) follows the middle track; top edge attached to the
+        // tail (opposite lane), body hanging back toward the start lane.
+        let rotation = dir.y.atan2(dir.x) + std::f32::consts::FRAC_PI_2;
+        (w, h, mid - dir * (h * 0.5) + offset, rotation)
+    } else {
+        // Normal slide: align the sprite's axis to the path **chord** (which,
+        // for a circular arc, is parallel to the tangent at the arc midpoint, so
+        // the curved sprite matches the curve), with its edge on the curve end.
+        let path = build_slide_path(note, slide, pad, svg, scale, spawn_cx, outer_r);
+        if path.len() < 2 {
+            return;
+        }
+        let first = path[0];
+        let tip = *path.last().unwrap();
+        let chord = tip - first;
+        let dir = if chord.length_squared() > 1e-6 {
+            chord.normalize()
+        } else {
+            (tip - path[path.len() - 2]).normalize_or_zero()
+        };
+        if dir == Vec2::ZERO {
+            return;
+        }
+        let w = path
+            .windows(2)
+            .map(|seg| (seg[1] - seg[0]).length())
+            .sum::<f32>()
+            .max(1.0)
+            * size;
+        let h = (w * aspect).max(1.0);
+        // Only the left turn (`<`, shapely `Left`) is 180° out; `>` is not.
+        let left = slide
+            .segments
+            .last()
+            .is_some_and(|s| matches!(s.shape, SlideShape::Left));
+        let rotation = dir.y.atan2(dir.x)
+            + if left {
+                std::f32::consts::PI
+            } else {
+                0.0
+            };
+        // Sit **inside** the curve: put the sprite's outer edge on the alignment
+        // line and the body toward the pad centre.
+        let line = tip - dir * (w * 0.5);
+        let normal = vec2(-dir.y, dir.x);
+        let inward = if normal.dot(spawn_cx - line) >= 0.0 {
+            normal
+        } else {
+            -normal
+        };
+        (w, h, line + inward * (h * 0.5) + offset, rotation)
+    };
+
+    draw_texture_ex(
+        tex,
+        center.x - w * 0.5,
+        center.y - h * 0.5,
+        tint,
+        DrawTextureParams {
+            dest_size: Some(vec2(w, h)),
+            rotation: rotation + adj.rot,
+            flip_x: adj.flip_x,
+            flip_y: adj.flip_y,
+            pivot: Some(center),
+            ..Default::default()
+        },
+    );
+}
+
 /// Build the standard Slide polyline used by both rendering and judgment.
 /// Wifi uses a separate three-track renderer and is intentionally omitted.
 pub fn build_slide_path(

@@ -23,6 +23,39 @@ pub const PARAMS_ASSET: &str = "note_params.json";
 /// Override file written by the panel (under the writable output dir).
 pub const PARAMS_OVERRIDE: &str = "note_params.json";
 
+/// Per-variant tuning for the MajdataView `slideok` judgment overlay.
+///
+/// One instance per sprite variant (`slide_just_str_l` / `slide_just_curv_r` /
+/// `slide_just_wifi_u` …), so each star type can be sized, nudged, rotated and
+/// mirrored independently — the `_l`/`_r` (and `_u`/`_d`) sprites are mirror
+/// images and generally need different adjustments.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SlideJustParams {
+    /// Size multiplier applied to the sprite's width/height.
+    pub scale: f32,
+    /// Extra rotation (radians) added to the sprite's computed orientation.
+    pub rot: f32,
+    /// Screen-space offset in design px (scaled by the pad scale).
+    pub off_x: f32,
+    pub off_y: f32,
+    pub flip_x: bool,
+    pub flip_y: bool,
+}
+
+impl Default for SlideJustParams {
+    fn default() -> Self {
+        Self {
+            scale: 1.0,
+            rot: 0.0,
+            off_x: 0.0,
+            off_y: 0.0,
+            flip_x: false,
+            flip_y: false,
+        }
+    }
+}
+
 /// All tunable visual parameters. Missing JSON fields fall back to
 /// [`Params::default`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,6 +101,17 @@ pub struct Params {
     pub slide_tile_reverse: bool,
     /// Within one note, draw its `note.slide` sub-slides in reverse order.
     pub slide_sub_reverse: bool,
+
+    // ── Slide judgment (slideok) overlay ─────────────────────────────
+    /// Per-variant tuning for the slide judgment overlay: straight / curve /
+    /// wifi, split by turn direction (`l`/`r`, `u`/`d`) so the mirrored sprites
+    /// can be aligned independently.
+    pub slide_just_str_l: SlideJustParams,
+    pub slide_just_str_r: SlideJustParams,
+    pub slide_just_curv_l: SlideJustParams,
+    pub slide_just_curv_r: SlideJustParams,
+    pub slide_just_wifi_u: SlideJustParams,
+    pub slide_just_wifi_d: SlideJustParams,
 
     // ── Touch / touch-hold ───────────────────────────────────────────
     pub touch_cross_size: f32,
@@ -158,13 +202,19 @@ pub struct Params {
     /// Extra hold-**tail** guide offset along the flight direction (design px,
     /// + = outward), on top of `judge_off_hold_end`.
     pub hold_end_guide_off: f32,
-    /// Play per-kind judgment SFX (tap/slide/hold/break) instead of the single
-    /// `answer.wav`.
-    pub judge_sfx: bool,
+    /// Play the per-kind **hit** SFX (tap/slide/hold/touch/break) on a hit.
+    pub hit_sfx: bool,
+    /// Play the **answer** cue (`Sfx/answer.wav`) on tap / star / hold / touch
+    /// hits. Independent of `hit_sfx`, so both can layer.
+    pub answer_sfx: bool,
 
     // ── Tap hit effect ───────────────────────────────────────────────
     /// Draw a one-shot ring + sparks + flash when a tap is judged.
     pub hit_fx: bool,
+    /// Drive transient effects (hit fx, judgment text, slide `just` overlay)
+    /// from the note timeline instead of the wall clock, so pausing freezes
+    /// their animations.
+    pub fx_timeline: bool,
     /// Effect base radius (design px, scales with the pad).
     pub hit_fx_size: f32,
     /// Effect lifetime in seconds.
@@ -192,6 +242,8 @@ pub struct Params {
     /// Hide the note layer (notes, slide trails, judgment text) — e.g. to see
     /// only the background video.
     pub hide_notes: bool,
+    /// Hide the slide judgment (`slideok`) overlay layer.
+    pub hide_slide_just: bool,
     /// Hide the sensor-zone layer (zone polygons, spawn dot, A-ring dots).
     pub hide_zones: bool,
     /// Default playback speed applied to a fresh session (1.0 = normal).
@@ -254,6 +306,12 @@ impl Default for Params {
             note_earlier_on_top: false,
             slide_tile_reverse: false,
             slide_sub_reverse: false,
+            slide_just_str_l: SlideJustParams::default(),
+            slide_just_str_r: SlideJustParams::default(),
+            slide_just_curv_l: SlideJustParams::default(),
+            slide_just_curv_r: SlideJustParams::default(),
+            slide_just_wifi_u: SlideJustParams::default(),
+            slide_just_wifi_d: SlideJustParams::default(),
 
             touch_cross_size: t::TOUCH_CROSS_SIZE,
             touch_start_dist: t::TOUCH_START_DIST,
@@ -297,14 +355,17 @@ impl Default for Params {
             judge_off_hold_end: 0.0,
             hold_guide_off: 0.0,
             hold_end_guide_off: 0.0,
-            judge_sfx: true,
+            hit_sfx: true,
+            answer_sfx: true,
             hide_notes: false,
+            hide_slide_just: false,
             hide_zones: false,
             play_speed_default: 1.0,
             speed_scales_visuals: false,
             no_core: false,
 
             hit_fx: true,
+            fx_timeline: true,
             hit_fx_size: 46.0,
             hit_fx_duration: 0.28,
             hit_fx_alpha: 230.0,
@@ -378,6 +439,20 @@ pub fn slide_tile_reverse() -> bool {
 /// Within one note, draw its sub-slides reversed.
 pub fn slide_sub_reverse() -> bool {
     PARAMS.with(|p| p.borrow().slide_sub_reverse)
+}
+
+/// `slideok` overlay tuning for a variant key (`str_l` / `curv_r` / `wifi_u` …).
+pub fn slide_just(variant: &str) -> SlideJustParams {
+    let p = get();
+    match variant {
+        "str_l" => p.slide_just_str_l,
+        "str_r" => p.slide_just_str_r,
+        "curv_l" => p.slide_just_curv_l,
+        "curv_r" => p.slide_just_curv_r,
+        "wifi_u" => p.slide_just_wifi_u,
+        "wifi_d" => p.slide_just_wifi_d,
+        _ => SlideJustParams::default(),
+    }
 }
 
 /// Replace the current parameters globally.
@@ -488,6 +563,11 @@ pub fn hide_notes() -> bool {
     PARAMS.with(|p| p.borrow().hide_notes)
 }
 
+/// Whether the slide judgment (`slideok`) overlay layer is hidden.
+pub fn hide_slide_just() -> bool {
+    PARAMS.with(|p| p.borrow().hide_slide_just)
+}
+
 /// Whether the sensor-zone layer is hidden.
 pub fn hide_zones() -> bool {
     PARAMS.with(|p| p.borrow().hide_zones)
@@ -514,13 +594,24 @@ pub fn judge_dot() -> bool {
 }
 
 /// Whether per-kind judgment SFX are enabled.
-pub fn judge_sfx() -> bool {
-    PARAMS.with(|p| p.borrow().judge_sfx)
+/// Whether the per-kind hit SFX is played on a hit.
+pub fn hit_sfx() -> bool {
+    PARAMS.with(|p| p.borrow().hit_sfx)
+}
+
+/// Whether the answer cue (`answer.wav`) is played on a hit.
+pub fn answer_sfx() -> bool {
+    PARAMS.with(|p| p.borrow().answer_sfx)
 }
 
 /// Whether the tap hit effect is enabled.
 pub fn hit_fx() -> bool {
     PARAMS.with(|p| p.borrow().hit_fx)
+}
+
+/// Whether transient effects follow the note timeline (pause freezes them).
+pub fn fx_timeline() -> bool {
+    PARAMS.with(|p| p.borrow().fx_timeline)
 }
 
 /// Whether the tap effect plays the Animate XFL/`.fla` animation.

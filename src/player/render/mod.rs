@@ -187,6 +187,7 @@ pub fn draw_pad_panel(
     };
     if !params::hide_notes() {
         notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale);
+        slide::draw_just_overlays(app, &pad, scale, spawn_cx);
     }
 
     // Big sensor circle + occluding ring on top of the notes. The outside

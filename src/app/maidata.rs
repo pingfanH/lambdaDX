@@ -14,18 +14,15 @@
 //!   `>`/`<` chain stays one star with several segments)
 //! * `Touch` / `TouchHold` → sensors mapped onto `PadZone` numbers
 //!
-//! Slide timing follows the simai spec: the tracing length is the body travel,
-//! plus a **default one-beat (0.25 measure) wait** unless the parser reported an
-//! explicit `starWait`.
+//! Slide timing follows lnmai-core's resolved model: the pre-trace wait is the
+//! parser's `starWait` (zero when absent) and the body length is the token's
+//! length, defaulting to **one note increment** when the token has no `[n:m]`.
 
 use crate::app::maichart::{mark_double_stars, recompute_each};
 use crate::app::types::{
     BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
     sdur_to_mdur, secs_to_measure,
 };
-
-/// Default pre-trace wait for a slide: one beat = 0.25 measure.
-const SLIDE_DEFAULT_WAIT: f32 = 0.25;
 
 /// Parse `maidata.txt` text and build a [`ChartDoc`].
 ///
@@ -244,6 +241,20 @@ mod lean {
         sdur_to_mdur(len_us as f32 / 1e6, start_us as f32 / 1e6, bpms)
     }
 
+    /// One note division in microseconds, matching lnmai-core's
+    /// `noteTimingIncrement`: `bpmMeasureMicros / divisor` (a measure is
+    /// `240_000_000 / bpm` µs). Used as the default slide body length when the
+    /// token has no explicit `[n:m]`.
+    fn note_increment_us(token: &crate::core::types::RawNoteToken) -> i64 {
+        let bpm = rational_f32(&token.bpm);
+        let divisor = token.divisor.max(1) as f32;
+        if bpm > 0.0 {
+            (240_000_000.0 / bpm / divisor) as i64
+        } else {
+            0
+        }
+    }
+
     /// Build the BPM table in measure space from the parser's source events.
     ///
     /// Events carry absolute microsecond timings and the BPM in effect; BPM
@@ -377,10 +388,12 @@ mod lean {
     ) -> Option<Note> {
         let head = tokens.get(*group.first()?)?;
         let time = measure(head.timing, bpms);
+        // lnmai-core resolves a missing pre-trace wait to zero (a slide head is
+        // reported with an explicit `starWait`, so this is a fallback only).
         let wait = head
             .star_wait
             .map(|w| duration(w, head.timing, bpms))
-            .unwrap_or(SLIDE_DEFAULT_WAIT);
+            .unwrap_or(0.0);
         let hi_speed = rational_f32(&head.h_speed);
 
         let mut segments = Vec::new();
@@ -394,7 +407,13 @@ mod lean {
                 points: slide_points(body.kind, end, reflect),
                 shape: kind_shape(body.kind),
             });
-            travel += duration(token.length.unwrap_or(0), token.timing, bpms);
+            // A slide without an explicit `[n:m]` has no `length`; lnmai-core
+            // defaults it to one note increment (`bpmMeasureMicros / divisor`),
+            // e.g. a bare `1w5` still traces for one division.
+            let len = token
+                .length
+                .unwrap_or_else(|| note_increment_us(token));
+            travel += duration(len, token.timing, bpms);
         }
 
         // Break can be signalled on any token of the chain (`is_break`) or as
@@ -580,5 +599,35 @@ mod tests {
         assert_eq!(n.slide.len(), 1, "one sub-slide for the whole chain");
         assert_eq!(n.slide[0].segments.len(), 3, "three chained segments");
         assert_eq!(n.slide[0].runtime_parts, 3, "lnmai splits it per arc");
+    }
+
+    #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+    #[test]
+    fn slide_without_timing_defaults_body_to_one_note_increment() {
+        // A bare `1w5` has `starWait` but no `length`; lnmai-core traces the
+        // body for one division (`bpmMeasureMicros / divisor`), which the local
+        // converter must mirror instead of collapsing the body to zero.
+        let text = "&title=D\n&inote_1=(120){8}1w5,E\n";
+        let c = from_maidata(text, None).expect("parse");
+        let n = c
+            .notes
+            .iter()
+            .find(|n| matches!(n.note_type, crate::app::types::NoteType::Slide))
+            .expect("slide");
+        let sl = &n.slide[0];
+        // 120 BPM, {8}: wait 0.5s = 0.25 measure, body 0.25s = 0.125 measure.
+        assert!((sl.slide_start_delay - 0.25).abs() < 1e-5, "{sl:?}");
+        assert!((sl.slide_duration - 0.375).abs() < 1e-5, "{sl:?}");
+        assert!(sl.slide_duration > sl.slide_start_delay);
+
+        // Sanity: the total span matches the core's resolved `start + length`.
+        crate::core::session::ensure_runtime().unwrap();
+        let parsed = crate::core::api::parse_frontend_chart(text, 1).expect("core");
+        let core = parsed.semantic.normalized.slides.first().expect("core slide");
+        let core_end_s = (core.start_timing + core.length) as f32 / 1e6;
+        let core_head_s = core.head_timing as f32 / 1e6;
+        let core_span = crate::app::types::secs_to_measure(core_end_s, &c.bpms)
+            - crate::app::types::secs_to_measure(core_head_s, &c.bpms);
+        assert!((sl.slide_duration - core_span).abs() < 1e-4, "{sl:?} vs {core_span}");
     }
 }

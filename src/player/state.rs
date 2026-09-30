@@ -20,6 +20,83 @@ pub struct SlideProgress {
     pub seg_frac: Vec<f32>,
 }
 
+/// Seconds a slide `just` overlay stays on screen after its judgment.
+pub const SLIDE_JUST_DURATION: f64 = 0.65;
+
+/// Display grade for the slide `just` overlay, mapping lnmai-core's full
+/// fast/late grade set onto the shipped `Skins/classic/slideok` sprite variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlideJudgeGrade {
+    Perfect,
+    FastGreat,
+    LateGreat,
+    FastGood,
+    LateGood,
+    Miss,
+    TooFast,
+}
+
+impl SlideJudgeGrade {
+    #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+    pub fn from_grade(grade: crate::core::types::JudgeGrade) -> Self {
+        use crate::core::types::JudgeGrade::*;
+        match grade {
+            Miss => SlideJudgeGrade::Miss,
+            TooFast => SlideJudgeGrade::TooFast,
+            FastGood => SlideJudgeGrade::FastGood,
+            LateGood => SlideJudgeGrade::LateGood,
+            FastGreat | FastGreat2nd | FastGreat3rd => SlideJudgeGrade::FastGreat,
+            LateGreat | LateGreat2nd | LateGreat3rd => SlideJudgeGrade::LateGreat,
+            Perfect | FastPerfect2nd | FastPerfect3rd | LatePerfect2nd | LatePerfect3rd => {
+                SlideJudgeGrade::Perfect
+            }
+        }
+    }
+
+    /// Sprite family in `Skins/classic/slideok/` (`just_*`, `miss_*`, `toofast_*`).
+    pub fn family(self) -> &'static str {
+        match self {
+            SlideJudgeGrade::Miss => "miss",
+            SlideJudgeGrade::TooFast => "toofast",
+            _ => "just",
+        }
+    }
+
+    /// Grade suffix appended after the shape (`_p`, `_fast_gr`, …).
+    pub fn suffix(self) -> &'static str {
+        match self {
+            SlideJudgeGrade::Perfect => "_p",
+            SlideJudgeGrade::FastGreat => "_fast_gr",
+            SlideJudgeGrade::LateGreat => "_late_gr",
+            SlideJudgeGrade::FastGood => "_fast_gd",
+            SlideJudgeGrade::LateGood => "_late_gd",
+            SlideJudgeGrade::Miss | SlideJudgeGrade::TooFast => "",
+        }
+    }
+
+    pub fn tint(self) -> Color {
+        match self {
+            SlideJudgeGrade::Perfect => Color::from_rgba(255, 244, 179, 255),
+            SlideJudgeGrade::FastGreat | SlideJudgeGrade::LateGreat => {
+                Color::from_rgba(120, 255, 160, 255)
+            }
+            SlideJudgeGrade::FastGood | SlideJudgeGrade::LateGood => {
+                Color::from_rgba(120, 190, 255, 255)
+            }
+            SlideJudgeGrade::Miss | SlideJudgeGrade::TooFast => {
+                Color::from_rgba(255, 120, 120, 255)
+            }
+        }
+    }
+}
+
+/// A slide `just` overlay recorded when lnmai-core reports a slide judgment.
+#[derive(Debug, Clone, Copy)]
+pub struct SlideJudgeFx {
+    pub grade: SlideJudgeGrade,
+    pub started: f64,
+}
+
 /// All mutable state the standalone pad preview needs.
 ///
 /// This is the trimmed successor of the player's `PlayerState`: it keeps only
@@ -47,6 +124,11 @@ pub struct PadPreviewState {
     pub chart: ChartDoc,
     pub hidden_notes: HashSet<u64>,
     pub slide_progress: HashMap<(u64, usize), SlideProgress>,
+    /// Per-sub-slide `just`/`miss` overlay shown after a slide judgment.
+    pub slide_judge: HashMap<(u64, usize), SlideJudgeFx>,
+    /// `Skins/classic/slideok/*` sprites, keyed by file stem
+    /// (e.g. `just_curv_r_p`). Empty when the skin lacks the folder.
+    pub slideok_tex: HashMap<String, Texture2D>,
     /// Sub-slides whose `PlaySlideCue` has already fired (keyed by `(note_id,
     /// slide_idx)`), so the slide sound plays once and the first area is seeded
     /// exactly once.
@@ -208,6 +290,8 @@ impl PadPreviewState {
             chart,
             hidden_notes: HashSet::new(),
             slide_progress: HashMap::new(),
+            slide_judge: HashMap::new(),
+            slideok_tex: HashMap::new(),
             slide_cue_played: HashSet::new(),
             pad_svg: None,
             active_pointer_zones: HashMap::new(),
@@ -360,6 +444,7 @@ impl PadPreviewState {
         self.active_pointer_zones.clear();
         self.prev_pointer_pos.clear();
         self.slide_progress.clear();
+        self.slide_judge.clear();
         self.slide_cue_played.clear();
         // Restarting from the top rebuilds the core session so combo/DX reset.
         if time <= 1e-4 {
@@ -458,7 +543,7 @@ impl PadPreviewState {
             Cue::HoldHead | Cue::HoldTail => SfxKind::Hold,
         };
         let variant = SkinVariant::of_flags(is_break, false);
-        sfx::select(self, kind, variant, is_ex).or(self.answer_sfx.as_ref())
+        sfx::select(self, kind, variant, is_ex)
     }
 
     /// Play a cue for every tap/hold head/hold tail crossed this frame.
@@ -472,13 +557,18 @@ impl PadPreviewState {
             .as_mut()
             .map(|track| track.take_due_cues(t))
             .unwrap_or_default();
+        let core = self.use_core();
         for ev in due {
-            let buf = if params::judge_sfx() {
-                self.cue_sfx(ev.cue, ev.is_break, ev.is_ex)
-            } else {
-                self.answer_sfx.as_ref()
-            };
-            self.play_sfx(buf);
+            // The answer cue plays on the note timeline regardless of a hit.
+            if params::answer_sfx() {
+                self.play_sfx(self.answer_sfx.as_ref());
+            }
+            // The per-kind hit SFX is only the sound source without a core; with
+            // a core it comes from actual hit judgments (`play_audio_command`).
+            if !core && params::hit_sfx() {
+                let buf = self.cue_sfx(ev.cue, ev.is_break, ev.is_ex);
+                self.play_sfx(buf);
+            }
         }
     }
 
@@ -497,11 +587,13 @@ impl PadPreviewState {
     }
 
     pub fn tick_feedback(&mut self) {
-        let now = self.now();
+        let now = self.fx_clock();
         self.pad_feedback.retain(|f| f.until > now);
         self.judge_feedback.retain(|f| f.until > now);
         self.hit_fx
             .retain(|f| now - f.started < f.duration as f64);
+        self.slide_judge
+            .retain(|_, fx| now - fx.started < SLIDE_JUST_DURATION);
     }
 
     /// Clock used for transient feedback lifetimes: the deterministic export
@@ -513,15 +605,35 @@ impl PadPreviewState {
         }
     }
 
+    /// The time the note renderer uses for the current frame: song time while
+    /// playing, the scrubbed view time while idle.
+    pub fn timeline_time(&self) -> f32 {
+        match self.mode {
+            Mode::Playing | Mode::Recording => self.song_time(),
+            Mode::Idle => self.timeline_view_time,
+        }
+    }
+
+    /// Clock for transient effects (hit fx, judgment text, slide `just`
+    /// overlay). With `fx_timeline` on (default) it is the note-timeline clock,
+    /// so pausing freezes the animations; off, it falls back to the wall clock.
+    pub fn fx_clock(&self) -> f64 {
+        if crate::app::params::fx_timeline() {
+            self.timeline_time() as f64
+        } else {
+            self.now()
+        }
+    }
+
     pub fn push_feedback(&mut self, zone: PadZone, duration: f64) {
         self.pad_feedback.push(PadFeedback {
             zone,
-            until: self.now() + duration,
+            until: self.fx_clock() + duration,
         });
     }
 
     pub fn push_judgement(&mut self, zone: PadZone, label: &str, duration: f64) {
-        let now = self.now();
+        let now = self.fx_clock();
         self.judge_feedback.push(JudgeFeedback {
             zone,
             label: label.to_string(),
@@ -534,7 +646,7 @@ impl PadPreviewState {
     /// Spawn a one-shot tap-hit effect at `zone`, tinted by the judge `label`
     /// (break notes are orange; misses grey-red).
     pub fn push_hit_fx(&mut self, zone: PadZone, label: &str, is_break: bool) {
-        let now = self.now();
+        let now = self.fx_clock();
         self.hit_fx.push(HitFx {
             zone,
             started: now,
@@ -543,6 +655,17 @@ impl PadPreviewState {
             is_break,
             seed: (now.fract() as f32) * std::f32::consts::TAU,
         });
+    }
+
+    /// Record a slide `just` overlay when lnmai-core reports a slide judgment.
+    pub fn record_slide_judge(&mut self, note_id: u64, slide_idx: usize, grade: SlideJudgeGrade) {
+        self.slide_judge.insert(
+            (note_id, slide_idx),
+            SlideJudgeFx {
+                grade,
+                started: self.fx_clock(),
+            },
+        );
     }
 
     // ── lnmai-core judgment engine ───────────────────────────────────
@@ -582,6 +705,7 @@ impl PadPreviewState {
         self.engine_events.clear();
         self.core_score = None;
         self.slide_progress.clear();
+        self.slide_judge.clear();
         self.slide_cue_played.clear();
         self.simai_source = Some(simai_text.to_string());
         self.simai_level = level_index;
@@ -608,6 +732,7 @@ impl PadPreviewState {
         self.engine_events.clear();
         self.core_score = None;
         self.slide_progress.clear();
+        self.slide_judge.clear();
         self.slide_cue_played.clear();
         self.simai_source = None;
         self.simai_level = 0;

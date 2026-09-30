@@ -39,7 +39,7 @@ fn draw_flash(app: &PadPreviewState, pad: &PadGeom, outer_r: f32, spawn_cx: Vec2
             return false;
         };
         let frames = clip.frames().max(1);
-        let now = app.now();
+        let now = app.fx_clock();
         // The procedural default size (46) maps to scale 1.
         let draw_scale = scale * (params::hit_fx_size() / 46.0).max(0.05);
         let tint_by_grade = params::hit_fx_anim_tint();
@@ -76,7 +76,7 @@ fn grade_rgb(c: Color) -> [u8; 3] {
 // ── Procedural fallback ───────────────────────────────────────────────────
 
 fn draw_procedural(app: &PadPreviewState, pad: &PadGeom, outer_r: f32, spawn_cx: Vec2, scale: f32) {
-    let now = app.now();
+    let now = app.fx_clock();
     let base = params::hit_fx_size() * scale;
     let ring_w = params::hit_fx_ring() * scale;
     let grow = params::hit_fx_grow();

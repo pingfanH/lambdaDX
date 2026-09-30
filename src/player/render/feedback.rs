@@ -17,7 +17,7 @@ pub fn draw(
     spawn_cx: Vec2,
     scale: f32,
 ) {
-    let now = app.now();
+    let now = app.fx_clock();
     for feedback in &app.judge_feedback {
         let remaining = feedback.until - now;
         if remaining <= 0.0 {

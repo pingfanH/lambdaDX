@@ -117,6 +117,33 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     ui.checkbox(&mut p.slide_sub_reverse, "slide: sub-slides reverse");
 
                     ui.separator();
+                    ui.heading("Slide just overlay (slideok)");
+                    for (label, adj) in [
+                        ("str_l  -", &mut p.slide_just_str_l),
+                        ("str_r  -", &mut p.slide_just_str_r),
+                        ("curv_l  <", &mut p.slide_just_curv_l),
+                        ("curv_r  >", &mut p.slide_just_curv_r),
+                        ("wifi_u", &mut p.slide_just_wifi_u),
+                        ("wifi_d", &mut p.slide_just_wifi_d),
+                    ] {
+                        ui.label(label);
+                        param(ui, &mut adj.scale, 0.02, 0.05..=3.0, "scale");
+                        param(
+                            ui,
+                            &mut adj.rot,
+                            0.02,
+                            -std::f32::consts::PI..=std::f32::consts::PI,
+                            "rot(rad)",
+                        );
+                        param(ui, &mut adj.off_x, 1.0, -400.0..=400.0, "off_x");
+                        param(ui, &mut adj.off_y, 1.0, -400.0..=400.0, "off_y");
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut adj.flip_x, "flip_x");
+                            ui.checkbox(&mut adj.flip_y, "flip_y");
+                        });
+                    }
+
+                    ui.separator();
                     ui.heading("Touch / touch-hold");
                     param(ui, &mut p.touch_cross_size, 2.0, 8.0..=260.0, "touch_cross_size");
                     param(ui, &mut p.touch_start_dist, 1.0, 0.0..=140.0, "touch_start_dist");
@@ -169,6 +196,7 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     param(ui, &mut p.pad_outside_alpha, 5.0, 0.0..=255.0, "pad_outside_alpha 圈外遮盖");
                     // 隐藏 notes / 感应区（配合视频背景只剩视频）。
                     ui.checkbox(&mut p.hide_notes, "hide_notes 隐藏notes");
+                    ui.checkbox(&mut p.hide_slide_just, "hide_slide_just 隐藏slide判定贴图");
                     ui.checkbox(&mut p.hide_zones, "hide_zones 隐藏感应区");
                     // 判定点：黑点(最上层) + 相对贴图的偏移(tap/hold/hold尾)。
                     ui.checkbox(&mut p.judge_dot, "judge_dot 判定黑点(最上层)");
@@ -177,10 +205,15 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     param(ui, &mut p.hold_guide_off, 1.0, -300.0..=300.0, "hold_guide_off hold辅助线偏移");
                     param(ui, &mut p.judge_off_hold_end, 1.0, -300.0..=300.0, "judge_off_hold_end hold尾判定偏移");
                     param(ui, &mut p.hold_end_guide_off, 1.0, -300.0..=300.0, "hold_end_guide_off hold尾辅助线偏移");
-                    ui.checkbox(&mut p.judge_sfx, "judge_sfx 判定音效(tap/slide/hold/break)");
+                    ui.checkbox(&mut p.answer_sfx, "answer_sfx 正解音(answer.wav 击打时播放)");
+                    ui.checkbox(&mut p.hit_sfx, "hit_sfx 击打音效(tap/slide/hold/touch 额外音效)");
 
                     ui.separator();
                     ui.heading("Tap hit FX 击打特效");
+                    ui.checkbox(
+                        &mut p.fx_timeline,
+                        "fx_timeline 特效跟随时间轴(暂停即冻结)",
+                    );
                     ui.checkbox(&mut p.hit_fx, "hit_fx 启用(圆环+火花+闪光)");
                     ui.checkbox(&mut p.hit_fx_anim, "hit_fx_anim 用Flash影片播放(ui项目)");
                     ui.checkbox(&mut p.hit_fx_anim_tint, "hit_fx_anim_tint 按判定等级染色(关=用影片原色)");

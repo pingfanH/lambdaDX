@@ -1,14 +1,17 @@
 //! Slide notes. Thin adapter over `app::slide_render::draw_slide`, which builds
 //! the sampled path, draws the trail tiles and flies the star.
 
+use macroquad::color::Color;
 use macroquad::math::Vec2;
 
 use crate::app::slide::segmentation::{self, SlideSegmentation};
 use crate::app::slide_render::{self, SlideLayer};
-use crate::app::types::{PadGeom, SLIDE_MIN_DURATION_S, mdur_to_secs, note_secs};
+use crate::app::types::{
+    Note, NoteType, PadGeom, SLIDE_MIN_DURATION_S, Slide, SlideShape, mdur_to_secs, note_secs,
+};
 use crate::player::render::timing::NoteTiming;
 use crate::player::render::skin;
-use crate::player::state::PadPreviewState;
+use crate::player::state::{PadPreviewState, SLIDE_JUST_DURATION, SlideJudgeGrade};
 use crate::app::params;
 
 /// Draw every sub-slide of a slide note for the current time.
@@ -157,6 +160,152 @@ fn hidden_bars_for_star(seg: &SlideSegmentation, star_dist: f32) -> usize {
     hidden.min(seg.bars.len())
 }
 
+/// Draw the `slideok` judgment overlays for every sub-slide with an active
+/// judgment, tinted by grade and faded out over [`SLIDE_JUST_DURATION`].
+///
+/// Drawn as its own pass (not inside [`draw`]) so an overlay still shows after
+/// lnmai-core has already hidden the trail/star it belongs to.
+pub fn draw_just_overlays(app: &PadPreviewState, pad: &PadGeom, scale: f32, spawn_cx: Vec2) {
+    if app.slide_judge.is_empty() || params::hide_slide_just() {
+        return;
+    }
+    let Some(ref svg) = app.pad_svg else {
+        return;
+    };
+    let now = app.fx_clock();
+    for note in app.chart.notes.iter() {
+        if !matches!(note.note_type, NoteType::Slide) {
+            continue;
+        }
+        for (si, sl) in note.slide.iter().enumerate() {
+            let Some(fx) = app.slide_judge.get(&(note.id, si)) else {
+                continue;
+            };
+            let age = (now - fx.started) as f32;
+            let alpha = (1.0 - age / SLIDE_JUST_DURATION as f32).clamp(0.0, 1.0);
+            if alpha <= 0.0 {
+                continue;
+            }
+            let variant = slideok_variant(note, sl);
+            let stem = format!("{}_{}{}", fx.grade.family(), variant, fx.grade.suffix());
+            let Some(tex) = app.slideok_tex.get(&stem) else {
+                continue;
+            };
+            let adj = params::slide_just(variant);
+            let c = fx.grade.tint();
+            let tint = Color::new(c.r, c.g, c.b, alpha);
+            slide_render::draw_slide_just(
+                note,
+                sl,
+                pad,
+                svg,
+                scale,
+                spawn_cx,
+                pad.outer_r,
+                tex,
+                tint,
+                adj,
+            );
+        }
+    }
+}
+
+/// Shape family of a slide, selecting both the `slideok` sprite set and its
+/// per-family tuning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SlideJustShape {
+    Str,
+    Curv,
+    Wifi,
+}
+
+fn slideok_shape(slide: &Slide) -> SlideJustShape {
+    // The overlay follows the **last** arc's type.
+    match slide.segments.last().map(|s| s.shape) {
+        Some(SlideShape::Wifi) => SlideJustShape::Wifi,
+        Some(SlideShape::Line) | None => SlideJustShape::Str,
+        Some(_) => SlideJustShape::Curv,
+    }
+}
+
+/// Variant key (`str_l` / `curv_r` / `wifi_u` …) selecting both the `slideok`
+/// sprite set and its per-variant tuning.
+fn slideok_variant(note: &Note, slide: &Slide) -> &'static str {
+    let side = slideok_side(note, slide);
+    match slideok_shape(slide) {
+        SlideJustShape::Wifi => {
+            if side > 0 {
+                "wifi_u"
+            } else {
+                "wifi_d"
+            }
+        }
+        SlideJustShape::Curv => {
+            if side > 0 {
+                "curv_l"
+            } else {
+                "curv_r"
+            }
+        }
+        SlideJustShape::Str => {
+            if side > 0 {
+                "str_r"
+            } else {
+                "str_l"
+            }
+        }
+    }
+}
+
+/// Pick the `slideok` sprite stem (`<family>_<shape><suffix>`) for a sub-slide.
+fn slideok_stem(note: &Note, slide: &Slide, grade: SlideJudgeGrade) -> String {
+    format!(
+        "{}_{}{}",
+        grade.family(),
+        slideok_variant(note, slide),
+        grade.suffix()
+    )
+}
+
+/// Direction of a sub-slide's **last** arc: `+1` clockwise (simai `>`), `-1`
+/// counter-clockwise (`<`).
+///
+/// `<`/`>` are read from the segment shape — their endpoints are identical to
+/// the opposite turn, so the sign of `end - start` cannot tell them apart.
+/// Other shapes fall back to that endpoint sign.
+fn slideok_side(note: &Note, slide: &Slide) -> i32 {
+    let Some(last_seg) = slide.segments.last() else {
+        return 1;
+    };
+    match last_seg.shape {
+        SlideShape::Right => return 1,
+        SlideShape::Left => return -1,
+        _ => {}
+    }
+    let start = if slide.segments.len() >= 2 {
+        slide.segments[slide.segments.len() - 2]
+            .points
+            .last()
+            .map(|p| p.zone.to_id() as i32)
+    } else {
+        None
+    }
+    .unwrap_or(note.lane as i32);
+    let end = last_seg
+        .points
+        .last()
+        .map(|p| p.zone.to_id() as i32)
+        .unwrap_or(start);
+    if start <= 8 && end <= 8 {
+        let mut d = (end - start).rem_euclid(8);
+        if d > 4 {
+            d -= 8;
+        }
+        return if d < 0 { -1 } else { 1 };
+    }
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::hidden_bars_for_star;
@@ -216,5 +365,98 @@ mod tests {
     fn empty_segmentation_is_safe() {
         let seg = SlideSegmentation::default();
         assert_eq!(hidden_bars_for_star(&seg, 5.0), 0);
+    }
+
+    #[test]
+    fn slideok_stem_picks_grade_shape_and_turn() {
+        use super::{slideok_side, slideok_stem};
+        use crate::app::types::{Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape};
+        use crate::player::state::SlideJudgeGrade;
+
+        let build = |lane: u8, shape: SlideShape, end: u8| {
+            let slide = Slide {
+                segments: vec![SlideSegment {
+                    points: vec![SlidePoint::from(PadZone::from(end))],
+                    shape,
+                }],
+                slide_duration: 1.0,
+                slide_start_delay: 0.0,
+                slide_is_break: false,
+                runtime_parts: 1,
+            };
+            let note = Note {
+                lane,
+                note_type: NoteType::Slide,
+                ..Default::default()
+            };
+            (note, slide)
+        };
+
+        // `>` (Right) is clockwise -> `curv_l`; the endpoint sign is ignored.
+        let (note, slide) = build(4, SlideShape::Right, 3);
+        assert_eq!(slideok_side(&note, &slide), 1);
+        assert_eq!(slideok_stem(&note, &slide, SlideJudgeGrade::Perfect), "just_curv_l_p");
+        assert_eq!(
+            slideok_stem(&note, &slide, SlideJudgeGrade::FastGreat),
+            "just_curv_l_fast_gr"
+        );
+        assert_eq!(
+            slideok_stem(&note, &slide, SlideJudgeGrade::LateGood),
+            "just_curv_l_late_gd"
+        );
+        assert_eq!(slideok_stem(&note, &slide, SlideJudgeGrade::Miss), "miss_curv_l");
+        assert_eq!(
+            slideok_stem(&note, &slide, SlideJudgeGrade::TooFast),
+            "toofast_curv_l"
+        );
+
+        // `<` (Left) is counter-clockwise -> `curv_r`, even though its endpoints
+        // match the opposite turn.
+        let (note, slide) = build(4, SlideShape::Left, 3);
+        assert_eq!(slideok_side(&note, &slide), -1);
+        assert_eq!(slideok_stem(&note, &slide, SlideJudgeGrade::Perfect), "just_curv_r_p");
+
+        // lane 1 -> lane 3 is a clockwise straight.
+        let (note, slide) = build(1, SlideShape::Line, 3);
+        assert_eq!(slideok_side(&note, &slide), 1);
+        assert_eq!(slideok_stem(&note, &slide, SlideJudgeGrade::Perfect), "just_str_r_p");
+
+        // wifi has no turn (same zone) and defaults to the "up" sprite.
+        let (note, slide) = build(1, SlideShape::Wifi, 1);
+        assert_eq!(
+            slideok_stem(&note, &slide, SlideJudgeGrade::Perfect),
+            "just_wifi_u_p"
+        );
+    }
+
+    #[test]
+    fn slideok_uses_last_arc_shape_and_direction() {
+        use super::{slideok_shape, slideok_side, SlideJustShape};
+        use crate::app::types::{Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape};
+
+        // A chain `Line` then `Left`: type/direction come from the last arc.
+        let slide = Slide {
+            segments: vec![
+                SlideSegment {
+                    points: vec![SlidePoint::from(PadZone::from(5))],
+                    shape: SlideShape::Line,
+                },
+                SlideSegment {
+                    points: vec![SlidePoint::from(PadZone::from(3))],
+                    shape: SlideShape::Left,
+                },
+            ],
+            slide_duration: 1.0,
+            slide_start_delay: 0.0,
+            slide_is_break: false,
+            runtime_parts: 2,
+        };
+        let note = Note {
+            lane: 1,
+            note_type: NoteType::Slide,
+            ..Default::default()
+        };
+        assert_eq!(slideok_shape(&slide), SlideJustShape::Curv);
+        assert_eq!(slideok_side(&note, &slide), -1);
     }
 }

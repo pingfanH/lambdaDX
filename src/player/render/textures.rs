@@ -111,4 +111,34 @@ pub async fn load_note_textures(app: &mut PadPreviewState) {
         "star_double_ex.png",
     ])
     .await;
+
+    load_slideok_textures(app).await;
+}
+
+/// Load `Skins/classic/slideok/*` — the MajdataView slide judgment overlays.
+///
+/// Each sprite is `<family>_<shape><suffix>`: family `just`/`miss`/`toofast`,
+/// shape `curv_l`/`curv_r`/`str_l`/`str_r`/`wifi_u`/`wifi_d`, and a grade
+/// suffix (`_p`, `_fast_gr`, `_late_gd`, …) that only the `just` family has.
+/// Missing files are simply absent from the map.
+async fn load_slideok_textures(app: &mut PadPreviewState) {
+    const SHAPES: [&str; 6] = ["curv_l", "curv_r", "str_l", "str_r", "wifi_u", "wifi_d"];
+    const SUFFIXES: [&str; 6] = ["", "_p", "_fast_gr", "_late_gr", "_fast_gd", "_late_gd"];
+
+    for shape in SHAPES {
+        for suffix in SUFFIXES {
+            let stem = format!("just_{shape}{suffix}");
+            let path = format!("Skins/classic/slideok/{stem}.png");
+            if let Some(tex) = first(&[path.as_str()]).await {
+                app.slideok_tex.insert(stem, tex);
+            }
+        }
+        for family in ["miss", "toofast"] {
+            let stem = format!("{family}_{shape}");
+            let path = format!("Skins/classic/slideok/{stem}.png");
+            if let Some(tex) = first(&[path.as_str()]).await {
+                app.slideok_tex.insert(stem, tex);
+            }
+        }
+    }
 }
