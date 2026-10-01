@@ -531,8 +531,8 @@ impl PadPreviewState {
         }
     }
 
-    /// The judgment cue sound for a note kind/variant, via the central
-    /// `player::sfx` table (falls back to `answer.wav`).
+    /// The timeline cue sound for a note kind/variant, via the central
+    /// `player::sfx` table.
     fn cue_sfx(
         &self,
         cue: crate::player::cues::Cue,
@@ -563,16 +563,24 @@ impl PadPreviewState {
             .as_mut()
             .map(|track| track.take_due_cues(t))
             .unwrap_or_default();
+        use crate::player::cues::Cue;
         let core = self.use_core();
         for ev in due {
-            // The answer cue plays on the note timeline regardless of a hit, in
-            // both the core and no-core paths.
-            if params::answer_sfx() {
+            let is_hold = matches!(ev.cue, Cue::HoldHead | Cue::HoldTail);
+            // The generic answer cue plays on the note timeline in both the core
+            // and no-core paths. Holds skip it: they use their own hit sound.
+            if params::answer_sfx() && !is_hold {
                 self.play_sfx(self.answer_sfx.as_ref());
             }
-            // The per-kind hit SFX is timeline-driven only without a core; with
-            // a core it comes from actual hit judgments (`play_audio_command`).
-            if !core && params::hit_sfx() {
+            if !params::hit_sfx() {
+                continue;
+            }
+            // Without a core, every cue plays on the timeline. With a core, the
+            // per-kind hit SFX comes from actual judgments (`play_audio_command`)
+            // — except the hold **head**: the core only judges a hold at its
+            // tail, so the head would be silent.
+            let timeline_cue = !core || matches!(ev.cue, Cue::HoldHead);
+            if timeline_cue {
                 let buf = self.cue_sfx(ev.cue, ev.is_break, ev.is_ex);
                 self.play_sfx(buf);
             }
