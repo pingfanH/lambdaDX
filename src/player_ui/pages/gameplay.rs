@@ -13,9 +13,10 @@ use crate::player_ui::state::{Page, PlayerUiApp};
 use crate::player_ui::theme;
 use crate::player_ui::UiCtx;
 
-/// Draw the pad view. Input is only forwarded on the live gameplay page. Both
-/// binaries share [`render::draw_pad_panel`]; this passes the player's themed
-/// surface (flat panel + dot grid + border) instead of the preview's flat one.
+/// Draw the pad view. Pad input is forwarded on gameplay and pause pages, so a
+/// paused slide can still be tracked manually. Both binaries share
+/// [`render::draw_pad_panel`]; this passes the player's themed surface (flat
+/// panel + dot grid + border) instead of the preview's flat one.
 pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
     // Feed the pad renderer the current song's cover (updates as it decodes).
     if let Some(i) = app.loaded.or(Some(app.selected)) {
@@ -31,10 +32,14 @@ pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
     };
     let pad_geom = playout::compute_pad_geom(pad_rect);
 
-    if app.page == Page::Gameplay {
+    if matches!(app.page, Page::Gameplay | Page::Pause) {
         pinput::handle_lane_input(&mut app.pad);
         let pointer_events = pinput::collect_pointer_events();
-        pinput::handle_touch_controls(&mut app.pad, pad_geom, &pointer_events);
+        let pad_hit = pinput::handle_touch_controls(&mut app.pad, pad_geom, &pointer_events);
+        // While paused, a pad contact has priority over the overlay controls.
+        if app.page == Page::Pause && pad_hit {
+            input.consume();
+        }
     }
 
     let bg_a = params::pad_bg_alpha().clamp(0.0, 255.0) / 255.0;

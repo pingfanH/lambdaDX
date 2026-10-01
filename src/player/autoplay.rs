@@ -28,11 +28,7 @@ pub fn set_on(pad: &mut PadPreviewState, on: bool) {
 }
 
 pub fn tick(pad: &mut PadPreviewState) {
-    if !pad.autoplay || pad.mode != Mode::Playing || pad.playback_pending || !pad.has_engine() {
-        if pad.mode != Mode::Playing || pad.playback_pending {
-            flush_click_holds(pad);
-            release_touches(pad);
-        }
+    if !pad.autoplay || pad.playback_pending || !pad.has_engine() {
         return;
     }
 

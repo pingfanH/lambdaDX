@@ -62,6 +62,12 @@ impl Input {
         }
     }
 
+    /// Consume the pointer for this frame so no widget reacts to it (the pad
+    /// takes priority over overlapping UI).
+    pub fn consume(&mut self) {
+        self.consumed = true;
+    }
+
     pub fn hover(&self, r: RectF) -> bool {
         !self.consumed && rect_contains(r, self.pos)
     }

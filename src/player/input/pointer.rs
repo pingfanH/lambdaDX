@@ -99,7 +99,18 @@ pub(super) fn update_pointer_zone(
             app.push_feedback(zone, 0.12);
             if app.use_core() {
                 let tp = (app.song_time().max(0.0) * 1e6) as i64;
-                app.queue_engine_press(zone, tp);
+                match old {
+                    // First contact: a click (head tap / slide star) + hold.
+                    None => app.queue_engine_press(zone, tp),
+                    // Sliding onto another sensor: release the old one and hold
+                    // the new one — **no click** (the core's slide body areas are
+                    // hold-only; a click there advances an area too early).
+                    Some(prev) if prev != zone => {
+                        app.queue_engine_release(prev, tp);
+                        app.queue_engine_hold(zone, tp);
+                    }
+                    _ => {}
+                }
             } else if let Some(label) = judge_label_for_zone(app, zone) {
                 app.push_judgement(zone, label, 0.6);
                 app.push_hit_fx(zone, label, false);
@@ -118,11 +129,15 @@ pub(super) fn update_pointer_zone(
 }
 
 /// Route touch/mouse events to zones.
+///
+/// Returns `true` if any event landed on a pad zone (so callers can give the
+/// pad priority over overlapping UI while paused).
 pub fn handle_touch_controls(
     app: &mut PadPreviewState,
     pad: PadGeom,
     pointer_events: &[PointerEvent],
-) {
+) -> bool {
+    let mut hit_zone = false;
     for ev in pointer_events {
         match ev.phase {
             TouchPhase::Started => {
@@ -131,6 +146,7 @@ pub fn handle_touch_controls(
                     .pad_svg
                     .as_ref()
                     .and_then(|svg| svg.hit_test(ev.position, &pad));
+                hit_zone |= zone.is_some();
                 update_pointer_zone(app, ev.id, zone);
             }
             TouchPhase::Moved | TouchPhase::Stationary => {
@@ -141,6 +157,7 @@ pub fn handle_touch_controls(
                         .pad_svg
                         .as_ref()
                         .and_then(|svg| svg.hit_test(sample, &pad));
+                    hit_zone |= new_zone.is_some();
                     update_pointer_zone(app, ev.id, new_zone);
                 }
             }
@@ -150,4 +167,5 @@ pub fn handle_touch_controls(
             }
         }
     }
+    hit_zone
 }

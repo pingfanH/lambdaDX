@@ -86,6 +86,11 @@ pub fn release_events_for_zone(_zone: PadZone, _tp: i64) -> Vec<TimedInputEvent>
     Vec::new()
 }
 
+/// No core, so a body hold produces no events.
+pub fn hold_events_for_zone(_zone: PadZone, _tp: i64) -> Vec<TimedInputEvent> {
+    Vec::new()
+}
+
 pub fn zone_for_button(btn: ButtonZone) -> PadZone {
     let id = match btn {
         ButtonZone::K1 => 1,

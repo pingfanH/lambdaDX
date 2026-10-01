@@ -593,13 +593,21 @@ impl PadPreviewState {
     }
 
     pub fn tick_feedback(&mut self) {
-        let now = self.fx_clock();
-        self.pad_feedback.retain(|f| f.until > now);
-        self.judge_feedback.retain(|f| f.until > now);
+        // Pad touch feedback is wall-clock (so a held/tapped zone's pulse still
+        // expires while paused); hit fx / judgment text / slide overlay follow
+        // the note timeline (`fx_timeline`).
+        let wall = self.now();
+        let clock = self.fx_clock();
+        self.pad_feedback.retain(|f| f.until > wall);
+        self.judge_feedback.retain(|f| f.until > clock);
         self.hit_fx
-            .retain(|f| now - f.started < f.duration as f64);
+            .retain(|f| clock - f.started < f.duration as f64);
+        // Slide results can be produced while paused because the core still
+        // steps frames at the frozen current time. Their overlay lifetime must
+        // use wall time so the result appears and fades immediately.
+        let wall_time = self.now();
         self.slide_judge
-            .retain(|_, fx| now - fx.started < SLIDE_JUST_DURATION);
+            .retain(|_, fx| wall_time - fx.started < SLIDE_JUST_DURATION);
     }
 
     /// Clock used for transient feedback lifetimes: the deterministic export
@@ -634,7 +642,8 @@ impl PadPreviewState {
     pub fn push_feedback(&mut self, zone: PadZone, duration: f64) {
         self.pad_feedback.push(PadFeedback {
             zone,
-            until: self.fx_clock() + duration,
+            // Wall clock: the pad-zone pulse must expire even while paused.
+            until: self.now() + duration,
         });
     }
 
@@ -669,7 +678,7 @@ impl PadPreviewState {
             (note_id, slide_idx),
             SlideJudgeFx {
                 grade,
-                started: self.fx_clock(),
+                started: self.now(),
             },
         );
     }
@@ -1030,7 +1039,7 @@ impl PadPreviewState {
 
     /// Queue an lnmai-core sensor press for `zone` at microsecond time `tp`.
     pub fn queue_engine_press(&mut self, zone: PadZone, tp: i64) {
-        if self.judge_engine.is_none() || self.mode != Mode::Playing {
+        if self.judge_engine.is_none() {
             return;
         }
         self.engine_events
@@ -1039,11 +1048,20 @@ impl PadPreviewState {
 
     /// Queue an lnmai-core sensor release for `zone` at microsecond time `tp`.
     pub fn queue_engine_release(&mut self, zone: PadZone, tp: i64) {
-        if self.judge_engine.is_none() || self.mode != Mode::Playing {
+        if self.judge_engine.is_none() {
             return;
         }
         self.engine_events
             .extend(crate::player::engine::release_events_for_zone(zone, tp));
+    }
+
+    /// Queue a hold-only sensor press (slide body move, no click) for `zone`.
+    pub fn queue_engine_hold(&mut self, zone: PadZone, tp: i64) {
+        if self.judge_engine.is_none() {
+            return;
+        }
+        self.engine_events
+            .extend(crate::player::engine::hold_events_for_zone(zone, tp));
     }
 }
 

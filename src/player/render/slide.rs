@@ -109,7 +109,8 @@ pub fn draw(
                 .iter()
                 .any(|s| matches!(s.shape, SlideShape::Wifi));
             if is_wifi {
-                // Overall fraction carries `HideAllSlideBars` (all tracks done).
+                // Overall progress carries `HideAllSlideBars` (all tracks done)
+                // and is also the fallback when a track has no separate update.
                 let overall = progress.seg_frac.first().copied().unwrap_or(0.0);
                 track_fracs = std::array::from_fn(|j| {
                     progress
@@ -119,8 +120,17 @@ pub fn draw(
                         .unwrap_or(0.0)
                         .max(overall)
                 });
+                // The visible wifi ribbon uses the middle track's texture. Core
+                // reports `traveled` as the amount still represented by each
+                // track, so the longest track is the one with the smallest
+                // value. Use that track for the shared visual progress.
+                let longest = track_fracs.iter().copied().fold(1.0, f32::min);
+                track_fracs[1] = longest;
                 track_bars =
                     std::array::from_fn(|j| progress.track_hidden_until.get(&(j as u64)).copied());
+                if let Some(longest_bar) = track_bars.iter().flatten().copied().min() {
+                    track_bars[1] = Some(longest_bar);
+                }
                 &track_fracs
             } else {
                 progress.seg_frac.as_slice()
@@ -257,7 +267,9 @@ pub fn draw_just_overlays(app: &PadPreviewState, pad: &PadGeom, scale: f32, spaw
     let Some(ref svg) = app.pad_svg else {
         return;
     };
-    let now = app.fx_clock();
+    // Slide judgments may be generated while paused. Use wall time so the
+    // result is visible immediately and fades without advancing currentTime.
+    let now = app.now();
     for note in app.chart.notes.iter() {
         if !matches!(note.note_type, NoteType::Slide) {
             continue;

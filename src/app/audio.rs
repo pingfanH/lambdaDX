@@ -5,7 +5,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use super::platform;
-use super::types::{SPEED_MAX, SPEED_MIN, WavPcm};
+use super::types::WavPcm;
 use crate::player::state::PadPreviewState;
 
 // ---------------------------------------------------------------------------
@@ -263,9 +263,9 @@ impl BgmPlayer {
         })
     }
 
-    pub fn play(&mut self, samples: &[f32], channels: u16, sample_rate: u32) {
+    pub fn play(&mut self, samples: &[f32], channels: u16, sample_rate: u32, speed: f32) {
         self.stop();
-        let source = SamplesBuffer::new(channels, sample_rate, samples.to_vec());
+        let source = SamplesBuffer::new(channels, sample_rate, samples.to_vec()).speed(speed);
         if let Ok(sink) = Sink::try_new(&self.handle) {
             sink.set_volume(1.0);
             sink.append(source);
@@ -297,10 +297,6 @@ impl BgmPlayer {
 // Audio servicing
 // ---------------------------------------------------------------------------
 
-fn speed_cache_key(speed: f32) -> i32 {
-    (speed.clamp(SPEED_MIN, SPEED_MAX) * 10.0).round() as i32
-}
-
 /// Build and play the BGM at the current speed if a start was requested.
 pub async fn service_audio(app: &mut PadPreviewState) {
     if !app.pending_audio_start {
@@ -321,11 +317,11 @@ pub async fn service_audio(app: &mut PadPreviewState) {
     }
 
     if app.audio_wav_pcm.is_some() {
-        match load_cached_audio_for_speed(app, speed) {
+        match load_audio_for_speed(app) {
             Ok(bgm) => {
                 if let Some(player) = &mut app.bgm_player {
                     app.mode_wall_anchor = macroquad::prelude::get_time();
-                    player.play(&bgm.samples, bgm.channels, bgm.sample_rate);
+                    player.play(&bgm.samples, bgm.channels, bgm.sample_rate, speed);
                 }
                 app.audio_seek_offset = None;
                 app.set_status(format!("Audio speed applied: {:.1}x", speed));
@@ -348,71 +344,26 @@ pub async fn service_audio(app: &mut PadPreviewState) {
     }
 }
 
-fn load_cached_audio_for_speed(app: &mut PadPreviewState, speed: f32) -> Result<BgmPcm, String> {
-    let key = speed_cache_key(speed);
+fn load_audio_for_speed(app: &mut PadPreviewState) -> Result<BgmPcm, String> {
     let chart_seek = app.audio_seek_offset.unwrap_or(0.0);
     let audio_offset = app.chart.audio_offset;
     let effective_seek = (chart_seek + audio_offset).max(0.0);
-
-    if chart_seek <= 0.0 {
-        if let Some(cached) = app.audio_cache.get(&key) {
-            return Ok(cached.clone());
-        }
-    }
     let wav = app
         .audio_wav_pcm
         .as_ref()
         .ok_or_else(|| "pcm source missing".to_string())?;
-    let (samples_i16, channels) = build_speed_pcm(wav, speed, effective_seek);
-    let samples_f32: Vec<f32> = samples_i16.iter().map(|&s| s as f32 / 32768.0).collect();
+    let channels = wav.channels.max(1);
+    let ch = channels as usize;
+    let skip_frames = (effective_seek * wav.sample_rate as f32) as usize;
+    let start = (skip_frames * ch).min(wav.samples.len());
+    let samples_f32: Vec<f32> = wav.samples[start..]
+        .iter()
+        .map(|&s| s as f32 / 32768.0)
+        .collect();
     let bgm = BgmPcm {
         samples: samples_f32,
         channels,
         sample_rate: wav.sample_rate,
     };
-    if chart_seek <= 0.0 {
-        app.audio_cache.insert(key, bgm.clone());
-    }
     Ok(bgm)
-}
-
-/// Build speed-adjusted raw PCM i16 samples. Returns (samples, channels).
-/// When `speed == 1.0` this is a plain copy from `seek_offset` onward, which is
-/// also what keeps pitch unchanged at the common case.
-fn build_speed_pcm(wav: &WavPcm, speed: f32, seek_offset: f32) -> (Vec<i16>, u16) {
-    let speed = speed.clamp(SPEED_MIN, SPEED_MAX);
-    let channels = wav.channels.max(1);
-    let ch = channels as usize;
-    let sample_rate = wav.sample_rate as f32;
-    let skip_frames = (seek_offset.max(0.0) * sample_rate) as usize;
-    let total_frames = wav.samples.len() / ch;
-    let in_frames = total_frames.saturating_sub(skip_frames);
-
-    if in_frames == 0 {
-        return (vec![0; ch], channels);
-    }
-
-    if (speed - 1.0).abs() < 0.001 {
-        let start = skip_frames * ch;
-        return (wav.samples[start..].to_vec(), channels);
-    }
-
-    let out_frames = ((in_frames as f32) / speed).max(1.0).round() as usize;
-    let mut out = vec![0_i16; out_frames * ch];
-    let max_src_i = total_frames.saturating_sub(1);
-
-    for out_i in 0..out_frames {
-        let src_pos = skip_frames as f32 + (out_i as f32 * speed).min(in_frames as f32);
-        let src_i0 = (src_pos.floor() as usize).min(max_src_i);
-        let src_i1 = (src_i0 + 1).min(max_src_i);
-        let frac = src_pos - src_i0 as f32;
-        for c in 0..ch {
-            let a = wav.samples[src_i0 * ch + c] as f32;
-            let b = wav.samples[src_i1 * ch + c] as f32;
-            let v = a + (b - a) * frac;
-            out[out_i * ch + c] = v.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        }
-    }
-
-    (out, channels)
 }
