@@ -244,6 +244,13 @@ pub fn draw_score_block(app: &PadPreviewState, rect: RectF, scale: f32) {
     }
     rows.push(format!("DX      {} / {}", app.dx_score(), app.max_dx_score()));
     rows.push(format!("FAST {}   LATE {}", app.fast_count(), app.late_count()));
+    #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+    {
+        let (perfect, great, good, miss) = app.grade_totals();
+        rows.push(format!(
+            "P {perfect}   GR {great}   GD {good}   M {miss}"
+        ));
+    }
 
     let line_h = 20.0 * scale;
     let margin = 14.0 * scale;

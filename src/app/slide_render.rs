@@ -925,8 +925,25 @@ pub fn draw_slide(
     };
     let hidden_until = hidden_until.min(segmentation.bars.len());
     if matches!(layer, SlideLayer::Trail) && crate::player::engine::debug_slide_enabled() {
+        // Tag by note **and** segment: a continuous chain renders one trail per
+        // arc, and a shared per-note tag made the dedup flap (print every frame).
+        let seg_sig: String = slide
+            .segments
+            .iter()
+            .map(|s| {
+                format!(
+                    "{:?}:{}",
+                    s.shape,
+                    s.points.last().map(|p| p.zone.to_id()).unwrap_or(0)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
         let key = format!("{hidden_until}|{seg_frac:?}");
-        if crate::player::engine::debug_dedup(format!("player_render/{}", note.id), &key) {
+        if crate::player::engine::debug_dedup(
+            format!("player_render/{}/{seg_sig}", note.id),
+            &key,
+        ) {
             eprintln!(
                 "[slide/player t={current_t:.3}] star note={} traveled={star_dist_along:.2}/{total_len:.2} \
                  bars={hidden_until}/{} seg_frac={:?} star_t={:.3} core_driven={core_driven}",

@@ -780,6 +780,25 @@ impl PadPreviewState {
         self.core_score.as_ref().map(|s| s.late_count).unwrap_or(0)
     }
 
+    /// Total judged notes per display grade — `(perfect, great, good, miss)` —
+    /// aggregated across all note families (tap/hold/slide/touch/break). Grades
+    /// collapse like the judgment label: Perfect / Great / Good / Miss+TooFast.
+    #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+    pub fn grade_totals(&self) -> (u64, u64, u64, u64) {
+        use crate::core::types::JudgeGrade;
+        let Some(score) = self.core_score.as_ref() else {
+            return (0, 0, 0, 0);
+        };
+        let counts = &score.counts;
+        let miss = counts.grade_count_where(|g| g.is_miss_or_too_fast());
+        let great = counts.grade_count_where(JudgeGrade::is_great_grade);
+        let good = counts.grade_count_where(JudgeGrade::is_good_grade);
+        let perfect = counts.grade_count_where(|g| {
+            !g.is_miss_or_too_fast() && !g.is_great_grade() && !g.is_good_grade()
+        });
+        (perfect, great, good, miss)
+    }
+
     /// Achieved DX score.
     pub fn dx_score(&self) -> i64 {
         self.core_score

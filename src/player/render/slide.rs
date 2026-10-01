@@ -133,6 +133,64 @@ pub fn draw(
             continue;
         }
 
+        // A continuous `>`/`<` chain is one sub-slide with several segments. Draw
+        // its trail **per arc** so the arcs are separated by the head/tail gap
+        // (one seamless ribbon otherwise). The star layer is untouched: it still
+        // draws a single star over the whole chain.
+        if layer == SlideLayer::Trail && sl.segments.len() > 1 {
+            let mut seg_note = note.clone();
+            for (seg_idx, segment) in sl.segments.iter().enumerate() {
+                let seg_slide = Slide {
+                    segments: vec![segment.clone()],
+                    slide_duration: sl.slide_duration,
+                    slide_start_delay: sl.slide_start_delay,
+                    slide_is_break: sl.slide_is_break,
+                    runtime_parts: 1,
+                };
+                let seg_tex = slide_render::SlideTextures {
+                    trail: trail_tex,
+                    star: star_variant.or(star_fb),
+                    star_fallback: app.star_tex.as_ref(),
+                    star_ex,
+                    star_ex_fallback: None,
+                    wifi: std::array::from_fn(|i| app.wifi_tex[i].as_ref()),
+                    // Only the first arc draws the guide (at the head), matching
+                    // the single-sub-slide behaviour.
+                    guide: if seg_idx == 0 { guide } else { None },
+                };
+                let frac = progress
+                    .and_then(|p| p.seg_frac.get(seg_idx).copied())
+                    .unwrap_or(0.0);
+                let seg_frac_one = [frac];
+                slide_render::draw_slide(
+                    &seg_note,
+                    &seg_slide,
+                    current_t,
+                    ns,
+                    slide_dur_s,
+                    fade_in_s,
+                    pad,
+                    svg,
+                    scale,
+                    spawn_cx,
+                    outer_r,
+                    &seg_tex,
+                    false,
+                    t.speed_scale,
+                    app.note_speed,
+                    params::slide_fade_in(),
+                    &seg_frac_one,
+                    [None; 3],
+                    core_driven,
+                    SlideLayer::Trail,
+                );
+                if let Some(last) = segment.points.last() {
+                    seg_note.lane = last.zone.to_id();
+                }
+            }
+            continue;
+        }
+
         slide_render::draw_slide(
             note,
             sl,
