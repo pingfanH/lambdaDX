@@ -22,6 +22,8 @@ pub struct LaunchArgs {
     pub audio: Option<PathBuf>,
     /// 1-based difficulty number to pick from the chart.
     pub diff: Option<i32>,
+    /// Start chart-driven autoplay as soon as the window player boots.
+    pub autoplay: bool,
     /// Print the parsed chart (bpms + slides) and exit without opening a window.
     pub dump: bool,
     /// Write every slide curve to this SVG and exit.
@@ -96,6 +98,7 @@ where
                 advance = 2;
             }
             "--dump" => out.dump = true,
+            "--autoplay" => out.autoplay = true,
             "--export-video" => {
                 out.export_video = Some(PathBuf::from(next_value(&args, i, &arg)?));
                 advance = 2;
@@ -221,6 +224,7 @@ OPTIONS:
     -a, --audio <PATH>   Same as the second positional argument.
     -d, --diff <N>       Difficulty number to load (e.g. 4).
     --dump               Print the parsed chart (bpms + slides) and exit.
+    --autoplay           Start chart-driven autoplay on launch.
     --dump-slides-svg [PATH]
                          Write every possible slide curve to an SVG (default
                          output/slide_curves.svg) and exit.

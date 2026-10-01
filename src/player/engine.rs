@@ -259,6 +259,12 @@ impl JudgeEngine {
         mut events: Vec<TimedInputEvent>,
     ) -> Result<RuntimeStepLightResult, String> {
         events.sort_by_key(InputTp::tp);
+        if std::env::var_os("MAI2_DEBUG_TOUCHZONE").is_some() && !events.is_empty() {
+            eprintln!(
+                "[touchzone/core] current_time={} events={events:?}",
+                (current_secs.max(0.0) * 1e6) as i64
+            );
+        }
         let batch = TimedInputBatch {
             current_time: (current_secs.max(0.0) * 1e6) as i64,
             events,
@@ -501,9 +507,14 @@ fn sensor_area_for_button(zone: ButtonZone) -> SensorArea {
 
 /// Advance the engine and apply the resulting core judge/audio commands.
 ///
-/// Step the core once per frame, including while paused. Paused mode freezes
-/// `song_time`, so the core sees the same current time while its frame-level
-/// processing and queued input handling continue normally.
+/// Input events are fed to the core **one at a time at their own timestamp**,
+/// then the clock is advanced to the frame time. A frame can bundle several
+/// zone transitions of a dense slide (e.g. `7^2^3...>6[8:1]`, whose arcs are
+/// ~8 ms apart while a frame is ~16 ms). Handing that whole batch to the core
+/// under one `current_time` lets the core expire an earlier arc (Miss) before
+/// its input is applied; stepping at each event's timestamp keeps the judge
+/// clock aligned with the input. The trailing step still runs every frame
+/// (including while paused) so time-based judging progresses normally.
 pub fn step_judge_engine(app: &mut PadPreviewState) {
     // `no_core`: bypass lnmai-core entirely (pre-lnmai autoplay + star motion).
     if !app.use_core() {
@@ -511,25 +522,48 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
     }
     let now = app.song_time();
     let events = std::mem::take(&mut app.engine_events);
-    let result = app.judge_engine.as_mut().unwrap().step(now, events);
-    match result {
-        Ok(result) => {
-            app.core_score = Some(result.score.clone());
-            if let Some(engine) = app.judge_engine.as_ref() {
-                if debug_slide_enabled() {
-                    log_lnmai_slide_state(engine, now, &result);
+
+    let results = {
+        let engine = app.judge_engine.as_mut().unwrap();
+        step_engine_events(engine, now, events)
+    };
+    for result in results {
+        match result {
+            Ok(result) => {
+                app.core_score = Some(result.score.clone());
+                if let Some(engine) = app.judge_engine.as_ref() {
+                    if debug_slide_enabled() {
+                        log_lnmai_slide_state(engine, now, &result);
+                    }
+                    let updates = engine.slide_progress_updates(&result.render_commands);
+                    app.apply_core_slide_progress_updates(&updates);
                 }
-                let updates = engine.slide_progress_updates(&result.render_commands);
-                app.apply_core_slide_progress_updates(&updates);
+                handle_engine_result(app, result);
             }
-            handle_engine_result(app, result);
-        }
-        Err(e) => {
-            if !app.status.starts_with("engine") {
-                app.set_status(format!("engine: {e}"));
+            Err(e) => {
+                if !app.status.starts_with("engine") {
+                    app.set_status(format!("engine: {e}"));
+                }
             }
         }
     }
+}
+
+/// Step `engine` once per input event at that event's own timestamp, then once
+/// more at `now` to advance the frame clock. See [`step_judge_engine`].
+fn step_engine_events(
+    engine: &mut JudgeEngine,
+    now: f32,
+    mut events: Vec<TimedInputEvent>,
+) -> Vec<Result<RuntimeStepLightResult, String>> {
+    events.sort_by_key(timed_input_tp);
+    let mut results = Vec::with_capacity(events.len() + 1);
+    for event in events {
+        let at = (timed_input_tp(&event) as f32 / 1e6).min(now.max(0.0));
+        results.push(engine.step(at, vec![event]));
+    }
+    results.push(engine.step(now, Vec::new()));
+    results
 }
 
 /// Diagnostic: dump lnmai-core's slide state — for each runtime arc, its
@@ -916,7 +950,9 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
                 let sfx_kind = match kind {
                     JudgeEventKind::Tap => SfxKind::Tap,
                     JudgeEventKind::Touch => SfxKind::Touch,
-                    JudgeEventKind::Hold => SfxKind::Hold,
+                    // No dedicated hold sound ships; the hold head/tail
+                    // judgment uses the tap sound.
+                    JudgeEventKind::Hold => SfxKind::Tap,
                     JudgeEventKind::Slide => SfxKind::SlideJudge,
                     JudgeEventKind::Break => SfxKind::Tap,
                 };
@@ -1195,5 +1231,50 @@ mod tests {
         }
         assert_eq!(tracks.len(), 3, "all three wifi tracks report a bar cutoff");
         assert!(max_bar > 0);
+    }
+
+    /// A dense `^` chain compresses several slide arcs into a single 60 fps
+    /// frame. Feeding that frame's inputs as one batch under the frame clock
+    /// makes the core miss the earlier arcs (`[8:1]` used to Miss); stepping
+    /// each event at its own timestamp must complete the whole chain for both
+    /// `[4:1]` and `[8:1]`.
+    #[test]
+    fn dense_slide_chain_completes_through_player() {
+        for timing in ["4:1", "8:1"] {
+            let text =
+                format!("&title=T\n&inote_1=(210){{4}}7^2^3^2^3^2^3^2^3^2^3^2>6[{timing}]\n");
+            let mut engine = JudgeEngine::load(&text, 1).expect("engine");
+            let tactic = engine.default_tactic().expect("tactic");
+            assert!(!tactic.is_empty(), "{timing}: tactic should not be empty");
+
+            let mut cursor = 0usize;
+            let mut grades: Vec<JudgeGrade> = Vec::new();
+            let mut t = 0.0_f32;
+            while t < 6.0 {
+                t += 1.0 / 60.0;
+                let now_us = (t * 1e6) as i64;
+                let mut events = Vec::new();
+                while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= now_us {
+                    events.push(tactic[cursor].clone());
+                    cursor += 1;
+                }
+                for result in step_engine_events(&mut engine, t, events) {
+                    for event in result.expect("step").events {
+                        if event.kind == JudgeEventKind::Slide {
+                            grades.push(event.grade);
+                        }
+                    }
+                }
+            }
+
+            assert!(
+                !grades.is_empty(),
+                "{timing}: the slide should produce a judge event"
+            );
+            assert!(
+                !grades.iter().any(|g| *g == JudgeGrade::Miss),
+                "{timing}: the dense slide chain must not miss (got {grades:?})"
+            );
+        }
     }
 }

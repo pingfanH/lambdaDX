@@ -4,9 +4,14 @@ use crate::app::types::Mode;
 use crate::core::types::{SensorArea, TimedInputEvent};
 use crate::player::state::PadPreviewState;
 
+fn debug_touchzone() -> bool {
+    std::env::var_os("MAI2_DEBUG_TOUCHZONE").is_some()
+}
+
 pub fn rebuild(pad: &mut PadPreviewState) {
     pad.autoplay_tactic_cursor = 0;
     pad.autoplay_click_held.clear();
+    pad.autoplay_explicit_held.clear();
 }
 
 pub fn set_on(pad: &mut PadPreviewState, on: bool) {
@@ -15,7 +20,7 @@ pub fn set_on(pad: &mut PadPreviewState, on: bool) {
     }
     pad.autoplay = on;
     if !on {
-        flush_click_holds(pad);
+        flush_holds(pad);
         release_touches(pad);
     }
     let now = (pad.song_time().max(0.0) * 1e6) as i64;
@@ -44,7 +49,7 @@ pub fn tick(pad: &mut PadPreviewState) {
             .iter()
             .position(|event| crate::player::engine::timed_input_tp(event) >= now)
             .unwrap_or(pad.autoplay_tactic.len());
-        flush_click_holds(pad);
+        flush_holds(pad);
         release_touches(pad);
     }
 
@@ -56,15 +61,31 @@ pub fn tick(pad: &mut PadPreviewState) {
         due.push(event);
         pad.autoplay_tactic_cursor += 1;
     }
-    for event in preprocess_tactic_frame(&mut pad.autoplay_click_held, now, due) {
+    if debug_touchzone() && !due.is_empty() {
+        eprintln!("[touchzone/autoplay] now={now} due={due:?}");
+    }
+    let prepared = preprocess_tactic_frame_with_holds(
+        &mut pad.autoplay_click_held,
+        &mut pad.autoplay_explicit_held,
+        now,
+        due,
+    );
+    if debug_touchzone() && !prepared.is_empty() {
+        eprintln!("[touchzone/prepared] now={now} events={prepared:?}");
+    }
+    for event in prepared {
         mirror_visual(pad, &event);
         pad.engine_events.push(event);
     }
 }
 
-fn flush_click_holds(pad: &mut PadPreviewState) {
+fn flush_holds(pad: &mut PadPreviewState) {
     let now = (pad.song_time().max(0.0) * 1e6) as i64;
     for event in release_click_holds(&mut pad.autoplay_click_held, now) {
+        mirror_visual(pad, &event);
+        pad.engine_events.push(event);
+    }
+    for event in release_click_holds(&mut pad.autoplay_explicit_held, now) {
         mirror_visual(pad, &event);
         pad.engine_events.push(event);
     }
@@ -85,45 +106,102 @@ fn preprocess_tactic_frame(
     now: i64,
     due: impl IntoIterator<Item = TimedInputEvent>,
 ) -> Vec<TimedInputEvent> {
+    let mut explicit_held = Vec::new();
+    preprocess_tactic_frame_with_holds(held, &mut explicit_held, now, due)
+}
+
+fn preprocess_tactic_frame_with_holds(
+    click_held: &mut Vec<SensorArea>,
+    explicit_held: &mut Vec<SensorArea>,
+    now: i64,
+    due: impl IntoIterator<Item = TimedInputEvent>,
+) -> Vec<TimedInputEvent> {
     let due: Vec<_> = due.into_iter().collect();
-    let release_time = due
-        .iter()
-        .map(crate::player::engine::timed_input_tp)
-        .min()
-        .unwrap_or(now)
-        .min(now);
-    let mut events = release_click_holds(held, release_time);
+    let has_due = !due.is_empty();
+    let mut events = Vec::new();
     for event in due {
         let event = crate::player::engine::normalize_tactic_event(event);
         match event {
             TimedInputEvent::SensorClick { tp, area } => {
+                // A dense tactic can revisit the same sensor within one frame.
+                // Release only that sensor's synthetic click before retriggering
+                // it; other areas may still be active parts of a slide path.
+                events.extend(release_click_hold_for_area(click_held, area, tp));
+                events.extend(release_click_hold_for_area(explicit_held, area, tp));
                 events.push(TimedInputEvent::SensorClick { tp, area });
                 events.push(TimedInputEvent::SensorHold {
                     tp,
                     area,
                     is_down: true,
                 });
-                if !held.contains(&area) {
-                    held.push(area);
+                if !click_held.contains(&area) {
+                    click_held.push(area);
                 }
             }
             TimedInputEvent::SensorHold {
+                tp,
                 area,
                 is_down: true,
-                ..
             } => {
-                held.retain(|pending| *pending != area);
+                // An explicit hold replaces the one-frame hold synthesized for
+                // a preceding click on the same sensor.
+                click_held.retain(|pending| *pending != area);
+                if explicit_held.contains(&area) {
+                    // The real tactic can repeat hold-down for the same area
+                    // while a fast slide is being sampled. Core expects one
+                    // transition, not duplicate down events.
+                    continue;
+                }
+                // ButtonClick tactics include an immediate ButtonHold(true).
+                // The click above already emitted this transition.
+                if events.iter().any(|previous| {
+                    matches!(previous,
+                        TimedInputEvent::SensorHold {
+                            tp: previous_tp,
+                            area: previous_area,
+                            is_down: true,
+                        } if *previous_tp == tp && *previous_area == area
+                    )
+                }) {
+                    explicit_held.push(area);
+                    continue;
+                }
+                explicit_held.push(area);
                 events.push(event);
             }
             TimedInputEvent::SensorHold {
+                tp,
                 area,
                 is_down: false,
                 ..
-            } if held.contains(&area) => {}
+            } if click_held.contains(&area) || explicit_held.contains(&area) => {
+                events.extend(release_click_hold_for_area(click_held, area, tp));
+                events.extend(release_click_hold_for_area(explicit_held, area, tp));
+            }
             _ => events.push(event),
         }
     }
+    if !has_due {
+        events.extend(release_click_holds(click_held, now));
+    }
     events
+}
+
+fn release_click_hold_for_area(
+    held: &mut Vec<SensorArea>,
+    area: SensorArea,
+    tp: i64,
+) -> Vec<TimedInputEvent> {
+    if let Some(index) = held.iter().position(|held_area| *held_area == area) {
+        held.remove(index);
+        vec![TimedInputEvent::SensorHold {
+            tp,
+            area,
+            is_down: false,
+        }]
+    } else {
+        Vec::new()
+    }
 }
 
 fn mirror_visual(pad: &mut PadPreviewState, event: &crate::core::types::TimedInputEvent) {
@@ -209,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn sensor_clicks_hold_independently_and_defer_same_frame_release() {
+    fn sensor_clicks_release_in_order_within_dense_frame() {
         let mut held = Vec::new();
         let first = preprocess_tactic_frame(
             &mut held,
@@ -230,31 +308,53 @@ mod tests {
                 },
             ],
         );
-        assert_eq!(first.len(), 4);
-        assert_eq!(held, vec![SensorArea::B2, SensorArea::C]);
-        let next = preprocess_tactic_frame(&mut held, 120, []);
         assert_eq!(
-            next,
+            first,
             vec![
+                TimedInputEvent::SensorClick {
+                    tp: 100,
+                    area: SensorArea::B2,
+                },
                 TimedInputEvent::SensorHold {
-                    tp: 120,
+                    tp: 100,
+                    area: SensorArea::B2,
+                    is_down: true,
+                },
+                TimedInputEvent::SensorHold {
+                    tp: 100,
                     area: SensorArea::B2,
                     is_down: false,
                 },
-                TimedInputEvent::SensorHold {
-                    tp: 120,
+                TimedInputEvent::SensorClick {
+                    tp: 100,
                     area: SensorArea::C,
-                    is_down: false,
+                },
+                TimedInputEvent::SensorHold {
+                    tp: 100,
+                    area: SensorArea::C,
+                    is_down: true,
                 },
             ]
+        );
+        assert_eq!(held, vec![SensorArea::C]);
+        let next = preprocess_tactic_frame(&mut held, 120, []);
+        assert_eq!(
+            next,
+            vec![TimedInputEvent::SensorHold {
+                tp: 120,
+                area: SensorArea::C,
+                is_down: false,
+            }]
         );
     }
 
     #[test]
     fn explicit_hold_continues_after_click_frame() {
-        let mut held = Vec::new();
-        let first = preprocess_tactic_frame(
-            &mut held,
+        let mut click_held = Vec::new();
+        let mut explicit_held = Vec::new();
+        let first = preprocess_tactic_frame_with_holds(
+            &mut click_held,
+            &mut explicit_held,
             100,
             [
                 TimedInputEvent::SensorClick {
@@ -268,9 +368,16 @@ mod tests {
                 },
             ],
         );
-        assert_eq!(first.len(), 3);
-        assert!(held.is_empty());
-        assert!(preprocess_tactic_frame(&mut held, 120, []).is_empty());
+        assert_eq!(first.len(), 2);
+        assert!(click_held.is_empty());
+        assert_eq!(explicit_held, vec![SensorArea::A1]);
+        assert!(preprocess_tactic_frame_with_holds(
+            &mut click_held,
+            &mut explicit_held,
+            120,
+            [],
+        )
+        .is_empty());
     }
 
     #[test]

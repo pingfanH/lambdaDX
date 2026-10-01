@@ -238,8 +238,15 @@ async fn run(args: LaunchArgs) {
     app.set_play_speed(app.params.play_speed_default);
     // Autoplay schedule for the initial chart (toggle with `O` or the panel).
     player::autoplay::rebuild(&mut app);
-    if std::env::var("MAI2_AUTOPLAY").is_ok() || std::env::var("MAI2_UI_AUTOPLAY").is_ok() {
+    let autoplay_requested = args.autoplay
+        || std::env::var("MAI2_AUTOPLAY").is_ok()
+        || std::env::var("MAI2_UI_AUTOPLAY").is_ok()
+        ;
+    if autoplay_requested {
         player::autoplay::set_on(&mut app, true);
+        // Standalone preview has no UI page transition to start playback.
+        // Autoplay requested at boot must also release the Idle clock.
+        app.start_playback_at(0.0);
     }
 
     // Parse the SVG pad definition.

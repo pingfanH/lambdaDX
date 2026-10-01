@@ -219,6 +219,10 @@ pub struct PadPreviewState {
     /// Sensor areas held open by a button-click tactic event, released on the
     /// next tactic frame so the core sees a hold for the click.
     pub autoplay_click_held: Vec<crate::core::types::SensorArea>,
+    /// Sensor areas held by explicit tactic hold events. Kept separate from
+    /// one-frame click holds so dense slide tactics do not lose their hold
+    /// state when the next frame has no click event.
+    pub autoplay_explicit_held: Vec<crate::core::types::SensorArea>,
 
     // ── Progress / seeking ───────────────────────────────────────────
     /// True while the progress bar is being dragged.
@@ -356,6 +360,7 @@ impl PadPreviewState {
             hold_end_break_guide_tex: None,
             autoplay: false,
             autoplay_click_held: Vec::new(),
+            autoplay_explicit_held: Vec::new(),
             scrubbing: false,
             video_bg: VideoBg::new(),
             mobile_ui,
@@ -540,7 +545,8 @@ impl PadPreviewState {
         let kind = match cue {
             Cue::Tap => SfxKind::Tap,
             Cue::SlideHead => SfxKind::SlideCue,
-            Cue::HoldHead | Cue::HoldTail => SfxKind::Hold,
+            // No dedicated hold sound ships; hold head/tail use the tap sound.
+            Cue::HoldHead | Cue::HoldTail => SfxKind::Tap,
         };
         let variant = SkinVariant::of_flags(is_break, false);
         sfx::select(self, kind, variant, is_ex)
@@ -548,10 +554,7 @@ impl PadPreviewState {
 
     /// Play a cue for every tap/hold head/hold tail crossed this frame.
     pub fn tick_cues(&mut self) {
-        // In core mode, all judgment and slide audio comes from lnmai's
-        // AudioCommand stream. The chart-time cue fallback is only for the
-        // no-core preview path.
-        if self.mode != Mode::Playing || self.playback_pending || self.use_core() {
+        if self.mode != Mode::Playing || self.playback_pending {
             return;
         }
         let t = self.song_time();
@@ -560,12 +563,16 @@ impl PadPreviewState {
             .as_mut()
             .map(|track| track.take_due_cues(t))
             .unwrap_or_default();
+        let core = self.use_core();
         for ev in due {
-            // The answer cue plays on the note timeline regardless of a hit.
+            // The answer cue plays on the note timeline regardless of a hit, in
+            // both the core and no-core paths.
             if params::answer_sfx() {
                 self.play_sfx(self.answer_sfx.as_ref());
             }
-            if params::hit_sfx() {
+            // The per-kind hit SFX is timeline-driven only without a core; with
+            // a core it comes from actual hit judgments (`play_audio_command`).
+            if !core && params::hit_sfx() {
                 let buf = self.cue_sfx(ev.cue, ev.is_break, ev.is_ex);
                 self.play_sfx(buf);
             }
