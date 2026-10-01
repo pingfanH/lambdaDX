@@ -1,0 +1,137 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/ui_pause_panel" itemID="6abeacd2-000001ef" lastModified="1790882104">
+  <timeline>
+    <DOMTimeline name="ui_pause_panel" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="Layer_1" color="#00FFFF" current="true" isSelected="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#202022"/>
+                    </FillStyle>
+                  </fills>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#3A3A40"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge fillStyle1="1" strokeStyle="1" edges="!4540 -4000S6[4820 -4000 4820 -3720!4820 3720[4820 4000 4540 4000!4820 -3720|4820 3720!-3580 -3720[-3580 -4000 -3300 -4000!-3300 4000[-3580 4000 -3580 3720!-3580 3720|-3580 -3720!-3300 -4000|4540 -4000!4540 4000|-3300 4000"/>
+                  </edges>
+                </DOMShape>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="360" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="-149" ty="-160"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>PLAY SESSION</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="360" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="-149" ty="-130"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>已暂停</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="360" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="-149" ty="-86"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>曲目标题</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="360" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="-149" ty="-64"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>当前时间</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>  01:23</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_primary" selected="true">
+                  <matrix>
+                    <Matrix tx="-241" ty="-43"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_secondary" selected="true">
+                  <matrix>
+                    <Matrix tx="-241" ty="13"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_quiet" selected="true">
+                  <matrix>
+                    <Matrix tx="-241" ty="69"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_danger" selected="true">
+                  <matrix>
+                    <Matrix tx="-241" ty="125"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

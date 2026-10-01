@@ -1,0 +1,76 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/ui_badge" itemID="6abeaa2d-00000139" lastModified="1790880301">
+  <timeline>
+    <DOMTimeline name="ui_badge" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="glyph" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="44" height="28" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="6" ty="17"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>DX</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="28" size="20" bitmapSize="400" face="PingFangSC-Regular" fillColor="#52D6E8"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="ring" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" weight="2" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#52D6E8"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge strokeStyle="1" edges="!1120 560[1120 792 956 956!956 956[792 1120 560 1120!560 1120[328 1120 164 956!164 956[0 792 0 560!0 560[0 328 164 164!164 164[328 0 560 0!560 0[792 0 956 164!956 164[1120 328 1120 560"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="fill" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#242427"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!1120 560[1120 792 956 956!956 956[792 1120 560 1120!560 1120[328 1120 164 956!164 956[0 792 0 560!0 560[0 328 164 164!164 164[328 0 560 0!560 0[792 0 956 164!956 164[1120 328 1120 560"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

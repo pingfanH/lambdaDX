@@ -1,0 +1,43 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/ui_toggle" itemID="6abeadc9-00000247" lastModified="1790881226" lastUniqueIdentifier="1">
+  <timeline>
+    <DOMTimeline name="ui_toggle" currentFrame="1" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="state" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_toggle_off">
+                  <matrix>
+                    <Matrix tx="-20" ty="-11"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="20" y="11"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="1" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_toggle_on" selected="true">
+                  <matrix>
+                    <Matrix tx="-20" ty="-11"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="20" y="11"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

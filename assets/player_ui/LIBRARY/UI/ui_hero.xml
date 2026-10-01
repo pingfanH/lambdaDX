@@ -1,0 +1,158 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/ui_hero" itemID="6abeac38-000001d9" lastModified="1790880824" lastUniqueIdentifier="2">
+  <timeline>
+    <DOMTimeline name="ui_hero" currentFrame="120" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="badge" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="120" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+            <DOMFrame index="120" duration="2" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#242427"/>
+                    </FillStyle>
+                  </fills>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" weight="2" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#52D6E8"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge fillStyle1="1" strokeStyle="1" edges="!3760 3000[3760 3315 3537 3537!3537 2462[3760 2685 3760 3000!2462 2462[2685 2240 3000 2240!3000 3760[2685 3760 2462 3537!2240 3000[2240 2685 2462 2462!2462 3537[2240 3315 2240 3000!3000 2240[3315 2240 3537 2462!3537 3537[3315 3760 3000
+ 3760"/>
+                  </edges>
+                </DOMShape>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="20.3" height="69.2" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="114" ty="132"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>DX</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="33.6" size="24" bitmapSize="480" face="PingFangSC-Regular" fillColor="#52D6E8"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="sweep" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="120" tweenType="motion" keyMode="17921">
+              <elements/>
+            </DOMFrame>
+            <DOMFrame index="120" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_hero_sweep">
+                  <matrix>
+                    <Matrix tx="46.6" ty="166.8"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="103.4" y="-16.8"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="121" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_hero_sweep" centerPoint3DX="150" centerPoint3DY="150">
+                  <matrix>
+                    <Matrix tx="46.6" ty="166.8"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="103.4" y="-16.8"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="ticks" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="120" tweenType="motion" keyMode="17921">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_hero_ticks">
+                  <matrix>
+                    <Matrix tx="150" ty="150"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="120" duration="2" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_hero_ticks" centerPoint3DX="150" centerPoint3DY="150">
+                  <matrix>
+                    <Matrix tx="150" ty="150"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="rings" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#202022"/>
+                    </FillStyle>
+                  </fills>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#3A3A40"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                    <StrokeStyle index="2">
+                      <SolidStroke scaleMode="normal" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#2B2B2F"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge strokeStyle="1" edges="
+!6000 3000[6000 4243 5121 5121!5121 5121[4243 6000 3000 6000!3000 6000[1757 6000 878 5121!878 5121[0 4243 0 3000!0 3000[0 1757 878 878!878 878[1757 0 3000 0!3000 0[4243 0 5121 878!5121 878[6000 1757 6000 3000"/>
+                    <Edge strokeStyle="2" edges="
+!5160 3000[5160 3895 4527 4527!4527 4527[3895 5160 3000 5160!3000 5160[2105 5160 1472 4527!1472 4527[840 3895 840 3000!840 3000[840 2105 1472 1472!1472 1472[2105 840 3000 840!3000 840[3895 840 4527 1472!4527 1472[5160 2105 5160 3000"/>
+                    <Edge fillStyle1="1" edges="
+!4800 3000[4800 3746 4273 4273!4273 4273[3746 4800 3000 4800!3000 4800[2254 4800 1727 4273!1727 4273[1200 3746 1200 3000!1200 3000[1200 2254 1727 1727!1727 1727[2254 1200 3000 1200!3000 1200[3746 1200 4273 1727!4273 1727[4800 2254 4800
+ 3000"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

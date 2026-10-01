@@ -1,0 +1,386 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/page_settings" itemID="6abeaa5e-0000017b" lastModified="1790880353">
+  <timeline>
+    <DOMTimeline name="page_settings" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="top" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_topbar" selected="true">
+                  <matrix>
+                    <Matrix tx="-640" ty="-32"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="640" y="32"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="panel" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMStaticText fontRenderingMode="standard" width="396" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="282" ty="96"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>设置项</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="496" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="282" ty="122"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>音频</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="496" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="282" ty="172"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>音乐与判定音效</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="496" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="282" ty="194"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>关闭后游玩仍会继续，但不会播放声音。</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMSymbolInstance libraryItemName="UI/ui_toggle_on">
+                  <matrix>
+                    <Matrix tx="880" ty="157"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="20" y="11"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_slider">
+                  <matrix>
+                    <Matrix tx="130" ty="214"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="150" y="18"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_slider">
+                  <matrix>
+                    <Matrix tx="130" ty="294"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="150" y="18"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_slider">
+                  <matrix>
+                    <Matrix tx="130" ty="374"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="150" y="18"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_slider">
+                  <matrix>
+                    <Matrix tx="130" ty="454"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="150" y="18"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_quiet">
+                  <matrix>
+                    <Matrix tx="190" ty="537"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="496" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="282" ty="622"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>已恢复默认设置</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="cats" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#242427"/>
+                    </FillStyle>
+                    <FillStyle index="2">
+                      <SolidColor color="#2A2A2E"/>
+                    </FillStyle>
+                    <FillStyle index="3">
+                      <SolidColor color="#52D6E8"/>
+                    </FillStyle>
+                  </fills>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#2B2B2F"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                    <StrokeStyle index="2">
+                      <SolidStroke scaleMode="normal" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#52D6E8"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge fillStyle1="1" strokeStyle="1" edges="!4320 2240[4480 2240 4480 2400!4480 3280[4480 3440 4320 3440"/>
+                    <Edge fillStyle1="2" strokeStyle="2" edges="!4320 3600[4480 3600 4480 3760"/>
+                    <Edge fillStyle1="1" strokeStyle="1" edges="!4480 2400|4480 3280!320 2400[320 2240 480 2240!480 3440[320 3440 320 3280"/>
+                    <Edge fillStyle1="2" strokeStyle="2" edges="!380 3624[#1A1.FB 3600 480 3600"/>
+                    <Edge fillStyle1="3" edges="!320 3760|320 3600!320 3600|380 3600!380 3600|380 3624"/>
+                    <Edge fillStyle0="2" fillStyle1="3" edges="!380 3624|380 4776"/>
+                    <Edge fillStyle1="3" edges="!380 4776|380 4800!380 4800|320 4800!320 4800|320 4640"/>
+                    <Edge fillStyle1="1" strokeStyle="1" edges="!320 3280|320 2400"/>
+                    <Edge fillStyle1="2" strokeStyle="2" edges="!480 4800[#1A1.FB 4800 380 4776"/>
+                    <Edge fillStyle1="1" strokeStyle="1" edges="!320 5120[320 4960 480 4960!480 6160[320 6160 320 6000!320 6000|320 5120"/>
+                    <Edge fillStyle1="2" strokeStyle="2" edges="!4480 4640[4480 4800 4320 4800"/>
+                    <Edge fillStyle1="1" strokeStyle="1" edges="!4320 4960[4480 4960 4480 5120!4480 6000[4480 6160 4320 6160!4480 5120|4480 6000!4320 3440|480 3440!480 2240|4320 2240"/>
+                    <Edge fillStyle1="2" strokeStyle="2" edges="!4320 4800|480 4800!4480 3760|4480 4640!480 3600|4320 3600"/>
+                    <Edge fillStyle1="3" strokeStyle="2" edges="!320 4640|320 3760"/>
+                    <Edge fillStyle1="1" strokeStyle="1" edges="!4320 6160|480 6160!480 4960|4320 4960"/>
+                  </edges>
+                </DOMShape>
+                <DOMStaticText fontRenderingMode="standard" width="196" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="22" ty="92"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>PLAYER SETTINGS</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#242427"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="176" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="32" ty="126"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>音频</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#2A2A2E"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#2A2A2E"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="176" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="32" ty="150"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>音乐与判定音效</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#2A2A2E"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#2A2A2E"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="176" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="32" ty="194"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>游玩</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#242427"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#242427"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="176" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="32" ty="218"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>速度与辅助</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#242427"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#242427"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="176" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="32" ty="262"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>显示</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="176" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="32" ty="286"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>布局与视觉</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="bg" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#171719"/>
+                    </FillStyle>
+                    <FillStyle index="2">
+                      <SolidColor color="#202022"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!0 1280|0 0!0 0|25600 0!25600 0|25600 15200!25600 15200|4800 15200"/>
+                    <Edge fillStyle0="1" fillStyle1="2" edges="!0 1280|4800 1280!4800 1280|4800 15200"/>
+                    <Edge fillStyle1="2" edges="!4800 15200|0 15200!0 15200|0 1280"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

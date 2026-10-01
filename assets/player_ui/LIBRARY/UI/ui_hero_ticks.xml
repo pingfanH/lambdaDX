@@ -1,0 +1,68 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/ui_hero_ticks" itemID="6abeac37-000001d7" lastModified="1790880823">
+  <timeline>
+    <DOMTimeline name="ui_hero_ticks" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="ticks" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" weight="2" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#52D6E8"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                    <StrokeStyle index="2">
+                      <SolidStroke scaleMode="normal" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#3A3A40"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge strokeStyle="2" edges="!-985 -2706|-1026 -2819"/>
+                    <Edge strokeStyle="1" edges="!-1380 -2390|-1500 -2598"/>
+                    <Edge strokeStyle="2" edges="!-500 -2836|-520 -2954!-1851 -2206|-1928 -2298!-2206 -1851|-2298 -1928!-2836 -500|-2954 -520"/>
+                    <Edge strokeStyle="1" edges="!-2390 -1380|-2598 -1500"/>
+                    <Edge strokeStyle="2" edges="!-2706 -985|-2819 -1026!1851 -2206|1928 -2298!500 -2836|520 -2954"/>
+                    <Edge strokeStyle="1" edges="!1379 -2390|1499 -2598"/>
+                    <Edge strokeStyle="2" edges="!985 -2706|1026 -2819"/>
+                    <Edge strokeStyle="1" edges="!0 -2760|0 -3000"/>
+                    <Edge strokeStyle="2" edges="!2206 -1851|2298 -1928!2836 -500|2954 -520!2706 -985|2819 -1026"/>
+                    <Edge strokeStyle="1" edges="!2390 -1379|2598 -1499"/>
+                    <Edge strokeStyle="2" edges="!2836 500|2954 520"/>
+                    <Edge strokeStyle="1" edges="!2760 0|3000 0"/>
+                    <Edge strokeStyle="2" edges="!2206 1851|2298 1928"/>
+                    <Edge strokeStyle="1" edges="!2390 1379|2598 1499"/>
+                    <Edge strokeStyle="2" edges="!2706 985|2819 1026!985 2706|1026 2819"/>
+                    <Edge strokeStyle="1" edges="!1380 2390|1500 2598"/>
+                    <Edge strokeStyle="2" edges="!500 2836|520 2954"/>
+                    <Edge strokeStyle="1" edges="!0 2760|0 3000"/>
+                    <Edge strokeStyle="2" edges="!1851 2206|1928 2298"/>
+                    <Edge strokeStyle="1" edges="!-2760 0|-3000 0"/>
+                    <Edge strokeStyle="2" edges="!-2836 500|-2954 520!-2206 1851|-2298 1928!-2706 985|-2819 1026"/>
+                    <Edge strokeStyle="1" edges="!-2390 1380|-2598 1500"/>
+                    <Edge strokeStyle="2" edges="!-1851 2206|-1928 2298!-500 2836|-520 2954"/>
+                    <Edge strokeStyle="1" edges="!-1379 2390|-1499 2598"/>
+                    <Edge strokeStyle="2" edges="!-985 2706|-1026 2819"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

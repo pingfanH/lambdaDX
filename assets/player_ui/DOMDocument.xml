@@ -1,0 +1,149 @@
+<DOMDocument xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" backgroundColor="#171719" width="1280" height="760" frameRate="60" currentTimeline="1" xflVersion="23.0" creatorInfo="Adobe Animate" platform="Macintosh" versionInfo="Saved by Animate Macintosh 24.0 build 305" majorVersion="24" buildNumber="305" viewAngle3D="100.925968316201" vanishingPoint3DX="640" vanishingPoint3DY="380" nextSceneIdentifier="2" playOptionsPlayLoop="false" playOptionsPlayPages="false" playOptionsPlayFrameActions="false" filetypeGUID="DD0DDBBF-5BEF-45B2-9F24-A3048D2A676F" fileGUID="9C032AE7ABEE416D84178FF4A1EA2B07">
+     <folders>
+          <DOMFolderItem name="UI" itemID="6abeaa81-000001d1" isExpanded="true"/>
+     </folders>
+     <symbols>
+          <Include href="UI/page_gameplay_hud.xml" loadImmediate="false" itemID="6abeaa61-00000191" lastModified="1790880354"/>
+          <Include href="UI/page_pause.xml" loadImmediate="false" itemID="6abeaa62-0000019e" lastModified="1790880979"/>
+          <Include href="UI/page_settings.xml" loadImmediate="false" itemID="6abeaa5e-0000017b" lastModified="1790880353"/>
+          <Include href="UI/page_song_select.xml" loadImmediate="false" itemID="6abeacec-000001f7" lastModified="1790881154"/>
+          <Include href="UI/page_start.xml" loadImmediate="false" itemID="6abeaa4d-00000149" lastModified="1790882166"/>
+          <Include href="UI/ui_badge.xml" loadImmediate="false" itemID="6abeaa2d-00000139" lastModified="1790880301"/>
+          <Include href="UI/ui_btn_danger.xml" loadImmediate="false" itemID="6abeaa2d-00000138" lastModified="1790881405"/>
+          <Include href="UI/ui_btn_primary.xml" loadImmediate="false" itemID="6abeaa2d-00000135" lastModified="1790881390"/>
+          <Include href="UI/ui_btn_quiet.xml" loadImmediate="false" itemID="6abeaa2d-00000137" lastModified="1790881405"/>
+          <Include href="UI/ui_btn_secondary.xml" loadImmediate="false" itemID="6abeaa2d-00000136" lastModified="1790881405"/>
+          <Include href="UI/ui_cat_tab.xml" loadImmediate="false" itemID="6abeaa2e-00000140" lastModified="1790880303"/>
+          <Include href="UI/ui_cat_tab_on.xml" loadImmediate="false" itemID="6abeaa2f-00000141" lastModified="1790880303"/>
+          <Include href="UI/ui_cover_placeholder.xml" loadImmediate="false" itemID="6abeaa3f-00000145" lastModified="1790880319"/>
+          <Include href="UI/ui_hairline.xml" loadImmediate="false" itemID="6abeaa13-0000012a" lastModified="1790880275"/>
+          <Include href="UI/ui_hero.xml" loadImmediate="false" itemID="6abeac38-000001d9" lastModified="1790880824"/>
+          <Include href="UI/ui_hero_sweep.xml" loadImmediate="false" itemID="6abeac37-000001d8" lastModified="1790880823"/>
+          <Include href="UI/ui_hero_ticks.xml" loadImmediate="false" itemID="6abeac37-000001d7" lastModified="1790880823"/>
+          <Include href="UI/ui_level_pill.xml" loadImmediate="false" itemID="6abeaa2e-0000013e" lastModified="1790880302"/>
+          <Include href="UI/ui_level_pill_on.xml" loadImmediate="false" itemID="6abeaa2e-0000013f" lastModified="1790880302"/>
+          <Include href="UI/ui_load_bar.xml" loadImmediate="false" itemID="6abeacbd-000001e7" lastModified="1790880958"/>
+          <Include href="UI/ui_loading.xml" loadImmediate="false" itemID="6abeacbe-000001e8" lastModified="1790880958"/>
+          <Include href="UI/ui_logo.xml" loadImmediate="false" itemID="6abeaa3e-00000143" lastModified="1790880319"/>
+          <Include href="UI/ui_panel.xml" loadImmediate="false" itemID="6abeaa13-00000129" lastModified="1790880275"/>
+          <Include href="UI/ui_pause_panel.xml" loadImmediate="false" itemID="6abeacd2-000001ef" lastModified="1790882104"/>
+          <Include href="UI/ui_pill.xml" loadImmediate="false" itemID="6abeadca-00000252" lastModified="1790881226"/>
+          <Include href="UI/ui_progress.xml" loadImmediate="false" itemID="6abeaa13-00000131" lastModified="1790880275"/>
+          <Include href="UI/ui_row.xml" loadImmediate="false" itemID="6abeadcb-00000268" lastModified="1790881227"/>
+          <Include href="UI/ui_shadow.xml" loadImmediate="false" itemID="6abeaa13-0000012b" lastModified="1790880275"/>
+          <Include href="UI/ui_slider.xml" loadImmediate="false" itemID="6abeaa2d-0000013a" lastModified="1790880750"/>
+          <Include href="UI/ui_song_row.xml" loadImmediate="false" itemID="6abeaa2d-0000013b" lastModified="1790880302"/>
+          <Include href="UI/ui_song_row_hover.xml" loadImmediate="false" itemID="6abeaa2e-0000013c" lastModified="1790880302"/>
+          <Include href="UI/ui_song_row_on.xml" loadImmediate="false" itemID="6abeaa2e-0000013d" lastModified="1790880302"/>
+          <Include href="UI/ui_tab.xml" loadImmediate="false" itemID="6abeadca-0000025d" lastModified="1790881227"/>
+          <Include href="UI/ui_toast.xml" loadImmediate="false" itemID="6abeaa3f-00000146" lastModified="1790880319"/>
+          <Include href="UI/ui_toggle.xml" loadImmediate="false" itemID="6abeadc9-00000247" lastModified="1790881226"/>
+          <Include href="UI/ui_toggle_off.xml" loadImmediate="false" itemID="6abeaa13-00000132" lastModified="1790880275"/>
+          <Include href="UI/ui_toggle_on.xml" loadImmediate="false" itemID="6abeaa13-00000133" lastModified="1790880275"/>
+          <Include href="UI/ui_topbar.xml" loadImmediate="false" itemID="6abeaa3e-00000142" lastModified="1790880739"/>
+          <Include href="UI/ui_watermark.xml" loadImmediate="false" itemID="6abeaa3f-00000144" lastModified="1790880722"/>
+     </symbols>
+     <timelines>
+          <DOMTimeline name="Scene 1" layerDepthEnabled="true">
+               <layers>
+                    <DOMLayer name="P5_page_pause" color="#9933CC" autoNamed="false">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements>
+                                        <DOMSymbolInstance libraryItemName="UI/page_pause">
+                                             <matrix>
+                                                  <Matrix tx="4720" ty="-380"/>
+                                             </matrix>
+                                             <transformationPoint>
+                                                  <Point x="640" y="380"/>
+                                             </transformationPoint>
+                                        </DOMSymbolInstance>
+                                   </elements>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+                    <DOMLayer name="P4_page_gameplay_hud" color="#9933CC" autoNamed="false">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements>
+                                        <DOMSymbolInstance libraryItemName="UI/page_gameplay_hud">
+                                             <matrix>
+                                                  <Matrix tx="3417.25" ty="-370.45"/>
+                                             </matrix>
+                                             <transformationPoint>
+                                                  <Point x="602.75" y="370.45"/>
+                                             </transformationPoint>
+                                        </DOMSymbolInstance>
+                                   </elements>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+                    <DOMLayer name="P3_page_settings" color="#9933CC" autoNamed="false">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements>
+                                        <DOMSymbolInstance libraryItemName="UI/page_settings">
+                                             <matrix>
+                                                  <Matrix tx="2360" ty="-364"/>
+                                             </matrix>
+                                             <transformationPoint>
+                                                  <Point x="320" y="364"/>
+                                             </transformationPoint>
+                                        </DOMSymbolInstance>
+                                   </elements>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+                    <DOMLayer name="P2_page_song_select" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements>
+                                        <DOMSymbolInstance libraryItemName="UI/page_song_select" selected="true">
+                                             <matrix>
+                                                  <Matrix tx="1020" ty="-559.8"/>
+                                             </matrix>
+                                             <transformationPoint>
+                                                  <Point x="320" y="559.8"/>
+                                             </transformationPoint>
+                                        </DOMSymbolInstance>
+                                   </elements>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+                    <DOMLayer name="P1_page_start" color="#9933CC" autoNamed="false">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements>
+                                        <DOMSymbolInstance libraryItemName="UI/page_start">
+                                             <matrix>
+                                                  <Matrix tx="-622.75" ty="-380"/>
+                                             </matrix>
+                                             <transformationPoint>
+                                                  <Point x="622.75" y="380"/>
+                                             </transformationPoint>
+                                        </DOMSymbolInstance>
+                                   </elements>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+                    <DOMLayer name="_0_BG" color="#9933CC" autoNamed="false">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements/>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+                    <DOMLayer name="_0_BG" color="#00FFFF" autoNamed="false">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements/>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+               </layers>
+          </DOMTimeline>
+     </timelines>
+     <scripts/>
+     <PrinterSettings platform="macintosh"/>
+     <publishHistory/>
+</DOMDocument>

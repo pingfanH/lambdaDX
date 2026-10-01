@@ -1,0 +1,564 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/page_song_select" itemID="6abeacec-000001f7" lastModified="1790881154" lastUniqueIdentifier="6">
+  <timeline>
+    <DOMTimeline name="page_song_select" currentFrame="24" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="r5" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="10" tweenType="motion" keyMode="17921">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" selected="true">
+                  <matrix>
+                    <Matrix tx="-178" ty="554"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="10" duration="14" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" centerPoint3DX="16" centerPoint3DY="587">
+                  <matrix>
+                    <Matrix tx="-178" ty="554"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="24" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" selected="true" centerPoint3DX="16" centerPoint3DY="577">
+                  <matrix>
+                    <Matrix tx="-178" ty="544"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="r4" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="8" tweenType="motion" keyMode="17921">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row">
+                  <matrix>
+                    <Matrix tx="-178" ty="478"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="8" duration="14" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" centerPoint3DX="16" centerPoint3DY="511">
+                  <matrix>
+                    <Matrix tx="-178" ty="478"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="22" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" centerPoint3DX="16" centerPoint3DY="501">
+                  <matrix>
+                    <Matrix tx="-178" ty="468"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="r3" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="6" tweenType="motion" keyMode="17921">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row">
+                  <matrix>
+                    <Matrix tx="-178" ty="402"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="6" duration="14" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" centerPoint3DX="16" centerPoint3DY="435">
+                  <matrix>
+                    <Matrix tx="-178" ty="402"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="20" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" centerPoint3DX="16" centerPoint3DY="425">
+                  <matrix>
+                    <Matrix tx="-178" ty="392"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="r2" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="4" tweenType="motion" keyMode="17921">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row">
+                  <matrix>
+                    <Matrix tx="-178" ty="326"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="4" duration="14" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" centerPoint3DX="16" centerPoint3DY="359">
+                  <matrix>
+                    <Matrix tx="-178" ty="326"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="18" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row" centerPoint3DX="16" centerPoint3DY="349">
+                  <matrix>
+                    <Matrix tx="-178" ty="316"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="r1" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="2" tweenType="motion" keyMode="17921">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row_hover">
+                  <matrix>
+                    <Matrix tx="-178" ty="250"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="2" duration="14" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row_hover" centerPoint3DX="16" centerPoint3DY="283">
+                  <matrix>
+                    <Matrix tx="-178" ty="250"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="16" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row_hover" centerPoint3DX="16" centerPoint3DY="273">
+                  <matrix>
+                    <Matrix tx="-178" ty="240"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="r0" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row_on">
+                  <matrix>
+                    <Matrix tx="-178" ty="174"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="1" duration="13" tweenType="motion" keyMode="17921">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row_on" centerPoint3DX="16" centerPoint3DY="207">
+                  <matrix>
+                    <Matrix tx="-178" ty="174"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                  <color>
+                    <Color alphaMultiplier="0"/>
+                  </color>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="14" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_song_row_on" centerPoint3DX="16" centerPoint3DY="197">
+                  <matrix>
+                    <Matrix tx="-178" ty="164"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="194" y="33"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="list_header" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="2" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#202022"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!0 1280|8400 1280!8400 1280|8400 3120!8400 3120|0 3120!0 3120|0 1280"/>
+                  </edges>
+                </DOMShape>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="30.2" height="58" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="22" ty="82"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>曲库</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="28" size="20" bitmapSize="400" face="PingFangSC-Regular" fillColor="#D6D6DA"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="28" size="20" bitmapSize="400" face="PingFangSC-Regular" fillColor="#D6D6DA"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="105.2" height="58" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="22" ty="100"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>选择一首歌开始</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="28" size="20" bitmapSize="400" face="PingFangSC-Regular" fillColor="#D6D6DA"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="28" size="20" bitmapSize="400" face="PingFangSC-Regular" fillColor="#D6D6DA"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="titles" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="2" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_topbar">
+                  <matrix>
+                    <Matrix tx="-640" ty="-32"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="640" y="32"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="detail" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="2" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_cover_placeholder">
+                  <matrix>
+                    <Matrix tx="470"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="150" y="150"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMStaticText fontRenderingMode="standard" width="124.35" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="502" ty="472"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>NOW SELECTING</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="60.2" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="442" ty="500"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>曲目标题</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="45.2" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="442" ty="534"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>艺术家</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText fontRenderingMode="standard" width="77.6" height="16.8" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="442" ty="562"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>谱师</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters> · </characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>描述</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="16.8" bitmapSize="240" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMSymbolInstance libraryItemName="UI/ui_level_pill">
+                  <matrix>
+                    <Matrix tx="431" ty="577"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="39" y="19"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_level_pill_on">
+                  <matrix>
+                    <Matrix tx="517" ty="577"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="39" y="19"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_level_pill">
+                  <matrix>
+                    <Matrix tx="603" ty="577"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="39" y="19"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_level_pill">
+                  <matrix>
+                    <Matrix tx="689" ty="577"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="39" y="19"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMStaticText fontRenderingMode="standard" width="146.7" height="18.2" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="442" ty="654"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>128 notes · 180 BPM</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="18.2" size="13" bitmapSize="260" face="PingFangSC-Regular" fillColor="#9A9AA2"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_primary">
+                  <matrix>
+                    <Matrix tx="390" ty="659"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="watermark" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="2" keyMode="9728">
+              <elements>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="57.7" height="547.6" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="18" ty="602"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>SELECT</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="89.6" size="64" bitmapSize="1280" face="PingFangSC-Regular" fillColor="#2B2B2F"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="bg" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" duration="2" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#171719"/>
+                    </FillStyle>
+                    <FillStyle index="2">
+                      <SolidColor color="#202022"/>
+                    </FillStyle>
+                    <FillStyle index="3">
+                      <SolidColor color="#3A3A40"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!0 1280|0 0!0 0|25600 0!25600 0|25600 15200!25600 15200|8400 15200"/>
+                    <Edge fillStyle0="1" fillStyle1="3" edges="!8380 1280|8400 1280!8400 1280|8400 15200"/>
+                    <Edge fillStyle1="3" edges="!8400 15200|8380 15200"/>
+                    <Edge fillStyle0="1" fillStyle1="2" edges="!0 1280|8380 1280"/>
+                    <Edge fillStyle1="2" edges="!8380 15200|0 15200!0 15200|0 1280"/>
+                    <Edge fillStyle0="2" fillStyle1="3" edges="!8380 15200|8380 1280"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" duration="2" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

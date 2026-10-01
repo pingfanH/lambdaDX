@@ -1,0 +1,36 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/ui_watermark" itemID="6abeaa3f-00000144" lastModified="1790880722">
+  <timeline>
+    <DOMTimeline name="ui_watermark" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="text" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="696" height="89.6" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="18" ty="122"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>SELECT</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="89.6" size="64" bitmapSize="1280" face="PingFangSC-Regular" fillColor="#2B2B2F"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

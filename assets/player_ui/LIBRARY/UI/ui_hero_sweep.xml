@@ -1,0 +1,38 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/ui_hero_sweep" itemID="6abeac37-000001d8" lastModified="1790880823">
+  <timeline>
+    <DOMTimeline name="ui_hero_sweep" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="arc" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" weight="2" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#52D6E8"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge strokeStyle="1" edges="!2182 -1259|2264 -1104!2089 -1409|2182 -1259!1985 -1551|2089 -1409!1872 -1686|1985 -1551!1750 -1812|1872 -1686!2336 -944|2396 -778!2506 -263|2518 -87!2481 -437|2506 -263!2445 -609|2481 -437!2396 -778|2445 -609!2264 -1104|2336 -944!1619
+ -1930|1750 -1812!2481 437|2445 609!2506 263|2481 437!2518 87|2506 263!2396 778|2336 944!2264 1104|2182 1259!2336 944|2264 1104!2445 609|2396 778!2518 -87|2518 87"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

@@ -1,0 +1,211 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/page_gameplay_hud" itemID="6abeaa61-00000191" lastModified="1790880354">
+  <timeline>
+    <DOMTimeline name="page_gameplay_hud" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="hint" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="560" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="702" ty="734"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>SPACE </characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>暂停</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters> · R </characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>重播</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters> · A </characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>自动</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters> · ←/→ </characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>快退</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>/</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>快进</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters> · ESC </characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters>暂停</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="right" aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="controls" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_secondary">
+                  <matrix>
+                    <Matrix tx="-74" ty="-10"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_progress">
+                  <matrix>
+                    <Matrix tx="300" ty="21"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="120" y="8"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_quiet">
+                  <matrix>
+                    <Matrix tx="810" ty="-6"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="UI/ui_btn_primary">
+                  <matrix>
+                    <Matrix tx="920" ty="-6"/>
+                  </matrix>
+                  <transformationPoint>
+                    <Point x="90" y="23"/>
+                  </transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="title" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="496" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="124" ty="16"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>曲目标题</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="496" height="15.4" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="124" ty="40"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>Lv.12 · 1.0x</characters>
+                      <textAttrs>
+                        <DOMTextAttrs aliasText="false" autoKern="false" lineHeight="15.4" size="11" bitmapSize="220" face="PingFangSC-Regular" fillColor="#6E6E78"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="bar" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#202022"/>
+                    </FillStyle>
+                    <FillStyle index="2">
+                      <SolidColor color="#3A3A40"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="2" edges="!25600 1300|25600 1320!25600 1320|0 1320!0 1320|0 1300"/>
+                    <Edge fillStyle1="1" edges="!0 1300|0 0!0 0|25600 0!25600 0|25600 1300"/>
+                    <Edge fillStyle0="1" fillStyle1="2" edges="!0 1300|25600 1300"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

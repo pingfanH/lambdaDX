@@ -1,0 +1,82 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/ui_toast" itemID="6abeaa3f-00000146" lastModified="1790880319">
+  <timeline>
+    <DOMTimeline name="ui_toast" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="msg" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMStaticText selected="true" fontRenderingMode="standard" width="268" height="18.2" isSelectable="false">
+                  <matrix>
+                    <Matrix tx="16" ty="10"/>
+                  </matrix>
+                  <textRuns>
+                    <DOMTextRun>
+                      <characters>提示信息</characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="18.2" size="13" bitmapSize="260" face="PingFangSC-Regular" fillColor="#FF3B50"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                    <DOMTextRun>
+                      <characters></characters>
+                      <textAttrs>
+                        <DOMTextAttrs alignment="center" aliasText="false" autoKern="false" lineHeight="18.2" size="13" bitmapSize="260" face="PingFangSC-Regular" fillColor="#FF3B50"/>
+                      </textAttrs>
+                    </DOMTextRun>
+                  </textRuns>
+                </DOMStaticText>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="border" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <strokes>
+                    <StrokeStyle index="1">
+                      <SolidStroke scaleMode="normal" pixelHinting="true" sharpCorners="true">
+                        <fill>
+                          <SolidColor color="#FF3B50"/>
+                        </fill>
+                      </SolidStroke>
+                    </StrokeStyle>
+                  </strokes>
+                  <edges>
+                    <Edge strokeStyle="1" edges="!5840 0[6000 0 6000 160!6000 160|6000 480!6000 480[6000 640 5840 640!160 640[0 640 0 480!0 480|0 160!0 160[0 0 160 0!160 0|5840 0!5840 640|160 640"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="bg" color="#9933CC" locked="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape>
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#242427"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!160 0|5840 0!5840 0[6000 0 6000 160!6000 160|6000 480!6000 480[6000 640 5840 640!5840 640|160 640!160 640[0 640 0 480!0 480|0 160!0 160[0 0 160 0"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+        <DOMLayer name="Layer_1" color="#00FFFF" locked="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements/>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>
