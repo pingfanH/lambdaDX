@@ -94,11 +94,37 @@ pub fn draw(
         // per runtime arc into the sub-slide's segment ranges and stored in
         // `slide_progress`. Without an engine the trail is fully drawn.
         let core_driven = app.use_core();
-        let seg_frac: &[f32] = if core_driven {
-            app.slide_progress
-                .get(&(note.id, si))
-                .map(|progress| progress.seg_frac.as_slice())
-                .unwrap_or(&[])
+        let progress = if core_driven {
+            app.slide_progress.get(&(note.id, si))
+        } else {
+            None
+        };
+        // Wifi hides each of its three tracks independently: hand `draw_slide`
+        // the per-track fractions (falling back to the sub-slide's overall one).
+        let mut track_fracs = [0.0_f32; 3];
+        let mut track_bars: [Option<usize>; 3] = [None; 3];
+        let seg_frac: &[f32] = if let Some(progress) = progress {
+            let is_wifi = sl
+                .segments
+                .iter()
+                .any(|s| matches!(s.shape, SlideShape::Wifi));
+            if is_wifi {
+                // Overall fraction carries `HideAllSlideBars` (all tracks done).
+                let overall = progress.seg_frac.first().copied().unwrap_or(0.0);
+                track_fracs = std::array::from_fn(|j| {
+                    progress
+                        .track_frac
+                        .get(&(j as u64))
+                        .copied()
+                        .unwrap_or(0.0)
+                        .max(overall)
+                });
+                track_bars =
+                    std::array::from_fn(|j| progress.track_hidden_until.get(&(j as u64)).copied());
+                &track_fracs
+            } else {
+                progress.seg_frac.as_slice()
+            }
         } else {
             &[]
         };
@@ -125,6 +151,7 @@ pub fn draw(
             app.note_speed,
             params::slide_fade_in(),
             seg_frac,
+            track_bars,
             core_driven,
             layer,
         );

@@ -18,6 +18,12 @@ use crate::player::video::VideoBg;
 #[derive(Debug, Clone, Default)]
 pub struct SlideProgress {
     pub seg_frac: Vec<f32>,
+    /// Wifi per-track consumed fractions (track index → 0..1), so the three
+    /// tracks hide independently.
+    pub track_frac: HashMap<u64, f32>,
+    /// Wifi per-track explicit trail-bar cutoffs (`HideSlideTrackBars`), which
+    /// take precedence over `track_frac`.
+    pub track_hidden_until: HashMap<u64, usize>,
 }
 
 /// Seconds a slide `just` overlay stays on screen after its judgment.
@@ -875,6 +881,8 @@ impl PadPreviewState {
                 key,
                 SlideProgress {
                     seg_frac: vec![1.0; parts.max(1)],
+                    track_frac: HashMap::new(),
+                    track_hidden_until: HashMap::new(),
                 },
             );
         }
@@ -901,7 +909,27 @@ impl PadPreviewState {
                 .entry((note_id, slide_idx))
                 .or_insert_with(|| SlideProgress {
                     seg_frac: vec![0.0; seg_count],
+                    track_frac: HashMap::new(),
+                    track_hidden_until: HashMap::new(),
                 });
+            // Wifi per-track progress is kept separate so each track consumes on
+            // its own; everything else slots into the sub-slide's segment range.
+            if let Some(track) = update.track_index {
+                if let Some(bar) = update.hidden_until_bar {
+                    let slot = progress.track_hidden_until.entry(track).or_insert(0);
+                    *slot = (*slot).max(bar);
+                }
+                let slot = progress.track_frac.entry(track).or_insert(0.0);
+                *slot = slot.max(update.frac);
+                // Also fold into `seg_frac` so non-wifi slides that emit
+                // per-track progress (conn-slides) keep consuming as before.
+                if progress.seg_frac.len() < seg_count {
+                    progress.seg_frac.resize(seg_count, 0.0);
+                }
+                let slot = &mut progress.seg_frac[seg_idx];
+                *slot = slot.max(update.frac);
+                continue;
+            }
             if progress.seg_frac.len() < seg_count {
                 progress.seg_frac.resize(seg_count, 0.0);
             }
@@ -971,6 +999,8 @@ impl PadPreviewState {
             .entry((note_id, slide_idx))
             .or_insert_with(|| SlideProgress {
                 seg_frac: vec![0.0; seg_count],
+                track_frac: HashMap::new(),
+                track_hidden_until: HashMap::new(),
             });
         if progress.seg_frac.len() < seg_count {
             progress.seg_frac.resize(seg_count, 0.0);

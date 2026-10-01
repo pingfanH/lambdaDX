@@ -299,55 +299,82 @@ impl JudgeEngine {
     /// each arc's fraction into that arc's segment range of the chart sub-slide,
     /// so a later arc can never be hidden by an earlier arc's progress.
     pub fn slide_progress_updates(&self, commands: &[RenderCommand]) -> Vec<SlideArcProgress> {
-        let mut by_slide: HashMap<usize, f32> = HashMap::new();
+        // Keyed by `(runtime arc, track)`: wifi's three tracks report progress
+        // independently and must not be merged into one cutoff.
+        let mut by_arc: HashMap<(usize, Option<u64>), SlideArcProgress> = HashMap::new();
         for command in commands {
             let Some(update) = self.slide_progress_update(command) else {
                 continue;
             };
-            by_slide
-                .entry(update.runtime_slide_index)
-                .and_modify(|frac| *frac = frac.max(update.frac))
-                .or_insert(update.frac);
+            let entry = by_arc
+                .entry((update.runtime_slide_index, update.track_index))
+                .or_insert(SlideArcProgress {
+                    runtime_slide_index: update.runtime_slide_index,
+                    track_index: update.track_index,
+                    frac: 0.0,
+                    hidden_until_bar: None,
+                });
+            entry.frac = entry.frac.max(update.frac);
+            entry.hidden_until_bar = match (entry.hidden_until_bar, update.hidden_until_bar) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            };
         }
 
-        let mut updates: Vec<_> = by_slide
-            .into_iter()
-            .map(|(runtime_slide_index, frac)| SlideArcProgress {
-                runtime_slide_index,
-                frac,
-            })
-            .collect();
-        updates.sort_by_key(|update| update.runtime_slide_index);
+        let mut updates: Vec<_> = by_arc.into_values().collect();
+        updates.sort_by_key(|update| (update.runtime_slide_index, update.track_index));
         updates
     }
 
     fn slide_progress_update(&self, command: &RenderCommand) -> Option<SlideArcProgress> {
-        let (note_index, frac) = match command {
+        let (note_index, track_index, frac, hidden_until_bar) = match command {
             // Per-arc judge progress is the authoritative signal: `remaining`
             // counts down the arc's own judge queue (0 ⇒ arc finished).
             RenderCommand::UpdateSlideProgress {
                 note_index,
                 remaining,
-            } => (*note_index, self.frac_from_remaining(*note_index, *remaining)?),
+            } => (
+                *note_index,
+                None,
+                self.frac_from_remaining(*note_index, *remaining)?,
+                None,
+            ),
+            // Wifi reports one of these per track; keep the track identity. Its
+            // `remaining` is in per-track units, so it is only a fallback — the
+            // authoritative cutoff is `HideSlideTrackBars` below.
             RenderCommand::UpdateSlideTrackProgress {
                 note_index,
+                track_index,
                 remaining,
-                ..
-            } => (*note_index, self.frac_from_remaining(*note_index, *remaining)?),
+            } => (
+                *note_index,
+                Some(*track_index),
+                self.frac_from_remaining(*note_index, *remaining)?,
+                None,
+            ),
             // A miss hides the whole arc.
-            RenderCommand::HideAllSlideBars { note_index } => (*note_index, 1.0),
-            // NOTE: `HideSlideBars.endIndex` is in trail-tile units, not judge
-            // queue units (it can exceed `total_judge_queue_len`), so it must not
-            // be normalised by the queue length — ignore it and let the progress
-            // commands drive consumption.
+            RenderCommand::HideAllSlideBars { note_index } => (*note_index, None, 1.0, None),
+            // `HideSlideBars`/`HideSlideTrackBars.endIndex` is in trail-tile
+            // units (0..sprite count), which is exactly what the renderer hides.
             RenderCommand::HideSlideBars { .. } => return None,
-            RenderCommand::HideSlideTrackBars { .. } => return None,
+            RenderCommand::HideSlideTrackBars {
+                note_index,
+                track_index,
+                end_index,
+            } => (
+                *note_index,
+                Some(*track_index),
+                0.0,
+                Some(*end_index as usize),
+            ),
             RenderCommand::ShowJudgeResult { .. } => return None,
         };
         let runtime_slide_index = self.runtime_slide_index(note_index)?;
         Some(SlideArcProgress {
             runtime_slide_index,
+            track_index,
             frac: frac.clamp(0.0, 1.0),
+            hidden_until_bar,
         })
     }
 
@@ -370,7 +397,13 @@ impl JudgeEngine {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SlideArcProgress {
     pub runtime_slide_index: usize,
+    /// Wifi track this progress belongs to, if the core reported a per-track
+    /// update (`UpdateSlideTrackProgress` / `HideSlideTrackBars`).
+    pub track_index: Option<u64>,
+    /// Consumed fraction from the `*Progress` commands (0..1).
     pub frac: f32,
+    /// Explicit trail-bar cutoff from `HideSlideTrackBars` (0..sprite count).
+    pub hidden_until_bar: Option<usize>,
 }
 
 fn runtime_slide_bindings(
@@ -1127,6 +1160,37 @@ mod tests {
         assert!(max_combo > 0, "autoplay tactic should build a combo");
         assert!(total_dx > 0, "chart should have a DX score total");
         assert!(max_dx > 0, "autoplay should earn DX score");
+    }
+
+    /// Wifi's three tracks each report an explicit bar cutoff
+    /// (`HideSlideTrackBars`), kept per track so they consume independently.
+    #[test]
+    fn wifi_track_hide_bars_are_per_track() {
+        let text = "&title=D\n&inote_1=(120){4}1w5[4:1],E\n";
+        let mut engine = JudgeEngine::load(text, 1).expect("engine");
+        let tactic = engine.default_tactic().expect("tactic");
+        let mut cursor = 0usize;
+        let mut tracks: std::collections::BTreeSet<Option<u64>> = Default::default();
+        let mut max_bar = 0usize;
+        let mut t = 0.0_f32;
+        while t < 6.0 {
+            t += 0.02;
+            let now_us = (t * 1e6) as i64;
+            let mut events = Vec::new();
+            while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= now_us {
+                events.push(tactic[cursor].clone());
+                cursor += 1;
+            }
+            let result = engine.step(t, events).expect("step");
+            for u in engine.slide_progress_updates(&result.render_commands) {
+                if let Some(bar) = u.hidden_until_bar {
+                    tracks.insert(u.track_index);
+                    max_bar = max_bar.max(bar);
+                }
+            }
+        }
+        assert_eq!(tracks.len(), 3, "all three wifi tracks report a bar cutoff");
+        assert!(max_bar > 0);
     }
 }
 

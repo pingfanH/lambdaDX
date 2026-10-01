@@ -393,6 +393,9 @@ pub fn draw_slide(
     base_speed: f32,
     slide_fade_in: f32,
     seg_frac: &[f32],
+    // Wifi per-track explicit trail-bar cutoffs (`HideSlideTrackBars`); takes
+    // precedence over the fraction-derived cutoff.
+    track_bars: [Option<usize>; 3],
     core_driven: bool,
     layer: SlideLayer,
 ) {
@@ -568,27 +571,47 @@ pub fn draw_slide(
                 };
 
                 let sprite_count = 11;
+                // lnmai-core's wifi bars are in **arrow** units (the wifi slide
+                // table's `arrowProgressWhenFinished` runs 0..=7, i.e. 8 arrows),
+                // while this renderer draws `sprite_count` tiles — rescale so the
+                // final arrow (end=7) hides the whole track.
+                const WIFI_ARROWS: f32 = 8.0;
+                let to_sprite = |bar: usize| -> usize {
+                    let frac = (bar as f32 + 1.0) / WIFI_ARROWS;
+                    ((frac * sprite_count as f32).round() as usize).min(sprite_count)
+                };
                 // Cumulative consumed fraction across the sub-slide's segments.
                 let overall_frac = if seg_frac.is_empty() {
                     0.0
                 } else {
                     seg_frac.iter().sum::<f32>() / seg_frac.len() as f32
                 };
-                // Give wifi a judge segmentation too: sample its middle track
-                // and split the sprites across the sensor areas it crosses
+                // Each wifi track consumes on its own: sample that track and
+                // split its sprites across the sensor areas it crosses
                 // (first/last fixed, middle even), matching straight slides.
-                let mid_path = [start_pos, targets[1]];
-                let mid_seg = segmentation::build(
-                    &mid_path,
-                    params::slide_tile_spacing() * scale,
-                    params::slide_head_gap() * scale,
-                    params::slide_tail_gap() * scale,
-                    svg,
-                    pad,
-                );
-                let mid_areas = mid_seg.judge_segments.len().max(1);
-                let mid_passed = (overall_frac.clamp(0.0, 1.0) * mid_areas as f32).round() as usize;
-                let command_hidden_until = area_bar_boundary(sprite_count, mid_areas, mid_passed);
+                let track_cutoffs: [usize; 3] = std::array::from_fn(|j| {
+                    // Core's explicit per-track bar cutoff wins (pure's signal);
+                    // otherwise derive one from the track's consumed fraction.
+                    if let Some(bar) = track_bars[j] {
+                        return to_sprite(bar);
+                    }
+                    let frac = seg_frac.get(j).copied().unwrap_or(overall_frac);
+                    if frac <= 0.0 {
+                        return 0;
+                    }
+                    let track_path = [start_pos, targets[j]];
+                    let track_seg = segmentation::build(
+                        &track_path,
+                        params::slide_tile_spacing() * scale,
+                        params::slide_head_gap() * scale,
+                        params::slide_tail_gap() * scale,
+                        svg,
+                        pad,
+                    );
+                    let areas = track_seg.judge_segments.len().max(1);
+                    let passed = (frac.clamp(0.0, 1.0) * areas as f32).round() as usize;
+                    area_bar_boundary(sprite_count, areas, passed)
+                });
                 // Guide orientation = the lane's flight direction (constant), so
                 // the guide does NOT spin with the star.
                 let guide_ang = -std::f32::consts::FRAC_PI_2
@@ -608,7 +631,7 @@ pub fn draw_slide(
 
                     // ── Tiles (only middle line gets wifi textures) ──
                     for i in 0..sprite_count {
-                        if i < command_hidden_until {
+                        if i < track_cutoffs[j] {
                             continue;
                         }
                         let dist = i as f32 * step_size;

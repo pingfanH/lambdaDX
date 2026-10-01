@@ -45,7 +45,11 @@ impl JudgeEngine {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SlideArcProgress {
     pub runtime_slide_index: usize,
+    /// Wifi track this progress belongs to, if any.
+    pub track_index: Option<u64>,
     pub frac: f32,
+    /// Explicit wifi trail-bar cutoff (`HideSlideTrackBars`), if any.
+    pub hidden_until_bar: Option<usize>,
 }
 
 /// Whether the `MAI2_DEBUG_SLIDE` diagnostic trace is enabled (never here).
