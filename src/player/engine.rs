@@ -513,6 +513,9 @@ fn sensor_area_for_button(zone: ButtonZone) -> SensorArea {
 /// expires the earlier arc before its input is applied (Miss). When a frame's
 /// events span more than a few milliseconds they are therefore stepped one at a
 /// time at their own timestamps, which keeps the clock aligned with each arc.
+///
+/// Diagnostic overrides: `MAI2_DEBUG_FORCE_BATCH` treats every frame as normal
+/// (batched), `MAI2_DEBUG_FORCE_PEREVENT` steps every frame per event.
 pub fn step_judge_engine(app: &mut PadPreviewState) {
     // `no_core`: bypass lnmai-core entirely (pre-lnmai autoplay + star motion).
     if !app.use_core() {
@@ -547,9 +550,25 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
 }
 
 /// Events in one frame that span at most this many microseconds are treated as
-/// one batch. Beyond it the frame contains a sub-frame slide arc and is stepped
-/// per event. See [`step_judge_engine`].
+/// one batch ("normal frame"). Beyond it the frame contains a sub-frame slide
+/// arc and is stepped per event. See [`step_judge_engine`].
 const FRAME_INPUT_BATCH_SPAN_US: i64 = 5_000;
+
+/// `MAI2_DEBUG_FORCE_BATCH`: force **every** frame to be treated as a normal
+/// (batched) frame, even ones holding a sub-frame arc.
+fn force_batch() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MAI2_DEBUG_FORCE_BATCH").is_some())
+}
+
+/// `MAI2_DEBUG_FORCE_PEREVENT`: force **every** frame to be stepped per event,
+/// even ordinary ones.
+fn force_per_event() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MAI2_DEBUG_FORCE_PEREVENT").is_some())
+}
 
 fn step_engine_events(
     engine: &mut JudgeEngine,
@@ -560,8 +579,15 @@ fn step_engine_events(
         return vec![engine.step(now, Vec::new())];
     }
     events.sort_by_key(timed_input_tp);
-    let span = timed_input_tp(events.last().unwrap()) - timed_input_tp(&events[0]);
-    if span <= FRAME_INPUT_BATCH_SPAN_US {
+    let per_event = if force_per_event() {
+        true
+    } else if force_batch() {
+        false
+    } else {
+        let span = timed_input_tp(events.last().unwrap()) - timed_input_tp(&events[0]);
+        span > FRAME_INPUT_BATCH_SPAN_US
+    };
+    if !per_event {
         return vec![engine.step(now, events)];
     }
     let mut results = Vec::with_capacity(events.len() + 1);
