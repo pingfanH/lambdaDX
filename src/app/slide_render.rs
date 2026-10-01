@@ -571,15 +571,10 @@ pub fn draw_slide(
                 };
 
                 let sprite_count = 11;
-                // lnmai-core's wifi bars are in **arrow** units (the wifi slide
-                // table's `arrowProgressWhenFinished` runs 0..=7, i.e. 8 arrows),
-                // while this renderer draws `sprite_count` tiles — rescale so the
-                // final arrow (end=7) hides the whole track.
+                // lnmai-core's wifi cutoff is in arrow units (0..=7), while
+                // the renderer's visual cutoff is assigned by judge area like
+                // an ordinary slide. Convert arrows to completed areas first.
                 const WIFI_ARROWS: f32 = 8.0;
-                let to_sprite = |bar: usize| -> usize {
-                    let frac = (bar as f32 + 1.0) / WIFI_ARROWS;
-                    ((frac * sprite_count as f32).round() as usize).min(sprite_count)
-                };
                 // Cumulative consumed fraction across the sub-slide's segments.
                 let overall_frac = if seg_frac.is_empty() {
                     0.0
@@ -593,7 +588,19 @@ pub fn draw_slide(
                     // Core's explicit per-track bar cutoff wins (pure's signal);
                     // otherwise derive one from the track's consumed fraction.
                     if let Some(bar) = track_bars[j] {
-                        return to_sprite(bar);
+                        let track_path = [start_pos, targets[j]];
+                        let track_seg = segmentation::build(
+                            &track_path,
+                            params::slide_tile_spacing() * scale,
+                            params::slide_head_gap() * scale,
+                            params::slide_tail_gap() * scale,
+                            svg,
+                            pad,
+                        );
+                        let areas = track_seg.judge_segments.len().max(1);
+                        let arrow_frac = ((bar as f32 + 1.0) / WIFI_ARROWS).clamp(0.0, 1.0);
+                        let passed = (arrow_frac * areas as f32).ceil() as usize;
+                        return area_bar_boundary(sprite_count, areas, passed);
                     }
                     let frac = seg_frac.get(j).copied().unwrap_or(overall_frac);
                     if frac <= 0.0 {

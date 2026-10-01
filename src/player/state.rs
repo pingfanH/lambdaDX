@@ -135,10 +135,6 @@ pub struct PadPreviewState {
     /// `Skins/classic/slideok/*` sprites, keyed by file stem
     /// (e.g. `just_curv_r_p`). Empty when the skin lacks the folder.
     pub slideok_tex: HashMap<String, Texture2D>,
-    /// Sub-slides whose `PlaySlideCue` has already fired (keyed by `(note_id,
-    /// slide_idx)`), so the slide sound plays once and the first area is seeded
-    /// exactly once.
-    pub slide_cue_played: HashSet<(u64, usize)>,
 
     // ── Pad interaction ──────────────────────────────────────────────
     pub pad_svg: Option<PadSvgDef>,
@@ -298,7 +294,6 @@ impl PadPreviewState {
             slide_progress: HashMap::new(),
             slide_judge: HashMap::new(),
             slideok_tex: HashMap::new(),
-            slide_cue_played: HashSet::new(),
             pad_svg: None,
             active_pointer_zones: HashMap::new(),
             prev_pointer_pos: HashMap::new(),
@@ -451,7 +446,6 @@ impl PadPreviewState {
         self.prev_pointer_pos.clear();
         self.slide_progress.clear();
         self.slide_judge.clear();
-        self.slide_cue_played.clear();
         // Restarting from the top rebuilds the core session so combo/DX reset.
         if time <= 1e-4 {
             self.reset_engine();
@@ -554,7 +548,10 @@ impl PadPreviewState {
 
     /// Play a cue for every tap/hold head/hold tail crossed this frame.
     pub fn tick_cues(&mut self) {
-        if self.mode != Mode::Playing || self.playback_pending {
+        // In core mode, all judgment and slide audio comes from lnmai's
+        // AudioCommand stream. The chart-time cue fallback is only for the
+        // no-core preview path.
+        if self.mode != Mode::Playing || self.playback_pending || self.use_core() {
             return;
         }
         let t = self.song_time();
@@ -563,15 +560,12 @@ impl PadPreviewState {
             .as_mut()
             .map(|track| track.take_due_cues(t))
             .unwrap_or_default();
-        let core = self.use_core();
         for ev in due {
             // The answer cue plays on the note timeline regardless of a hit.
             if params::answer_sfx() {
                 self.play_sfx(self.answer_sfx.as_ref());
             }
-            // The per-kind hit SFX is only the sound source without a core; with
-            // a core it comes from actual hit judgments (`play_audio_command`).
-            if !core && params::hit_sfx() {
+            if params::hit_sfx() {
                 let buf = self.cue_sfx(ev.cue, ev.is_break, ev.is_ex);
                 self.play_sfx(buf);
             }
@@ -721,7 +715,6 @@ impl PadPreviewState {
         self.core_score = None;
         self.slide_progress.clear();
         self.slide_judge.clear();
-        self.slide_cue_played.clear();
         self.simai_source = Some(simai_text.to_string());
         self.simai_level = level_index;
         self.simai_fragments =
@@ -748,7 +741,6 @@ impl PadPreviewState {
         self.core_score = None;
         self.slide_progress.clear();
         self.slide_judge.clear();
-        self.slide_cue_played.clear();
         self.simai_source = None;
         self.simai_level = 0;
         self.simai_fragments.clear();
@@ -992,49 +984,6 @@ impl PadPreviewState {
                 }
             }
         }
-    }
-
-    /// Handle lnmai-core's first `PlaySlideCue` for a sub-slide: returns `true`
-    /// the first time (so the caller plays the cue) and seeds the first judge
-    /// area as passed, covering the case where the core never pushes the A1
-    /// progress update.
-    pub fn on_slide_cue(&mut self, note_index: u64) -> bool {
-        let Some(rt) = self
-            .judge_engine
-            .as_ref()
-            .and_then(|engine| engine.runtime_slide_index(note_index))
-        else {
-            return true;
-        };
-        let Some((note_id, slide_idx, seg_idx, seg_count)) =
-            crate::player::engine::chart_slide_position(&self.chart, rt)
-        else {
-            return true;
-        };
-        let meta = self
-            .judge_engine
-            .as_ref()
-            .and_then(|engine| engine.slide_queue_total(rt));
-        let denom = meta
-            .map(|t| if t.2 > 0 { t.2 } else { t.0 })
-            .unwrap_or(0);
-        if !self.slide_cue_played.insert((note_id, slide_idx)) {
-            return false;
-        }
-        let frac = if denom > 0 { 1.0 / denom as f32 } else { 0.0 };
-        let progress = self
-            .slide_progress
-            .entry((note_id, slide_idx))
-            .or_insert_with(|| SlideProgress {
-                seg_frac: vec![0.0; seg_count],
-                track_frac: HashMap::new(),
-                track_hidden_until: HashMap::new(),
-            });
-        if progress.seg_frac.len() < seg_count {
-            progress.seg_frac.resize(seg_count, 0.0);
-        }
-        progress.seg_frac[seg_idx] = progress.seg_frac[seg_idx].max(frac);
-        true
     }
 
     /// Queue an lnmai-core sensor press for `zone` at microsecond time `tp`.

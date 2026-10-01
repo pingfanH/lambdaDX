@@ -42,7 +42,7 @@ const SFX_TABLE: &[(SfxKind, SkinVariant, SfxRef)] = &[
     (SfxKind::Hold,       SkinVariant::Each,   |a| a.sfx_hold.as_ref()),
     (SfxKind::Hold,       SkinVariant::Break,  |a| a.sfx_break.as_ref()),
 
-    (SfxKind::SlideCue,   SkinVariant::Normal, |a| a.sfx_tap.as_ref()),
+    (SfxKind::SlideCue,   SkinVariant::Normal, |a| a.sfx_slide.as_ref()),
     (SfxKind::SlideCue,   SkinVariant::Break,  |a| a.sfx_slide_break_start.as_ref()),
 
     (SfxKind::SlideJudge, SkinVariant::Normal, |a| a.sfx_slide.as_ref()),

@@ -925,15 +925,11 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
             }
         }
         AudioCommand::PlaySlideCue {
-            note_index,
             is_break,
             ..
         } => {
-            // Play the slide cue once per sub-slide, and use it to seed the
-            // first judge area (the core does not always push A1's progress).
-            if !app.on_slide_cue(*note_index) {
-                return;
-            }
+            // The core explicitly requested the slide cue; do not synthesize
+            // any local progress or deduplicate this command.
             hit = sfx::select(
                 app,
                 SfxKind::SlideCue,
