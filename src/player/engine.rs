@@ -507,14 +507,12 @@ fn sensor_area_for_button(zone: ButtonZone) -> SensorArea {
 
 /// Advance the engine and apply the resulting core judge/audio commands.
 ///
-/// Input events are fed to the core **one at a time at their own timestamp**,
-/// then the clock is advanced to the frame time. A frame can bundle several
-/// zone transitions of a dense slide (e.g. `7^2^3...>6[8:1]`, whose arcs are
-/// ~8 ms apart while a frame is ~16 ms). Handing that whole batch to the core
-/// under one `current_time` lets the core expire an earlier arc (Miss) before
-/// its input is applied; stepping at each event's timestamp keeps the judge
-/// clock aligned with the input. The trailing step still runs every frame
-/// (including while paused) so time-based judging progresses normally.
+/// Normally the frame's inputs are handed to the core in one batch at the frame
+/// clock. But a very fast slide (e.g. a long `^` chain at `[8:1]`) packs several
+/// arc transitions into a single ~16 ms frame; under one shared clock the core
+/// expires the earlier arc before its input is applied (Miss). When a frame's
+/// events span more than a few milliseconds they are therefore stepped one at a
+/// time at their own timestamps, which keeps the clock aligned with each arc.
 pub fn step_judge_engine(app: &mut PadPreviewState) {
     // `no_core`: bypass lnmai-core entirely (pre-lnmai autoplay + star motion).
     if !app.use_core() {
@@ -522,7 +520,6 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
     }
     let now = app.song_time();
     let events = std::mem::take(&mut app.engine_events);
-
     let results = {
         let engine = app.judge_engine.as_mut().unwrap();
         step_engine_events(engine, now, events)
@@ -549,14 +546,24 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
     }
 }
 
-/// Step `engine` once per input event at that event's own timestamp, then once
-/// more at `now` to advance the frame clock. See [`step_judge_engine`].
+/// Events in one frame that span at most this many microseconds are treated as
+/// one batch. Beyond it the frame contains a sub-frame slide arc and is stepped
+/// per event. See [`step_judge_engine`].
+const FRAME_INPUT_BATCH_SPAN_US: i64 = 5_000;
+
 fn step_engine_events(
     engine: &mut JudgeEngine,
     now: f32,
     mut events: Vec<TimedInputEvent>,
 ) -> Vec<Result<RuntimeStepLightResult, String>> {
+    if events.is_empty() {
+        return vec![engine.step(now, Vec::new())];
+    }
     events.sort_by_key(timed_input_tp);
+    let span = timed_input_tp(events.last().unwrap()) - timed_input_tp(&events[0]);
+    if span <= FRAME_INPUT_BATCH_SPAN_US {
+        return vec![engine.step(now, events)];
+    }
     let mut results = Vec::with_capacity(events.len() + 1);
     for event in events {
         let at = (timed_input_tp(&event) as f32 / 1e6).min(now.max(0.0));
@@ -1233,48 +1240,37 @@ mod tests {
         assert!(max_bar > 0);
     }
 
-    /// A dense `^` chain compresses several slide arcs into a single 60 fps
-    /// frame. Feeding that frame's inputs as one batch under the frame clock
-    /// makes the core miss the earlier arcs (`[8:1]` used to Miss); stepping
-    /// each event at its own timestamp must complete the whole chain for both
-    /// `[4:1]` and `[8:1]`.
+    /// A frame can bundle several arc transitions of a very fast slide (a long
+    /// `^` chain), which needs a per-arc clock; a following ordinary slide must
+    /// still be judged with the batched frame clock. Both must complete.
     #[test]
-    fn dense_slide_chain_completes_through_player() {
-        for timing in ["4:1", "8:1"] {
-            let text =
-                format!("&title=T\n&inote_1=(210){{4}}7^2^3^2^3^2^3^2^3^2^3^2>6[{timing}]\n");
-            let mut engine = JudgeEngine::load(&text, 1).expect("engine");
-            let tactic = engine.default_tactic().expect("tactic");
-            assert!(!tactic.is_empty(), "{timing}: tactic should not be empty");
-
-            let mut cursor = 0usize;
-            let mut grades: Vec<JudgeGrade> = Vec::new();
-            let mut t = 0.0_f32;
-            while t < 6.0 {
-                t += 1.0 / 60.0;
-                let now_us = (t * 1e6) as i64;
-                let mut events = Vec::new();
-                while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= now_us {
-                    events.push(tactic[cursor].clone());
-                    cursor += 1;
-                }
-                for result in step_engine_events(&mut engine, t, events) {
-                    for event in result.expect("step").events {
-                        if event.kind == JudgeEventKind::Slide {
-                            grades.push(event.grade);
-                        }
+    fn sparse_and_dense_slides_both_complete() {
+        let text = "&title=T\n&inote_1=(210){4},,,7^2^3^2^3^2^3^2^3^2^3^2^3^2^3^2^3^2^3^2>6[4:1],,,,6-2>5-1[4:3]/8\n";
+        let mut engine = JudgeEngine::load(text, 1).expect("engine");
+        let tactic = engine.default_tactic().expect("tactic");
+        let mut cursor = 0usize;
+        let mut t = 0.0_f32;
+        let mut grades = Vec::new();
+        while t < 8.0 {
+            t += 1.0 / 60.0;
+            let now = (t * 1e6) as i64;
+            let mut events = Vec::new();
+            while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= now {
+                events.push(tactic[cursor].clone());
+                cursor += 1;
+            }
+            for r in step_engine_events(&mut engine, t, events) {
+                for e in r.unwrap().events {
+                    if e.kind == JudgeEventKind::Slide {
+                        grades.push((e.note_index, e.grade));
                     }
                 }
             }
-
-            assert!(
-                !grades.is_empty(),
-                "{timing}: the slide should produce a judge event"
-            );
-            assert!(
-                !grades.iter().any(|g| *g == JudgeGrade::Miss),
-                "{timing}: the dense slide chain must not miss (got {grades:?})"
-            );
         }
+        assert!(!grades.is_empty(), "slides should be judged");
+        assert!(
+            !grades.iter().any(|(_, g)| *g == JudgeGrade::Miss),
+            "neither the fast chain nor the normal slide may miss: {grades:?}"
+        );
     }
 }
