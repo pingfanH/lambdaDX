@@ -56,7 +56,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.158157348632812" b="-0.272964477539062" c="0.272964477539062" d="-0.158157348632812" tx="15.7" ty="-36.2"/>
+                    <Matrix a="-0.15814208984375" b="-0.27294921875" c="0.27294921875" d="-0.15814208984375" tx="15.7" ty="-36.2"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -68,7 +68,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.194168090820312" b="-0.335113525390625" c="0.335113525390625" d="-0.194168090820312" tx="20.6" ty="-40.9"/>
+                    <Matrix a="-0.19415283203125" b="-0.335113525390625" c="0.335113525390625" d="-0.19415283203125" tx="20.6" ty="-40.9"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -92,7 +92,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.242446899414062" b="-0.41845703125" c="0.41845703125" d="-0.242446899414062" tx="29.5" ty="-41.05"/>
+                    <Matrix a="-0.242431640625" b="-0.41845703125" c="0.41845703125" d="-0.242431640625" tx="29.5" ty="-41.05"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -104,7 +104,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.268661499023438" b="-0.463699340820312" c="0.463699340820312" d="-0.268661499023438" tx="34.45" ty="-39.55"/>
+                    <Matrix a="-0.268661499023438" b="-0.46368408203125" c="0.46368408203125" d="-0.268661499023438" tx="34.45" ty="-39.55"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -128,7 +128,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.323013305664062" b="-0.557510375976562" c="0.557510375976562" d="-0.323013305664062" tx="44.35" ty="-33.05"/>
+                    <Matrix a="-0.322998046875" b="-0.5574951171875" c="0.5574951171875" d="-0.322998046875" tx="44.35" ty="-33.05"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -152,7 +152,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.375991821289062" b="-0.648941040039062" c="0.648941040039062" d="-0.375991821289062" tx="52.25" ty="-22"/>
+                    <Matrix a="-0.3759765625" b="-0.64892578125" c="0.64892578125" d="-0.3759765625" tx="52.25" ty="-22"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -164,7 +164,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.40020751953125" b="-0.690750122070312" c="0.690750122070312" d="-0.40020751953125" tx="54.8" ty="-15.05"/>
+                    <Matrix a="-0.40020751953125" b="-0.69073486328125" c="0.69073486328125" d="-0.40020751953125" tx="54.8" ty="-15.05"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -248,7 +248,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.48480224609375" b="-0.836746215820312" c="0.836746215820312" d="-0.48480224609375" tx="37.35" ty="24.3"/>
+                    <Matrix a="-0.48480224609375" b="-0.83673095703125" c="0.83673095703125" d="-0.48480224609375" tx="37.35" ty="24.3"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -263,7 +263,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.493118286132812" b="-0.851089477539062" c="0.851089477539062" d="-0.493118286132812" tx="30" ty="26.3"/>
+                    <Matrix a="-0.49310302734375" b="-0.85107421875" c="0.85107421875" d="-0.49310302734375" tx="30" ty="26.3"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -308,7 +308,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.511886596679688" b="-0.883499145507812" c="0.883499145507812" d="-0.511886596679688" tx="10.35" ty="21.6"/>
+                    <Matrix a="-0.511886596679688" b="-0.88348388671875" c="0.88348388671875" d="-0.511886596679688" tx="10.35" ty="21.6"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -353,7 +353,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.520767211914062" b="-0.8988037109375" c="0.8988037109375" d="-0.520767211914062" tx="1.35" ty="8.95"/>
+                    <Matrix a="-0.520751953125" b="-0.8988037109375" c="0.8988037109375" d="-0.520751953125" tx="1.35" ty="8.95"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -368,7 +368,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.521377563476562" b="-0.899856567382812" c="0.899856567382812" d="-0.521377563476562" tx="0.75" ty="5.2"/>
+                    <Matrix a="-0.5213623046875" b="-0.89984130859375" c="0.89984130859375" d="-0.5213623046875" tx="0.75" ty="5.2"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -383,7 +383,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.521377563476562" b="-0.899856567382812" c="0.899856567382812" d="-0.521377563476562" tx="0.85" ty="2.35"/>
+                    <Matrix a="-0.5213623046875" b="-0.89984130859375" c="0.89984130859375" d="-0.5213623046875" tx="0.85" ty="2.35"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -398,7 +398,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.521377563476562" b="-0.899856567382812" c="0.899856567382812" d="-0.521377563476562" tx="1.2" ty="0.55"/>
+                    <Matrix a="-0.5213623046875" b="-0.89984130859375" c="0.89984130859375" d="-0.5213623046875" tx="1.2" ty="0.55"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -413,7 +413,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.521377563476562" b="-0.899856567382812" c="0.899856567382812" d="-0.521377563476562" tx="1.45"/>
+                    <Matrix a="-0.5213623046875" b="-0.89984130859375" c="0.89984130859375" d="-0.5213623046875" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -492,7 +492,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.177886962890625" b="-0.307022094726562" c="0.307022094726562" d="-0.177886962890625" tx="47.7" ty="-1"/>
+                    <Matrix a="-0.177886962890625" b="-0.3070068359375" c="0.3070068359375" d="-0.177886962890625" tx="47.7" ty="-1"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -528,7 +528,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.226638793945312" b="-0.39117431640625" c="0.39117431640625" d="-0.226638793945312" tx="52.15" ty="-14.5"/>
+                    <Matrix a="-0.22662353515625" b="-0.39117431640625" c="0.39117431640625" d="-0.22662353515625" tx="52.15" ty="-14.5"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -552,7 +552,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.259780883789062" b="-0.4483642578125" c="0.4483642578125" d="-0.259780883789062" tx="50.15" ty="-26.45"/>
+                    <Matrix a="-0.259765625" b="-0.4483642578125" c="0.4483642578125" d="-0.259765625" tx="50.15" ty="-26.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -564,7 +564,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.275894165039062" b="-0.4761962890625" c="0.4761962890625" d="-0.275894165039062" tx="47.25" ty="-32.6"/>
+                    <Matrix a="-0.27587890625" b="-0.4761962890625" c="0.4761962890625" d="-0.27587890625" tx="47.25" ty="-32.6"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -576,7 +576,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.291366577148438" b="-0.502883911132812" c="0.502883911132812" d="-0.291366577148438" tx="43.05" ty="-38.45"/>
+                    <Matrix a="-0.291366577148438" b="-0.50286865234375" c="0.50286865234375" d="-0.291366577148438" tx="43.05" ty="-38.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -588,7 +588,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.305892944335938" b="-0.527969360351562" c="0.527969360351562" d="-0.305892944335938" tx="37.6" ty="-43.65"/>
+                    <Matrix a="-0.305892944335938" b="-0.5279541015625" c="0.5279541015625" d="-0.305892944335938" tx="37.6" ty="-43.65"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -600,7 +600,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.319168090820312" b="-0.550872802734375" c="0.550872802734375" d="-0.319168090820312" tx="31.05" ty="-47.9"/>
+                    <Matrix a="-0.31915283203125" b="-0.550872802734375" c="0.550872802734375" d="-0.31915283203125" tx="31.05" ty="-47.9"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -657,7 +657,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.356643676757812" b="-0.61553955078125" c="0.61553955078125" d="-0.356643676757812" ty="-48.35"/>
+                    <Matrix a="-0.35662841796875" b="-0.61553955078125" c="0.61553955078125" d="-0.35662841796875" ty="-48.35"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -672,7 +672,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.363601684570312" b="-0.627548217773438" c="0.627548217773438" d="-0.363601684570312" tx="-6.45" ty="-43.65"/>
+                    <Matrix a="-0.36358642578125" b="-0.627548217773438" c="0.627548217773438" d="-0.36358642578125" tx="-6.45" ty="-43.65"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -687,7 +687,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.369842529296875" b="-0.638320922851562" c="0.638320922851562" d="-0.369842529296875" tx="-11.35" ty="-37.55"/>
+                    <Matrix a="-0.369842529296875" b="-0.6383056640625" c="0.6383056640625" d="-0.369842529296875" tx="-11.35" ty="-37.55"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -702,7 +702,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.375320434570312" b="-0.64776611328125" c="0.64776611328125" d="-0.375320434570312" tx="-14.4" ty="-30.75"/>
+                    <Matrix a="-0.37530517578125" b="-0.64776611328125" c="0.64776611328125" d="-0.37530517578125" tx="-14.4" ty="-30.75"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -717,7 +717,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.380020141601562" b="-0.6558837890625" c="0.6558837890625" d="-0.380020141601562" tx="-15.6" ty="-23.8"/>
+                    <Matrix a="-0.3800048828125" b="-0.6558837890625" c="0.6558837890625" d="-0.3800048828125" tx="-15.6" ty="-23.8"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -732,7 +732,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.3839111328125" b="-0.662612915039062" c="0.662612915039062" d="-0.3839111328125" tx="-15.1" ty="-17.2"/>
+                    <Matrix a="-0.3839111328125" b="-0.66259765625" c="0.66259765625" d="-0.3839111328125" tx="-15.1" ty="-17.2"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -747,7 +747,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.386993408203125" b="-0.667922973632812" c="0.667922973632812" d="-0.386993408203125" tx="-13.15" ty="-11.45"/>
+                    <Matrix a="-0.386993408203125" b="-0.66790771484375" c="0.66790771484375" d="-0.386993408203125" tx="-13.15" ty="-11.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -762,7 +762,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.38922119140625" b="-0.671768188476562" c="0.671768188476562" d="-0.38922119140625" tx="-10.25" ty="-6.85"/>
+                    <Matrix a="-0.38922119140625" b="-0.6717529296875" c="0.6717529296875" d="-0.38922119140625" tx="-10.25" ty="-6.85"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -777,7 +777,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.390579223632812" b="-0.674102783203125" c="0.674102783203125" d="-0.390579223632812" tx="-6.95" ty="-3.55"/>
+                    <Matrix a="-0.39056396484375" b="-0.674102783203125" c="0.674102783203125" d="-0.39056396484375" tx="-6.95" ty="-3.55"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -916,7 +916,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.177886962890625" b="-0.307022094726562" c="0.307022094726562" d="-0.177886962890625" tx="-48.8" ty="-6.4"/>
+                    <Matrix a="-0.177886962890625" b="-0.3070068359375" c="0.3070068359375" d="-0.177886962890625" tx="-48.8" ty="-6.4"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -952,7 +952,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.226638793945312" b="-0.39117431640625" c="0.39117431640625" d="-0.226638793945312" tx="-56.3" ty="7.55"/>
+                    <Matrix a="-0.22662353515625" b="-0.39117431640625" c="0.39117431640625" d="-0.22662353515625" tx="-56.3" ty="7.55"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -976,7 +976,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.259780883789062" b="-0.4483642578125" c="0.4483642578125" d="-0.259780883789062" tx="-56.6" ty="21.1"/>
+                    <Matrix a="-0.259765625" b="-0.4483642578125" c="0.4483642578125" d="-0.259765625" tx="-56.6" ty="21.1"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -988,7 +988,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.275894165039062" b="-0.4761962890625" c="0.4761962890625" d="-0.275894165039062" tx="-54.8" ty="28.55"/>
+                    <Matrix a="-0.27587890625" b="-0.4761962890625" c="0.4761962890625" d="-0.27587890625" tx="-54.8" ty="28.55"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1000,7 +1000,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.291366577148438" b="-0.502883911132812" c="0.502883911132812" d="-0.291366577148438" tx="-51.5" ty="36"/>
+                    <Matrix a="-0.291366577148438" b="-0.50286865234375" c="0.50286865234375" d="-0.291366577148438" tx="-51.5" ty="36"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1012,7 +1012,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.305892944335938" b="-0.527969360351562" c="0.527969360351562" d="-0.305892944335938" tx="-46.7" ty="43.15"/>
+                    <Matrix a="-0.305892944335938" b="-0.5279541015625" c="0.5279541015625" d="-0.305892944335938" tx="-46.7" ty="43.15"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1024,7 +1024,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.319168090820312" b="-0.550872802734375" c="0.550872802734375" d="-0.319168090820312" tx="-40.5" ty="49.6"/>
+                    <Matrix a="-0.31915283203125" b="-0.550872802734375" c="0.550872802734375" d="-0.31915283203125" tx="-40.5" ty="49.6"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1081,7 +1081,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.356643676757812" b="-0.61553955078125" c="0.61553955078125" d="-0.356643676757812" tx="-5.65" ty="60.15"/>
+                    <Matrix a="-0.35662841796875" b="-0.61553955078125" c="0.61553955078125" d="-0.35662841796875" tx="-5.65" ty="60.15"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1096,7 +1096,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.363601684570312" b="-0.627548217773438" c="0.627548217773438" d="-0.363601684570312" tx="3.25" ty="57.55"/>
+                    <Matrix a="-0.36358642578125" b="-0.627548217773438" c="0.627548217773438" d="-0.36358642578125" tx="3.25" ty="57.55"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1111,7 +1111,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.369842529296875" b="-0.638320922851562" c="0.638320922851562" d="-0.369842529296875" tx="11.15" ty="53.05"/>
+                    <Matrix a="-0.369842529296875" b="-0.6383056640625" c="0.6383056640625" d="-0.369842529296875" tx="11.15" ty="53.05"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1126,7 +1126,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.375320434570312" b="-0.64776611328125" c="0.64776611328125" d="-0.375320434570312" tx="17.55" ty="47.1"/>
+                    <Matrix a="-0.37530517578125" b="-0.64776611328125" c="0.64776611328125" d="-0.37530517578125" tx="17.55" ty="47.1"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1141,7 +1141,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.380020141601562" b="-0.6558837890625" c="0.6558837890625" d="-0.380020141601562" tx="22.1" ty="40.15"/>
+                    <Matrix a="-0.3800048828125" b="-0.6558837890625" c="0.6558837890625" d="-0.3800048828125" tx="22.1" ty="40.15"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1156,7 +1156,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.3839111328125" b="-0.662612915039062" c="0.662612915039062" d="-0.3839111328125" tx="24.75" ty="32.75"/>
+                    <Matrix a="-0.3839111328125" b="-0.66259765625" c="0.66259765625" d="-0.3839111328125" tx="24.75" ty="32.75"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1171,7 +1171,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.386993408203125" b="-0.667922973632812" c="0.667922973632812" d="-0.386993408203125" tx="25.55" ty="25.45"/>
+                    <Matrix a="-0.386993408203125" b="-0.66790771484375" c="0.66790771484375" d="-0.386993408203125" tx="25.55" ty="25.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1186,7 +1186,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.38922119140625" b="-0.671768188476562" c="0.671768188476562" d="-0.38922119140625" tx="24.7" ty="18.7"/>
+                    <Matrix a="-0.38922119140625" b="-0.6717529296875" c="0.6717529296875" d="-0.38922119140625" tx="24.7" ty="18.7"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1201,7 +1201,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.390579223632812" b="-0.674102783203125" c="0.674102783203125" d="-0.390579223632812" tx="22.5" ty="12.85"/>
+                    <Matrix a="-0.39056396484375" b="-0.674102783203125" c="0.674102783203125" d="-0.39056396484375" tx="22.5" ty="12.85"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1388,7 +1388,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.158157348632812" b="-0.272964477539062" c="0.272964477539062" d="-0.158157348632812" tx="-13.3" ty="38.3"/>
+                    <Matrix a="-0.15814208984375" b="-0.27294921875" c="0.27294921875" d="-0.15814208984375" tx="-13.3" ty="38.3"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1400,7 +1400,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.194168090820312" b="-0.335113525390625" c="0.335113525390625" d="-0.194168090820312" tx="-18.5" ty="43.3"/>
+                    <Matrix a="-0.19415283203125" b="-0.335113525390625" c="0.335113525390625" d="-0.19415283203125" tx="-18.5" ty="43.3"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1424,7 +1424,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.242446899414062" b="-0.41845703125" c="0.41845703125" d="-0.242446899414062" tx="-27.85" ty="43.5"/>
+                    <Matrix a="-0.242431640625" b="-0.41845703125" c="0.41845703125" d="-0.242431640625" tx="-27.85" ty="43.5"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1436,7 +1436,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.268661499023438" b="-0.463699340820312" c="0.463699340820312" d="-0.268661499023438" tx="-33.1" ty="41.95"/>
+                    <Matrix a="-0.268661499023438" b="-0.46368408203125" c="0.46368408203125" d="-0.268661499023438" tx="-33.1" ty="41.95"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1460,7 +1460,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.323013305664062" b="-0.557510375976562" c="0.557510375976562" d="-0.323013305664062" tx="-43.6" ty="35.15"/>
+                    <Matrix a="-0.322998046875" b="-0.5574951171875" c="0.5574951171875" d="-0.322998046875" tx="-43.6" ty="35.15"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1484,7 +1484,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.375991821289062" b="-0.648941040039062" c="0.648941040039062" d="-0.375991821289062" tx="-52.05" ty="23.5"/>
+                    <Matrix a="-0.3759765625" b="-0.64892578125" c="0.64892578125" d="-0.3759765625" tx="-52.05" ty="23.5"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1496,7 +1496,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.40020751953125" b="-0.690750122070312" c="0.690750122070312" d="-0.40020751953125" tx="-54.7" ty="16.2"/>
+                    <Matrix a="-0.40020751953125" b="-0.69073486328125" c="0.69073486328125" d="-0.40020751953125" tx="-54.7" ty="16.2"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1580,7 +1580,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.48480224609375" b="-0.836746215820312" c="0.836746215820312" d="-0.48480224609375" tx="-36.5" ty="-25.5"/>
+                    <Matrix a="-0.48480224609375" b="-0.83673095703125" c="0.83673095703125" d="-0.48480224609375" tx="-36.5" ty="-25.5"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1595,7 +1595,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.493118286132812" b="-0.851089477539062" c="0.851089477539062" d="-0.493118286132812" tx="-28.75" ty="-27.65"/>
+                    <Matrix a="-0.49310302734375" b="-0.85107421875" c="0.85107421875" d="-0.49310302734375" tx="-28.75" ty="-27.65"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1640,7 +1640,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.511886596679688" b="-0.883499145507812" c="0.883499145507812" d="-0.511886596679688" tx="-7.95" ty="-22.8"/>
+                    <Matrix a="-0.511886596679688" b="-0.88348388671875" c="0.88348388671875" d="-0.511886596679688" tx="-7.95" ty="-22.8"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1685,7 +1685,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.520767211914062" b="-0.8988037109375" c="0.8988037109375" d="-0.520767211914062" tx="1.6" ty="-9.45"/>
+                    <Matrix a="-0.520751953125" b="-0.8988037109375" c="0.8988037109375" d="-0.520751953125" tx="1.6" ty="-9.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1700,7 +1700,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.521377563476562" b="-0.899856567382812" c="0.899856567382812" d="-0.521377563476562" tx="2.2" ty="-5.5"/>
+                    <Matrix a="-0.5213623046875" b="-0.89984130859375" c="0.89984130859375" d="-0.5213623046875" tx="2.2" ty="-5.5"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1715,7 +1715,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.521377563476562" b="-0.899856567382812" c="0.899856567382812" d="-0.521377563476562" tx="2.1" ty="-2.5"/>
+                    <Matrix a="-0.5213623046875" b="-0.89984130859375" c="0.89984130859375" d="-0.5213623046875" tx="2.1" ty="-2.5"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1730,7 +1730,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.521377563476562" b="-0.899856567382812" c="0.899856567382812" d="-0.521377563476562" tx="1.75" ty="-0.6"/>
+                    <Matrix a="-0.5213623046875" b="-0.89984130859375" c="0.89984130859375" d="-0.5213623046875" tx="1.75" ty="-0.6"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1745,7 +1745,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.521377563476562" b="-0.899856567382812" c="0.899856567382812" d="-0.521377563476562" tx="1.45"/>
+                    <Matrix a="-0.5213623046875" b="-0.89984130859375" c="0.89984130859375" d="-0.5213623046875" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1788,7 +1788,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.1119384765625" b="-0.193191528320312" c="0.193191528320312" d="-0.1119384765625" tx="1.45"/>
+                    <Matrix a="-0.1119384765625" b="-0.19317626953125" c="0.19317626953125" d="-0.1119384765625" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1824,7 +1824,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.350921630859375" b="-0.605667114257812" c="0.605667114257812" d="-0.350921630859375" tx="1.45"/>
+                    <Matrix a="-0.350921630859375" b="-0.60565185546875" c="0.60565185546875" d="-0.350921630859375" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1836,7 +1836,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.374725341796875" b="-0.646743774414062" c="0.646743774414062" d="-0.374725341796875" tx="1.45"/>
+                    <Matrix a="-0.374725341796875" b="-0.646728515625" c="0.646728515625" d="-0.374725341796875" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1872,7 +1872,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.4417724609375" b="-0.762466430664062" c="0.762466430664062" d="-0.4417724609375" tx="1.45"/>
+                    <Matrix a="-0.4417724609375" b="-0.762451171875" c="0.762451171875" d="-0.4417724609375" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1884,7 +1884,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.462539672851562" b="-0.798309326171875" c="0.798309326171875" d="-0.462539672851562" tx="1.45"/>
+                    <Matrix a="-0.4625244140625" b="-0.798309326171875" c="0.798309326171875" d="-0.4625244140625" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1896,7 +1896,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.482437133789062" b="-0.832672119140625" c="0.832672119140625" d="-0.482437133789062" tx="1.45"/>
+                    <Matrix a="-0.482421875" b="-0.832672119140625" c="0.832672119140625" d="-0.482421875" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1932,7 +1932,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.536605834960938" b="-0.926162719726562" c="0.926162719726562" d="-0.536605834960938" tx="1.45"/>
+                    <Matrix a="-0.536605834960938" b="-0.9261474609375" c="0.9261474609375" d="-0.536605834960938" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1944,7 +1944,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.552688598632812" b="-0.953903198242188" c="0.953903198242188" d="-0.552688598632812" tx="1.45"/>
+                    <Matrix a="-0.55267333984375" b="-0.953903198242188" c="0.953903198242188" d="-0.55267333984375" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1959,7 +1959,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.567703247070312" b="-0.979812622070312" c="0.979812622070312" d="-0.567703247070312" tx="1.45"/>
+                    <Matrix a="-0.56768798828125" b="-0.97979736328125" c="0.97979736328125" d="-0.56768798828125" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1974,7 +1974,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.581619262695312" b="-1.00384521484375" c="1.00384521484375" d="-0.581619262695312" tx="1.45"/>
+                    <Matrix a="-0.58160400390625" b="-1.00384521484375" c="1.00384521484375" d="-0.58160400390625" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -1989,7 +1989,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.594406127929688" b="-1.02589416503906" c="1.02589416503906" d="-0.594406127929688" tx="1.45"/>
+                    <Matrix a="-0.594406127929688" b="-1.02587890625" c="1.02587890625" d="-0.594406127929688" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -2004,7 +2004,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.606002807617188" b="-1.04592895507812" c="1.04592895507812" d="-0.606002807617188" tx="1.45"/>
+                    <Matrix a="-0.606002807617188" b="-1.04591369628906" c="1.04591369628906" d="-0.606002807617188" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -2019,7 +2019,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.61639404296875" b="-1.06385803222656" c="1.06385803222656" d="-0.61639404296875" tx="1.45"/>
+                    <Matrix a="-0.61639404296875" b="-1.0638427734375" c="1.0638427734375" d="-0.61639404296875" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -2034,7 +2034,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.625534057617188" b="-1.07962036132812" c="1.07962036132812" d="-0.625534057617188" tx="1.45"/>
+                    <Matrix a="-0.625534057617188" b="-1.07960510253906" c="1.07960510253906" d="-0.625534057617188" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -2049,7 +2049,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.63336181640625" b="-1.09315490722656" c="1.09315490722656" d="-0.63336181640625" tx="1.45"/>
+                    <Matrix a="-0.63336181640625" b="-1.0931396484375" c="1.0931396484375" d="-0.63336181640625" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -2094,7 +2094,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.648696899414062" b="-1.11961364746094" c="1.11961364746094" d="-0.648696899414062" tx="1.45"/>
+                    <Matrix a="-0.648681640625" b="-1.11961364746094" c="1.11961364746094" d="-0.648681640625" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -2109,7 +2109,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.650955200195312" b="-1.12351989746094" c="1.12351989746094" d="-0.650955200195312" tx="1.45"/>
+                    <Matrix a="-0.65093994140625" b="-1.12351989746094" c="1.12351989746094" d="-0.65093994140625" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>
@@ -2124,7 +2124,7 @@
               <elements>
                 <DOMSymbolInstance libraryItemName="sym_Hex">
                   <matrix>
-                    <Matrix a="-0.651718139648438" b="-1.12483215332031" c="1.12483215332031" d="-0.651718139648438" tx="1.45"/>
+                    <Matrix a="-0.651718139648438" b="-1.12481689453125" c="1.12481689453125" d="-0.651718139648438" tx="1.45"/>
                   </matrix>
                   <transformationPoint>
                     <Point/>

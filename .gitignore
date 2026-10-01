@@ -5,6 +5,8 @@
 
 # Large local media / scratch files
 /assets/*.mp4
+# Per-song PV videos (tens of MB each); keep them local.
+/assets/charts/**/pv.mp4
 /assets/note_params copy.json
 
 # Video export output
