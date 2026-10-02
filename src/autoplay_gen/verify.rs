@@ -27,6 +27,8 @@ pub struct VerifyResult {
     /// Runtime arcs with no judge event. Non-final arcs of a chain are hidden
     /// without a judge event, so this is informational, not a failure.
     pub unjudged: Vec<usize>,
+    /// Final grade per judged runtime arc.
+    pub grades: BTreeMap<usize, JudgeGrade>,
     pub events: Vec<TimedInputEvent>,
 }
 
@@ -95,11 +97,19 @@ fn slot_area(slot: OuterSlot) -> SensorArea {
 /// arrow progress. `offsets[i]` shifts the i-th runtime arc (the enumeration's
 /// knob); slide heads stay at their chart time.
 pub fn build_events_with_offsets(spec: &ChartSpec, offsets: &[i64]) -> Vec<TimedInputEvent> {
+    use std::collections::HashMap;
     let mut events = Vec::new();
+
+    // A slide head shares its body arc's `logicalSlideId`; apply that arc's
+    // offset to the head too (the head hit drives the slide grade).
+    let mut by_logical: HashMap<u64, i64> = HashMap::new();
+    for (i, slide) in spec.slides.iter().enumerate() {
+        by_logical.insert(slide.logical_slide_id, offsets.get(i).copied().unwrap_or(0));
+    }
 
     for head in &spec.slide_heads {
         let area = slot_area(head.slot);
-        let tp = head.timing;
+        let tp = head.timing + by_logical.get(&head.logical_slide_id).copied().unwrap_or(0);
         events.push(TimedInputEvent::SensorClick { tp, area });
         events.push(TimedInputEvent::SensorHold {
             tp,
@@ -211,6 +221,7 @@ pub fn verify(text: &str, level: u32, events: &[TimedInputEvent], end_s: f32) ->
         misses,
         imperfect,
         unjudged,
+        grades,
         events: events.to_vec(),
     }
 }

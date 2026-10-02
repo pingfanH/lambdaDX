@@ -16,9 +16,10 @@ use crate::core::types::ChartSpec;
 use crate::model::SlidePlan;
 use crate::verify::{self, VerifyResult};
 
-/// Offset granularity and half-range (in steps) explored per arc.
-const OFFSET_STEP_US: i64 = 50_000;
-const OFFSET_STEPS: i64 = 6;
+/// Offset granularity and half-range (in steps) explored per arc. 10 ms steps
+/// are fine enough to land inside a Perfect window; ±12 steps is ±120 ms.
+const OFFSET_STEP_US: i64 = 10_000;
+const OFFSET_STEPS: i64 = 12;
 
 pub struct SearchOutcome {
     /// The chart-time tactic was already all-Perfect (enumeration skipped).

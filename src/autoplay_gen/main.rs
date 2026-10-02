@@ -184,6 +184,14 @@ fn print_verify(result: &VerifyResult) {
     if !result.imperfect.is_empty() {
         println!("  non-perfect arcs: {:?}", result.imperfect);
     }
+    if !result.grades.is_empty() {
+        let list: Vec<String> = result
+            .grades
+            .iter()
+            .map(|(rt, g)| format!("{rt}:{g:?}"))
+            .collect();
+        println!("  grades: {}", list.join("  "));
+    }
     println!(
         "{}",
         if result.all_perfect() {
