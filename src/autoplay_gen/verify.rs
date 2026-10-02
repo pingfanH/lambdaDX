@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use crate::app::types::zone::PadZone;
-use crate::core::types::{JudgeEventKind, JudgeGrade, TimedInputEvent};
+use crate::core::types::{ChartSpec, JudgeEventKind, JudgeGrade, OuterSlot, SensorArea, TimedInputEvent};
 use crate::model::SlidePlan;
 use crate::player::engine::{
     self, JudgeEngine, hold_events_for_zone, press_events_for_zone, release_events_for_zone,
@@ -66,6 +66,87 @@ pub fn build_events(plans: &[SlidePlan], tail_pad_s: f64) -> Vec<TimedInputEvent
             ));
         }
     }
+    events.sort_by_key(timed_input_tp);
+    events
+}
+
+fn slot_area(slot: OuterSlot) -> SensorArea {
+    match slot {
+        OuterSlot::S1 => SensorArea::A1,
+        OuterSlot::S2 => SensorArea::A2,
+        OuterSlot::S3 => SensorArea::A3,
+        OuterSlot::S4 => SensorArea::A4,
+        OuterSlot::S5 => SensorArea::A5,
+        OuterSlot::S6 => SensorArea::A6,
+        OuterSlot::S7 => SensorArea::A7,
+        OuterSlot::S8 => SensorArea::A8,
+    }
+}
+
+/// Build events from the core's **lowered chart** instead of the chart-shape
+/// plan: each runtime arc holds every sensor area of its judge queue in order,
+/// spread across the arc's span by arrow progress. `offset_us` shifts every
+/// arc (the enumeration's knob).
+pub fn build_events_from_spec(spec: &ChartSpec, offset_us: i64) -> Vec<TimedInputEvent> {
+    let mut events = Vec::new();
+
+    for head in &spec.slide_heads {
+        let area = slot_area(head.slot);
+        let tp = head.timing + offset_us;
+        events.push(TimedInputEvent::SensorClick { tp, area });
+        events.push(TimedInputEvent::SensorHold {
+            tp,
+            area,
+            is_down: true,
+        });
+        events.push(TimedInputEvent::SensorHold {
+            tp: tp + 15_000,
+            area,
+            is_down: false,
+        });
+    }
+
+    for slide in &spec.slides {
+        let len = slide.length.max(1);
+        let start = slide.start_timing + offset_us;
+        let end = start + len;
+        for track in &slide.judge_queues {
+            let max_fin = track
+                .iter()
+                .map(|a| a.arrow_progress_when_finished)
+                .max()
+                .unwrap_or(1)
+                .max(1);
+            let mut prev: Option<SensorArea> = None;
+            for area_spec in track {
+                let Some(&area) = area_spec.target_areas.first() else {
+                    continue;
+                };
+                let t = start + len * area_spec.arrow_progress_when_finished as i64 / max_fin as i64;
+                if let Some(p) = prev {
+                    events.push(TimedInputEvent::SensorHold {
+                        tp: t,
+                        area: p,
+                        is_down: false,
+                    });
+                }
+                events.push(TimedInputEvent::SensorHold {
+                    tp: t,
+                    area,
+                    is_down: true,
+                });
+                prev = Some(area);
+            }
+            if let Some(p) = prev {
+                events.push(TimedInputEvent::SensorHold {
+                    tp: end,
+                    area: p,
+                    is_down: false,
+                });
+            }
+        }
+    }
+
     events.sort_by_key(timed_input_tp);
     events
 }

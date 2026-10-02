@@ -43,6 +43,7 @@ fn main() {
     let mut block_s = DEFAULT_BLOCK_S;
     let mut preview = false;
     let mut default_tactic = false;
+    let mut spec_events = false;
     let mut max_tries = 5000usize;
 
     let mut i = 0;
@@ -72,6 +73,7 @@ fn main() {
             }
             "--preview" => preview = true,
             "--default-tactic" => default_tactic = true,
+            "--spec" => spec_events = true,
             other if !other.starts_with('-') => chart = Some(PathBuf::from(other)),
             other => {
                 eprintln!("unknown option: {other}\n{HELP}");
@@ -117,6 +119,27 @@ fn main() {
         print_report(&chart_doc, &plans, &units, block_s);
         println!("\nevents: {} (core default tactic)", events.len());
         let song_end = plans.iter().map(|p| p.end_s).fold(0.0_f64, f64::max) as f32;
+        let result = verify::verify(&text, level, &events, song_end);
+        print_verify(&result);
+        maybe_preview(preview, &path, result.all_perfect(), &result.events);
+        return;
+    }
+
+    // ── Spec-derived events (full zone sequence per runtime arc) ───────
+    if spec_events {
+        let engine = player::engine::JudgeEngine::load(&text, level).expect("engine");
+        let spec = engine.chart_spec().expect("lowered chart");
+        let events = verify::build_events_from_spec(&spec, 0);
+        println!(
+            "\nevents: {} (spec-derived, {} slide arcs)",
+            events.len(),
+            spec.slides.len()
+        );
+        let song_end = spec
+            .slides
+            .iter()
+            .map(|s| (s.start_timing + s.length) as f64 / 1e6)
+            .fold(0.0_f64, f64::max) as f32;
         let result = verify::verify(&text, level, &events, song_end);
         print_verify(&result);
         maybe_preview(preview, &path, result.all_perfect(), &result.events);
@@ -227,6 +250,8 @@ OPTIONS:
     --block <S>        Time-block length in seconds (default 0.1).
     --max-tries <N>    Cap on core evaluations during enumeration (default 5000).
     --default-tactic   Verify the core's own default tactic instead of enumerating.
+    --spec             Build events from the core's lowered chart (full zone
+                       sequence per runtime arc) and verify them.
     --preview          Launch the pad preview with the generated tactic, but
                        only if every judged arc verifies Perfect.
     -h, --help         Print this help.

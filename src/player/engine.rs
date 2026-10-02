@@ -296,6 +296,15 @@ impl JudgeEngine {
     /// Build lnmai-core's default replay tactic (autoplay events) for the
     /// loaded chart. The events carry microsecond timestamps matching runtime
     /// input, so the player can feed them frame by frame.
+    /// The lowered chart (per runtime slide arc: timings + ordered sensor-area
+    /// queues with arrow progress). Used to drive a custom autoplay tactic.
+    pub fn chart_spec(&self) -> Result<ChartSpec, String> {
+        let envelope = self.session.get_lowered_chart_json().map_err(|e| e.json)?;
+        envelope
+            .decode_result()
+            .map_err(|e| format!("invalid lowered chart json: {e}"))
+    }
+
     pub fn default_tactic(&self) -> Result<Vec<TimedInputEvent>, String> {
         let envelope = self.session.get_lowered_chart_json().map_err(|e| e.json)?;
         let chart: ChartSpec = envelope
