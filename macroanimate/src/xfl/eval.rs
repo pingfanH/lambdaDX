@@ -91,7 +91,8 @@ impl XflAtlas {
                     LoopMode::PlayOnce => raw.min(total - 1),
                     LoopMode::SingleFrame => (*first_frame).min(total - 1),
                 };
-                if let Some(grid) = scale9 {
+                // Instance-level grid (if any) overrides the symbol-level one.
+                if let Some(grid) = (*scale9).or_else(|| self.scale9.get(name).copied()) {
                     // Collect the child in its own frame so the 9-slice can
                     // stretch its geometry between the grid lines.
                     let mut child = Vec::new();
@@ -124,7 +125,7 @@ impl XflAtlas {
                             content: PartContent::NineSlice {
                                 parts: child,
                                 natural: nat,
-                                grid: *grid,
+                                grid,
                             },
                             matrix,
                             alpha,

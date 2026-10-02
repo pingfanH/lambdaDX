@@ -1,153 +1,97 @@
-<DOMDocument xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" backgroundColor="#171719" width="1280" height="760" frameRate="60" currentTimeline="1" xflVersion="23.0" creatorInfo="Adobe Animate" platform="Macintosh" versionInfo="Saved by Animate Macintosh 24.0 build 305" majorVersion="24" buildNumber="305" vanishingPoint3DX="640" vanishingPoint3DY="380" nextSceneIdentifier="2" playOptionsPlayLoop="false" playOptionsPlayPages="false" playOptionsPlayFrameActions="false" filetypeGUID="DD0DDBBF-5BEF-45B2-9F24-A3048D2A676F" fileGUID="2519CA2099F749229B7276942A956A88">
-     <folders>
-          <DOMFolderItem name="UI" itemID="6abf7822-000002c9" isExpanded="true"/>
-     </folders>
+<DOMDocument xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" backgroundColor="#171719" width="1280" height="760" frameRate="60" currentTimeline="1" xflVersion="23.0" creatorInfo="Adobe Animate" platform="Macintosh" versionInfo="Saved by Animate Macintosh 24.0 build 305" majorVersion="24" buildNumber="305" nextSceneIdentifier="2" playOptionsPlayLoop="false" playOptionsPlayPages="false" playOptionsPlayFrameActions="false">
      <symbols>
-          <Include href="UI/page_gameplay_hud.xml" loadImmediate="false" itemID="6abf0000-0000012b" lastModified="1790931653"/>
-          <Include href="UI/page_pause.xml" loadImmediate="false" itemID="6abf0000-0000012c" lastModified="1790931653"/>
-          <Include href="UI/page_settings.xml" loadImmediate="false" itemID="6abf0000-0000012a" lastModified="1790931653"/>
-          <Include href="UI/page_song_select.xml" loadImmediate="false" itemID="6abf0000-00000129" lastModified="1790933166"/>
-          <Include href="UI/page_start.xml" loadImmediate="false" itemID="6abf0000-00000128" lastModified="1790933116"/>
-          <Include href="UI/ui_badge.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000010d" lastModified="1790931653"/>
-          <Include href="UI/ui_btn_danger.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000010c" lastModified="1790931653"/>
-          <Include href="UI/ui_btn_primary.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000109" lastModified="1790931653"/>
-          <Include href="UI/ui_btn_quiet.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000010b" lastModified="1790931653"/>
-          <Include href="UI/ui_btn_secondary.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000010a" lastModified="1790931653"/>
-          <Include href="UI/ui_cat_tab.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000011a" lastModified="1790931653"/>
-          <Include href="UI/ui_cat_tab_on.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000011b" lastModified="1790931653"/>
-          <Include href="UI/ui_cover_placeholder.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000120" lastModified="1790931653"/>
-          <Include href="UI/ui_hairline.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000107" lastModified="1790931653"/>
-          <Include href="UI/ui_header.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000105" lastModified="1790931653"/>
-          <Include href="UI/ui_hero.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000126" lastModified="1790934314"/>
-          <Include href="UI/ui_hero_sweep.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000125" lastModified="1790931653"/>
-          <Include href="UI/ui_hero_ticks.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000124" lastModified="1790931653"/>
-          <Include href="UI/ui_hud_bar.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000106" lastModified="1790931653"/>
-          <Include href="UI/ui_level_pill.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000117" lastModified="1790931653"/>
-          <Include href="UI/ui_level_pill_on.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000118" lastModified="1790931653"/>
-          <Include href="UI/ui_load_bar.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000122" lastModified="1790931653"/>
-          <Include href="UI/ui_loading.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000123" lastModified="1790931653"/>
-          <Include href="UI/ui_logo.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000011e" lastModified="1790931653"/>
-          <Include href="UI/ui_panel.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000101" lastModified="1790931653"/>
-          <Include href="UI/ui_panel_list.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000102" lastModified="1790931653"/>
-          <Include href="UI/ui_panel_pause.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000104" lastModified="1790931653"/>
-          <Include href="UI/ui_panel_side.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000103" lastModified="1790931653"/>
-          <Include href="UI/ui_pause_panel.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000127" lastModified="1790934253"/>
-          <Include href="UI/ui_pill.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000119" lastModified="1790931653"/>
-          <Include href="UI/ui_progress.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000010e" lastModified="1790931653"/>
-          <Include href="UI/ui_row.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000116" lastModified="1790931653"/>
-          <Include href="UI/ui_shadow.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000108" lastModified="1790931653"/>
-          <Include href="UI/ui_slider.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000112" lastModified="1790931653"/>
-          <Include href="UI/ui_song_row.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000113" lastModified="1790931653"/>
-          <Include href="UI/ui_song_row_hover.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000114" lastModified="1790931653"/>
-          <Include href="UI/ui_song_row_on.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000115" lastModified="1790931653"/>
-          <Include href="UI/ui_tab.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000011c" lastModified="1790931653"/>
-          <Include href="UI/ui_toast.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000121" lastModified="1790931653"/>
-          <Include href="UI/ui_toggle.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000111" lastModified="1790931653"/>
-          <Include href="UI/ui_toggle_off.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000010f" lastModified="1790931653"/>
-          <Include href="UI/ui_toggle_on.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-00000110" lastModified="1790931653"/>
-          <Include href="UI/ui_topbar.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000011d" lastModified="1790931653"/>
-          <Include href="UI/ui_watermark.xml" itemIcon="1" loadImmediate="false" itemID="6abf0000-0000011f" lastModified="1790931653"/>
+     <Include href="UI/page_gameplay_hud.xml" loadImmediate="false" itemID="6abf0000-0000012d" lastModified="1790936663"/>
+     <Include href="UI/page_pause.xml" loadImmediate="false" itemID="6abf0000-0000012e" lastModified="1790936663"/>
+     <Include href="UI/page_settings.xml" loadImmediate="false" itemID="6abf0000-0000012f" lastModified="1790936663"/>
+     <Include href="UI/page_song_select.xml" loadImmediate="false" itemID="6abf0000-00000130" lastModified="1790936663"/>
+     <Include href="UI/page_start.xml" loadImmediate="false" itemID="6abf0000-00000131" lastModified="1790936663"/>
+     <Include href="UI/ui_badge.xml" loadImmediate="false" itemID="6abf0000-00000132" lastModified="1790936663"/>
+     <Include href="UI/ui_btn_danger.xml" loadImmediate="false" itemID="6abf0000-00000133" lastModified="1790936663"/>
+     <Include href="UI/ui_btn_primary.xml" loadImmediate="false" itemID="6abf0000-00000134" lastModified="1790936663"/>
+     <Include href="UI/ui_btn_quiet.xml" loadImmediate="false" itemID="6abf0000-00000135" lastModified="1790936663"/>
+     <Include href="UI/ui_btn_secondary.xml" loadImmediate="false" itemID="6abf0000-00000136" lastModified="1790936663"/>
+     <Include href="UI/ui_cat_tab.xml" loadImmediate="false" itemID="6abf0000-00000137" lastModified="1790936663"/>
+     <Include href="UI/ui_cat_tab_on.xml" loadImmediate="false" itemID="6abf0000-00000138" lastModified="1790936663"/>
+     <Include href="UI/ui_cover_placeholder.xml" loadImmediate="false" itemID="6abf0000-00000139" lastModified="1790936663"/>
+     <Include href="UI/ui_hairline.xml" loadImmediate="false" itemID="6abf0000-0000013a" lastModified="1790936663"/>
+     <Include href="UI/ui_header.xml" loadImmediate="false" itemID="6abf0000-0000013b" lastModified="1790936663"/>
+     <Include href="UI/ui_hero.xml" loadImmediate="false" itemID="6abf0000-0000013c" lastModified="1790936663"/>
+     <Include href="UI/ui_hero_sweep.xml" loadImmediate="false" itemID="6abf0000-0000013d" lastModified="1790936663"/>
+     <Include href="UI/ui_hero_ticks.xml" loadImmediate="false" itemID="6abf0000-0000013e" lastModified="1790936663"/>
+     <Include href="UI/ui_hud_bar.xml" loadImmediate="false" itemID="6abf0000-0000013f" lastModified="1790936663"/>
+     <Include href="UI/ui_level_pill.xml" loadImmediate="false" itemID="6abf0000-00000140" lastModified="1790936663"/>
+     <Include href="UI/ui_level_pill_on.xml" loadImmediate="false" itemID="6abf0000-00000141" lastModified="1790936663"/>
+     <Include href="UI/ui_load_bar.xml" loadImmediate="false" itemID="6abf0000-00000142" lastModified="1790936663"/>
+     <Include href="UI/ui_loading.xml" loadImmediate="false" itemID="6abf0000-00000143" lastModified="1790936663"/>
+     <Include href="UI/ui_logo.xml" loadImmediate="false" itemID="6abf0000-00000144" lastModified="1790936663"/>
+     <Include href="UI/ui_panel.xml" loadImmediate="false" itemID="6abf0000-00000145" lastModified="1790936663"/>
+     <Include href="UI/ui_panel_list.xml" loadImmediate="false" itemID="6abf0000-00000146" lastModified="1790936663"/>
+     <Include href="UI/ui_panel_pause.xml" loadImmediate="false" itemID="6abf0000-00000147" lastModified="1790936663"/>
+     <Include href="UI/ui_panel_side.xml" loadImmediate="false" itemID="6abf0000-00000148" lastModified="1790936663"/>
+     <Include href="UI/ui_pause_panel.xml" loadImmediate="false" itemID="6abf0000-00000149" lastModified="1790936663"/>
+     <Include href="UI/ui_pill.xml" loadImmediate="false" itemID="6abf0000-0000014a" lastModified="1790936663"/>
+     <Include href="UI/ui_progress.xml" loadImmediate="false" itemID="6abf0000-0000014b" lastModified="1790936663"/>
+     <Include href="UI/ui_row.xml" loadImmediate="false" itemID="6abf0000-0000014c" lastModified="1790936663"/>
+     <Include href="UI/ui_shadow.xml" loadImmediate="false" itemID="6abf0000-0000014d" lastModified="1790936663"/>
+     <Include href="UI/ui_slider.xml" loadImmediate="false" itemID="6abf0000-0000014e" lastModified="1790936663"/>
+     <Include href="UI/ui_song_row.xml" loadImmediate="false" itemID="6abf0000-0000014f" lastModified="1790936663"/>
+     <Include href="UI/ui_song_row_hover.xml" loadImmediate="false" itemID="6abf0000-00000150" lastModified="1790936663"/>
+     <Include href="UI/ui_song_row_on.xml" loadImmediate="false" itemID="6abf0000-00000151" lastModified="1790936663"/>
+     <Include href="UI/ui_tab.xml" loadImmediate="false" itemID="6abf0000-00000152" lastModified="1790936663"/>
+     <Include href="UI/ui_toast.xml" loadImmediate="false" itemID="6abf0000-00000153" lastModified="1790936663"/>
+     <Include href="UI/ui_toggle.xml" loadImmediate="false" itemID="6abf0000-00000154" lastModified="1790936663"/>
+     <Include href="UI/ui_toggle_off.xml" loadImmediate="false" itemID="6abf0000-00000155" lastModified="1790936663"/>
+     <Include href="UI/ui_toggle_on.xml" loadImmediate="false" itemID="6abf0000-00000156" lastModified="1790936663"/>
+     <Include href="UI/ui_topbar.xml" loadImmediate="false" itemID="6abf0000-00000157" lastModified="1790936663"/>
+     <Include href="UI/ui_watermark.xml" loadImmediate="false" itemID="6abf0000-00000158" lastModified="1790936663"/>
      </symbols>
      <timelines>
-          <DOMTimeline name="Scene 1" layerDepthEnabled="true">
-               <layers>
-                    <DOMLayer name="P1_page_start" color="#9933CC" current="true" isSelected="true">
-                         <frames>
-                              <DOMFrame index="0" keyMode="9728">
-                                   <elements>
-                                        <DOMSymbolInstance libraryItemName="UI/page_start" selected="true">
-                                             <transformationPoint>
-                                                  <Point/>
-                                             </transformationPoint>
-                                        </DOMSymbolInstance>
-                                   </elements>
-                              </DOMFrame>
-                         </frames>
-                    </DOMLayer>
-                    <DOMLayer name="P2_page_song_select" color="#9933CC">
-                         <frames>
-                              <DOMFrame index="0" keyMode="9728">
-                                   <elements>
-                                        <DOMSymbolInstance libraryItemName="UI/page_song_select">
-                                             <matrix>
-                                                  <Matrix tx="1340"/>
-                                             </matrix>
-                                             <transformationPoint>
-                                                  <Point/>
-                                             </transformationPoint>
-                                        </DOMSymbolInstance>
-                                   </elements>
-                              </DOMFrame>
-                         </frames>
-                    </DOMLayer>
-                    <DOMLayer name="P3_page_settings" color="#9933CC">
-                         <frames>
-                              <DOMFrame index="0" keyMode="9728">
-                                   <elements>
-                                        <DOMSymbolInstance libraryItemName="UI/page_settings">
-                                             <matrix>
-                                                  <Matrix tx="2680"/>
-                                             </matrix>
-                                             <transformationPoint>
-                                                  <Point/>
-                                             </transformationPoint>
-                                        </DOMSymbolInstance>
-                                   </elements>
-                              </DOMFrame>
-                         </frames>
-                    </DOMLayer>
-                    <DOMLayer name="P4_page_gameplay_hud" color="#9933CC">
-                         <frames>
-                              <DOMFrame index="0" keyMode="9728">
-                                   <elements>
-                                        <DOMSymbolInstance libraryItemName="UI/page_gameplay_hud">
-                                             <matrix>
-                                                  <Matrix tx="4020"/>
-                                             </matrix>
-                                             <transformationPoint>
-                                                  <Point/>
-                                             </transformationPoint>
-                                        </DOMSymbolInstance>
-                                   </elements>
-                              </DOMFrame>
-                         </frames>
-                    </DOMLayer>
-                    <DOMLayer name="P5_page_pause" color="#9933CC">
-                         <frames>
-                              <DOMFrame index="0" keyMode="9728">
-                                   <elements>
-                                        <DOMSymbolInstance libraryItemName="UI/page_pause">
-                                             <matrix>
-                                                  <Matrix tx="5360"/>
-                                             </matrix>
-                                             <transformationPoint>
-                                                  <Point/>
-                                             </transformationPoint>
-                                        </DOMSymbolInstance>
-                                   </elements>
-                              </DOMFrame>
-                         </frames>
-                    </DOMLayer>
-                    <DOMLayer name="_0_BG" color="#00FFFF">
-                         <frames>
-                              <DOMFrame index="0" keyMode="9728">
-                                   <elements>
-                                        <DOMShape>
-                                             <fills>
-                                                  <FillStyle index="1">
-                                                       <SolidColor color="#171719"/>
-                                                  </FillStyle>
-                                             </fills>
-                                             <edges>
-                                                  <Edge fillStyle1="1" edges="!0 0|140000 0!140000 0|140000 15200!140000 15200|0 15200!0 15200|0 0"/>
-                                             </edges>
-                                        </DOMShape>
-                                   </elements>
-                              </DOMFrame>
-                         </frames>
-                    </DOMLayer>
-               </layers>
-          </DOMTimeline>
+      <DOMTimeline name="Scene 1" layerDepthEnabled="true">
+       <layers>
+     <DOMLayer name="P1_page_start" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements><DOMSymbolInstance libraryItemName="UI/page_start" symbolType="movieclip" loop="loop"><matrix><Matrix a="1" b="0" c="0" d="1" tx="0" ty="0"/></matrix><transformationPoint><Point/></transformationPoint></DOMSymbolInstance></elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="P2_page_song_select" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements><DOMSymbolInstance libraryItemName="UI/page_song_select" symbolType="movieclip" loop="loop"><matrix><Matrix a="1" b="0" c="0" d="1" tx="1340" ty="0"/></matrix><transformationPoint><Point/></transformationPoint></DOMSymbolInstance></elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="P3_page_settings" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements><DOMSymbolInstance libraryItemName="UI/page_settings" symbolType="movieclip" loop="loop"><matrix><Matrix a="1" b="0" c="0" d="1" tx="2680" ty="0"/></matrix><transformationPoint><Point/></transformationPoint></DOMSymbolInstance></elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="P4_page_gameplay_hud" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements><DOMSymbolInstance libraryItemName="UI/page_gameplay_hud" symbolType="movieclip" loop="loop"><matrix><Matrix a="1" b="0" c="0" d="1" tx="4020" ty="0"/></matrix><transformationPoint><Point/></transformationPoint></DOMSymbolInstance></elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="P5_page_pause" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements><DOMSymbolInstance libraryItemName="UI/page_pause" symbolType="movieclip" loop="loop"><matrix><Matrix a="1" b="0" c="0" d="1" tx="5360" ty="0"/></matrix><transformationPoint><Point/></transformationPoint></DOMSymbolInstance></elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+        <DOMLayer name="00_BG" color="#00FFFF" current="true" isSelected="true">
+         <frames>
+          <DOMFrame index="0" keyMode="9728">
+           <elements><DOMShape><fills><FillStyle index="1"><SolidColor color="#171719"/></FillStyle></fills><edges><Edge fillStyle1="1" edges="!0 0S2|140000 0!140000 0|140000 15200!140000 15200|0 15200!0 15200|0 0"/></edges></DOMShape></elements>
+          </DOMFrame>
+         </frames>
+        </DOMLayer>
+       </layers>
+      </DOMTimeline>
      </timelines>
      <scripts/>
      <PrinterSettings platform="macintosh"/>

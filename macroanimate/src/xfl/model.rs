@@ -261,6 +261,8 @@ pub struct XflAtlas {
     pub scene: Timeline,
     /// Library symbols: name -> (type, timeline).
     pub symbols: HashMap<String, (SymbolType, Timeline)>,
+    /// Symbol-level 9-slice grids: symbol name -> `[left, top, right, bottom]`.
+    pub scale9: HashMap<String, [f32; 4]>,
     /// Bitmap items: name -> asset.
     pub bitmaps: HashMap<String, BitmapAsset>,
     /// Named animations (main-scene frame labels plus every library symbol).

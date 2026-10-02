@@ -68,6 +68,7 @@ pub fn parse(files: &HashMap<String, Vec<u8>>) -> Result<XflAtlas, XflError> {
     }
 
     let mut symbols: HashMap<String, (SymbolType, Timeline)> = HashMap::new();
+    let mut scale9: HashMap<String, [f32; 4]> = HashMap::new();
     for inc in root.descendants().filter(|n| n.tag_name().name() == "Include") {
         let Some(href) = inc.attribute("href") else {
             continue;
@@ -92,6 +93,15 @@ pub fn parse(files: &HashMap<String, Vec<u8>>) -> Result<XflAtlas, XflError> {
         let Some(sym_name) = sym_name else { continue };
         let sym_type = parse_symbol_type(sym_root.attribute("symbolType"));
         let timeline = parse_timeline(first_descendant(sym_root, "DOMTimeline"));
+        // Symbol-level 9-slice guides live on the <DOMSymbolItem> root.
+        if let (Some(l), Some(t), Some(r), Some(b)) = (
+            attr_f32(sym_root, "scaleGridLeft"),
+            attr_f32(sym_root, "scaleGridTop"),
+            attr_f32(sym_root, "scaleGridRight"),
+            attr_f32(sym_root, "scaleGridBottom"),
+        ) {
+            scale9.insert(sym_name.clone(), [l, t, r, b]);
+        }
         symbols.insert(sym_name, (sym_type, timeline));
     }
 
@@ -135,6 +145,7 @@ pub fn parse(files: &HashMap<String, Vec<u8>>) -> Result<XflAtlas, XflError> {
         height,
         scene,
         symbols,
+        scale9,
         bitmaps,
         animations,
     })

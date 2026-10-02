@@ -159,7 +159,7 @@ def inst(name, tx=0, ty=0, rot=0, sx=1, sy=1, alpha=None, firstFrame=0, tpx=0, t
     col = f'<color><Color alphaMultiplier="{alpha}"/></color>' if alpha is not None else ""
     ff = f' firstFrame="{firstFrame}"' if firstFrame else ""
     tp = f'<Point x="{_num(tpx)}" y="{_num(tpy)}"/>' if (tpx or tpy) else "<Point/>"
-    s9 = _scale9_for(name)
+    s9 = None  # 9-slice now lives on the symbol (DOMSymbolItem)
     s9x = (
         f'<scale9Grid scaleGridLeft="{s9[0]:g}" scaleGridTop="{s9[1]:g}" '
         f'scaleGridRight="{s9[2]:g}" scaleGridBottom="{s9[3]:g}"/>'
@@ -186,11 +186,18 @@ def layer(name, frames, locked=False):
     return f'<DOMLayer name="{name}" color="#9933CC"{l} autoNamed="false"><frames>{"".join(frames)}</frames></DOMLayer>'
 
 
-def sym(name, layers, last_uid=1, symbol_type="graphic"):
+def sym(name, layers, last_uid=1, symbol_type="graphic", scale_grid=None):
+    sg = ""
+    if scale_grid:
+        l, t, r, b = scale_grid
+        sg = (
+            f' scaleGridLeft="{l:g}" scaleGridTop="{t:g}" '
+            f'scaleGridRight="{r:g}" scaleGridBottom="{b:g}"'
+        )
     return (
         f'<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
         f'xmlns="http://ns.adobe.com/xfl/2008/" name="UI/{name}" itemID="{uid()}" '
-        f'symbolType="{symbol_type}" lastModified="{LAST}" lastUniqueIdentifier="{last_uid}">'
+        f'symbolType="{symbol_type}"{sg} lastModified="{LAST}" lastUniqueIdentifier="{last_uid}">'
         f'<timeline><DOMTimeline name="{name}" layerDepthEnabled="true">'
         f'<layers>{"".join(layers)}</layers></DOMTimeline></timeline></DOMSymbolItem>'
     )
@@ -242,7 +249,7 @@ def build_atoms():
                 frame(1, [cut_rect(0, 0, 180, 46, 8, over)]),
                 frame(2, [cut_rect(0, 0, 180, 46, 8, down)]),
             ]))
-        return sym(name, ls)
+        return sym(name, ls, scale_grid=(8, 8, 172, 38))
 
     add("ui_btn_primary", button("ui_btn_primary", ACCENT, "#6BDDED", "#43AFC0", None))
     add("ui_btn_secondary", button("ui_btn_secondary", RAISED, "#34343A", "#222226", BORDER))
@@ -275,7 +282,7 @@ def build_atoms():
         layer("knob", [frame(0, [rect(174, 18, 12, 18, TEXT)])]),
         layer("fill", [frame(0, [rect(0, 24, 180, 6, ACCENT)])]),
         layer("track", [frame(0, [rect(0, 24, 300, 6, RAISED)])]),
-    ]))
+    ], scale_grid=(6, 0, 294, 36)))
 
     def row(name, fill, border, tick, badge):
         # top -> bottom: badge, tick, title, artist, thumb, border, bg
