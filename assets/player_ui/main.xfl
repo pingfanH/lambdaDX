@@ -1,0 +1,44 @@
+<DOMFlashFile xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" version="2">
+     <files>
+        <DOMFile path="DOMDocument.xml" type="application/vnd.adobe.xfl.document"/>
+        <DOMFile path="LIBRARY/UI/page_gameplay_hud.xml"/>
+        <DOMFile path="LIBRARY/UI/page_pause.xml"/>
+        <DOMFile path="LIBRARY/UI/page_settings.xml"/>
+        <DOMFile path="LIBRARY/UI/page_song_select.xml"/>
+        <DOMFile path="LIBRARY/UI/page_start.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_badge.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_btn_danger.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_btn_primary.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_btn_quiet.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_btn_secondary.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_cat_tab.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_cat_tab_on.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_cover_placeholder.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_hairline.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_hero.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_hero_sweep.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_hero_ticks.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_level_pill.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_level_pill_on.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_load_bar.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_loading.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_logo.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_panel.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_pause_panel.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_pill.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_progress.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_row.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_shadow.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_slider.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_song_row.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_song_row_hover.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_song_row_on.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_tab.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_toast.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_toggle.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_toggle_off.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_toggle_on.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_topbar.xml"/>
+        <DOMFile path="LIBRARY/UI/ui_watermark.xml"/>
+     </files>
+</DOMFlashFile>
