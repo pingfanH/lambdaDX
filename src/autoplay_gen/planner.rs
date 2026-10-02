@@ -38,24 +38,27 @@ pub fn group_units(plans: &[SlidePlan]) -> Vec<UnitPlan> {
     units
 }
 
-/// Assign a trigger time to every segment of every slide.
+/// Assign a trigger time to every segment of every slide (default: block 0).
 pub fn plan(plans: &mut [SlidePlan], block_s: f64) -> Vec<UnitPlan> {
     let units = group_units(plans);
     for unit in &units {
         for &si in &unit.slide_indices {
-            assign_slide(&mut plans[si], block_s);
+            assign_slide(&mut plans[si], block_s, 0);
         }
     }
     units
 }
 
-fn assign_slide(slide: &mut SlidePlan, block_s: f64) {
+/// Assign each ordered segment to a consecutive time block starting at
+/// `start_offset`; once only one block is left, every remaining segment shares
+/// it (the doc's "一起划完").
+pub fn assign_slide(slide: &mut SlidePlan, block_s: f64, start_offset: usize) {
     let n = slide.block_count(block_s);
+    let start = start_offset.min(n.saturating_sub(1));
     let last_t = slide.head_s + (n - 1) as f64 * block_s;
     for (i, seg) in slide.segments.iter_mut().enumerate() {
-        let block = i.min(n - 1);
+        let block = (start + i).min(n - 1);
         let blocks_left = n - block;
-        // Remaining segments with only one block left all share that block.
         let t = if blocks_left <= 1 {
             last_t
         } else {
@@ -63,6 +66,11 @@ fn assign_slide(slide: &mut SlidePlan, block_s: f64) {
         };
         seg.target_s = t;
     }
+}
+
+/// Candidate start offsets for a slide (each is a possible enumeration branch).
+pub fn candidate_offsets(slide: &SlidePlan, block_s: f64) -> std::ops::RangeInclusive<usize> {
+    0..=slide.block_count(block_s).saturating_sub(1)
 }
 
 /// Segments whose first zone is on the A ring (id 1..=8) — the ones the doc

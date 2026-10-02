@@ -107,11 +107,16 @@ for unit in overlapping_units:          # 重叠单位
 - `model.rs` 建模生命周期 / 区块；`planner.rs` 分块 + 重叠单位 + 贪心枚举；
   `report.rs` 输出调度与 A 区冲突。
 - `verify.rs` 把计划转成传感器事件，喂给 lnmai-core 重放，报告每个 runtime arc 的判定。
+- `search.rs` **逐区块回溯枚举**：对每条 slide 依次尝试每个候选时间块起点，直到它的 runtime
+  arc 全部非 Miss 才提交并进入下一条；所有候选都失败则记为 failed，继续下一条。
+  `--max-tries` 限制内核评估次数。
 - `--default-tactic` 用内核自带 tactic 走同一套验证（用于验证「验证 + 预览」链路）。
 - `--preview` 在**所有已判定 arc 均非 Miss** 时，把生成的事件写成 JSON 并通过
   `MAI2_AUTOPLAY_TACTIC=<file>` 交给 `lambda_dx_pad_preview` 显示。
 
-当前事件生成还很朴素（每段一次 hold），尚不能全 Perfect；枚举器本身是后续工作。
+当前瓶颈在**事件模型**而非时间枚举：每条 segment 只 hold 一个 zone，而内核的一条 runtime
+arc 需要星星依次划过多个 zone（内核默认 tactic 才带完整轨迹）。所以枚举会把候选试完并报
+`failed`。下一步：让 `build_events` 按 runtime arc 的完整 zone 序列生成 hold。
 
 ## 未决问题
 

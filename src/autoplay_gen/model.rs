@@ -29,6 +29,10 @@ pub struct SlidePlan {
     pub duration_s: f64,
     pub is_break: bool,
     pub segments: Vec<SegmentPlan>,
+    /// First runtime (lnmai-core) slide index this sub-slide expands to.
+    pub runtime_start: usize,
+    /// How many runtime slides this sub-slide expands to (`runtime_parts`).
+    pub runtime_parts: usize,
 }
 
 impl SlidePlan {
@@ -45,6 +49,7 @@ impl SlidePlan {
 pub fn build_slide_plans(chart: &ChartDoc) -> Vec<SlidePlan> {
     let bpms = &chart.bpms;
     let mut out = Vec::new();
+    let mut runtime_cursor = 0usize;
     for note in &chart.notes {
         if !matches!(note.note_type, NoteType::Slide) {
             continue;
@@ -68,6 +73,7 @@ pub fn build_slide_plans(chart: &ChartDoc) -> Vec<SlidePlan> {
                     target_s: head_s,
                 })
                 .collect();
+            let parts = slide.runtime_parts.max(1);
             out.push(SlidePlan {
                 note_id: note.id,
                 slide_index: si,
@@ -76,7 +82,10 @@ pub fn build_slide_plans(chart: &ChartDoc) -> Vec<SlidePlan> {
                 duration_s: (end_s - head_s).max(0.0),
                 is_break: note.is_break || slide.slide_is_break,
                 segments,
+                runtime_start: runtime_cursor,
+                runtime_parts: parts,
             });
+            runtime_cursor += parts;
         }
     }
     out.sort_by(|a, b| a.head_s.total_cmp(&b.head_s));
