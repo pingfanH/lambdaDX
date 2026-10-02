@@ -1,0 +1,20 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="notes/touchhold_0" itemID="6ac00000-0000203a" symbolType="movieclip" lastModified="1790928476">
+  <timeline>
+    <DOMTimeline name="touchhold_0" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="shape" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="notes/touchhold_0_shape" symbolType="graphic" loop="single frame">
+                  <matrix><Matrix/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

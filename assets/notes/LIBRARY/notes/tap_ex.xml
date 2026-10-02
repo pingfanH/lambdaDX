@@ -1,0 +1,20 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="notes/tap_ex" itemID="6ac00000-00002008" symbolType="movieclip" lastModified="1790928476">
+  <timeline>
+    <DOMTimeline name="tap_ex" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="shape" color="#9933CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="notes/tap_ex_shape" symbolType="graphic" loop="single frame">
+                  <matrix><Matrix/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

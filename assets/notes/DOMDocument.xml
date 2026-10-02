@@ -1,0 +1,510 @@
+<DOMDocument xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" width="1920" height="1080" frameRate="60" currentTimeline="1" xflVersion="23.0" creatorInfo="Adobe Animate" platform="Macintosh" versionInfo="Saved by Animate Macintosh 24.0 build 305" majorVersion="24" buildNumber="305" nextSceneIdentifier="2" playOptionsPlayLoop="false" playOptionsPlayPages="false" playOptionsPlayFrameActions="false">
+     <media>
+    <DOMBitmapItem name="tap.png" itemID="6ac00000-00002043" href="tap.png" sourceExternalFilepath="../Skins/classic/tap.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2440" frameBottom="2440"/>
+    <DOMBitmapItem name="tap_break.png" itemID="6ac00000-00002044" href="tap_break.png" sourceExternalFilepath="../Skins/classic/tap_break.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2440" frameBottom="2440"/>
+    <DOMBitmapItem name="tap_each.png" itemID="6ac00000-00002045" href="tap_each.png" sourceExternalFilepath="../Skins/classic/tap_each.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2440" frameBottom="2440"/>
+    <DOMBitmapItem name="tap_ex.png" itemID="6ac00000-00002046" href="tap_ex.png" sourceExternalFilepath="../Skins/classic/tap_ex.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2560" frameBottom="2560"/>
+    <DOMBitmapItem name="tap_guide.png" itemID="6ac00000-00002047" href="tap_guide.png" sourceExternalFilepath="../Skins/classic/tap_guide.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="21600" frameBottom="21600"/>
+    <DOMBitmapItem name="hold.png" itemID="6ac00000-00002048" href="hold.png" sourceExternalFilepath="../Skins/classic/hold.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2440" frameBottom="4000"/>
+    <DOMBitmapItem name="hold_break.png" itemID="6ac00000-00002049" href="hold_break.png" sourceExternalFilepath="../Skins/classic/hold_break.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2440" frameBottom="4000"/>
+    <DOMBitmapItem name="Hold_Break_End.png" itemID="6ac00000-0000204a" href="Hold_Break_End.png" sourceExternalFilepath="../Skins/classic/Hold_Break_End.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="1280" frameBottom="1280"/>
+    <DOMBitmapItem name="hold_each.png" itemID="6ac00000-0000204b" href="hold_each.png" sourceExternalFilepath="../Skins/classic/hold_each.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2440" frameBottom="4000"/>
+    <DOMBitmapItem name="Hold_Each_End.png" itemID="6ac00000-0000204c" href="Hold_Each_End.png" sourceExternalFilepath="../Skins/classic/Hold_Each_End.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="1280" frameBottom="1280"/>
+    <DOMBitmapItem name="Hold_End.png" itemID="6ac00000-0000204d" href="Hold_End.png" sourceExternalFilepath="../Skins/classic/Hold_End.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="1280" frameBottom="1280"/>
+    <DOMBitmapItem name="hold_ex.png" itemID="6ac00000-0000204e" href="hold_ex.png" sourceExternalFilepath="../Skins/classic/hold_ex.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2440" frameBottom="4000"/>
+    <DOMBitmapItem name="slide.png" itemID="6ac00000-0000204f" href="slide.png" sourceExternalFilepath="../Skins/classic/slide.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="1020" frameBottom="1880"/>
+    <DOMBitmapItem name="slide_break.png" itemID="6ac00000-00002050" href="slide_break.png" sourceExternalFilepath="../Skins/classic/slide_break.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="1020" frameBottom="1880"/>
+    <DOMBitmapItem name="slide_each.png" itemID="6ac00000-00002051" href="slide_each.png" sourceExternalFilepath="../Skins/classic/slide_each.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="1020" frameBottom="1880"/>
+    <DOMBitmapItem name="slide_guide.png" itemID="6ac00000-00002052" href="slide_guide.png" sourceExternalFilepath="../Skins/classic/slide_guide.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="21600" frameBottom="21600"/>
+    <DOMBitmapItem name="star.png" itemID="6ac00000-00002053" href="star.png" sourceExternalFilepath="../Skins/classic/star.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2520" frameBottom="2520"/>
+    <DOMBitmapItem name="star_break.png" itemID="6ac00000-00002054" href="star_break.png" sourceExternalFilepath="../Skins/classic/star_break.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2520" frameBottom="2520"/>
+    <DOMBitmapItem name="star_double.png" itemID="6ac00000-00002055" href="star_double.png" sourceExternalFilepath="../Skins/classic/star_double.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2520" frameBottom="2520"/>
+    <DOMBitmapItem name="star_double_break.png" itemID="6ac00000-00002056" href="star_double_break.png" sourceExternalFilepath="../Skins/classic/star_double_break.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2520" frameBottom="2520"/>
+    <DOMBitmapItem name="star_double_each.png" itemID="6ac00000-00002057" href="star_double_each.png" sourceExternalFilepath="../Skins/classic/star_double_each.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2520" frameBottom="2520"/>
+    <DOMBitmapItem name="star_double_ex.png" itemID="6ac00000-00002058" href="star_double_ex.png" sourceExternalFilepath="../Skins/classic/star_double_ex.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2520" frameBottom="2520"/>
+    <DOMBitmapItem name="star_each.png" itemID="6ac00000-00002059" href="star_each.png" sourceExternalFilepath="../Skins/classic/star_each.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2520" frameBottom="2520"/>
+    <DOMBitmapItem name="star_ex.png" itemID="6ac00000-0000205a" href="star_ex.png" sourceExternalFilepath="../Skins/classic/star_ex.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2520" frameBottom="2520"/>
+    <DOMBitmapItem name="touch.png" itemID="6ac00000-0000205b" href="touch.png" sourceExternalFilepath="../Skins/classic/touch.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2240" frameBottom="1640"/>
+    <DOMBitmapItem name="touch_each.png" itemID="6ac00000-0000205c" href="touch_each.png" sourceExternalFilepath="../Skins/classic/touch_each.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2240" frameBottom="1640"/>
+    <DOMBitmapItem name="touch_point.png" itemID="6ac00000-0000205d" href="touch_point.png" sourceExternalFilepath="../Skins/classic/touch_point.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="640" frameBottom="640"/>
+    <DOMBitmapItem name="touch_point_each.png" itemID="6ac00000-0000205e" href="touch_point_each.png" sourceExternalFilepath="../Skins/classic/touch_point_each.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="640" frameBottom="640"/>
+    <DOMBitmapItem name="touchhold_0.png" itemID="6ac00000-0000205f" href="touchhold_0.png" sourceExternalFilepath="../Skins/classic/touchhold_0.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2240" frameBottom="1640"/>
+    <DOMBitmapItem name="touchhold_1.png" itemID="6ac00000-00002060" href="touchhold_1.png" sourceExternalFilepath="../Skins/classic/touchhold_1.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2240" frameBottom="1640"/>
+    <DOMBitmapItem name="touchhold_2.png" itemID="6ac00000-00002061" href="touchhold_2.png" sourceExternalFilepath="../Skins/classic/touchhold_2.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2240" frameBottom="1640"/>
+    <DOMBitmapItem name="touchhold_3.png" itemID="6ac00000-00002062" href="touchhold_3.png" sourceExternalFilepath="../Skins/classic/touchhold_3.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="2240" frameBottom="1640"/>
+    <DOMBitmapItem name="touchhold_border.png" itemID="6ac00000-00002063" href="touchhold_border.png" sourceExternalFilepath="../Skins/classic/touchhold_border.png" sourceLastImported="1790928476" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" frameRight="4220" frameBottom="4200"/>
+     </media>
+     <symbols>
+    <Include href="notes/tap_shape.xml" loadImmediate="false" itemID="6ac00000-00002064" lastModified="1790928476"/>
+    <Include href="notes/tap.xml" loadImmediate="false" itemID="6ac00000-00002065" lastModified="1790928476"/>
+    <Include href="notes/tap_break_shape.xml" loadImmediate="false" itemID="6ac00000-00002066" lastModified="1790928476"/>
+    <Include href="notes/tap_break.xml" loadImmediate="false" itemID="6ac00000-00002067" lastModified="1790928476"/>
+    <Include href="notes/tap_each_shape.xml" loadImmediate="false" itemID="6ac00000-00002068" lastModified="1790928476"/>
+    <Include href="notes/tap_each.xml" loadImmediate="false" itemID="6ac00000-00002069" lastModified="1790928476"/>
+    <Include href="notes/tap_ex_shape.xml" loadImmediate="false" itemID="6ac00000-0000206a" lastModified="1790928476"/>
+    <Include href="notes/tap_ex.xml" loadImmediate="false" itemID="6ac00000-0000206b" lastModified="1790928476"/>
+    <Include href="notes/tap_guide_shape.xml" loadImmediate="false" itemID="6ac00000-0000206c" lastModified="1790928476"/>
+    <Include href="notes/tap_guide.xml" loadImmediate="false" itemID="6ac00000-0000206d" lastModified="1790928476"/>
+    <Include href="notes/hold_shape.xml" loadImmediate="false" itemID="6ac00000-0000206e" lastModified="1790928476"/>
+    <Include href="notes/hold.xml" loadImmediate="false" itemID="6ac00000-0000206f" lastModified="1790928476"/>
+    <Include href="notes/hold_break_shape.xml" loadImmediate="false" itemID="6ac00000-00002070" lastModified="1790928476"/>
+    <Include href="notes/hold_break.xml" loadImmediate="false" itemID="6ac00000-00002071" lastModified="1790928476"/>
+    <Include href="notes/Hold_Break_End_shape.xml" loadImmediate="false" itemID="6ac00000-00002072" lastModified="1790928476"/>
+    <Include href="notes/Hold_Break_End.xml" loadImmediate="false" itemID="6ac00000-00002073" lastModified="1790928476"/>
+    <Include href="notes/hold_each_shape.xml" loadImmediate="false" itemID="6ac00000-00002074" lastModified="1790928476"/>
+    <Include href="notes/hold_each.xml" loadImmediate="false" itemID="6ac00000-00002075" lastModified="1790928476"/>
+    <Include href="notes/Hold_Each_End_shape.xml" loadImmediate="false" itemID="6ac00000-00002076" lastModified="1790928476"/>
+    <Include href="notes/Hold_Each_End.xml" loadImmediate="false" itemID="6ac00000-00002077" lastModified="1790928476"/>
+    <Include href="notes/Hold_End_shape.xml" loadImmediate="false" itemID="6ac00000-00002078" lastModified="1790928476"/>
+    <Include href="notes/Hold_End.xml" loadImmediate="false" itemID="6ac00000-00002079" lastModified="1790928476"/>
+    <Include href="notes/hold_ex_shape.xml" loadImmediate="false" itemID="6ac00000-0000207a" lastModified="1790928476"/>
+    <Include href="notes/hold_ex.xml" loadImmediate="false" itemID="6ac00000-0000207b" lastModified="1790928476"/>
+    <Include href="notes/slide_shape.xml" loadImmediate="false" itemID="6ac00000-0000207c" lastModified="1790928476"/>
+    <Include href="notes/slide.xml" loadImmediate="false" itemID="6ac00000-0000207d" lastModified="1790928476"/>
+    <Include href="notes/slide_break_shape.xml" loadImmediate="false" itemID="6ac00000-0000207e" lastModified="1790928476"/>
+    <Include href="notes/slide_break.xml" loadImmediate="false" itemID="6ac00000-0000207f" lastModified="1790928476"/>
+    <Include href="notes/slide_each_shape.xml" loadImmediate="false" itemID="6ac00000-00002080" lastModified="1790928476"/>
+    <Include href="notes/slide_each.xml" loadImmediate="false" itemID="6ac00000-00002081" lastModified="1790928476"/>
+    <Include href="notes/slide_guide_shape.xml" loadImmediate="false" itemID="6ac00000-00002082" lastModified="1790928476"/>
+    <Include href="notes/slide_guide.xml" loadImmediate="false" itemID="6ac00000-00002083" lastModified="1790928476"/>
+    <Include href="notes/star_shape.xml" loadImmediate="false" itemID="6ac00000-00002084" lastModified="1790928476"/>
+    <Include href="notes/star.xml" loadImmediate="false" itemID="6ac00000-00002085" lastModified="1790928476"/>
+    <Include href="notes/star_break_shape.xml" loadImmediate="false" itemID="6ac00000-00002086" lastModified="1790928476"/>
+    <Include href="notes/star_break.xml" loadImmediate="false" itemID="6ac00000-00002087" lastModified="1790928476"/>
+    <Include href="notes/star_double_shape.xml" loadImmediate="false" itemID="6ac00000-00002088" lastModified="1790928476"/>
+    <Include href="notes/star_double.xml" loadImmediate="false" itemID="6ac00000-00002089" lastModified="1790928476"/>
+    <Include href="notes/star_double_break_shape.xml" loadImmediate="false" itemID="6ac00000-0000208a" lastModified="1790928476"/>
+    <Include href="notes/star_double_break.xml" loadImmediate="false" itemID="6ac00000-0000208b" lastModified="1790928476"/>
+    <Include href="notes/star_double_each_shape.xml" loadImmediate="false" itemID="6ac00000-0000208c" lastModified="1790928476"/>
+    <Include href="notes/star_double_each.xml" loadImmediate="false" itemID="6ac00000-0000208d" lastModified="1790928476"/>
+    <Include href="notes/star_double_ex_shape.xml" loadImmediate="false" itemID="6ac00000-0000208e" lastModified="1790928476"/>
+    <Include href="notes/star_double_ex.xml" loadImmediate="false" itemID="6ac00000-0000208f" lastModified="1790928476"/>
+    <Include href="notes/star_each_shape.xml" loadImmediate="false" itemID="6ac00000-00002090" lastModified="1790928476"/>
+    <Include href="notes/star_each.xml" loadImmediate="false" itemID="6ac00000-00002091" lastModified="1790928476"/>
+    <Include href="notes/star_ex_shape.xml" loadImmediate="false" itemID="6ac00000-00002092" lastModified="1790928476"/>
+    <Include href="notes/star_ex.xml" loadImmediate="false" itemID="6ac00000-00002093" lastModified="1790928476"/>
+    <Include href="notes/touch_shape.xml" loadImmediate="false" itemID="6ac00000-00002094" lastModified="1790928476"/>
+    <Include href="notes/touch.xml" loadImmediate="false" itemID="6ac00000-00002095" lastModified="1790928476"/>
+    <Include href="notes/touch_each_shape.xml" loadImmediate="false" itemID="6ac00000-00002096" lastModified="1790928476"/>
+    <Include href="notes/touch_each.xml" loadImmediate="false" itemID="6ac00000-00002097" lastModified="1790928476"/>
+    <Include href="notes/touch_point_shape.xml" loadImmediate="false" itemID="6ac00000-00002098" lastModified="1790928476"/>
+    <Include href="notes/touch_point.xml" loadImmediate="false" itemID="6ac00000-00002099" lastModified="1790928476"/>
+    <Include href="notes/touch_point_each_shape.xml" loadImmediate="false" itemID="6ac00000-0000209a" lastModified="1790928476"/>
+    <Include href="notes/touch_point_each.xml" loadImmediate="false" itemID="6ac00000-0000209b" lastModified="1790928476"/>
+    <Include href="notes/touchhold_0_shape.xml" loadImmediate="false" itemID="6ac00000-0000209c" lastModified="1790928476"/>
+    <Include href="notes/touchhold_0.xml" loadImmediate="false" itemID="6ac00000-0000209d" lastModified="1790928476"/>
+    <Include href="notes/touchhold_1_shape.xml" loadImmediate="false" itemID="6ac00000-0000209e" lastModified="1790928476"/>
+    <Include href="notes/touchhold_1.xml" loadImmediate="false" itemID="6ac00000-0000209f" lastModified="1790928476"/>
+    <Include href="notes/touchhold_2_shape.xml" loadImmediate="false" itemID="6ac00000-000020a0" lastModified="1790928476"/>
+    <Include href="notes/touchhold_2.xml" loadImmediate="false" itemID="6ac00000-000020a1" lastModified="1790928476"/>
+    <Include href="notes/touchhold_3_shape.xml" loadImmediate="false" itemID="6ac00000-000020a2" lastModified="1790928476"/>
+    <Include href="notes/touchhold_3.xml" loadImmediate="false" itemID="6ac00000-000020a3" lastModified="1790928476"/>
+    <Include href="notes/touchhold_border_shape.xml" loadImmediate="false" itemID="6ac00000-000020a4" lastModified="1790928476"/>
+    <Include href="notes/touchhold_border.xml" loadImmediate="false" itemID="6ac00000-000020a5" lastModified="1790928476"/>
+     </symbols>
+     <timelines>
+      <DOMTimeline name="Scene 1" layerDepthEnabled="true">
+       <layers>
+     <DOMLayer name="tap" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/tap" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="120" ty="200"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="tap_break" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/tap_break" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="302" ty="200"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="tap_each" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/tap_each" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="484" ty="200"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="tap_ex" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/tap_ex" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="666" ty="200"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="tap_guide" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/tap_guide" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="854" ty="200"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="hold" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/hold" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="120" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="hold_break" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/hold_break" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="302" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="Hold_Break_End" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/Hold_Break_End" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="484" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="hold_each" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/hold_each" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="640" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="Hold_Each_End" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/Hold_Each_End" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="822" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="Hold_End" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/Hold_End" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="978" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="hold_ex" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/hold_ex" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1134" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="slide" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/slide" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1316" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="slide_break" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/slide_break" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1472" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="slide_each" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/slide_each" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1628" ty="1400"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="slide_guide" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/slide_guide" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="120" ty="1720"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="star" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/star" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1260" ty="1720"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="star_break" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/star_break" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1446" ty="1720"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="star_double" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/star_double" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1632" ty="1720"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="star_double_break" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/star_double_break" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="120" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="star_double_each" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/star_double_each" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="306" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="star_double_ex" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/star_double_ex" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="492" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="star_each" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/star_each" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="678" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="star_ex" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/star_ex" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="864" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touch" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touch" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1050" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touch_each" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touch_each" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1222" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touch_point" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touch_point" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1394" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touch_point_each" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touch_point_each" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="1550" ty="2920"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touchhold_0" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touchhold_0" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="120" ty="3166"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touchhold_1" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touchhold_1" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="292" ty="3166"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touchhold_2" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touchhold_2" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="464" ty="3166"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touchhold_3" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touchhold_3" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="636" ty="3166"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+     <DOMLayer name="touchhold_border" color="#9933CC">
+      <frames>
+       <DOMFrame index="0" keyMode="9728">
+        <elements>
+         <DOMSymbolInstance libraryItemName="notes/touchhold_border" symbolType="movieclip" loop="loop">
+          <matrix><Matrix tx="808" ty="3166"/></matrix>
+          <transformationPoint><Point/></transformationPoint>
+         </DOMSymbolInstance>
+        </elements>
+       </DOMFrame>
+      </frames>
+     </DOMLayer>
+       </layers>
+      </DOMTimeline>
+     </timelines>
+     <scripts/>
+     <PrinterSettings platform="macintosh"/>
+     <publishHistory/>
+</DOMDocument>

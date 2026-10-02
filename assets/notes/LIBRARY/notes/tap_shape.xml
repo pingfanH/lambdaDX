@@ -1,0 +1,20 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="notes/tap_shape" itemID="6ac00000-00002001" symbolType="graphic" lastModified="1790928476">
+  <timeline>
+    <DOMTimeline name="tap_shape" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="bitmap" color="#4FFF4F" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMBitmapInstance libraryItemName="tap.png">
+                  <matrix><Matrix tx="-61" ty="-61"/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                </DOMBitmapInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>
