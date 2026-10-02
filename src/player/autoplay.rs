@@ -64,6 +64,15 @@ pub fn tick(pad: &mut PadPreviewState) {
     if debug_touchzone() && !due.is_empty() {
         eprintln!("[touchzone/autoplay] now={now} due={due:?}");
     }
+    // External tactics (from `autoplay_gen`) are already a complete sensor
+    // event stream; replay them verbatim rather than re-synthesising holds.
+    if pad.external_autoplay {
+        for event in due {
+            mirror_visual(pad, &event);
+            pad.engine_events.push(event);
+        }
+        return;
+    }
     let prepared = preprocess_tactic_frame_with_holds(
         &mut pad.autoplay_click_held,
         &mut pad.autoplay_explicit_held,

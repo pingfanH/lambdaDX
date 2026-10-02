@@ -24,6 +24,9 @@ pub struct LaunchArgs {
     pub diff: Option<i32>,
     /// Start chart-driven autoplay as soon as the window player boots.
     pub autoplay: bool,
+    /// External autoplay tactic to use instead of the core's default: a JSON
+    /// list of `TimedInputEvent` (produced by the `autoplay_gen` bin).
+    pub autoplay_tactic: Option<PathBuf>,
     /// Print the parsed chart (bpms + slides) and exit without opening a window.
     pub dump: bool,
     /// Write every slide curve to this SVG and exit.
@@ -99,6 +102,10 @@ where
             }
             "--dump" => out.dump = true,
             "--autoplay" => out.autoplay = true,
+            "--autoplay-tactic" => {
+                out.autoplay_tactic = Some(PathBuf::from(next_value(&args, i, &arg)?));
+                advance = 2;
+            }
             "--export-video" => {
                 out.export_video = Some(PathBuf::from(next_value(&args, i, &arg)?));
                 advance = 2;
@@ -225,6 +232,9 @@ OPTIONS:
     -d, --diff <N>       Difficulty number to load (e.g. 4).
     --dump               Print the parsed chart (bpms + slides) and exit.
     --autoplay           Start chart-driven autoplay on launch.
+    --autoplay-tactic <PATH>
+                         Use a JSON event list as the autoplay tactic (from the
+                         autoplay_gen bin) instead of the core's default.
     --dump-slides-svg [PATH]
                          Write every possible slide curve to an SVG (default
                          output/slide_curves.svg) and exit.

@@ -198,6 +198,8 @@ async fn run(args: LaunchArgs) {
     };
 
     let mut app = PadPreviewState::new(chart, audio_source_name, audio_wav_pcm);
+    // `--autoplay-tactic <file>`: use an external JSON event list as the tactic.
+    app.autoplay_tactic_path = args.autoplay_tactic.clone();
 
     // ── lnmai-core judgment engine (only for Simai-sourced charts) ─────
     // Skipped during a (non-core) export: the export uses local autoplay.
@@ -239,9 +241,9 @@ async fn run(args: LaunchArgs) {
     // Autoplay schedule for the initial chart (toggle with `O` or the panel).
     player::autoplay::rebuild(&mut app);
     let autoplay_requested = args.autoplay
+        || args.autoplay_tactic.is_some()
         || std::env::var("MAI2_AUTOPLAY").is_ok()
-        || std::env::var("MAI2_UI_AUTOPLAY").is_ok()
-        ;
+        || std::env::var("MAI2_UI_AUTOPLAY").is_ok();
     if autoplay_requested {
         player::autoplay::set_on(&mut app, true);
         // Standalone preview has no UI page transition to start playback.

@@ -22,6 +22,8 @@ pub struct VerifyResult {
     pub judged: usize,
     /// Runtime arcs judged Miss / TooFast.
     pub misses: Vec<usize>,
+    /// Runtime arcs judged Great / Good (non-Perfect, non-Miss).
+    pub imperfect: Vec<usize>,
     /// Runtime arcs with no judge event. Non-final arcs of a chain are hidden
     /// without a judge event, so this is informational, not a failure.
     pub unjudged: Vec<usize>,
@@ -29,9 +31,14 @@ pub struct VerifyResult {
 }
 
 impl VerifyResult {
-    /// Every arc that produced a judge was non-Miss (and at least one did).
+    /// Every judged arc was a Perfect-grade (all-Perfect, not merely non-Miss).
     pub fn all_perfect(&self) -> bool {
-        self.judged > 0 && self.misses.is_empty()
+        self.judged > 0 && self.misses.is_empty() && self.imperfect.is_empty()
+    }
+
+    /// Arcs that need fixing: Miss/TooFast or a non-Perfect grade.
+    pub fn bad(&self) -> usize {
+        self.misses.len() + self.imperfect.len()
     }
 }
 
@@ -188,11 +195,13 @@ pub fn verify(text: &str, level: u32, events: &[TimedInputEvent], end_s: f32) ->
     }
 
     let mut misses = Vec::new();
+    let mut imperfect = Vec::new();
     let mut unjudged = Vec::new();
     for rt in 0..arcs {
         match grades.get(&rt) {
             None => unjudged.push(rt),
             Some(g) if g.is_miss_or_too_fast() => misses.push(rt),
+            Some(g) if !is_perfect_grade(*g) => imperfect.push(rt),
             _ => {}
         }
     }
@@ -200,7 +209,14 @@ pub fn verify(text: &str, level: u32, events: &[TimedInputEvent], end_s: f32) ->
         arcs,
         judged: grades.len(),
         misses,
+        imperfect,
         unjudged,
         events: events.to_vec(),
     }
+}
+
+/// Perfect family (CPerfect / Perfect / 2nd / 3rd) — neither great, good nor
+/// miss/too-fast.
+fn is_perfect_grade(g: JudgeGrade) -> bool {
+    !g.is_miss_or_too_fast() && !g.is_great_grade() && !g.is_good_grade()
 }

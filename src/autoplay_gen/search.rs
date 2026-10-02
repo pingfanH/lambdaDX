@@ -72,7 +72,7 @@ pub fn search(
     loop {
         // Slides currently missing, and their overlapping neighbours.
         let mut failed_plans: BTreeSet<usize> = BTreeSet::new();
-        for rt in &result.misses {
+        for rt in result.misses.iter().chain(result.imperfect.iter()) {
             if let Some(Some(pi)) = arc_to_plan.get(*rt) {
                 failed_plans.insert(*pi);
             }
@@ -98,8 +98,9 @@ pub fn search(
             .filter(|rt| *rt < n_arcs)
             .collect();
 
-        // Greedy: find the single offset change that removes the most misses.
-        let baseline_misses = result.misses.len();
+        // Greedy: find the single offset change that removes the most bad arcs
+        // (Miss/TooFast or non-Perfect grades).
+        let baseline_bad = result.bad();
         let mut best: Option<(usize, i64, VerifyResult)> = None;
         'search: for &rt in &work_arcs {
             for k in -OFFSET_STEPS..=OFFSET_STEPS {
@@ -113,10 +114,8 @@ pub fn search(
                 trial[rt] = k * OFFSET_STEP_US;
                 let r = run(text, level, spec, &trial, song_end_s);
                 tries += 1;
-                if r.misses.len() < baseline_misses
-                    && best
-                        .as_ref()
-                        .is_none_or(|(_, _, b)| r.misses.len() < b.misses.len())
+                if r.bad() < baseline_bad
+                    && best.as_ref().is_none_or(|(_, _, b)| r.bad() < b.bad())
                 {
                     best = Some((rt, trial[rt], r));
                 }

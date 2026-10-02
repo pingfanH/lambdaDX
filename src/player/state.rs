@@ -223,6 +223,12 @@ pub struct PadPreviewState {
     /// one-frame click holds so dense slide tactics do not lose their hold
     /// state when the next frame has no click event.
     pub autoplay_explicit_held: Vec<crate::core::types::SensorArea>,
+    /// When set, the autoplay tactic is read from this JSON event list (see
+    /// `--autoplay-tactic`) instead of the core's default.
+    pub autoplay_tactic_path: Option<std::path::PathBuf>,
+    /// True when `autoplay_tactic` is an external list: it is replayed verbatim
+    /// (no click-hold synthesis / dedup preprocessing).
+    pub external_autoplay: bool,
 
     // ── Progress / seeking ───────────────────────────────────────────
     /// True while the progress bar is being dragged.
@@ -361,6 +367,8 @@ impl PadPreviewState {
             autoplay: false,
             autoplay_click_held: Vec::new(),
             autoplay_explicit_held: Vec::new(),
+            autoplay_tactic_path: None,
+            external_autoplay: false,
             scrubbing: false,
             video_bg: VideoBg::new(),
             mobile_ui,
@@ -723,10 +731,16 @@ impl PadPreviewState {
             }
             engine.debug_dump_slide_bindings();
         }
-        // `MAI2_AUTOPLAY_TACTIC=<file>` overrides the core's default tactic with
-        // an external JSON event list (used by the `autoplay_gen` generator).
-        self.autoplay_tactic = external_autoplay_tactic()
-            .unwrap_or_else(|| engine.default_tactic().unwrap_or_default());
+        // `--autoplay-tactic <file>` / `MAI2_AUTOPLAY_TACTIC=<file>` overrides
+        // the core's default tactic with an external JSON event list.
+        let external = self
+            .autoplay_tactic_path
+            .clone()
+            .or_else(env_autoplay_tactic_path);
+        let loaded = external.and_then(|p| read_tactic_file(&p));
+        self.external_autoplay = loaded.is_some();
+        self.autoplay_tactic =
+            loaded.unwrap_or_else(|| engine.default_tactic().unwrap_or_default());
         self.autoplay_tactic_cursor = 0;
         self.judge_engine = Some(engine);
         self.engine_events.clear();
@@ -1032,10 +1046,15 @@ impl PadPreviewState {
     }
 }
 
-/// Load an external autoplay tactic from `MAI2_AUTOPLAY_TACTIC=<path>`: a JSON
-/// list of `TimedInputEvent`. Returns `None` when unset, unreadable or invalid.
-fn external_autoplay_tactic() -> Option<Vec<crate::core::types::TimedInputEvent>> {
-    let path = std::env::var_os("MAI2_AUTOPLAY_TACTIC")?;
+/// `MAI2_AUTOPLAY_TACTIC=<path>` — env fallback for `--autoplay-tactic`.
+fn env_autoplay_tactic_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("MAI2_AUTOPLAY_TACTIC").map(std::path::PathBuf::from)
+}
+
+/// Read a JSON `TimedInputEvent` list produced by the `autoplay_gen` bin.
+fn read_tactic_file(
+    path: &std::path::Path,
+) -> Option<Vec<crate::core::types::TimedInputEvent>> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
 }

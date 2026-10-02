@@ -11,6 +11,8 @@
 
 # Video export output
 /out.mp4
+# autoplay_gen cached tactics
+/out/
 
 # Cloned reference / third-party tools
 /XFLProcessor/

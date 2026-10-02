@@ -1,15 +1,16 @@
 //! Minimal feasibility probe for the all-Perfect autoplay generator idea
 //! (`docs/AUTOPLAY_GENERATOR.md`).
 //!
-//! Flow: model each slide's lifecycle → cut it into fixed time blocks → for
-//! every slide, enumerate candidate block timings until its runtime arcs judge
-//! non-Miss (backtracking; a slide with no working branch is recorded) → drive
-//! lnmai-core to re-check the committed tactic. With `--preview`, the tactic is
-//! handed to the pad preview, but **only** when the plan verified all-Perfect.
+//! Flow: model each slide's lifecycle → cut it into fixed time blocks → build a
+//! sensor event stream from the core's lowered chart → run the chart-time
+//! tactic first and skip if it is already all-Perfect, else re-enumerate only
+//! the failing / overlapping slides → verify against lnmai-core. A verified
+//! result is cached as JSON and handed to the pad preview via
+//! `--autoplay-tactic`.
 //!
 //! ```text
 //! cargo run --bin autoplay_gen -- <chart> [--diff N] [--block S]
-//!     [--max-tries N] [--preview] [--default-tactic]
+//!     [--max-tries N] [--preview] [--default-tactic] [--spec]
 //! ```
 
 // `app`/`core`/`player` are near-verbatim shared modules with unused items.
@@ -109,44 +110,6 @@ fn main() {
         return;
     };
 
-    // ── Sanity: verify the core's own default tactic ───────────────────
-    if default_tactic {
-        let events = player::engine::JudgeEngine::load(&text, level)
-            .ok()
-            .and_then(|e| e.default_tactic().ok())
-            .unwrap_or_default();
-        let units = plan(&mut plans, block_s);
-        print_report(&chart_doc, &plans, &units, block_s);
-        println!("\nevents: {} (core default tactic)", events.len());
-        let song_end = plans.iter().map(|p| p.end_s).fold(0.0_f64, f64::max) as f32;
-        let result = verify::verify(&text, level, &events, song_end);
-        print_verify(&result);
-        maybe_preview(preview, &path, result.all_perfect(), &result.events);
-        return;
-    }
-
-    // ── Spec-derived events (full zone sequence per runtime arc) ───────
-    if spec_events {
-        let engine = player::engine::JudgeEngine::load(&text, level).expect("engine");
-        let spec = engine.chart_spec().expect("lowered chart");
-        let events = verify::build_events_from_spec(&spec);
-        println!(
-            "\nevents: {} (spec-derived, {} slide arcs)",
-            events.len(),
-            spec.slides.len()
-        );
-        let song_end = spec
-            .slides
-            .iter()
-            .map(|s| (s.start_timing + s.length) as f64 / 1e6)
-            .fold(0.0_f64, f64::max) as f32;
-        let result = verify::verify(&text, level, &events, song_end);
-        print_verify(&result);
-        maybe_preview(preview, &path, result.all_perfect(), &result.events);
-        return;
-    }
-
-    // ── Baseline + localized enumeration over spec runtime arcs ────────
     let engine = player::engine::JudgeEngine::load(&text, level).expect("engine");
     let spec = engine.chart_spec().expect("lowered chart");
     let song_end = spec
@@ -155,6 +118,35 @@ fn main() {
         .map(|s| (s.start_timing + s.length) as f64 / 1e6)
         .fold(0.0_f64, f64::max) as f32;
 
+    // ── Sanity: verify the core's own default tactic ───────────────────
+    if default_tactic {
+        let events = engine.default_tactic().unwrap_or_default();
+        let units = plan(&mut plans, block_s);
+        print_report(&chart_doc, &plans, &units, block_s);
+        println!("\nevents: {} (core default tactic)", events.len());
+        let result = verify::verify(&text, level, &events, song_end);
+        print_verify(&result);
+        finish(preview, &path, &chart_doc.title, level, &result);
+        return;
+    }
+
+    // ── Spec-derived events (full zone sequence per runtime arc) ───────
+    if spec_events {
+        let events = verify::build_events_from_spec(&spec);
+        let units = plan(&mut plans, block_s);
+        print_report(&chart_doc, &plans, &units, block_s);
+        println!(
+            "\nevents: {} (spec-derived, {} slide arcs)",
+            events.len(),
+            spec.slides.len()
+        );
+        let result = verify::verify(&text, level, &events, song_end);
+        print_verify(&result);
+        finish(preview, &path, &chart_doc.title, level, &result);
+        return;
+    }
+
+    // ── Baseline + localized enumeration over spec runtime arcs ────────
     let units = plan(&mut plans, block_s);
     print_report(&chart_doc, &plans, &units, block_s);
 
@@ -173,25 +165,24 @@ fn main() {
         );
     }
     print_verify(&outcome.final_verify);
-    maybe_preview(
-        preview,
-        &path,
-        outcome.final_verify.all_perfect(),
-        &outcome.final_verify.events,
-    );
+    finish(preview, &path, &chart_doc.title, level, &outcome.final_verify);
 }
 
 fn print_verify(result: &VerifyResult) {
     println!("\n== core verification ==");
     println!(
-        "arcs: {}   judged: {}   misses: {}   unjudged: {}",
+        "arcs: {}   judged: {}   misses: {}   non-perfect: {}   unjudged: {}",
         result.arcs,
         result.judged,
         result.misses.len(),
+        result.imperfect.len(),
         result.unjudged.len()
     );
     if !result.misses.is_empty() {
         println!("  missed arcs: {:?}", result.misses);
+    }
+    if !result.imperfect.is_empty() {
+        println!("  non-perfect arcs: {:?}", result.imperfect);
     }
     println!(
         "{}",
@@ -203,23 +194,57 @@ fn print_verify(result: &VerifyResult) {
     );
 }
 
-/// Preview only when the tactic verified all-Perfect.
-fn maybe_preview(preview: bool, chart: &Path, perfect: bool, events: &[TimedInputEvent]) {
-    if !preview {
+/// Cache a verified tactic and print the path plus a ready-to-run preview line.
+fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyResult) {
+    if !result.all_perfect() {
+        println!("not all-Perfect — nothing cached, preview skipped");
         return;
     }
-    if !perfect {
-        println!("preview skipped: plan is not all-Perfect");
-        return;
-    }
-    match launch_preview(chart, events) {
-        Ok(pid) => println!("launched preview (pid {pid})"),
-        Err(e) => eprintln!("preview failed: {e}"),
+    let cached = match cache_tactic(title, level, &result.events) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("cache failed: {e}");
+            return;
+        }
+    };
+    println!("\n== cached ==");
+    println!("tactic file : {}", cached.display());
+    println!("run preview :");
+    println!(
+        "  cargo run --bin lambda_dx_pad_preview -- {} --autoplay-tactic {}",
+        chart.display(),
+        cached.display()
+    );
+    println!(
+        "  (or export MAI2_AUTOPLAY_TACTIC={})",
+        cached.display()
+    );
+    if preview {
+        match launch_preview(chart, &cached) {
+            Ok(pid) => println!("launched preview (pid {pid})"),
+            Err(e) => eprintln!("preview failed: {e}"),
+        }
     }
 }
 
-/// Write the generated tactic and spawn `lambda_dx_pad_preview` with autoplay.
-fn launch_preview(chart: &Path, events: &[TimedInputEvent]) -> Result<u32, String> {
+/// Write the event list to `out/autoplay_gen/<title>_lv<level>.json`.
+fn cache_tactic(title: &str, level: u32, events: &[TimedInputEvent]) -> Result<PathBuf, String> {
+    let dir = PathBuf::from("out/autoplay_gen");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let slug: String = title
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    let slug = slug.trim_matches('_');
+    let slug = if slug.is_empty() { "chart" } else { slug };
+    let path = dir.join(format!("{slug}_lv{level}.json"));
+    let json = serde_json::to_string(events).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
+/// Spawn `lambda_dx_pad_preview` with the cached tactic.
+fn launch_preview(chart: &Path, tactic: &Path) -> Result<u32, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let dir = exe.parent().ok_or("current exe has no parent dir")?;
     let preview = dir.join(format!("lambda_dx_pad_preview{}", std::env::consts::EXE_SUFFIX));
@@ -229,14 +254,11 @@ fn launch_preview(chart: &Path, events: &[TimedInputEvent]) -> Result<u32, Strin
             preview.display()
         ));
     }
-    let tactic = std::env::temp_dir().join("autoplay_gen_tactic.json");
-    let json = serde_json::to_string(events).map_err(|e| e.to_string())?;
-    std::fs::write(&tactic, json).map_err(|e| format!("write {}: {e}", tactic.display()))?;
     // Detach: the preview is its own window; don't inherit our stdio.
     let child = std::process::Command::new(&preview)
         .arg(chart)
-        .arg("--autoplay")
-        .env("MAI2_AUTOPLAY_TACTIC", &tactic)
+        .arg("--autoplay-tactic")
+        .arg(tactic)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -250,7 +272,7 @@ autoplay_gen — minimal feasibility probe for the all-Perfect autoplay idea
 
 USAGE:
     autoplay_gen [CHART] [--diff N] [--block SECONDS] [--max-tries N]
-                 [--preview] [--default-tactic]
+                 [--preview] [--default-tactic] [--spec]
 
 ARGS:
     CHART    Chart folder (maidata.txt) or file. Default: assets/charts/test.
@@ -262,7 +284,7 @@ OPTIONS:
     --default-tactic   Verify the core's own default tactic instead of enumerating.
     --spec             Build events from the core's lowered chart (full zone
                        sequence per runtime arc) and verify them.
-    --preview          Launch the pad preview with the generated tactic, but
-                       only if every judged arc verifies Perfect.
+    --preview          Launch the pad preview with the cached tactic, but only
+                       if every judged arc verifies Perfect.
     -h, --help         Print this help.
 ";
