@@ -257,9 +257,35 @@ impl PageXf {
 pub struct FlashUi {
     pub hover: Option<usize>,
     pub press: Option<usize>,
+    /// Per-widget state, for cross-fading a state change: `(page, hit) -> frame`.
+    state: std::collections::HashMap<(usize, usize), usize>,
+    /// `(page, hit) -> (from_frame, start_time)` while a change is fading.
+    trans: std::collections::HashMap<(usize, usize), (usize, f64)>,
 }
 
 impl FlashUi {
+    /// Register `frame` as a widget's shown state and, if it changed, return the
+    /// previous frame with the alpha to draw it at (fading out over ~0.12 s).
+    pub fn transition(&mut self, key: (usize, usize), frame: usize, now: f64) -> Option<(usize, f32)> {
+        match self.state.get(&key).copied() {
+            Some(prev) if prev != frame => {
+                self.trans.insert(key, (prev, now));
+                self.state.insert(key, frame);
+            }
+            None => {
+                self.state.insert(key, frame);
+            }
+            _ => {}
+        }
+        let (from, t0) = *self.trans.get(&key)?;
+        let t = ((now - t0) / 0.12).clamp(0.0, 1.0) as f32;
+        if t >= 1.0 {
+            self.trans.remove(&key);
+            return None;
+        }
+        Some((from, 1.0 - t))
+    }
+
     /// Update hover/press and return an action, if any.
     pub fn update(
         &mut self,
@@ -324,6 +350,19 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn state_change_cross_fades_previous_frame() {
+        let mut ui = FlashUi::default();
+        let key = (2usize, 5usize);
+        assert_eq!(ui.transition(key, 0, 0.0), None);
+        assert_eq!(ui.transition(key, 1, 0.0), Some((0, 1.0)));
+        match ui.transition(key, 1, 0.06) {
+            Some((0, a)) => assert!((a - 0.5).abs() < 0.15, "alpha {a}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(ui.transition(key, 1, 0.3), None);
+    }
+
     fn slider_drag_reports_fraction() {
         let mut ui = FlashUi::default();
         let page = "UI/page_settings";

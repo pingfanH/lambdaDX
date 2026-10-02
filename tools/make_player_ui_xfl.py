@@ -346,10 +346,10 @@ def build_compositions():
     add("ui_loading", sym("ui_loading", [
         layer("bar", [frame(0, [inst("ui_load_bar", tx=-40, ty=54, loop="loop")], dur=40, tween=True),
                       frame(40, [inst("ui_load_bar", tx=260, ty=54, loop="loop")])]),
-        layer("track", [frame(0, [rect(40, 54, 220, 4, RAISED)])]),
-        layer("msg", [frame(0, [text(20, 18, 260, "载入音频…", 16, TEXT, "center")])]),
-        layer("border", [frame(0, [rect(0, 0, 300, 88, None, BORDER)])]),
-        layer("dim", [frame(0, [rect(0, 0, 300, 88, "#101012")])]),
+        layer("track", [frame(0, [rect(40, 54, 220, 4, RAISED)], dur=41)]),
+        layer("msg", [frame(0, [text(20, 18, 260, "载入音频…", 16, TEXT, "center")], dur=41)]),
+        layer("border", [frame(0, [rect(0, 0, 300, 88, None, BORDER)], dur=41)]),
+        layer("dim", [frame(0, [rect(0, 0, 300, 88, "#101012")], dur=41)]),
     ], last_uid=41))
 
     ticks = []
@@ -371,12 +371,12 @@ def build_compositions():
     add("ui_hero_sweep", sym("ui_hero_sweep", [layer("arc", [frame(0, sweep)])]))
 
     add("ui_hero", sym("ui_hero", [
-        layer("badge", [frame(0, [circle(150, 150, 38, PANEL_ALT), circle(150, 150, 38, None, (ACCENT, 2)), text(112, 130, 76, "DX", 24, ACCENT, "center")])]),
+        layer("badge", [frame(0, [circle(150, 150, 38, PANEL_ALT), circle(150, 150, 38, None, (ACCENT, 2)), text(112, 130, 76, "DX", 24, ACCENT, "center")], dur=121)]),
         layer("sweep", _spin("ui_hero_sweep", 120, 8, 150, 150, -1)),
         layer("ticks", _spin("ui_hero_ticks", 120, 8, 150, 150, 1)),
         layer("rings", [frame(0, [circle(150, 150, 150, None, (BORDER, 1), n=36),
                                   circle(150, 150, 108, None, (BORDER_SOFT, 1), n=36),
-                                  circle(150, 150, 90, PANEL, n=36)])]),
+                                  circle(150, 150, 90, PANEL, n=36)], dur=121)]),
     ], last_uid=121))
 
     # Pause panel composes the pause surface + buttons + text.
@@ -386,7 +386,7 @@ def build_compositions():
     for i, (lab, symn) in enumerate(labels):
         y = 180 + i * 56
         btn_els.append(inst(symn, tx=28, ty=y))
-        btn_els.append(text(28, y + 14, 364, lab, 16, VOID if symn in ("ui_btn_primary", "ui_btn_danger") else TEXT, "center"))
+        btn_els.append(text(28, y + 14, 180, lab, 16, VOID if symn in ("ui_btn_primary", "ui_btn_danger") else TEXT, "center"))
     add("ui_pause_panel", sym("ui_pause_panel", [
         layer("buttons", [frame(0, btn_els)]),
         layer("copy", [frame(0, [text(28, 38, 364, "PLAY SESSION", 11, ACCENT),

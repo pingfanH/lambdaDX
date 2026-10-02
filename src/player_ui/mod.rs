@@ -277,10 +277,12 @@ fn flash_frame(mode: &FxMode, frames: usize, fps: f32, since: f64) -> usize {
 fn draw_flash(
     app: &PlayerUiApp,
     ctx: &UiCtx,
-    ui_state: &flash::FlashUi,
+    ui_state: &mut flash::FlashUi,
     slots: &[flash::Slot],
     page: &str,
+    page_idx: usize,
     frame: usize,
+    now: f64,
 ) {
     if !crate::app::anim::player_ui_loaded() {
         draw::text(
@@ -302,6 +304,11 @@ fn draw_flash(
             .iter()
             .any(|s| s.text == t.text && (s.x - sx).abs() < 1.5 && (s.y - sy).abs() < 1.5)
     };
+    let wfs: Vec<usize> = hits
+        .iter()
+        .enumerate()
+        .map(|(i, h)| hit_frame(app, h, i, ui_state))
+        .collect();
     crate::app::anim::with_player_ui(|ui| {
         let Some(ui) = ui else { return };
         let Some(clip) = ui.get(page) else { return };
@@ -315,10 +322,20 @@ fn draw_flash(
             tint: None,
         };
         clip.draw(frame, &xf);
+        // The rows animate in through the page clip's staggered reveal; only
+        // overlay them once it has settled, so the list doesn't "stick".
+        let reveal = frame + 1 < frames;
         for (i, h) in hits.iter().enumerate() {
-            let wf = hit_frame(app, h, i, ui_state);
+            if h.kind == flash::Kind::Row && reveal {
+                continue;
+            }
+            let wf = wfs[i];
             let m = px.widget(h);
             ui.draw_matrix(h.sym, wf, &m, 1.0);
+            // Cross-fade the previous state out over ~0.12 s.
+            if let Some((from, a)) = ui_state.transition((page_idx, i), wf, now) {
+                ui.draw_matrix(h.sym, from, &m, a);
+            }
             // Sliders: erase the baked fill/knob band, then draw the live value.
             if let flash::Action::SetSlider(idx, _) = h.action {
                 let ty = h.rect.y + 24.0;
@@ -774,7 +791,7 @@ pub async fn run() {
                 if page_idx >= 3 {
                     pages::gameplay::draw_view(&mut app, &ctx, &mut input);
                 }
-                draw_flash(&app, &ctx, &flash_ui, &flash_slots, page, frame);
+                draw_flash(&app, &ctx, &mut flash_ui, &flash_slots, page, page_idx, frame, now);
             }
         } else {
             pages::draw(&mut app, &mut input, &ctx);
