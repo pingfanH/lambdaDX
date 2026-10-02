@@ -36,6 +36,11 @@ path = "src/player_ui_main.rs"
 name = "macroanimate_test"
 path = "src/macroanimate_test.rs"
 
+# Minimal feasibility probe for docs/AUTOPLAY_GENERATOR.md (headless planner).
+[[bin]]
+name = "autoplay_gen"
+path = "src/autoplay_gen/main.rs"
+
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 # Adobe Animate sparrow / texture-atlas parser + renderer (test bin only).
