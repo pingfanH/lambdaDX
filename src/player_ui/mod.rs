@@ -241,6 +241,37 @@ fn draw_flash_slot(font: Option<&Font>, px: &flash::PageXf, slot: &flash::Slot, 
     draw::text(font, value, x, y, size, color);
 }
 
+/// Timeline length (frames, fps) of a page clip.
+fn flash_clip_len(page: &str) -> (usize, f32) {
+    crate::app::anim::with_player_ui(|ui| {
+        ui.and_then(|ui| ui.get(page))
+            .map(|c| (c.frames().max(1), c.fps().max(1.0)))
+            .unwrap_or((1, 60.0))
+    })
+}
+
+/// How a page timeline is advanced when it is on screen.
+enum FxMode {
+    /// Advance continuously (background animation, e.g. the hero ring).
+    Loop,
+    /// Play once from page-enter and hold the last frame (reveal/pop-in).
+    Once,
+    /// Play backwards (leaving the pause page).
+    Reverse(f32),
+}
+
+fn flash_frame(mode: &FxMode, frames: usize, fps: f32, since: f64) -> usize {
+    let last = frames.saturating_sub(1);
+    match mode {
+        FxMode::Loop => (since.max(0.0) as f32 * fps) as usize % frames.max(1),
+        FxMode::Once => {
+            let p = ((since.max(0.0) as f32 * fps) / frames.max(1) as f32).clamp(0.0, 1.0);
+            ((p * last as f32).round() as usize).min(last)
+        }
+        FxMode::Reverse(p) => (((1.0 - p.clamp(0.0, 1.0)) * last as f32).round() as usize).min(last),
+    }
+}
+
 /// Draw a `player_ui` XFL page: vectors, then per-widget state overlays, then
 /// the page's static text (minus dynamic slots) and the live slot values.
 fn draw_flash(
@@ -249,7 +280,7 @@ fn draw_flash(
     ui_state: &flash::FlashUi,
     slots: &[flash::Slot],
     page: &str,
-    elapsed: f64,
+    frame: usize,
 ) {
     if !crate::app::anim::player_ui_loaded() {
         draw::text(
@@ -275,8 +306,7 @@ fn draw_flash(
         let Some(ui) = ui else { return };
         let Some(clip) = ui.get(page) else { return };
         let frames = clip.frames().max(1);
-        let fps = clip.fps().max(1.0);
-        let frame = ((elapsed.max(0.0) as f32 * fps) as usize) % frames;
+        let frame = frame.min(frames - 1);
         let xf = macroanimate::XflDrawXf {
             pos: (px.ox, px.oy),
             scale: px.scale,
@@ -591,6 +621,8 @@ pub async fn run() {
         }
     });
     let flash_start = get_time();
+    let mut flash_enter = flash_start;
+    let mut flash_reverse: Option<(usize, f64)> = None;
     let mut flash_ui = flash::FlashUi::default();
     let flash_slots = flash::load_slots(
         &platform::asset_dir()
@@ -609,6 +641,8 @@ pub async fn run() {
             Some((it.next()?.trim().parse().ok()?, it.next()?.trim().parse().ok()?))
         });
     let flash_dump = std::env::var("MAI2_UI_FLASH_DUMP").is_ok();
+    let flash_trace = std::env::var("MAI2_UI_FLASH_TRACE").is_ok();
+    let mut trace_last = (usize::MAX, usize::MAX, 0.0_f64);
     let mut click_done = false;
     let mut dump_done = false;
 
@@ -701,12 +735,46 @@ pub async fn run() {
             if is_key_pressed(KeyCode::Escape) {
                 flash_page = None;
             } else {
-                flash_page = Some(next);
+                // Leaving the pause page plays its pop-in backwards first.
+                if flash_reverse.is_none() && pi == 4 && next != 4 {
+                    flash_reverse = Some((next, now));
+                }
+                let (page_idx, mode) = if let Some((target, start)) = flash_reverse {
+                    let (fr, fp) = flash_clip_len(flash::PAGES[4]);
+                    let dur = (fr as f32 / fp).max(1e-3);
+                    let p = ((now - start) as f32 / dur).clamp(0.0, 1.0);
+                    if p >= 1.0 {
+                        flash_reverse = None;
+                        flash_enter = now;
+                        (target, FxMode::Once)
+                    } else {
+                        (4, FxMode::Reverse(p))
+                    }
+                } else {
+                    (next, if next == 0 { FxMode::Loop } else { FxMode::Once })
+                };
+                if flash_reverse.is_none() && page_idx != pi {
+                    flash_enter = now;
+                }
+                let page_idx = page_idx.min(flash::PAGES.len() - 1);
+                let page = flash::PAGES[page_idx];
+                let (frames, fps) = flash_clip_len(page);
+                let since = if matches!(mode, FxMode::Loop) {
+                    now - flash_start
+                } else {
+                    now - flash_enter
+                };
+                let frame = flash_frame(&mode, frames, fps, since);
+                if flash_trace && (page_idx, frame) != (trace_last.0, trace_last.1) && now - trace_last.2 > 0.04 {
+                    eprintln!("flash-trace page={page_idx} frame={frame}/{frames}");
+                    trace_last = (page_idx, frame, now);
+                }
+                flash_page = Some(page_idx);
                 // Gameplay/pause render the pad behind the HUD.
-                if next >= 3 {
+                if page_idx >= 3 {
                     pages::gameplay::draw_view(&mut app, &ctx, &mut input);
                 }
-                draw_flash(&app, &ctx, &flash_ui, &flash_slots, flash::PAGES[next], now - flash_start);
+                draw_flash(&app, &ctx, &flash_ui, &flash_slots, page, frame);
             }
         } else {
             pages::draw(&mut app, &mut input, &ctx);
@@ -761,3 +829,26 @@ pub async fn run() {
 
 /// Kept for parity with the other bin; the UI player always opens a window.
 pub fn unused(_: Window) {}
+
+#[cfg(test)]
+mod flash_timing_tests {
+    use super::*;
+
+    #[test]
+    fn once_plays_and_holds_last_frame() {
+        assert_eq!(flash_frame(&FxMode::Once, 25, 60.0, 0.0), 0);
+        assert_eq!(flash_frame(&FxMode::Once, 25, 60.0, 10.0), 24);
+    }
+
+    #[test]
+    fn reverse_plays_backwards() {
+        assert_eq!(flash_frame(&FxMode::Reverse(0.0), 13, 60.0, 0.0), 12);
+        assert_eq!(flash_frame(&FxMode::Reverse(1.0), 13, 60.0, 0.0), 0);
+    }
+
+    #[test]
+    fn loop_wraps_continuously() {
+        assert_eq!(flash_frame(&FxMode::Loop, 121, 60.0, 1.0), 60);
+        assert_eq!(flash_frame(&FxMode::Loop, 121, 60.0, 3.0), 180 % 121);
+    }
+}
