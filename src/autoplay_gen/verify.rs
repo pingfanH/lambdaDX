@@ -5,10 +5,13 @@
 //! rest), replayed frame-by-frame through the same stepping helper the player
 //! uses. It is a feasibility check, not the final event generator.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::app::types::zone::PadZone;
-use crate::core::types::{ChartSpec, JudgeEventKind, JudgeGrade, OuterSlot, SensorArea, TimedInputEvent};
+use crate::core::types::{
+    ChartSpec, JudgeEventKind, JudgeGrade, OuterSlot, SensorArea, SlideChartNote,
+    SlideHeadChartNote, TimedInputEvent,
+};
 use crate::model::SlidePlan;
 use crate::player::engine::{
     self, JudgeEngine, hold_events_for_zone, press_events_for_zone, release_events_for_zone,
@@ -106,15 +109,9 @@ pub struct ArcTiming {
 /// Gap between rushed early areas in `fast` mode.
 const FAST_STEP_US: i64 = 12_000;
 
-/// Build events from the core's **lowered chart**: each runtime arc holds every
-/// sensor area of its judge queue in order. `timings[i]` picks the i-th arc's
-/// offset / fast-mode (the enumeration's knobs); slide heads follow their arc.
-pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec<TimedInputEvent> {
-    use std::collections::HashMap;
-    let mut events = Vec::new();
-
-    // A slide head shares its body arc's `logicalSlideId`; apply that arc's
-    // timing to the head too (the head hit drives the slide grade).
+/// The timing of the arc each slide body shares a `logical_slide_id` with,
+/// so slide heads follow their body arc (the head hit drives the slide grade).
+fn logical_timings(spec: &ChartSpec, timings: &[ArcTiming]) -> HashMap<u64, ArcTiming> {
     let mut by_logical: HashMap<u64, ArcTiming> = HashMap::new();
     for (i, slide) in spec.slides.iter().enumerate() {
         by_logical.insert(
@@ -122,85 +119,101 @@ pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec
             timings.get(i).copied().unwrap_or_default(),
         );
     }
+    by_logical
+}
 
+/// Click + hold events for one slide head, shifted by `timing`.
+fn push_head_events(events: &mut Vec<TimedInputEvent>, head: &SlideHeadChartNote, timing: ArcTiming) {
+    let area = slot_area(head.slot);
+    let tp = head.timing + timing.offset_us;
+    let hold = if timing.fast { FAST_STEP_US } else { 15_000 };
+    events.push(TimedInputEvent::SensorClick { tp, area });
+    events.push(TimedInputEvent::SensorHold {
+        tp,
+        area,
+        is_down: true,
+    });
+    events.push(TimedInputEvent::SensorHold {
+        tp: tp + hold,
+        area,
+        is_down: false,
+    });
+}
+
+/// Body events for one runtime slide arc, in judge-queue order.
+fn push_body_events(events: &mut Vec<TimedInputEvent>, slide: &SlideChartNote, timing: ArcTiming) {
+    let offset_us = timing.offset_us;
+    let len = slide.length.max(1);
+    let start = slide.start_timing + offset_us;
+    let end = start + len;
+    let judge = slide.judge_at.map(|j| j + offset_us).unwrap_or(end);
+    for track in &slide.judge_queues {
+        let n = track.len();
+        let max_fin = track
+            .iter()
+            .map(|a| a.arrow_progress_when_finished)
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        let mut prev: Option<SensorArea> = None;
+        let mut last_t = end;
+        for (k, area_spec) in track.iter().enumerate() {
+            let Some(&area) = area_spec.target_areas.first() else {
+                continue;
+            };
+            let is_last = k + 1 == n;
+            let t = if timing.fast {
+                if is_last {
+                    judge
+                } else {
+                    start + k as i64 * FAST_STEP_US
+                }
+            } else {
+                start + len * area_spec.arrow_progress_when_finished as i64 / max_fin as i64
+            };
+            last_t = t;
+            if let Some(p) = prev {
+                events.push(TimedInputEvent::SensorHold {
+                    tp: t,
+                    area: p,
+                    is_down: false,
+                });
+            }
+            events.push(TimedInputEvent::SensorHold {
+                tp: t,
+                area,
+                is_down: true,
+            });
+            prev = Some(area);
+        }
+        if let Some(p) = prev {
+            let tail_hold = if timing.fast { FAST_STEP_US } else { 15_000 };
+            events.push(TimedInputEvent::SensorHold {
+                tp: last_t + tail_hold,
+                area: p,
+                is_down: false,
+            });
+        }
+    }
+}
+
+/// Build events from the core's **lowered chart**: each runtime arc holds every
+/// sensor area of its judge queue in order. `timings[i]` picks the i-th arc's
+/// offset / fast-mode (the enumeration's knobs); slide heads follow their arc.
+pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec<TimedInputEvent> {
+    let by_logical = logical_timings(spec, timings);
+    let mut events = Vec::new();
     for head in &spec.slide_heads {
         let timing = by_logical
             .get(&head.logical_slide_id)
             .copied()
             .unwrap_or_default();
-        let area = slot_area(head.slot);
-        let tp = head.timing + timing.offset_us;
-        let hold = if timing.fast { FAST_STEP_US } else { 15_000 };
-        events.push(TimedInputEvent::SensorClick { tp, area });
-        events.push(TimedInputEvent::SensorHold {
-            tp,
-            area,
-            is_down: true,
-        });
-        events.push(TimedInputEvent::SensorHold {
-            tp: tp + hold,
-            area,
-            is_down: false,
-        });
+        push_head_events(&mut events, head, timing);
     }
-
     for (i, slide) in spec.slides.iter().enumerate() {
         let timing = timings.get(i).copied().unwrap_or_default();
-        let offset_us = timing.offset_us;
-        let len = slide.length.max(1);
-        let start = slide.start_timing + offset_us;
-        let end = start + len;
-        let judge = slide.judge_at.map(|j| j + offset_us).unwrap_or(end);
-        for track in &slide.judge_queues {
-            let n = track.len();
-            let max_fin = track
-                .iter()
-                .map(|a| a.arrow_progress_when_finished)
-                .max()
-                .unwrap_or(1)
-                .max(1);
-            let mut prev: Option<SensorArea> = None;
-            let mut last_t = end;
-            for (k, area_spec) in track.iter().enumerate() {
-                let Some(&area) = area_spec.target_areas.first() else {
-                    continue;
-                };
-                let is_last = k + 1 == n;
-                let t = if timing.fast {
-                    if is_last {
-                        judge
-                    } else {
-                        start + k as i64 * FAST_STEP_US
-                    }
-                } else {
-                    start + len * area_spec.arrow_progress_when_finished as i64 / max_fin as i64
-                };
-                last_t = t;
-                if let Some(p) = prev {
-                    events.push(TimedInputEvent::SensorHold {
-                        tp: t,
-                        area: p,
-                        is_down: false,
-                    });
-                }
-                events.push(TimedInputEvent::SensorHold {
-                    tp: t,
-                    area,
-                    is_down: true,
-                });
-                prev = Some(area);
-            }
-            if let Some(p) = prev {
-                let tail_hold = if timing.fast { FAST_STEP_US } else { 15_000 };
-                events.push(TimedInputEvent::SensorHold {
-                    tp: last_t + tail_hold,
-                    area: p,
-                    is_down: false,
-                });
-            }
-        }
+        push_body_events(&mut events, slide, timing);
     }
-
     events.sort_by_key(timed_input_tp);
     events
 }
@@ -208,6 +221,88 @@ pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec
 /// [`build_events_with_offsets`] with every arc at its chart time.
 pub fn build_events_from_spec(spec: &ChartSpec) -> Vec<TimedInputEvent> {
     build_events_with_offsets(spec, &[])
+}
+
+/// A time window (µs) occupied by a **non-ex** tap/hold. A slide A-ring press
+/// inside it may steal the tap/hold's prime judgement, so enumeration treats it
+/// as a conflict window (`docs/AUTOPLAY_GENERATOR.md`, "补充约束").
+#[derive(Debug, Clone, Copy)]
+pub struct ConflictWindow {
+    pub start_us: i64,
+    pub end_us: i64,
+}
+
+impl ConflictWindow {
+    pub fn contains(&self, tp: i64) -> bool {
+        tp >= self.start_us && tp <= self.end_us
+    }
+}
+
+fn is_a_ring(area: SensorArea) -> bool {
+    matches!(
+        area,
+        SensorArea::A1
+            | SensorArea::A2
+            | SensorArea::A3
+            | SensorArea::A4
+            | SensorArea::A5
+            | SensorArea::A6
+            | SensorArea::A7
+            | SensorArea::A8
+    )
+}
+
+/// Count slide A-ring presses (down transitions) inside a non-ex tap/hold
+/// window. `events` is a generated tactic (e.g. [`VerifyResult::events`]).
+pub fn count_a_zone_conflicts(events: &[TimedInputEvent], windows: &[ConflictWindow]) -> usize {
+    if windows.is_empty() {
+        return 0;
+    }
+    events
+        .iter()
+        .filter_map(|event| match event {
+            TimedInputEvent::SensorClick { tp, area } => Some((*tp, *area, true)),
+            TimedInputEvent::SensorHold { tp, area, is_down } => Some((*tp, *area, *is_down)),
+            _ => None,
+        })
+        .filter(|(tp, area, is_press)| {
+            *is_press && is_a_ring(*area) && windows.iter().any(|w| w.contains(*tp))
+        })
+        .count()
+}
+
+/// A-ring conflicts per **runtime arc** (head conflicts attributed to the arc
+/// whose `logical_slide_id` it shares). Lets the enumeration target the arcs
+/// that actually collide with a non-ex tap/hold.
+pub fn zone_conflicts_by_arc(
+    spec: &ChartSpec,
+    timings: &[ArcTiming],
+    windows: &[ConflictWindow],
+) -> Vec<usize> {
+    let mut out = vec![0usize; spec.slides.len()];
+    if windows.is_empty() {
+        return out;
+    }
+    let mut logical_to_arc: HashMap<u64, usize> = HashMap::new();
+    for (i, slide) in spec.slides.iter().enumerate() {
+        logical_to_arc.insert(slide.logical_slide_id, i);
+    }
+    for head in &spec.slide_heads {
+        let Some(&arc) = logical_to_arc.get(&head.logical_slide_id) else {
+            continue;
+        };
+        let timing = timings.get(arc).copied().unwrap_or_default();
+        let mut events = Vec::new();
+        push_head_events(&mut events, head, timing);
+        out[arc] += count_a_zone_conflicts(&events, windows);
+    }
+    for (i, slide) in spec.slides.iter().enumerate() {
+        let timing = timings.get(i).copied().unwrap_or_default();
+        let mut events = Vec::new();
+        push_body_events(&mut events, slide, timing);
+        out[i] += count_a_zone_conflicts(&events, windows);
+    }
+    out
 }
 
 /// Replay `events` at 60 fps and collect the slide judge per runtime arc.

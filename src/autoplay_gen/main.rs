@@ -94,6 +94,7 @@ fn main() {
     };
     // Simai-converted notes share id 0; make them unique for the report.
     app::maichart::assign_note_ids(&mut chart_doc.notes);
+    let windows = conflict_windows(&chart_doc);
 
     let mut plans = build_slide_plans(&chart_doc);
 
@@ -125,7 +126,7 @@ fn main() {
         print_report(&chart_doc, &plans, &units, block_s);
         println!("\nevents: {} (core default tactic)", events.len());
         let result = verify::verify(&text, level, &events, song_end);
-        print_verify(&result);
+        print_verify(&result, &windows);
         finish(preview, &path, &chart_doc.title, level, &result);
         return;
     }
@@ -141,7 +142,7 @@ fn main() {
             spec.slides.len()
         );
         let result = verify::verify(&text, level, &events, song_end);
-        print_verify(&result);
+        print_verify(&result, &windows);
         finish(preview, &path, &chart_doc.title, level, &result);
         return;
     }
@@ -150,7 +151,7 @@ fn main() {
     let units = plan(&mut plans, block_s);
     print_report(&chart_doc, &plans, &units, block_s);
 
-    let outcome = search::search(&text, level, &plans, &spec, song_end, max_tries);
+    let outcome = search::search(&text, level, &plans, &spec, &windows, song_end, max_tries);
     if outcome.baseline_perfect {
         println!(
             "\n== baseline ==\nchart-time tactic is already all-Perfect — enumeration skipped (tries {})",
@@ -168,11 +169,33 @@ fn main() {
             outcome.tries, outcome.work_slides, moved
         );
     }
-    print_verify(&outcome.final_verify);
+    print_verify(&outcome.final_verify, &windows);
     finish(preview, &path, &chart_doc.title, level, &outcome.final_verify);
 }
 
-fn print_verify(result: &VerifyResult) {
+/// Non-ex tap/hold windows (µs) used by the A-zone conflict check.
+fn conflict_windows(chart: &app::types::ChartDoc) -> Vec<verify::ConflictWindow> {
+    const HALF_US: i64 = 80_000;
+    chart
+        .notes
+        .iter()
+        .filter(|n| {
+            matches!(
+                n.note_type,
+                app::types::NoteType::Tap | app::types::NoteType::Hold
+            ) && !n.is_ex
+        })
+        .map(|n| {
+            let t = (app::types::note_secs(n, &chart.bpms) * 1e6).round() as i64;
+            verify::ConflictWindow {
+                start_us: t - HALF_US,
+                end_us: t + HALF_US,
+            }
+        })
+        .collect()
+}
+
+fn print_verify(result: &VerifyResult, windows: &[verify::ConflictWindow]) {
     println!("\n== core verification ==");
     println!(
         "arcs: {}   judged: {}   misses: {}   non-perfect: {}   unjudged: {}",
@@ -196,6 +219,8 @@ fn print_verify(result: &VerifyResult) {
             .collect();
         println!("  grades: {}", list.join("  "));
     }
+    let conflicts = verify::count_a_zone_conflicts(&result.events, windows);
+    println!("  a-zone conflicts (slide A-ring press inside non-ex tap/hold): {conflicts}");
     println!(
         "{}",
         if result.all_perfect() {

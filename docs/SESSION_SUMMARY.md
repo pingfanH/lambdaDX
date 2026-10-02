@@ -94,9 +94,10 @@
 结果：`autotest` → `all judged arcs Perfect`，缓存 `out/autoplay_gen/TEST_lv2.json`；
 `test/`、`サイエンス1/2/` 无回归（misses: 0，已判定 arc 全 Perfect）。
 
-缓存键已加入谱面路径哈希，`サイエンス1/2` 不再互相覆盖。待办见
-[`AUTOPLAY_GENERATOR.md` 的「接下来的任务」](./AUTOPLAY_GENERATOR.md#接下来的任务)：
-A 区与非 ex note 冲突窗口、`fast`/track 间隔、回归测试。
+缓存键已加入谱面路径哈希，`サイエンス1/2` 不再互相覆盖。A 区冲突窗口也已实现：
+枚举按 `(非 Perfect arc 数, A 区冲突数)` 字典序最小化，四个谱面最终冲突均为 0。
+待办见 [`AUTOPLAY_GENERATOR.md` 的「接下来的任务」](./AUTOPLAY_GENERATOR.md#接下来的任务)：
+wifi slide 三分支（`assets/charts/washi/`）、`fast`/track 间隔、回归测试。
 
 ## 三、Git 状态（截至本记录）
 

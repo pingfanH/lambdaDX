@@ -232,16 +232,30 @@ autoplay_gen [CHART] [--diff N] [--block S] [--max-tries N]
 缓存 `out/autoplay_gen/TEST_lv2.json`。`test/`、`サイエンス1/2/` 亦无回归
 （misses: 0，已判定 arc 全 Perfect）。
 
+### A 区冲突窗口（已实现）
+
+`verify.rs` 新增 `ConflictWindow`（非 ex tap/hold 的 ±80ms 判定窗）与
+`count_a_zone_conflicts` / `zone_conflicts_by_arc`：统计落在窗口内的**滑条 A 环
+按下事件**（`SensorClick` / `SensorHold` down），并按 runtime arc 归属。
+`search.rs` 的目标改为按字典序最小化 `(非 Perfect arc 数, A 区冲突数)`——
+当滑条等级已全 Perfect 时，仍会尝试在不破坏 Perfect 的前提下把 A 环按下移出
+冲突窗。`main.rs` 从 `ChartDoc` 的非 ex tap/hold 构造窗口并打印剩余冲突。
+实测 `autotest`/`test`/`サイエンス1/2/` 最终冲突均为 0。
+
+> 注：当前生成器只产出滑条事件，不产出 tap/hold 事件，故冲突是**预防性**的；
+> 待生成器补齐非滑条事件后，冲突会直接体现在 tap/hold 判定上。
+
 ## 接下来的任务
 
 已完成：`search.rs` 改用 `Vec<ArcTiming>` 并枚举 `{offset × fast}`；修复末区
 hold；autotest 跑通并缓存；`test/`、`サイエンス1/2/` 无回归；缓存键加入谱面路径哈希
-（`サイエンス1/2` 不再互相覆盖）。
+（`サイエンス1/2` 不再互相覆盖）；A 区冲突窗口（见上）。
 
 待办：
 
-1. **A 区冲突窗口**：把「非 ex note 的 great/good 判定时刻」纳入枚举禁放窗口
-   （见上文「补充约束」；ex 无需规避）。
+1. **wifi slide 三分支**：`w` 形滑条（如 `assets/charts/washi/` 的 `1w5`、`8w4`）
+   有左/中/右三条 track，内核用 `wifiQueueProgressRemaining` 单独算进度。
+   需让事件生成与枚举按三条分支分别处理，否则 washi 无法生成 AP。
 2. **`fast` 与 track 间隔**：本轮靠 `offset` 解决。`fast` 已接入枚举但未命中也未
    证伪；若要覆盖更一般的重叠，需枚举每条 track 的 rush 间隔。
 3. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
