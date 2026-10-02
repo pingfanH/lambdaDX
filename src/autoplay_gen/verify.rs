@@ -111,6 +111,13 @@ pub struct ArcTiming {
     /// Extra shift for each **branch** of a multi-track (wifi) slide, so the
     /// three branches can be enumerated as three separate stars.
     pub track_offset_us: [i64; MAX_TRACKS],
+    /// Emit no events for this arc at all ("完全不滑"). Useful when a
+    /// neighbouring star's gesture already completes it.
+    pub skip: bool,
+    /// Emit no events for a specific **branch**. A wifi branch can be left to
+    /// be completed by an overlapping star, so only the remaining branch(es)
+    /// need our input.
+    pub track_skip: [bool; MAX_TRACKS],
 }
 
 impl ArcTiming {
@@ -121,6 +128,8 @@ impl ArcTiming {
                 offset_us: 0,
                 fast: false,
                 track_offset_us: [0; MAX_TRACKS],
+                skip: false,
+                track_skip: [false; MAX_TRACKS],
             }
     }
 }
@@ -170,6 +179,9 @@ fn push_body_events(events: &mut Vec<TimedInputEvent>, slide: &SlideChartNote, t
         .map(|j| j + timing.offset_us)
         .unwrap_or(base + len);
     for (ti, track) in slide.judge_queues.iter().enumerate() {
+        if timing.track_skip.get(ti).copied().unwrap_or(false) {
+            continue;
+        }
         let track_off = timing.track_offset_us.get(ti).copied().unwrap_or(0);
         let start = base + track_off;
         let end = start + len;
@@ -233,10 +245,16 @@ pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec
             .get(&head.logical_slide_id)
             .copied()
             .unwrap_or_default();
+        if timing.skip {
+            continue;
+        }
         push_head_events(&mut events, head, timing);
     }
     for (i, slide) in spec.slides.iter().enumerate() {
         let timing = timings.get(i).copied().unwrap_or_default();
+        if timing.skip {
+            continue;
+        }
         push_body_events(&mut events, slide, timing);
     }
     events.sort_by_key(timed_input_tp);
@@ -305,7 +323,7 @@ pub fn zone_conflict_for_arc(
     arc: usize,
     windows: &[ConflictWindow],
 ) -> usize {
-    if windows.is_empty() {
+    if windows.is_empty() || timing.skip {
         return 0;
     }
     let Some(slide) = spec.slides.get(arc) else {
@@ -347,12 +365,18 @@ pub fn zone_conflicts_by_arc(
             continue;
         };
         let timing = timings.get(arc).copied().unwrap_or_default();
+        if timing.skip {
+            continue;
+        }
         let mut events = Vec::new();
         push_head_events(&mut events, head, timing);
         out[arc] += count_a_zone_conflicts(&events, windows);
     }
     for (i, slide) in spec.slides.iter().enumerate() {
         let timing = timings.get(i).copied().unwrap_or_default();
+        if timing.skip {
+            continue;
+        }
         let mut events = Vec::new();
         push_body_events(&mut events, slide, timing);
         out[i] += count_a_zone_conflicts(&events, windows);

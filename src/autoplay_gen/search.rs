@@ -51,6 +51,23 @@ fn flush() {
     let _ = std::io::stdout().flush();
 }
 
+/// Arcs we deliberately skipped (whole arc or a branch) that ended up with no
+/// judge event — that is a failure, not a free pass.
+fn skipped_unjudged(result: &VerifyResult, timings: &[ArcTiming]) -> Vec<usize> {
+    timings
+        .iter()
+        .enumerate()
+        .filter_map(|(i, t)| {
+            let has_skip = t.skip || t.track_skip.iter().any(|s| *s);
+            (has_skip && result.unjudged.contains(&i)).then_some(i)
+        })
+        .collect()
+}
+
+fn effective_bad(result: &VerifyResult, timings: &[ArcTiming]) -> usize {
+    result.bad() + skipped_unjudged(result, timings).len()
+}
+
 fn arcs_of<'a>(plans: &[SlidePlan], indices: impl Iterator<Item = &'a usize>, n_arcs: usize) -> Vec<usize> {
     indices
         .flat_map(|&pi| {
@@ -137,7 +154,7 @@ pub fn search(
             if tries >= max_tries {
                 break;
             }
-            let baseline_score = (result.bad(), conflicts);
+            let baseline_score = (effective_bad(&result, &timings), conflicts);
             // (arc, branch, timing, result, arc conflicts, score)
             let mut best: Option<(usize, Option<usize>, ArcTiming, VerifyResult, usize, (usize, usize))> =
                 None;
@@ -147,8 +164,33 @@ pub fn search(
                     .get(rt)
                     .map(|s| s.judge_queues.len())
                     .unwrap_or(1);
-                // Whole-arc variants: offset × fast.
                 let mut variants: Vec<(Option<usize>, ArcTiming)> = Vec::new();
+                // Multi-track (wifi): each branch is a separate star and may be
+                // left un-slid when an overlapping star already covers it. Branch
+                // variants imply the arc is still slid (un-skip), so we can
+                // recover from a whole-arc skip and combine a partial branch set.
+                if tracks > 1 {
+                    for ti in 0..tracks.min(verify::MAX_TRACKS) {
+                        {
+                            let mut arc = timings[rt];
+                            arc.skip = false;
+                            arc.track_skip[ti] = !arc.track_skip[ti];
+                            variants.push((Some(ti), arc));
+                        }
+                        for k in -OFFSET_STEPS..=OFFSET_STEPS {
+                            if k == 0 {
+                                continue;
+                            }
+                            let mut arc = timings[rt];
+                            arc.skip = false;
+                            arc.track_offset_us[ti] = k * OFFSET_STEP_US;
+                            if arc != timings[rt] {
+                                variants.push((Some(ti), arc));
+                            }
+                        }
+                    }
+                }
+                // Whole-arc: offset × fast.
                 for fast in [false, true] {
                     for k in -OFFSET_STEPS..=OFFSET_STEPS {
                         let arc = ArcTiming {
@@ -161,20 +203,11 @@ pub fn search(
                         }
                     }
                 }
-                // Multi-track (wifi): each branch is a separate star.
-                if tracks > 1 {
-                    for ti in 0..tracks.min(verify::MAX_TRACKS) {
-                        for k in -OFFSET_STEPS..=OFFSET_STEPS {
-                            if k == 0 {
-                                continue;
-                            }
-                            let mut arc = timings[rt];
-                            arc.track_offset_us[ti] = k * OFFSET_STEP_US;
-                            if arc != timings[rt] {
-                                variants.push((Some(ti), arc));
-                            }
-                        }
-                    }
+                // Whole-arc: toggle "完全不滑".
+                {
+                    let mut arc = timings[rt];
+                    arc.skip = !arc.skip;
+                    variants.push((None, arc));
                 }
                 for (ti, arc) in variants {
                     if tries >= max_tries {
@@ -187,7 +220,9 @@ pub fn search(
                     // Only this arc's conflicts can change.
                     let c_rt = verify::zone_conflict_for_arc(spec, arc, rt, windows);
                     let ct = conflicts - conflict_arcs.get(rt).copied().unwrap_or(0) + c_rt;
-                    let score = (r.bad(), ct);
+                    // A skipped slide/branch that ends up unjudged is a failure,
+                    // not a free pass.
+                    let score = (effective_bad(&r, &trial), ct);
                     if score < baseline_score && best.as_ref().is_none_or(|b| score < b.5) {
                         best = Some((rt, ti, arc, r, c_rt, score));
                     }
@@ -203,23 +238,27 @@ pub fn search(
 
             match best {
                 Some((rt, ti, arc, r, c_rt, score)) => {
+                    let old_timing = timings[rt];
                     let old = conflict_arcs.get(rt).copied().unwrap_or(0);
+                    let desc = if arc.skip != old_timing.skip {
+                        format!("skip={}", arc.skip)
+                    } else if let Some(t) = ti {
+                        if arc.track_skip[t] != old_timing.track_skip[t] {
+                            format!("branch {t} skip={}", arc.track_skip[t])
+                        } else {
+                            format!("branch {t} off={:+}us", arc.track_offset_us[t])
+                        }
+                    } else {
+                        format!("off={:+}us fast={}", arc.offset_us, arc.fast)
+                    };
                     timings[rt] = arc;
                     result = r;
                     conflict_arcs[rt] = c_rt;
                     conflicts = conflicts - old + c_rt;
-                    match ti {
-                        Some(t) => println!(
-                            "  [enum] unit {ui}: arc {rt} branch {t} -> off={:+}us  bad {}->{}  conflicts {}->{}",
-                            arc.track_offset_us[t], baseline_score.0, score.0, baseline_score.1,
-                            conflicts
-                        ),
-                        None => println!(
-                            "  [enum] unit {ui}: arc {rt} -> off={:+}us fast={}  bad {}->{}  conflicts {}->{}",
-                            arc.offset_us, arc.fast, baseline_score.0, score.0, baseline_score.1,
-                            conflicts
-                        ),
-                    }
+                    println!(
+                        "  [enum] unit {ui}: arc {rt} -> {desc}  bad {}->{}  conflicts {}->{}",
+                        baseline_score.0, score.0, baseline_score.1, conflicts
+                    );
                     flush();
                 }
                 None => break, // no single change improves; unit enumeration exhausted
@@ -231,6 +270,7 @@ pub fn search(
             .iter()
             .chain(result.imperfect.iter())
             .copied()
+            .chain(skipped_unjudged(&result, &timings))
             .filter(|rt| unit_arcs.contains(rt))
             .collect();
         let unit_conf: usize = unit_arcs
@@ -252,12 +292,12 @@ pub fn search(
         flush();
     }
 
-    let ap = result.all_perfect();
+    let ap = result.all_perfect() && skipped_unjudged(&result, &timings).is_empty();
     println!(
         "[enum] done: {} {}  bad {}  conflicts {}  units AP {}/{}  tries {}/{}",
         if ap { "AP" } else { "NOT AP" },
         if baseline_perfect { "(baseline)" } else { "" },
-        result.bad(),
+        effective_bad(&result, &timings),
         conflicts,
         units_ap,
         units.len(),

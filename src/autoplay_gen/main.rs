@@ -113,6 +113,38 @@ fn main() {
 
     let engine = player::engine::JudgeEngine::load(&text, level).expect("engine");
     let spec = engine.chart_spec().expect("lowered chart");
+
+    if std::env::var("MAI2_DUMP_SPEC").is_ok() {
+        for (i, s) in spec.slides.iter().enumerate() {
+            let tracks: Vec<String> = s
+                .judge_queues
+                .iter()
+                .map(|t| {
+                    t.iter()
+                        .map(|a| format!("{:?}", a.target_areas.first()))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .collect();
+            println!(
+                "rt{i} note={} kind={:?} start={} len={} head_t={} judge_at={:?} logical={} tracks={tracks:?}",
+                s.note_index,
+                s.slide_kind,
+                s.start_timing,
+                s.length,
+                s.head_timing,
+                s.judge_at,
+                s.logical_slide_id,
+            );
+        }
+        for h in &spec.slide_heads {
+            println!(
+                "head note={} logical={} timing={} slot={:?}",
+                h.note_index, h.logical_slide_id, h.timing, h.slot
+            );
+        }
+        return;
+    }
     let song_end = spec
         .slides
         .iter()

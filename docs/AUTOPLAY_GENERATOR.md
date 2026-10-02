@@ -158,12 +158,15 @@ for unit in overlapping_units:          # 重叠单位
 - `build_events_with_offsets(spec, &[ArcTiming])`：第 i 个 runtime arc 用 `timings[i]`
   控制偏移/fast 模式；slide head 按 `logical_slide_id` 跟随其 body arc
   （head 命中决定 slide 等级）。
-- `ArcTiming { offset_us: i64, fast: bool, track_offset_us: [i64; 3] }`：
+- `ArcTiming { offset_us, fast, track_offset_us: [i64; 3], skip, track_skip: [bool; 3] }`：
   - `offset_us`：整条 arc 及其 head 平移的微秒数；
   - `fast`：rush 除最后一区外的所有区，最后区落在 `judge_at`——让星星尽量远离
     相邻滑条，同时仍在自身的 Perfect 窗口内完成。
   - `track_offset_us`：**每条 track（分支）独立的平移**。wifi 滑条有 3 条分支
     （左/中/右），枚举把它们当作**三条独立的星星**，可各自错开。
+  - `skip`：整条 arc **完全不滑**（用于相邻星已把它滑掉的情形）。
+  - `track_skip`：某条分支**不滑**——例如 wifi 的分支已被前面一条同形星滑掉，
+    只需滑剩下的一条。
   - `FAST_STEP_US = 12_000`：fast 模式早期区之间的间隔。
   - 正常模式：第 k 区落在 `start + len * arrow_progress_when_finished / max_fin`。
 - `search.rs` **按 unit 逐段枚举**并打印进度：每个 unit 达到 AP（`bad==0` 且无冲突）
@@ -256,31 +259,39 @@ autoplay_gen [CHART] [--diff N] [--block S] [--max-tries N]
 hold；autotest 跑通并缓存；`test/`、`サイエンス1/2/` 无回归；缓存键加入谱面路径哈希
 （`サイエンス1/2` 不再互相覆盖）；A 区冲突窗口（见上）。
 
-已完成（本轮追加）：wifi 三分支独立枚举（`track_offset_us`）；按 unit 逐段打印
-进度与 AP 状态；非 AP 也缓存「最接近 AP」的 tactic。
+已完成（本轮追加）：wifi 三分支独立枚举（`track_offset_us`）；**分支可跳过**
+（`track_skip`）与**整条可跳过**（`skip`）；按 unit 逐段打印进度与 AP 状态；
+非 AP 也缓存「最接近 AP」的 tactic。
 
-### washi / washi1 为何仍非 AP
+### wifi 分支「被别人滑掉」⇒ 分支跳过（关键）
 
-`washi`（`1w5`/`8w4` 等 wifi）与 `washi1`（`7<8`、`2>1` 各重复 4 次）都无法全
-Perfect，且**不是搜索不足**：
+`washi`（简化成 3 星模式：`8-5*-4` + `8w4` + 后续）由 baseline `bad=2` 变为
+**全 Perfect**，靠的正是分支跳过：
 
-- 这些谱面里存在**路径完全相同、时间重叠**的滑条。内核在
-  `slideShouldBeCheckable` 中只用**谱面 headTiming** 决定 checkable（从
-  `headTiming-50ms` 起），输入事件的时间戳改变不了它。
-- 于是前一条的手势会顺带把后一条的 judge queue 消费掉（同形队列 + `isSkippable`
-  的 on/off 传递），后一条在**前一条完成时**被提前判定。
-- `autotest`（两条 `1>4`，相隔 1 拍）能靠错开让共享完成落在两条 `judgeAt` 中点；
-  但 washi 的 wifi 分支与其相邻 Single 相隔 1s（远超 14 帧≈233ms 的 perfect
-  窗口），washi1 的 4 条同形滑条跨度 0.75s 也超过窗口——**单次手势无法同时满足**，
-  而多次手势又会互相消费。已用实验验证：单独平移相邻 arc / 平移 wifi 分支
-  都改变不了这些 arc 的判定（`MAI2_DEBUG` 实验）。
-- 结论：要让这些谱面 AP，需要**内核侧**区分「谁的手势」（例如要求 head 真正命中
-  才 checkable），或明确这些谱面在当前判定模型下不可 AP。
+- `8-5*-4` 这条星（rt0/rt1）与 wifi `8w4`（rt2）的两条分支**路径完全相同**。
+  rt0/rt1 在 2.0s 的手势已经把 wifi 的 track0/track1 滑掉（wifi 从
+  `headTiming-50ms` 起 checkable）。
+- 若 wifi 仍把三条分支都滑（3.0s），它的 track0/track1 手势会顺带把**下一条
+  `8-5*-4`（rt3/rt4）完整滑掉** → rt3/rt4 `FastGood`。
+- 枚举因此允许**每条分支单独选择「滑 / 不滑」**（`track_skip`）：wifi 只滑
+  track2，track0/track1 交给前面那条星完成。实测 `track_skip[0]=track_skip[1]=true`
+  → 6 条无人 non-perfect，`washi` AP。
+- 实现要点：分支候选会把 `skip=false`（保证 wifi 仍被判定），因此能从「整条跳过」
+  的错误分支恢复到「只跳部分分支」；被跳过却**无判定**的 arc 计入 `effective_bad`，
+  防止「跳过=免费 AP」的漏洞。
+
+### washi1 为何仍非 AP
+
+`washi1` 的 `7<8`×4、`2>1`×4 是**路径完全相同、时间重叠且跨度超过 perfect 窗口**
+的连续星；一次手势无法同时满足它们（间隔 0.25s、跨度 0.75s > 14 帧≈0.466s），
+多次手势又互相消费。链式段（rt8–10）已能 AP，但这两组是当前判定模型下的固有
+不可 AP（内核在 `slideShouldBeCheckable` 只用谱面 `headTiming` 决定 checkable，
+输入时间戳改变不了）。
 
 待办：
 
-1. **`fast` 与 track 间隔**：`fast`/`track_offset_us` 已接入枚举但未命中这些谱面；
-   若要覆盖更一般的重叠，需枚举每条 track 的 rush 间隔。
+1. **`fast` 与 track 间隔**：`fast`/`track_offset_us` 已接入枚举；若要覆盖更一般的
+   重叠，需枚举每条 track 的 rush 间隔。
 2. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
 3. **预览核对**：`--preview` 已可缓存并启动；用 `MAI2_DEBUG_SLIDE=1` 核对
    preview 判定与生成器一致（终端环境未实际开窗）。
