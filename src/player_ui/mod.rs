@@ -162,9 +162,95 @@ fn slider_frac(app: &PlayerUiApp, idx: usize) -> f32 {
     ((v - lo) / (hi - lo)).clamp(0.0, 1.0)
 }
 
+/// Format seconds as mm:ss.
+fn flash_time(secs: f32) -> String {
+    let t = secs.max(0.0) as u32;
+    format!("{:02}:{:02}", t / 60, t % 60)
+}
+
+/// Live value for a dynamic text slot (None = slot unknown/empty).
+fn slot_value(app: &PlayerUiApp, slot: &flash::Slot) -> Option<String> {
+    let song = || {
+        let i = app.loaded.unwrap_or(app.selected);
+        app.library.songs.get(i)
+    };
+    let value = match slot.id.as_str() {
+        "start.count" => format!("曲库 · {} 首", app.library.songs.len()),
+        "start.path" => app.library.root.display().to_string(),
+        "ss.title" => song()?.title.clone(),
+        "ss.artist" => song()?.artist.clone(),
+        "ss.meta" => {
+            let s = song()?;
+            if s.designer.is_empty() {
+                s.descriptor.clone()
+            } else {
+                format!("谱师 {} · {}", s.designer, s.descriptor)
+            }
+        }
+        "ss.notes" => format!(
+            "{} notes · {:.0} BPM",
+            app.pad.chart.notes.len(),
+            app.pad.chart.bpm
+        ),
+        "set.v0" => format!("{:.2}", app.pad.note_speed),
+        "set.v1" => format!("{:.2}", app.pad.touch_speed),
+        "set.v2" => format!("{:.2}", app.pad.slide_fade_in),
+        "set.v3" => format!("{:.2}", app.pad.play_speed),
+        "set.status" => app.status.clone(),
+        "hud.title" | "pause.title" => app.pad.chart.title.clone(),
+        "hud.sub" => {
+            let lvl = app
+                .selected_level
+                .map(|k| format!("Lv.{k}"))
+                .unwrap_or_else(|| "—".to_string());
+            format!("{lvl}  ·  {:.1}x", app.pad.play_speed)
+        }
+        "pause.time" => format!("当前时间  {}", flash_time(app.pad.mode_song_offset)),
+        id if id.starts_with("ss.pill") => {
+            let i: usize = id["ss.pill".len()..].parse().ok()?;
+            match app.levels.get(i) {
+                Some((_, d)) if !d.is_empty() => format!("Lv.{d}"),
+                Some((k, _)) => format!("{k}"),
+                None => return None,
+            }
+        }
+        _ => return None,
+    };
+    Some(value)
+}
+
+/// Draw a slot's live value inside its page-space box.
+fn draw_flash_slot(font: Option<&Font>, px: &flash::PageXf, slot: &flash::Slot, value: &str) {
+    if value.is_empty() {
+        return;
+    }
+    let size = (slot.size * px.scale).max(1.0);
+    let c = slot.rgba();
+    let color = Color::from_rgba(c[0], c[1], c[2], c[3]);
+    let w = draw::text_width(font, value, size);
+    let box_x = px.x(slot.x);
+    let box_w = slot.w * px.scale;
+    let x = if slot.is_center() {
+        box_x + (box_w - w) * 0.5
+    } else if slot.is_right() {
+        box_x + box_w - w
+    } else {
+        box_x
+    };
+    let y = px.y(slot.y) + size * 0.85;
+    draw::text(font, value, x, y, size, color);
+}
+
 /// Draw a `player_ui` XFL page: vectors, then per-widget state overlays, then
-/// the page's static text on top.
-fn draw_flash(app: &PlayerUiApp, ctx: &UiCtx, ui_state: &flash::FlashUi, page: &str, elapsed: f64) {
+/// the page's static text (minus dynamic slots) and the live slot values.
+fn draw_flash(
+    app: &PlayerUiApp,
+    ctx: &UiCtx,
+    ui_state: &flash::FlashUi,
+    slots: &[flash::Slot],
+    page: &str,
+    elapsed: f64,
+) {
     if !crate::app::anim::player_ui_loaded() {
         draw::text(
             ctx.font.as_ref(),
@@ -178,6 +264,13 @@ fn draw_flash(app: &PlayerUiApp, ctx: &UiCtx, ui_state: &flash::FlashUi, page: &
     }
     let px = flash::PageXf::new(ctx.w, ctx.h, ctx.scale);
     let hits = flash::hits(page);
+    let page_slots: Vec<&flash::Slot> = slots.iter().filter(|s| s.page == page).collect();
+    let is_slot = |t: &macroanimate::TextDraw| -> bool {
+        let (sx, sy) = px.to_page(t.pos.0, t.pos.1);
+        page_slots
+            .iter()
+            .any(|s| s.text == t.text && (s.x - sx).abs() < 1.5 && (s.y - sy).abs() < 1.5)
+    };
     crate::app::anim::with_player_ui(|ui| {
         let Some(ui) = ui else { return };
         let Some(clip) = ui.get(page) else { return };
@@ -229,7 +322,15 @@ fn draw_flash(app: &PlayerUiApp, ctx: &UiCtx, ui_state: &flash::FlashUi, page: &
             }
         }
         for t in clip.text_draws(frame, &xf) {
+            if is_slot(&t) {
+                continue;
+            }
             draw_flash_text(ctx.font.as_ref(), &t);
+        }
+        for s in page_slots.iter() {
+            if let Some(v) = slot_value(app, s) {
+                draw_flash_slot(ctx.font.as_ref(), &px, s, &v);
+            }
         }
     });
     draw::text(
@@ -491,6 +592,14 @@ pub async fn run() {
     });
     let flash_start = get_time();
     let mut flash_ui = flash::FlashUi::default();
+    let flash_slots = flash::load_slots(
+        &platform::asset_dir()
+            .join("player_ui")
+            .join("text_slots.json"),
+    );
+    if flash_page.is_some() && flash_slots.is_empty() {
+        eprintln!("player-ui: no text slots (assets/player_ui/text_slots.json)");
+    }
 
     loop {
         let now = get_time();
@@ -551,7 +660,7 @@ pub async fn run() {
                 if next >= 3 {
                     pages::gameplay::draw_view(&mut app, &ctx, &mut input);
                 }
-                draw_flash(&app, &ctx, &flash_ui, flash::PAGES[next], now - flash_start);
+                draw_flash(&app, &ctx, &flash_ui, &flash_slots, flash::PAGES[next], now - flash_start);
             }
         } else {
             pages::draw(&mut app, &mut input, &ctx);

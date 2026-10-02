@@ -19,6 +19,7 @@ Output: assets/player_ui/   (Animate opens this)
 Run from the repo root:  python3 tools/make_player_ui_xfl.py
 """
 
+import json
 import math
 import os
 import shutil
@@ -523,6 +524,41 @@ def build_pages():
     ], last_uid=13))
 
 
+def build_slots():
+    """Dynamic-text slots: page-space rects the runtime fills with live data.
+
+    Each `text` is the placeholder baked into the XFL (used to skip/erase it);
+    the manifest is what lets the runtime draw real values without a font stack
+    in macroanimate.
+    """
+    def slot(page, sid, text, x, y, w, size, color, align="left"):
+        return {"page": f"UI/{page}", "id": sid, "text": text,
+                "x": x, "y": y, "w": w, "size": size, "color": color, "align": align}
+
+    out = []
+    out += [
+        slot("page_start", "start.count", "曲库 · 12 首", 56, 502, 400, 12, TEXT_MUTED),
+        slot("page_start", "start.path", "assets/charts", 56, 520, 500, 11, TEXT_MUTED),
+        slot("page_song_select", "ss.title", "曲目标题", 440, 430, 820, 26, TEXT, "center"),
+        slot("page_song_select", "ss.artist", "艺术家", 440, 470, 820, 14, TEXT_DIM, "center"),
+        slot("page_song_select", "ss.meta", "谱师 · 描述", 440, 496, 820, 12, TEXT_MUTED, "center"),
+        slot("page_song_select", "ss.notes", "128 notes · 180 BPM", 440, 574, 820, 13, TEXT_DIM, "center"),
+        slot("page_settings", "set.v0", "7.50", 752, 246, 80, 15, ACCENT, "right"),
+        slot("page_settings", "set.v1", "7.50", 752, 318, 80, 15, ACCENT, "right"),
+        slot("page_settings", "set.v2", "0.52", 752, 390, 80, 15, ACCENT, "right"),
+        slot("page_settings", "set.v3", "1.00", 752, 462, 80, 15, ACCENT, "right"),
+        slot("page_settings", "set.status", "已恢复默认设置", 272, 612, 500, 12, TEXT_MUTED),
+        slot("page_gameplay_hud", "hud.title", "曲目标题", 118, 18, 500, 17, TEXT),
+        slot("page_gameplay_hud", "hud.sub", "Lv.12 · 1.0x", 118, 42, 500, 11, TEXT_MUTED),
+        slot("page_pause", "pause.title", "曲目标题", 458, 292, 364, 14, TEXT_DIM),
+        slot("page_pause", "pause.time", "当前时间  01:23", 458, 314, 364, 12, TEXT_MUTED),
+    ]
+    for i in range(4):
+        out.append(slot("page_song_select", f"ss.pill{i}", "Lv.12",
+                        682 + i * 86, 523, 78, 15, VOID if i == 1 else TEXT, "center"))
+    return out
+
+
 def dom_document():
     inc = "\n".join(
         f'     <Include href="UI/{n}.xml" loadImmediate="false" itemID="{uid()}" lastModified="{LAST}"/>'
@@ -589,6 +625,7 @@ def main():
             with open(src, "rb") as f:
                 files[rel] = f.read()
     files["main.xfl"] = main_xfl(sorted(k for k in files if k.startswith("LIBRARY/")))
+    files["text_slots.json"] = json.dumps({"slots": build_slots()}, ensure_ascii=False, indent=1)
     for rel, data in files.items():
         path = os.path.join(OUT_DIR, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)

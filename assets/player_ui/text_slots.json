@@ -1,0 +1,213 @@
+{
+ "slots": [
+  {
+   "page": "UI/page_start",
+   "id": "start.count",
+   "text": "曲库 · 12 首",
+   "x": 56,
+   "y": 502,
+   "w": 400,
+   "size": 12,
+   "color": "#6E6E78",
+   "align": "left"
+  },
+  {
+   "page": "UI/page_start",
+   "id": "start.path",
+   "text": "assets/charts",
+   "x": 56,
+   "y": 520,
+   "w": 500,
+   "size": 11,
+   "color": "#6E6E78",
+   "align": "left"
+  },
+  {
+   "page": "UI/page_song_select",
+   "id": "ss.title",
+   "text": "曲目标题",
+   "x": 440,
+   "y": 430,
+   "w": 820,
+   "size": 26,
+   "color": "#D6D6DA",
+   "align": "center"
+  },
+  {
+   "page": "UI/page_song_select",
+   "id": "ss.artist",
+   "text": "艺术家",
+   "x": 440,
+   "y": 470,
+   "w": 820,
+   "size": 14,
+   "color": "#9A9AA2",
+   "align": "center"
+  },
+  {
+   "page": "UI/page_song_select",
+   "id": "ss.meta",
+   "text": "谱师 · 描述",
+   "x": 440,
+   "y": 496,
+   "w": 820,
+   "size": 12,
+   "color": "#6E6E78",
+   "align": "center"
+  },
+  {
+   "page": "UI/page_song_select",
+   "id": "ss.notes",
+   "text": "128 notes · 180 BPM",
+   "x": 440,
+   "y": 574,
+   "w": 820,
+   "size": 13,
+   "color": "#9A9AA2",
+   "align": "center"
+  },
+  {
+   "page": "UI/page_settings",
+   "id": "set.v0",
+   "text": "7.50",
+   "x": 752,
+   "y": 246,
+   "w": 80,
+   "size": 15,
+   "color": "#52D6E8",
+   "align": "right"
+  },
+  {
+   "page": "UI/page_settings",
+   "id": "set.v1",
+   "text": "7.50",
+   "x": 752,
+   "y": 318,
+   "w": 80,
+   "size": 15,
+   "color": "#52D6E8",
+   "align": "right"
+  },
+  {
+   "page": "UI/page_settings",
+   "id": "set.v2",
+   "text": "0.52",
+   "x": 752,
+   "y": 390,
+   "w": 80,
+   "size": 15,
+   "color": "#52D6E8",
+   "align": "right"
+  },
+  {
+   "page": "UI/page_settings",
+   "id": "set.v3",
+   "text": "1.00",
+   "x": 752,
+   "y": 462,
+   "w": 80,
+   "size": 15,
+   "color": "#52D6E8",
+   "align": "right"
+  },
+  {
+   "page": "UI/page_settings",
+   "id": "set.status",
+   "text": "已恢复默认设置",
+   "x": 272,
+   "y": 612,
+   "w": 500,
+   "size": 12,
+   "color": "#6E6E78",
+   "align": "left"
+  },
+  {
+   "page": "UI/page_gameplay_hud",
+   "id": "hud.title",
+   "text": "曲目标题",
+   "x": 118,
+   "y": 18,
+   "w": 500,
+   "size": 17,
+   "color": "#D6D6DA",
+   "align": "left"
+  },
+  {
+   "page": "UI/page_gameplay_hud",
+   "id": "hud.sub",
+   "text": "Lv.12 · 1.0x",
+   "x": 118,
+   "y": 42,
+   "w": 500,
+   "size": 11,
+   "color": "#6E6E78",
+   "align": "left"
+  },
+  {
+   "page": "UI/page_pause",
+   "id": "pause.title",
+   "text": "曲目标题",
+   "x": 458,
+   "y": 292,
+   "w": 364,
+   "size": 14,
+   "color": "#9A9AA2",
+   "align": "left"
+  },
+  {
+   "page": "UI/page_pause",
+   "id": "pause.time",
+   "text": "当前时间  01:23",
+   "x": 458,
+   "y": 314,
+   "w": 364,
+   "size": 12,
+   "color": "#6E6E78",
+   "align": "left"
+  },
+  {
+   "page": "UI/page_song_select",
+   "id": "ss.pill0",
+   "text": "Lv.12",
+   "x": 682,
+   "y": 523,
+   "w": 78,
+   "size": 15,
+   "color": "#D6D6DA",
+   "align": "center"
+  },
+  {
+   "page": "UI/page_song_select",
+   "id": "ss.pill1",
+   "text": "Lv.12",
+   "x": 768,
+   "y": 523,
+   "w": 78,
+   "size": 15,
+   "color": "#171719",
+   "align": "center"
+  },
+  {
+   "page": "UI/page_song_select",
+   "id": "ss.pill2",
+   "text": "Lv.12",
+   "x": 854,
+   "y": 523,
+   "w": 78,
+   "size": 15,
+   "color": "#D6D6DA",
+   "align": "center"
+  },
+  {
+   "page": "UI/page_song_select",
+   "id": "ss.pill3",
+   "text": "Lv.12",
+   "x": 940,
+   "y": 523,
+   "w": 78,
+   "size": 15,
+   "color": "#D6D6DA",
+   "align": "center"
+  }
+ ]
+}

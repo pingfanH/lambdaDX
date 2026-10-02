@@ -7,6 +7,57 @@
 
 use crate::app::types::RectF;
 
+/// A dynamic-text slot exported by the XFL generator (`text_slots.json`): a
+/// page-space box plus the placeholder string baked into the XFL, which the
+/// runtime skips and replaces with live data.
+#[derive(Clone, serde::Deserialize)]
+pub struct Slot {
+    pub page: String,
+    pub id: String,
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub size: f32,
+    pub color: String,
+    #[serde(default)]
+    pub align: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SlotFile {
+    slots: Vec<Slot>,
+}
+
+/// Load the slots manifest; an empty list when missing/malformed.
+pub fn load_slots(path: &std::path::Path) -> Vec<Slot> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<SlotFile>(&text)
+        .map(|f| f.slots)
+        .unwrap_or_default()
+}
+
+impl Slot {
+    pub fn rgba(&self) -> [u8; 4] {
+        let h = self.color.trim_start_matches('#');
+        let byte = |i: usize| u8::from_str_radix(h.get(i..i + 2).unwrap_or("00"), 16).unwrap_or(0);
+        if h.len() >= 8 {
+            [byte(0), byte(2), byte(4), byte(6)]
+        } else {
+            [byte(0), byte(2), byte(4), 255]
+        }
+    }
+
+    pub fn is_center(&self) -> bool {
+        self.align == "center"
+    }
+    pub fn is_right(&self) -> bool {
+        self.align == "right"
+    }
+}
+
 /// Page order used by the bin's Flash mode (matches the XFL `animations`).
 pub const PAGES: [&str; 5] = [
     "UI/page_start",
