@@ -159,9 +159,12 @@ fn parse_symbol_type(v: Option<&str>) -> SymbolType {
 }
 
 fn parse_loop(v: Option<&str>) -> LoopMode {
-    match v.unwrap_or("loop").to_ascii_lowercase().as_str() {
-        "playonce" | "play_once" => LoopMode::PlayOnce,
-        "singleframe" | "single_frame" => LoopMode::SingleFrame,
+    // Animate writes "play once" / "single frame" (spaced); accept the
+    // compact forms too.
+    let v = v.unwrap_or("loop").to_ascii_lowercase().replace([' ', '-'], "_");
+    match v.as_str() {
+        "play_once" => LoopMode::PlayOnce,
+        "single_frame" => LoopMode::SingleFrame,
         _ => LoopMode::Loop,
     }
 }
