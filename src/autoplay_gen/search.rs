@@ -1,22 +1,21 @@
-//! Baseline-first, localized re-enumeration.
+//! Baseline-first, **per-unit** localized re-enumeration.
 //!
-//! 1. Verify the default (chart-time) tactic. If every arc is Perfect **and**
-//!    has no A-zone conflict, stop — nothing to do.
-//! 2. Otherwise collect the failing / conflicting chart slides and every slide
-//!    whose lifecycle **overlaps** one of them; that is the working set.
-//! 3. Re-time only the working set's runtime arcs, greedily accepting the
-//!    `{offset × fast}` change that lexicographically reduces
-//!    `(non-Perfect arcs, A-zone conflicts)`. New failures / conflicts pull more
-//!    slides into the working set.
+//! Slides are grouped into overlapping **units** (`planner::group_units`). For
+//! each unit (in chart order) the search re-times that unit's runtime arcs (and
+//! the arcs of any lifecycle-overlapping neighbour) with the `{offset × fast}`
+//! candidates, greedily reducing `(non-Perfect arcs, A-zone conflicts)` until it
+//! reaches AP or runs out of improving candidates. Progress and per-unit AP
+//! status are printed; the best tactic found is returned even when non-AP so the
+//! caller can still cache the closest attempt.
 //!
-//! A-zone conflicts are slide A-ring presses that fall inside a **non-ex**
-//! tap/hold window (`docs/AUTOPLAY_GENERATOR.md`, "补充约束"). Bounded by
-//! `max_tries` core evaluations.
+//! A-zone conflicts are slide A-ring presses inside a **non-ex** tap/hold window
+//! (`docs/AUTOPLAY_GENERATOR.md`, "补充约束"). Bounded by `max_tries`.
 
 use std::collections::BTreeSet;
 
 use crate::core::types::ChartSpec;
 use crate::model::SlidePlan;
+use crate::planner::UnitPlan;
 use crate::verify::{self, ArcTiming, ConflictWindow, VerifyResult};
 
 /// Offset granularity and half-range (in steps) explored per arc. 10 ms steps
@@ -24,11 +23,20 @@ use crate::verify::{self, ArcTiming, ConflictWindow, VerifyResult};
 const OFFSET_STEP_US: i64 = 10_000;
 const OFFSET_STEPS: i64 = 12;
 
+/// Print a progress line every this many core evaluations.
+const PROGRESS_EVERY: usize = 200;
+
 pub struct SearchOutcome {
-    /// The chart-time tactic was already all-Perfect with no A-zone conflict.
+    /// The chart-time tactic was already all-Perfect with no A-zone conflict
+    /// (enumeration did nothing).
     pub baseline_perfect: bool,
+    /// Final tactic is all judged arcs Perfect (A-zone conflicts ignored).
+    pub ap: bool,
     pub tries: usize,
-    /// Chart-slide (plan) indices that were re-enumerated.
+    /// Units that reached AP.
+    pub units_ap: usize,
+    pub units_total: usize,
+    /// Chart-slide (plan) indices that were touched by the enumeration.
     pub work_slides: Vec<usize>,
     /// Final per-runtime-arc timing knobs.
     pub timings: Vec<ArcTiming>,
@@ -37,10 +45,26 @@ pub struct SearchOutcome {
     pub final_verify: VerifyResult,
 }
 
+/// Flush stdout so progress prints are visible immediately even when piped.
+fn flush() {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+}
+
+fn arcs_of<'a>(plans: &[SlidePlan], indices: impl Iterator<Item = &'a usize>, n_arcs: usize) -> Vec<usize> {
+    indices
+        .flat_map(|&pi| {
+            plans[pi].runtime_start..plans[pi].runtime_start + plans[pi].runtime_parts
+        })
+        .filter(|rt| *rt < n_arcs)
+        .collect()
+}
+
 pub fn search(
     text: &str,
     level: u32,
     plans: &[SlidePlan],
+    units: &[UnitPlan],
     spec: &ChartSpec,
     windows: &[ConflictWindow],
     song_end_s: f32,
@@ -54,51 +78,49 @@ pub fn search(
     tries += 1;
     let mut conflict_arcs = verify::zone_conflicts_by_arc(spec, &timings, windows);
     let mut conflicts: usize = conflict_arcs.iter().sum();
-    if result.all_perfect() && conflicts == 0 {
-        return SearchOutcome {
-            baseline_perfect: true,
-            tries,
-            work_slides: Vec::new(),
-            timings,
-            conflicts,
-            final_verify: result,
-        };
-    }
+    let baseline_perfect = result.all_perfect() && conflicts == 0;
 
-    // runtime arc -> chart slide (plan index).
-    let arc_to_plan: Vec<Option<usize>> = {
-        let mut v = vec![None; n_arcs];
-        for (pi, p) in plans.iter().enumerate() {
-            for rt in p.runtime_start..p.runtime_start + p.runtime_parts {
-                if rt < v.len() {
-                    v[rt] = Some(pi);
-                }
-            }
-        }
-        v
-    };
+    println!(
+        "[enum] baseline: bad {}  conflicts {}  units {}  (tries {})",
+        result.bad(),
+        conflicts,
+        units.len(),
+        tries
+    );
+    flush();
 
-    let mut work: BTreeSet<usize> = BTreeSet::new();
-    loop {
-        // Slides that are currently bad (Miss / non-Perfect) or in conflict.
-        let mut failed_plans: BTreeSet<usize> = BTreeSet::new();
-        for rt in result.misses.iter().chain(result.imperfect.iter()) {
-            if let Some(Some(pi)) = arc_to_plan.get(*rt) {
-                failed_plans.insert(*pi);
+    let mut work_slides: BTreeSet<usize> = BTreeSet::new();
+    let mut units_ap = 0usize;
+
+    for (ui, unit) in units.iter().enumerate() {
+        // Slides of this unit that are bad or in conflict.
+        let mut failed: BTreeSet<usize> = BTreeSet::new();
+        for &pi in &unit.slide_indices {
+            let arcs: Vec<usize> = (plans[pi].runtime_start
+                ..plans[pi].runtime_start + plans[pi].runtime_parts)
+                .filter(|rt| *rt < n_arcs)
+                .collect();
+            let is_bad = arcs
+                .iter()
+                .any(|rt| result.misses.contains(rt) || result.imperfect.contains(rt));
+            let is_conf = arcs
+                .iter()
+                .any(|rt| conflict_arcs.get(*rt).copied().unwrap_or(0) > 0);
+            if is_bad || is_conf {
+                failed.insert(pi);
             }
         }
-        for rt in 0..n_arcs {
-            if conflict_arcs.get(rt).copied().unwrap_or(0) > 0 {
-                if let Some(Some(pi)) = arc_to_plan.get(rt) {
-                    failed_plans.insert(*pi);
-                }
-            }
+        if failed.is_empty() {
+            println!("[enum] unit {ui}: AP  (already clean, tries {tries})");
+            flush();
+            units_ap += 1;
+            continue;
         }
-        if failed_plans.is_empty() {
-            break;
-        }
-        for &pi in &failed_plans {
-            work.insert(pi);
+
+        // Only the failing slides plus their lifecycle-overlapping neighbours
+        // need re-timing.
+        let mut work: BTreeSet<usize> = failed.clone();
+        for &pi in &failed {
             let (h0, e0) = (plans[pi].head_s, plans[pi].end_s);
             for (qi, q) in plans.iter().enumerate() {
                 if q.head_s < e0 && q.end_s > h0 {
@@ -106,62 +128,151 @@ pub fn search(
                 }
             }
         }
+        work_slides.extend(work.iter().copied());
+        let work_arcs = arcs_of(plans, work.iter(), n_arcs);
+        let unit_arcs = arcs_of(plans, unit.slide_indices.iter(), n_arcs);
 
-        let work_arcs: Vec<usize> = work
-            .iter()
-            .flat_map(|&pi| {
-                plans[pi].runtime_start..plans[pi].runtime_start + plans[pi].runtime_parts
-            })
-            .filter(|rt| *rt < n_arcs)
-            .collect();
-
-        // Greedy: find the single timing change that lexicographically reduces
-        // `(bad arcs, A-zone conflicts)`. Both a plain offset and a fast-mode
-        // variant are tried per arc.
-        let baseline_score = (result.bad(), conflicts);
-        let mut best: Option<(usize, ArcTiming, VerifyResult, Vec<usize>, (usize, usize))> = None;
-        'search: for &rt in &work_arcs {
-            for fast in [false, true] {
-                for k in -OFFSET_STEPS..=OFFSET_STEPS {
-                    let arc = ArcTiming {
-                        offset_us: k * OFFSET_STEP_US,
-                        fast,
-                    };
-                    if arc.offset_us == 0 && !arc.fast {
-                        continue;
+        let start_tries = tries;
+        loop {
+            if tries >= max_tries {
+                break;
+            }
+            let baseline_score = (result.bad(), conflicts);
+            // (arc, branch, timing, result, arc conflicts, score)
+            let mut best: Option<(usize, Option<usize>, ArcTiming, VerifyResult, usize, (usize, usize))> =
+                None;
+            'scan: for &rt in &work_arcs {
+                let tracks = spec
+                    .slides
+                    .get(rt)
+                    .map(|s| s.judge_queues.len())
+                    .unwrap_or(1);
+                // Whole-arc variants: offset × fast.
+                let mut variants: Vec<(Option<usize>, ArcTiming)> = Vec::new();
+                for fast in [false, true] {
+                    for k in -OFFSET_STEPS..=OFFSET_STEPS {
+                        let arc = ArcTiming {
+                            offset_us: k * OFFSET_STEP_US,
+                            fast,
+                            ..Default::default()
+                        };
+                        if !arc.is_default() {
+                            variants.push((None, arc));
+                        }
                     }
+                }
+                // Multi-track (wifi): each branch is a separate star.
+                if tracks > 1 {
+                    for ti in 0..tracks.min(verify::MAX_TRACKS) {
+                        for k in -OFFSET_STEPS..=OFFSET_STEPS {
+                            if k == 0 {
+                                continue;
+                            }
+                            let mut arc = timings[rt];
+                            arc.track_offset_us[ti] = k * OFFSET_STEP_US;
+                            if arc != timings[rt] {
+                                variants.push((Some(ti), arc));
+                            }
+                        }
+                    }
+                }
+                for (ti, arc) in variants {
                     if tries >= max_tries {
-                        break 'search;
+                        break 'scan;
                     }
                     let mut trial = timings.clone();
                     trial[rt] = arc;
                     let r = run(text, level, spec, &trial, song_end_s);
                     tries += 1;
-                    let c = verify::zone_conflicts_by_arc(spec, &trial, windows);
-                    let ct: usize = c.iter().sum();
+                    // Only this arc's conflicts can change.
+                    let c_rt = verify::zone_conflict_for_arc(spec, arc, rt, windows);
+                    let ct = conflicts - conflict_arcs.get(rt).copied().unwrap_or(0) + c_rt;
                     let score = (r.bad(), ct);
-                    if score < baseline_score && best.as_ref().is_none_or(|b| score < b.4) {
-                        best = Some((rt, arc, r, c, score));
+                    if score < baseline_score && best.as_ref().is_none_or(|b| score < b.5) {
+                        best = Some((rt, ti, arc, r, c_rt, score));
                     }
+                    if tries % PROGRESS_EVERY == 0 {
+                        println!(
+                                "  [enum] unit {ui}: ...tries {tries}/{max_tries}  (best so far bad {}, conflicts {})",
+                                baseline_score.0, baseline_score.1
+                            );
+                            flush();
+                        }
                 }
             }
+
+            match best {
+                Some((rt, ti, arc, r, c_rt, score)) => {
+                    let old = conflict_arcs.get(rt).copied().unwrap_or(0);
+                    timings[rt] = arc;
+                    result = r;
+                    conflict_arcs[rt] = c_rt;
+                    conflicts = conflicts - old + c_rt;
+                    match ti {
+                        Some(t) => println!(
+                            "  [enum] unit {ui}: arc {rt} branch {t} -> off={:+}us  bad {}->{}  conflicts {}->{}",
+                            arc.track_offset_us[t], baseline_score.0, score.0, baseline_score.1,
+                            conflicts
+                        ),
+                        None => println!(
+                            "  [enum] unit {ui}: arc {rt} -> off={:+}us fast={}  bad {}->{}  conflicts {}->{}",
+                            arc.offset_us, arc.fast, baseline_score.0, score.0, baseline_score.1,
+                            conflicts
+                        ),
+                    }
+                    flush();
+                }
+                None => break, // no single change improves; unit enumeration exhausted
+            }
         }
 
-        match best {
-            Some((rt, arc, r, c, _score)) => {
-                timings[rt] = arc;
-                result = r;
-                conflict_arcs = c;
-                conflicts = conflict_arcs.iter().sum();
-            }
-            None => break, // no single change improves; give up
+        let unit_bad: Vec<usize> = result
+            .misses
+            .iter()
+            .chain(result.imperfect.iter())
+            .copied()
+            .filter(|rt| unit_arcs.contains(rt))
+            .collect();
+        let unit_conf: usize = unit_arcs
+            .iter()
+            .map(|rt| conflict_arcs.get(*rt).copied().unwrap_or(0))
+            .sum();
+        if unit_bad.is_empty() && unit_conf == 0 {
+            println!(
+                "[enum] unit {ui}: AP  (tries used {}, total {tries})",
+                tries - start_tries
+            );
+            units_ap += 1;
+        } else {
+            println!(
+                "[enum] unit {ui}: not AP — bad arcs {unit_bad:?}, conflicts {unit_conf}  (tries used {}, total {tries})",
+                tries - start_tries
+            );
         }
+        flush();
     }
 
-    SearchOutcome {
-        baseline_perfect: false,
+    let ap = result.all_perfect();
+    println!(
+        "[enum] done: {} {}  bad {}  conflicts {}  units AP {}/{}  tries {}/{}",
+        if ap { "AP" } else { "NOT AP" },
+        if baseline_perfect { "(baseline)" } else { "" },
+        result.bad(),
+        conflicts,
+        units_ap,
+        units.len(),
         tries,
-        work_slides: work.into_iter().collect(),
+        max_tries
+    );
+    flush();
+
+    SearchOutcome {
+        baseline_perfect,
+        ap,
+        tries,
+        units_ap,
+        units_total: units.len(),
+        work_slides: work_slides.into_iter().collect(),
         timings,
         conflicts,
         final_verify: result,

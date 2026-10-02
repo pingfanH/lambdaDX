@@ -151,24 +151,18 @@ fn main() {
     let units = plan(&mut plans, block_s);
     print_report(&chart_doc, &plans, &units, block_s);
 
-    let outcome = search::search(&text, level, &plans, &spec, &windows, song_end, max_tries);
-    if outcome.baseline_perfect {
-        println!(
-            "\n== baseline ==\nchart-time tactic is already all-Perfect — enumeration skipped (tries {})",
-            outcome.tries
-        );
-    } else {
-        let moved = outcome
-            .timings
-            .iter()
-            .filter(|t| t.offset_us != 0 || t.fast)
-            .count();
-        println!("\n== enumeration ==");
-        println!(
-            "tries: {}   work slides: {:?}   arcs re-timed: {}",
-            outcome.tries, outcome.work_slides, moved
-        );
-    }
+    let outcome = search::search(
+        &text, level, &plans, &units, &spec, &windows, song_end, max_tries,
+    );
+    let moved = outcome
+        .timings
+        .iter()
+        .filter(|t| !t.is_default())
+        .count();
+    println!(
+        "\n== enumeration ==\nbaseline_perfect: {}   ap: {}   arcs re-timed: {}   work slides: {:?}",
+        outcome.baseline_perfect, outcome.ap, moved, outcome.work_slides
+    );
     print_verify(&outcome.final_verify, &windows);
     finish(preview, &path, &chart_doc.title, level, &outcome.final_verify);
 }
@@ -231,12 +225,11 @@ fn print_verify(result: &VerifyResult, windows: &[verify::ConflictWindow]) {
     );
 }
 
-/// Cache a verified tactic and print the path plus a ready-to-run preview line.
+/// Cache the best tactic found and print the path plus a ready-to-run preview
+/// line. A **non-AP** tactic (the closest attempt) is cached too; the preview is
+/// only launched when the tactic is all-Perfect.
 fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyResult) {
-    if !result.all_perfect() {
-        println!("not all-Perfect — nothing cached, preview skipped");
-        return;
-    }
+    let ap = result.all_perfect();
     let cached = match cache_tactic(chart, title, level, &result.events) {
         Ok(p) => p,
         Err(e) => {
@@ -244,7 +237,10 @@ fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyR
             return;
         }
     };
-    println!("\n== cached ==");
+    println!(
+        "\n== cached {} ==",
+        if ap { "(all-Perfect)" } else { "(closest, NOT all-Perfect)" }
+    );
     println!("tactic file : {}", cached.display());
     println!("run preview :");
     println!(
@@ -257,6 +253,10 @@ fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyR
         cached.display()
     );
     if preview {
+        if !ap {
+            println!("not all-Perfect — preview skipped (tactic still cached)");
+            return;
+        }
         match launch_preview(chart, &cached) {
             Ok(pid) => println!("launched preview (pid {pid})"),
             Err(e) => eprintln!("preview failed: {e}"),

@@ -95,8 +95,12 @@ fn slot_area(slot: OuterSlot) -> SensorArea {
     }
 }
 
+/// Maximum slide tracks (branches) knobs are stored for. Wifi slides have 3
+/// (left / center / right).
+pub const MAX_TRACKS: usize = 3;
+
 /// Per-arc timing knobs for the enumeration.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ArcTiming {
     /// Shift the arc's start (and its head) by this many microseconds.
     pub offset_us: i64,
@@ -104,6 +108,21 @@ pub struct ArcTiming {
     /// judgment time (`judge_at`). This keeps the star off neighbouring slides
     /// while still completing the arc in its Perfect window.
     pub fast: bool,
+    /// Extra shift for each **branch** of a multi-track (wifi) slide, so the
+    /// three branches can be enumerated as three separate stars.
+    pub track_offset_us: [i64; MAX_TRACKS],
+}
+
+impl ArcTiming {
+    /// True when every knob is at its default.
+    pub fn is_default(&self) -> bool {
+        *self
+            == ArcTiming {
+                offset_us: 0,
+                fast: false,
+                track_offset_us: [0; MAX_TRACKS],
+            }
+    }
 }
 
 /// Gap between rushed early areas in `fast` mode.
@@ -140,14 +159,20 @@ fn push_head_events(events: &mut Vec<TimedInputEvent>, head: &SlideHeadChartNote
     });
 }
 
-/// Body events for one runtime slide arc, in judge-queue order.
+/// Body events for one runtime slide arc, in judge-queue order. Each judge
+/// track is a separate branch (wifi slides have three); `track_offset_us`
+/// shifts a branch independently of the arc.
 fn push_body_events(events: &mut Vec<TimedInputEvent>, slide: &SlideChartNote, timing: ArcTiming) {
-    let offset_us = timing.offset_us;
     let len = slide.length.max(1);
-    let start = slide.start_timing + offset_us;
-    let end = start + len;
-    let judge = slide.judge_at.map(|j| j + offset_us).unwrap_or(end);
-    for track in &slide.judge_queues {
+    let base = slide.start_timing + timing.offset_us;
+    let judge = slide
+        .judge_at
+        .map(|j| j + timing.offset_us)
+        .unwrap_or(base + len);
+    for (ti, track) in slide.judge_queues.iter().enumerate() {
+        let track_off = timing.track_offset_us.get(ti).copied().unwrap_or(0);
+        let start = base + track_off;
+        let end = start + len;
         let n = track.len();
         let max_fin = track
             .iter()
@@ -164,7 +189,7 @@ fn push_body_events(events: &mut Vec<TimedInputEvent>, slide: &SlideChartNote, t
             let is_last = k + 1 == n;
             let t = if timing.fast {
                 if is_last {
-                    judge
+                    judge + track_off
                 } else {
                     start + k as i64 * FAST_STEP_US
                 }
@@ -269,6 +294,36 @@ pub fn count_a_zone_conflicts(events: &[TimedInputEvent], windows: &[ConflictWin
             *is_press && is_a_ring(*area) && windows.iter().any(|w| w.contains(*tp))
         })
         .count()
+}
+
+/// A-ring conflicts contributed by **one** runtime arc (its body plus the head
+/// attributed to it). Lets the enumeration score a single-arc trial without
+/// rebuilding every arc's events.
+pub fn zone_conflict_for_arc(
+    spec: &ChartSpec,
+    timing: ArcTiming,
+    arc: usize,
+    windows: &[ConflictWindow],
+) -> usize {
+    if windows.is_empty() {
+        return 0;
+    }
+    let Some(slide) = spec.slides.get(arc) else {
+        return 0;
+    };
+    // Head attribution matches `zone_conflicts_by_arc` (first arc wins).
+    let mut logical_to_arc: HashMap<u64, usize> = HashMap::new();
+    for (i, s) in spec.slides.iter().enumerate() {
+        logical_to_arc.entry(s.logical_slide_id).or_insert(i);
+    }
+    let mut events = Vec::new();
+    for head in &spec.slide_heads {
+        if logical_to_arc.get(&head.logical_slide_id) == Some(&arc) {
+            push_head_events(&mut events, head, timing);
+        }
+    }
+    push_body_events(&mut events, slide, timing);
+    count_a_zone_conflicts(&events, windows)
 }
 
 /// A-ring conflicts per **runtime arc** (head conflicts attributed to the arc

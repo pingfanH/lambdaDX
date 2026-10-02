@@ -158,12 +158,17 @@ for unit in overlapping_units:          # 重叠单位
 - `build_events_with_offsets(spec, &[ArcTiming])`：第 i 个 runtime arc 用 `timings[i]`
   控制偏移/fast 模式；slide head 按 `logical_slide_id` 跟随其 body arc
   （head 命中决定 slide 等级）。
-- `ArcTiming { offset_us: i64, fast: bool }`：
+- `ArcTiming { offset_us: i64, fast: bool, track_offset_us: [i64; 3] }`：
   - `offset_us`：整条 arc 及其 head 平移的微秒数；
   - `fast`：rush 除最后一区外的所有区，最后区落在 `judge_at`——让星星尽量远离
     相邻滑条，同时仍在自身的 Perfect 窗口内完成。
+  - `track_offset_us`：**每条 track（分支）独立的平移**。wifi 滑条有 3 条分支
+    （左/中/右），枚举把它们当作**三条独立的星星**，可各自错开。
   - `FAST_STEP_US = 12_000`：fast 模式早期区之间的间隔。
   - 正常模式：第 k 区落在 `start + len * arrow_progress_when_finished / max_fin`。
+- `search.rs` **按 unit 逐段枚举**并打印进度：每个 unit 达到 AP（`bad==0` 且无冲突）
+  或枚举耗尽时打印一行；`--max-tries` 用尽或全局 AP 时结束。**非 AP 也会缓存**
+  「最接近 AP」的 tactic（文件名不变，打印标注 closest）。
 - `all_perfect()` 已收紧：不只看 Miss，而是要求每个已判定 arc 都是 Perfect 家族
   （`!miss/too_fast && !great && !good`），避免假阳性。
 
@@ -251,16 +256,36 @@ autoplay_gen [CHART] [--diff N] [--block S] [--max-tries N]
 hold；autotest 跑通并缓存；`test/`、`サイエンス1/2/` 无回归；缓存键加入谱面路径哈希
 （`サイエンス1/2` 不再互相覆盖）；A 区冲突窗口（见上）。
 
+已完成（本轮追加）：wifi 三分支独立枚举（`track_offset_us`）；按 unit 逐段打印
+进度与 AP 状态；非 AP 也缓存「最接近 AP」的 tactic。
+
+### washi / washi1 为何仍非 AP
+
+`washi`（`1w5`/`8w4` 等 wifi）与 `washi1`（`7<8`、`2>1` 各重复 4 次）都无法全
+Perfect，且**不是搜索不足**：
+
+- 这些谱面里存在**路径完全相同、时间重叠**的滑条。内核在
+  `slideShouldBeCheckable` 中只用**谱面 headTiming** 决定 checkable（从
+  `headTiming-50ms` 起），输入事件的时间戳改变不了它。
+- 于是前一条的手势会顺带把后一条的 judge queue 消费掉（同形队列 + `isSkippable`
+  的 on/off 传递），后一条在**前一条完成时**被提前判定。
+- `autotest`（两条 `1>4`，相隔 1 拍）能靠错开让共享完成落在两条 `judgeAt` 中点；
+  但 washi 的 wifi 分支与其相邻 Single 相隔 1s（远超 14 帧≈233ms 的 perfect
+  窗口），washi1 的 4 条同形滑条跨度 0.75s 也超过窗口——**单次手势无法同时满足**，
+  而多次手势又会互相消费。已用实验验证：单独平移相邻 arc / 平移 wifi 分支
+  都改变不了这些 arc 的判定（`MAI2_DEBUG` 实验）。
+- 结论：要让这些谱面 AP，需要**内核侧**区分「谁的手势」（例如要求 head 真正命中
+  才 checkable），或明确这些谱面在当前判定模型下不可 AP。
+
 待办：
 
-1. **wifi slide 三分支**：`w` 形滑条（如 `assets/charts/washi/` 的 `1w5`、`8w4`）
-   有左/中/右三条 track，内核用 `wifiQueueProgressRemaining` 单独算进度。
-   需让事件生成与枚举按三条分支分别处理，否则 washi 无法生成 AP。
-2. **`fast` 与 track 间隔**：本轮靠 `offset` 解决。`fast` 已接入枚举但未命中也未
-   证伪；若要覆盖更一般的重叠，需枚举每条 track 的 rush 间隔。
-3. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
-4. **预览核对**：`--preview` 已可缓存并启动；用 `MAI2_DEBUG_SLIDE=1` 核对
+1. **`fast` 与 track 间隔**：`fast`/`track_offset_us` 已接入枚举但未命中这些谱面；
+   若要覆盖更一般的重叠，需枚举每条 track 的 rush 间隔。
+2. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
+3. **预览核对**：`--preview` 已可缓存并启动；用 `MAI2_DEBUG_SLIDE=1` 核对
    preview 判定与生成器一致（终端环境未实际开窗）。
-5. **回归测试**：补一条 autotest 的回归测试；确认 chart-shape 的 `build_events`
+4. **回归测试**：补一条 autotest 的回归测试；确认 chart-shape 的 `build_events`
    探索路径不回归。
+5. **性能**：每个候选都整曲重放一次（Lean FFI），长谱面很慢（test 295 tries
+   ≈5min）。可考虑复用引擎/缩短重放窗口。
 </content>
