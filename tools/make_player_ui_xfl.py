@@ -433,7 +433,7 @@ def build_pages():
 
     # Song select: list panel + header + reused rows (staggered) + detail.
     rows = []
-    row_states = [2, 1, 0, 0, 0, 0]
+    row_states = [0, 0, 0, 0, 0, 0]
     for i in range(6):
         d = i * 2
         base = 164 + i * 76

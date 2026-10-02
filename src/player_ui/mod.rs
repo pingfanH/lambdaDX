@@ -322,11 +322,12 @@ fn draw_flash(
             tint: None,
         };
         clip.draw(frame, &xf);
-        // The rows animate in through the page clip's staggered reveal; only
-        // overlay them once it has settled, so the list doesn't "stick".
-        let reveal = frame + 1 < frames;
+        // Rows animate in through the page clip's staggered reveal, and on the
+        // pause page everything lives inside the popping panel; don't overlay
+        // widgets until the page has settled, so they follow the reveal/scale.
+        let settling = frame + 1 < frames;
         for (i, h) in hits.iter().enumerate() {
-            if h.kind == flash::Kind::Row && reveal {
+            if settling && (h.kind == flash::Kind::Row || page_idx == 4) {
                 continue;
             }
             let wf = wfs[i];
@@ -374,9 +375,13 @@ fn draw_flash(
             }
             draw_flash_text(ctx.font.as_ref(), &t);
         }
-        for s in page_slots.iter() {
-            if let Some(v) = slot_value(app, s) {
-                draw_flash_slot(ctx.font.as_ref(), &px, s, &v);
+        // On the pause page the copy text is inside the scaled panel, so defer
+        // the injected values until the pop has settled (avoiding a double text).
+        if !(page_idx == 4 && settling) {
+            for s in page_slots.iter() {
+                if let Some(v) = slot_value(app, s) {
+                    draw_flash_slot(ctx.font.as_ref(), &px, s, &v);
+                }
             }
         }
     });

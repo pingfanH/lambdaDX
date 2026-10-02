@@ -245,7 +245,18 @@ pub(crate) fn draw_vector_ex(
         if ring.len() >= 2 && ring.first() == ring.last() {
             ring.pop();
         }
-        if ring.len() < 3 {
+        if ring.len() < 2 {
+            continue;
+        }
+        // A two-point path is a stroked line segment (e.g. the hero ticks) —
+        // it has no interior to fill.
+        if ring.len() == 2 {
+            if let Some((stroke, weight)) = path.stroke {
+                let [r, g, b, a] = modulate(stroke.rgba());
+                let p0 = transform(ring[0]);
+                let p1 = transform(ring[1]);
+                draw_line(p0.x, p0.y, p1.x, p1.y, weight, Color::from_rgba(r, g, b, a));
+            }
             continue;
         }
         let vertices: Vec<Vertex> = ring
