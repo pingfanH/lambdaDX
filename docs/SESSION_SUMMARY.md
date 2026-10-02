@@ -79,17 +79,22 @@
 - 推断：需要 `fast` 模式（rush 早期区、最后区落在 `judge_at`）+ 更细的每条 track
   间隔枚举，而非只平移整条 arc。
 
-### 进行中 / 待办
+### 本轮修复（autotest 已全 Perfect）
 
-`verify.rs` 已加入 `ArcTiming { offset_us, fast }` 与 `FAST_STEP_US = 12_000`；
-但 `search.rs` 仍用 `Vec<i64>`，**当前无法编译**。下一步见
-[`AUTOPLAY_GENERATOR.md` 的「接下来的任务」](./AUTOPLAY_GENERATOR.md#接下来的任务)：
+`search.rs` 改用 `Vec<ArcTiming>` 并枚举 `{offset × fast}`。定位并修复两个根因
+（详见 [`AUTOPLAY_GENERATOR.md` 的「根因与修复」](./AUTOPLAY_GENERATOR.md#根因与修复autotest)）：
 
-1. `search.rs` 改用 `Vec<ArcTiming>`；
-2. 枚举 `{offset × fast}`；
-3. 细化 fast 的 track 间隔与 release 时机；
-4. 跑通 autotest（全 Perfect）→ 缓存 → preview 核对；
-5. A 区与非 ex note 的 great/good 冲突窗口。
+1. **末区 hold 零长度**：末区 down 与 up 同一时间戳被同帧批处理抵消，
+   `wasOn` 不成立 → queue 不清 → `LateGood`。改为末区按住至少一帧。
+2. **重叠同形滑条的前置消费**：后一条从 `headTiming-50ms` 起 checkable，
+   被前一条相同手势顺带消费、提前判定。策略：整体后移前一条，使共享完成时刻
+   落在两条 `judgeAt` 中点（差分各 ±半拍，仍在 14 帧 perfect 窗口内）。
+
+结果：`autotest` → `all judged arcs Perfect`，缓存 `out/autoplay_gen/TEST_lv2.json`；
+`test/`、`サイエンス1/2/` 无回归（misses: 0，已判定 arc 全 Perfect）。
+
+待办见 [`AUTOPLAY_GENERATOR.md` 的「接下来的任务」](./AUTOPLAY_GENERATOR.md#接下来的任务)：
+A 区与非 ex note 冲突窗口、缓存键冲突（サイエンス1/2 同名覆盖）、回归测试。
 
 ## 三、Git 状态（截至本记录）
 

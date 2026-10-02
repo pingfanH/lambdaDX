@@ -160,6 +160,7 @@ pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec
                 .unwrap_or(1)
                 .max(1);
             let mut prev: Option<SensorArea> = None;
+            let mut last_t = end;
             for (k, area_spec) in track.iter().enumerate() {
                 let Some(&area) = area_spec.target_areas.first() else {
                     continue;
@@ -174,6 +175,7 @@ pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec
                 } else {
                     start + len * area_spec.arrow_progress_when_finished as i64 / max_fin as i64
                 };
+                last_t = t;
                 if let Some(p) = prev {
                     events.push(TimedInputEvent::SensorHold {
                         tp: t,
@@ -189,8 +191,9 @@ pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec
                 prev = Some(area);
             }
             if let Some(p) = prev {
+                let tail_hold = if timing.fast { FAST_STEP_US } else { 15_000 };
                 events.push(TimedInputEvent::SensorHold {
-                    tp: end,
+                    tp: last_t + tail_hold,
                     area: p,
                     is_down: false,
                 });

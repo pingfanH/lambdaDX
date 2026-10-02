@@ -191,8 +191,8 @@ autoplay_gen [CHART] [--diff N] [--block S] [--max-tries N]
 
 1. 先用 chart-time tactic 验证；若全 Perfect 直接结束。
 2. 否则收集失败的 chart slide + 生命周期与之重叠的 slide，作为工作集。
-3. 只对工作集内的 runtime arc 重定时（贪心：选能让 `result.bad()` 下降最多的偏移），
-   新失败会把更多 slide 拉进工作集，直到无改进。
+3. 只对工作集内的 runtime arc 重定时（贪心：在 `{offset × fast}` 里选能让
+   `result.bad()` 下降最多的候选），新失败会把更多 slide 拉进工作集，直到无改进。
 4. 受 `--max-tries` 限制内核评估次数。
 
 常量：`OFFSET_STEP_US = 10_000`、`OFFSET_STEPS = 12`（±120ms）。
@@ -205,26 +205,49 @@ autoplay_gen [CHART] [--diff N] [--block S] [--max-tries N]
 - 结果：`arcs 2 judged 2 misses 0 non-perfect 1`，`grades: 0:Perfect 1:FastGreat`。
 - 内核自带 default tactic 也得到 arc1 `FastGreat`；`MAI2_DEBUG_FORCE_PEREVENT=1` 不变；
   均匀偏移（±48ms，2ms 步长）也不变。
-- 推断：需用 `fast` 模式 + 更细的 **每条 track 间隔** 枚举，而不是只平移整条 arc。
+### 根因与修复（autotest）
+
+两个独立问题叠加，使 arc1 停在 `FastGreat`（已定位、已修复）：
+
+1. **零长度末区 hold 被同帧批处理抵消**：`build_events_with_offsets` 对每个
+   track 的**末区**在同一时间戳发出 `down` 与 `up`。同帧的 down+up 会被
+   `step_engine_events` 批处理成一次 `step`，末区最终为 off；而末区的
+   `isFinished = wasOn` 永不成立 → judge queue 不清空 → 滑条拖到 tooLate 才判
+   → `LateGood`。修复：末区按下后至少保持一帧再释放
+   （普通 `15_000`µs，fast 用 `FAST_STEP_US`）。
+
+2. **重叠同形滑条的「前置消费」**：后一条滑条从 `headTiming - 50ms` 起就
+   checkable（`slideShouldBeCheckable`）。因为与前一条分区序列完全相同，
+   前一条 `A1→A4` 的手势会顺带把后一条的 judge queue 消费掉
+   （`isSkippable` + 区域的 on/off 传递），使后一条在前一条结束时**提前判定**。
+   本例 arc0/arc1 的 `judgeAt` 相差 1 拍（285714µs）：arc0 于 1428571 结束、
+   arc1 的 judgeAt=1714285，提前量 264ms，超过 14 帧（≈233ms）的 3rd-perfect
+   窗口 → `FastGreat`。
+   策略：整体**后移前一条（arc0）**，让共享完成时刻落在两条 `judgeAt` 的中点；
+   此时两条差分各约 ±1/2 拍（≈143ms），仍在 3rd-perfect 窗口内 → 均 Perfect。
+   实测 `arc0 offset ∈ [80ms, 200ms]` 时 `bad=0`，搜索在 ±120ms 内即命中。
+
+修复后：`autoplay_gen ./assets/charts/autotest/` → `all judged arcs Perfect`，
+缓存 `out/autoplay_gen/TEST_lv2.json`。`test/`、`サイエンス1/2/` 亦无回归
+（misses: 0，已判定 arc 全 Perfect）。
 
 ## 接下来的任务
 
-按优先级排列：
+已完成（本轮）：1–4 全部落地——`search.rs` 改用 `Vec<ArcTiming>` 并枚举
+`{offset × fast}`；修复末区 hold；autotest 跑通并缓存；`test/`、`サイエンス1/2/`
+无回归。
 
-1. **修复编译**：`search.rs` 仍是旧的 `offsets: Vec<i64>` 并调用
-   `build_events_with_offsets(spec, &trial)`；`verify.rs` 已改为 `&[ArcTiming]`，
-   故当前 `search.rs` 与 `verify.rs` 不一致。先把它改成 `timings: Vec<ArcTiming>`。
-2. **扩展搜索空间**：每个工作 arc 枚举 `{ offset_us ∈ k*OFFSET_STEP_US,
-   fast ∈ {false,true} }`，贪心目标仍是降低 `result.bad()`。
-3. **细化 fast 模式**：不要把「最后区」写死；对每条 track 枚举「rush 间隔」
-   （或至少枚举几个 `FAST_STEP_US` 候选），最后区落在 `judge_at`，
-   release 放在判定之后（当前 release 用 `end`，可能过早）。
-4. **跑通 autotest**：`cargo run --bin autoplay_gen -- ./assets/charts/autotest/ --max-tries N`，
-   确认 `grades` 全 Perfect；再 `--preview` 缓存 JSON 并启动，用 `MAI2_DEBUG_SLIDE=1`
-   核对 preview 判定与生成器一致。
-5. **A 区冲突窗口**：把「非 ex note 的 great/good 判定时刻」纳入枚举禁放窗口
+待办：
+
+1. **A 区冲突窗口**：把「非 ex note 的 great/good 判定时刻」纳入枚举禁放窗口
    （见上文「补充约束」；ex 无需规避）。
-6. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
-7. **收尾**：确认 chart-shape 的 `build_events` 路径不回归（探索用途）；
-   补一条 autotest 的回归测试。
+2. **缓存键冲突**：缓存文件名只用 `title_lvN`，`サイエンス1/` 与 `サイエンス2/`
+   标题、等级相同 → 互相覆盖。应把谱面路径/内容哈希并入文件名或内容。
+3. **`fast` 与 track 间隔**：本轮靠 `offset` 解决。`fast` 已接入枚举但未命中也未
+   证伪；若要覆盖更一般的重叠，需枚举每条 track 的 rush 间隔。
+4. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
+5. **预览核对**：`--preview` 已可缓存并启动；用 `MAI2_DEBUG_SLIDE=1` 核对
+   preview 判定与生成器一致（终端环境未实际开窗）。
+6. **回归测试**：补一条 autotest 的回归测试；确认 chart-shape 的 `build_events`
+   探索路径不回归。
 </content>

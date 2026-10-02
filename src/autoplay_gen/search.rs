@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 
 use crate::core::types::ChartSpec;
 use crate::model::SlidePlan;
-use crate::verify::{self, VerifyResult};
+use crate::verify::{self, ArcTiming, VerifyResult};
 
 /// Offset granularity and half-range (in steps) explored per arc. 10 ms steps
 /// are fine enough to land inside a Perfect window; ±12 steps is ±120 ms.
@@ -27,8 +27,8 @@ pub struct SearchOutcome {
     pub tries: usize,
     /// Chart-slide (plan) indices that were re-enumerated.
     pub work_slides: Vec<usize>,
-    /// Final per-runtime-arc time offset (µs).
-    pub offsets: Vec<i64>,
+    /// Final per-runtime-arc timing knobs.
+    pub timings: Vec<ArcTiming>,
     pub final_verify: VerifyResult,
 }
 
@@ -41,17 +41,17 @@ pub fn search(
     max_tries: usize,
 ) -> SearchOutcome {
     let n_arcs = spec.slides.len();
-    let mut offsets = vec![0_i64; n_arcs];
+    let mut timings = vec![ArcTiming::default(); n_arcs];
     let mut tries = 0usize;
 
-    let mut result = run(text, level, spec, &offsets, song_end_s);
+    let mut result = run(text, level, spec, &timings, song_end_s);
     tries += 1;
     if result.all_perfect() {
         return SearchOutcome {
             baseline_perfect: true,
             tries,
             work_slides: Vec::new(),
-            offsets,
+            timings,
             final_verify: result,
         };
     }
@@ -99,36 +99,43 @@ pub fn search(
             .filter(|rt| *rt < n_arcs)
             .collect();
 
-        // Greedy: find the single offset change that removes the most bad arcs
-        // (Miss/TooFast or non-Perfect grades).
+        // Greedy: find the single timing change that removes the most bad arcs
+        // (Miss/TooFast or non-Perfect grades). Both a plain offset and a
+        // fast-mode variant are tried per arc.
         let baseline_bad = result.bad();
-        let mut best: Option<(usize, i64, VerifyResult)> = None;
+        let mut best: Option<(usize, ArcTiming, VerifyResult)> = None;
         'search: for &rt in &work_arcs {
-            for k in -OFFSET_STEPS..=OFFSET_STEPS {
-                if k == 0 {
-                    continue;
-                }
-                if tries >= max_tries {
-                    break 'search;
-                }
-                let mut trial = offsets.clone();
-                trial[rt] = k * OFFSET_STEP_US;
-                let r = run(text, level, spec, &trial, song_end_s);
-                tries += 1;
-                if r.bad() < baseline_bad
-                    && best.as_ref().is_none_or(|(_, _, b)| r.bad() < b.bad())
-                {
-                    best = Some((rt, trial[rt], r));
+            for fast in [false, true] {
+                for k in -OFFSET_STEPS..=OFFSET_STEPS {
+                    let arc = ArcTiming {
+                        offset_us: k * OFFSET_STEP_US,
+                        fast,
+                    };
+                    if arc.offset_us == 0 && !arc.fast {
+                        continue;
+                    }
+                    if tries >= max_tries {
+                        break 'search;
+                    }
+                    let mut trial = timings.clone();
+                    trial[rt] = arc;
+                    let r = run(text, level, spec, &trial, song_end_s);
+                    tries += 1;
+                    if r.bad() < baseline_bad
+                        && best.as_ref().is_none_or(|(_, _, b)| r.bad() < b.bad())
+                    {
+                        best = Some((rt, arc, r));
+                    }
                 }
             }
         }
 
         match best {
-            Some((rt, off, r)) => {
-                offsets[rt] = off;
+            Some((rt, arc, r)) => {
+                timings[rt] = arc;
                 result = r;
             }
-            None => break, // no single shift improves; give up
+            None => break, // no single change improves; give up
         }
     }
 
@@ -136,12 +143,12 @@ pub fn search(
         baseline_perfect: false,
         tries,
         work_slides: work.into_iter().collect(),
-        offsets,
+        timings,
         final_verify: result,
     }
 }
 
-fn run(text: &str, level: u32, spec: &ChartSpec, offsets: &[i64], end_s: f32) -> VerifyResult {
-    let events = verify::build_events_with_offsets(spec, offsets);
+fn run(text: &str, level: u32, spec: &ChartSpec, timings: &[ArcTiming], end_s: f32) -> VerifyResult {
+    let events = verify::build_events_with_offsets(spec, timings);
     verify::verify(text, level, &events, end_s)
 }

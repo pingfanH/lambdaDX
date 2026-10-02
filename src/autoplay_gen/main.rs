@@ -157,7 +157,11 @@ fn main() {
             outcome.tries
         );
     } else {
-        let moved = outcome.offsets.iter().filter(|o| **o != 0).count();
+        let moved = outcome
+            .timings
+            .iter()
+            .filter(|t| t.offset_us != 0 || t.fast)
+            .count();
         println!("\n== enumeration ==");
         println!(
             "tries: {}   work slides: {:?}   arcs re-timed: {}",
