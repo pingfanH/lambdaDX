@@ -170,9 +170,9 @@ UI 面板 `egui-macroquad`，JPEG 用 `image`。
 1. **Rive Rust runtime 与 macroquad GPU 上下文互操作**（最高风险）。
    macroquad 走 miniquad/OpenGL；Rive renderer 走自己的 GPU 抽象（wgpu/Metal/GL）。
    需要 RenderTexture/Surface 互通方案，或把 Rive 渲到离屏再 blit。Phase 3 必须先做可行性探针。
-2. **`.riv` 写入器**。~~Rive 的 `.riv` 是二进制格式，官方没有稳定的公开 writer。~~
-   **已解决**：改用 OpenRive 的 MCP server 创作并 `export_riv`（Phase 2 已跑通）。
-   注意 OpenRive 监听随机 loopback 端口，导出工具需自动发现（已实现）。
+2. **`.riv` 写入器**。Rive 的 `.riv` 是二进制格式，官方没有稳定的公开 writer；
+   “IR → Rive Exporter” 可能必须经由 Rive 编辑器的 Data Binding / 或运行时 import 路径。
+   Phase 2 前必须确定写入策略，否则会卡住。
 3. **CJK 文本**。当前 XFL 文本由 macroquad + 系统字体渲染，配合 `text_slots.json` 动态槽。
    Rive 内文本需要内嵌字体，动态数值文本应留在 Rust（避免把数据绑定变成游戏逻辑）。
 4. **解析完整度**。当前 parser 不支持 mask、filter、motion guide、button 状态、ActionScript、
@@ -220,27 +220,6 @@ UI 面板 `egui-macroquad`，JPEG 用 `image`。
   Shape / Transform / Timeline / Bitmap / Text / Animation（先覆盖 ~20% 常用功能）。
 - 验证：导出物能在 Rive 编辑器打开并播放（人工）+ 单测快照。
 - commit：`migration/phase-02-rive-export`。
-
-**已完成（Phase 2 落地；写入策略已确定）**：
-
-- **`.riv` 写入策略 = 经 OpenRive MCP 创作**，不再需要手写二进制 writer（消除风险 H2）。
-  `OpenRive.app`（Electrobun 桌面版）内置 MCP server：
-  - 随机 loopback 端口、Streamable HTTP、端点 `/api/mcp`、loopback 无需鉴权。
-  - 30 个工具，覆盖 IR 所需：`create_project` / `add_artboard` / `add_path` /
-    `add_shape` / `add_text` / `add_group` / `set_properties` / `add_timeline` /
-    `add_keyframes` / `add_state_machine` / `add_property` / `add_transition` /
-    `add_listener` / `export_riv` / `import_riv` / `inspect_riv` / `get_project` …
-- 新增 `tools/openrive_mcp.py`：stdlib MCP 客户端（自动发现端口 + initialize + tools/call）。
-- 新增 `tools/ir_to_rive.py`：IR JSON → OpenRive 工程 → `.riv`。
-  - shape → `add_path`（XFL 曲线已被 parser 打成多边形）；instance → Rive group +
-    内联子几何 + 按 XFL 补间加 x/y/rotation/scale/opacity 关键帧；text → `add_text`；
-    group 递归；bitmap 暂跳过并计数。
-- 首个真实产物：`assets/effects/tap_hit` → `assets/rive/vfx/tap_hit.riv`
-  （256×256 artboard，10 个 group、Timeline fps 24、60 条 keyed 属性）。
-- 验证：`file` 识别 magic `RIVE`；`inspect_riv` 确认 artboard/节点/时间轴/关键帧结构。
-- 未覆盖：bitmap 图片导入（MCP 无该工具）、mask/filter、非线性缓动、State Machine
-  行为（输入/过渡）、scene 主时间轴 label。
-
 
 ### Phase 3 — Rive Runtime（macroquad）
 - 可行性探针：`.riv` → Rust runtime → RenderTexture → macroquad 上屏；
