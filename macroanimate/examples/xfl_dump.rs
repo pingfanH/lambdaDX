@@ -49,6 +49,7 @@ fn main() {
         let kind = match &p.content {
             PartContent::Bitmap(n) => format!("bitmap {n}"),
             PartContent::Vector(v) => format!("vector {} paths", v.len()),
+            PartContent::Text(t) => format!("text {:?} @{:.0}px", t.text, t.size),
         };
         let m = p.matrix;
         println!(

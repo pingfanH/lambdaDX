@@ -237,6 +237,7 @@ fn parse_element(node: NodeRef) -> Option<Element> {
             })
         }
         "DOMShape" => Some(parse_shape(node)),
+        "DOMStaticText" => Some(parse_static_text(node)),
         "DOMGroup" => {
             let matrix = instance_matrix(node);
             let members = first_child(node, "members")
@@ -250,6 +251,50 @@ fn parse_element(node: NodeRef) -> Option<Element> {
         }
         _ => None,
     }
+}
+
+fn parse_static_text(node: NodeRef) -> Element {
+    let matrix = parse_matrix(node);
+    let width = attr_f32(node, "width").unwrap_or(0.0);
+    let mut text = String::new();
+    let mut size = 12.0_f32;
+    let mut color = [0u8, 0, 0, 255];
+    let mut align = TextAlign::Left;
+    for run in node.descendants().filter(|n| n.tag_name().name() == "DOMTextRun") {
+        let chars = first_child(run, "characters")
+            .and_then(|c| c.text())
+            .unwrap_or("");
+        if chars.is_empty() {
+            continue;
+        }
+        text.push_str(chars);
+        // Font attributes live on the nested <DOMTextAttrs> element.
+        if let Some(attrs) = run
+            .descendants()
+            .find(|n| n.tag_name().name() == "DOMTextAttrs")
+        {
+            size = attr_f32(attrs, "size")
+                .or_else(|| attr_f32(attrs, "lineHeight").map(|lh| lh / 1.4))
+                .unwrap_or(size);
+            if let Some(fill) = attrs.attribute("fillColor") {
+                color = parse_hex_rgba(fill);
+            }
+            align = match attrs.attribute("alignment") {
+                Some("center") => TextAlign::Center,
+                Some("right") => TextAlign::Right,
+                _ => TextAlign::Left,
+            };
+        }
+    }
+    Element::Text(TextRun {
+        text,
+        matrix,
+        size,
+        color,
+        align,
+        width,
+        alpha: 1.0,
+    })
 }
 
 fn parse_shape(node: NodeRef) -> Element {
@@ -345,6 +390,19 @@ fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
         u8::from_str_radix(&h[2..4], 16).ok()?,
         u8::from_str_radix(&h[4..6], 16).ok()?,
     ))
+}
+
+/// Parse `#RRGGBB` or `#RRGGBBAA` into straight-alpha RGBA.
+fn parse_hex_rgba(hex: &str) -> [u8; 4] {
+    let h = hex.trim_start_matches('#');
+    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0);
+    if h.len() >= 8 {
+        [byte(0), byte(2), byte(4), byte(6)]
+    } else if h.len() >= 6 {
+        [byte(0), byte(2), byte(4), 255]
+    } else {
+        [0, 0, 0, 255]
+    }
 }
 
 /// An instance's matrix, corrected for its transformation point.

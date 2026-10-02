@@ -192,6 +192,8 @@ pub fn draw_part_tinted(
             );
         }
         PartContent::Vector(paths) => draw_vector(paths, &part.matrix, origin, part.alpha, tint),
+        // Text is rasterized by the caller (see `XflAsset::text_draws`).
+        PartContent::Text(_) => {}
     }
 }
 
@@ -413,6 +415,33 @@ impl XflAsset {
         let parts = self.frame_parts(clip, frame);
         draw_parts_xf(&parts, &self.textures, xf);
     }
+
+    /// Static text of a clip/frame, already transformed into screen space.
+    ///
+    /// This crate has no font stack, so it does not rasterize text; the caller
+    /// renders each [`TextDraw`] with its own font (e.g. macroquad).
+    pub fn text_draws(&self, clip: &str, frame: usize, xf: &XflDrawXf) -> Vec<TextDraw> {
+        let parts = self.frame_parts(clip, frame);
+        let (sin, cos) = xf.rotation.sin_cos();
+        let s = xf.scale;
+        let g: Matrix = [s * cos, s * sin, -s * sin, s * cos, xf.pos.0, xf.pos.1];
+        let mut out = Vec::new();
+        for part in parts.iter() {
+            if let PartContent::Text(run) = &part.content {
+                let m = mul(&g, &part.matrix);
+                out.push(TextDraw {
+                    text: run.text.clone(),
+                    pos: (m[4], m[5]),
+                    size: run.size * xf.scale,
+                    color: run.color,
+                    align: run.align,
+                    width: run.width * xf.scale,
+                    alpha: part.alpha * xf.alpha,
+                });
+            }
+        }
+        out
+    }
 }
 
 /// A named movie/sprite inside an [`XflAsset`].
@@ -442,6 +471,10 @@ impl XflClip<'_> {
     }
     pub fn draw(&self, frame: usize, xf: &XflDrawXf) {
         self.asset.draw(&self.name, frame, xf);
+    }
+    /// Transformed static text of this frame (see [`XflAsset::text_draws`]).
+    pub fn text_draws(&self, frame: usize, xf: &XflDrawXf) -> Vec<TextDraw> {
+        self.asset.text_draws(&self.name, frame, xf)
     }
 }
 
@@ -481,6 +514,9 @@ pub fn draw_parts_xf(parts: &[DrawPart], textures: &HashMap<String, Texture2D>, 
             PartContent::Vector(paths) => {
                 draw_vector_ex(paths, &m, (0.0, 0.0), alpha, [255, 255, 255, 255], xf.tint)
             }
+            // Text has no font stack here; the caller draws it (see
+            // [`XflAsset::text_draws`]).
+            PartContent::Text(_) => {}
         }
     }
 }

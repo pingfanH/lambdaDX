@@ -63,6 +63,11 @@ impl XflAtlas {
                 matrix,
                 alpha,
             }),
+            Element::Text(run) => out.push(DrawPart {
+                content: PartContent::Text(run.clone()),
+                matrix,
+                alpha,
+            }),
             Element::Group { members, .. } => {
                 for member in members {
                     let child = mul(&matrix, &member.matrix());
@@ -140,6 +145,7 @@ fn same_slot(a: &Element, b: &Element) -> bool {
         | (Element::Instance { name: x, .. }, Element::Instance { name: y, .. }) => x == y,
         (Element::Shape { .. }, Element::Shape { .. })
         | (Element::Group { .. }, Element::Group { .. }) => true,
+        (Element::Text(a), Element::Text(b)) => a.text == b.text,
         _ => false,
     }
 }

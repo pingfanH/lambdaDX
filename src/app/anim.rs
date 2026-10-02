@@ -1,21 +1,25 @@
 //! General Adobe Animate (XFL/`.fla`) loader.
 //!
-//! One project is loaded at startup and its **movies/sprites are referenced by
-//! name inside the project** — mirroring `ui.get("tap_perfect")` — rather than
-//! by file path:
+//! Two projects are loaded at startup and their **movies/sprites are referenced
+//! by name inside the project** — mirroring `ui.get("tap_perfect")` — rather
+//! than by file path:
+//!
+//! * `ui` — the pad/gameplay effect library (`assets/ui`).
+//! * `player_ui` — the player front-end built for Flash (`assets/player_ui`),
+//!   addressed as `UI/page_start`, `UI/ui_row`, …
 //!
 //! ```no_run
-//! crate::app::anim::with(|ui| {
+//! crate::app::anim::with_player_ui(|ui| {
 //!     let Some(ui) = ui else { return };
-//!     if let Some(clip) = ui.get("tap_perfect") {
-//!         clip.draw(0, &macroanimate::XflDrawXf { pos: (100.0, 100.0), ..Default::default() });
+//!     if let Some(clip) = ui.get("UI/page_start") {
+//!         clip.draw(0, &macroanimate::XflDrawXf::default());
 //!     }
 //! });
 //! ```
 //!
-//! The project file is resolved from [`platform::asset_dir`] (so it honours
+//! A project is resolved from [`platform::asset_dir`] (so it honours
 //! `MAI2_ASSET_DIR` / Nix / mobile). Textures are built once at load; set
-//! `MAI2_HOT_RELOAD=1` to reload the project when its file changes on disk.
+//! `MAI2_HOT_RELOAD=1` to reload a project when its file changes on disk.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -25,10 +29,10 @@ use macroanimate::XflAsset;
 
 use crate::app::platform;
 
-/// The single project supported for now. Its movies are addressed by name.
-/// Prefer the unpacked directory (the live project you edit in Animate), then
-/// an `.xfl`, then a packed `.fla`.
-const PROJECT: &[&str] = &["ui", "ui.xfl", "ui.fla"];
+/// The pad/gameplay effect project. Its movies are addressed by name.
+const EFFECT_PROJECT: &[&str] = &["ui", "ui.xfl", "ui.fla"];
+/// The player front-end project (symbols live under the `UI` folder).
+const PLAYER_PROJECT: &[&str] = &["player_ui", "player_ui.xfl", "player_ui.fla"];
 
 struct Loaded {
     path: PathBuf,
@@ -38,55 +42,44 @@ struct Loaded {
 
 thread_local! {
     static UI: RefCell<Option<Loaded>> = const { RefCell::new(None) };
+    static PLAYER: RefCell<Option<Loaded>> = const { RefCell::new(None) };
 }
 
-/// Resolve the project file under the asset dir (`.fla`, then directory).
-fn project_path() -> PathBuf {
+/// Resolve a project under the asset dir (directory, then `.xfl`, then `.fla`).
+fn project_path(candidates: &[&str]) -> PathBuf {
     let base = platform::asset_dir();
-    for candidate in PROJECT {
+    for candidate in candidates {
         let path = base.join(candidate);
         if path.exists() {
             return path;
         }
     }
-    base.join(PROJECT[1])
+    base.join(candidates[1])
 }
 
 fn mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).ok().and_then(|m| m.modified().ok())
 }
 
-/// Load (or reload) the project. Safe to call after the window/GPU is ready.
-pub fn reload() {
-    let path = project_path();
+fn load(candidates: &[&str]) -> Option<Loaded> {
+    let path = project_path(candidates);
     match XflAsset::load(&path) {
         Ok(asset) => {
             let mtime = mtime(&path);
-            UI.with(|cell| {
-                *cell.borrow_mut() = Some(Loaded {
-                    path,
-                    mtime,
-                    asset,
-                })
-            });
+            Some(Loaded { path, mtime, asset })
         }
         Err(e) => {
             eprintln!("anim: failed to load {}: {e}", path.display());
+            None
         }
     }
 }
 
-/// Load the project at startup.
-pub fn init() {
-    reload();
-}
-
-/// Hot reload (dev only): reload when the project file changes on disk.
-pub fn tick() {
+fn hot_reload(slot: &'static std::thread::LocalKey<RefCell<Option<Loaded>>>, candidates: &[&str]) {
     if std::env::var("MAI2_HOT_RELOAD").is_err() {
         return;
     }
-    let current = UI.with(|cell| {
+    let current = slot.with(|cell| {
         cell.borrow()
             .as_ref()
             .map(|loaded| (loaded.path.clone(), loaded.mtime))
@@ -94,18 +87,59 @@ pub fn tick() {
     let Some((path, old_mtime)) = current else {
         return;
     };
-    let now = mtime(&path);
-    if now.is_some() && now != old_mtime {
-        reload();
+    if mtime(&path).is_some() && mtime(&path) != old_mtime {
+        if let Some(loaded) = load(candidates) {
+            slot.with(|cell| *cell.borrow_mut() = Some(loaded));
+        }
     }
 }
 
-/// Run `f` with the loaded project, if any. `ui.get("…")` lives on the value.
+// ── Effect project (`ui`) ───────────────────────────────────────────────
+
+/// Load the effect project. Safe to call after the window/GPU is ready.
+pub fn reload() {
+    if let Some(loaded) = load(EFFECT_PROJECT) {
+        UI.with(|cell| *cell.borrow_mut() = Some(loaded));
+    }
+}
+
+pub fn init() {
+    reload();
+}
+
+pub fn tick() {
+    hot_reload(&UI, EFFECT_PROJECT);
+}
+
 pub fn with<R>(f: impl FnOnce(Option<&XflAsset>) -> R) -> R {
     UI.with(|cell| f(cell.borrow().as_ref().map(|loaded| &loaded.asset)))
 }
 
-/// Whether the project is loaded.
 pub fn is_loaded() -> bool {
     UI.with(|cell| cell.borrow().is_some())
+}
+
+// ── Player front-end project (`player_ui`) ──────────────────────────────
+
+/// Load the player front-end project. Safe after the window/GPU is ready.
+pub fn reload_player_ui() {
+    if let Some(loaded) = load(PLAYER_PROJECT) {
+        PLAYER.with(|cell| *cell.borrow_mut() = Some(loaded));
+    }
+}
+
+pub fn init_player_ui() {
+    reload_player_ui();
+}
+
+pub fn tick_player_ui() {
+    hot_reload(&PLAYER, PLAYER_PROJECT);
+}
+
+pub fn with_player_ui<R>(f: impl FnOnce(Option<&XflAsset>) -> R) -> R {
+    PLAYER.with(|cell| f(cell.borrow().as_ref().map(|loaded| &loaded.asset)))
+}
+
+pub fn player_ui_loaded() -> bool {
+    PLAYER.with(|cell| cell.borrow().is_some())
 }

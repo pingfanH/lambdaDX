@@ -91,6 +91,82 @@ fn draw_loading(msg: &str) {
     draw_rectangle(w * 0.5 - 120.0, h * 0.5 + 18.0, 60.0, 3.0, theme::ACCENT);
 }
 
+/// The five player pages exported to the `player_ui` XFL project.
+const FLASH_PAGES: [&str; 5] = [
+    "UI/page_start",
+    "UI/page_song_select",
+    "UI/page_settings",
+    "UI/page_gameplay_hud",
+    "UI/page_pause",
+];
+
+/// Rasterize one XFL static-text field with macroquad's font, resolving the
+/// box alignment (the XFL box is top-left anchored).
+fn draw_flash_text(font: Option<&Font>, t: &macroanimate::TextDraw) {
+    if t.text.trim().is_empty() {
+        return;
+    }
+    let size = t.size.max(1.0);
+    let a = (t.alpha.clamp(0.0, 1.0) * 255.0) as u8;
+    let color = Color::from_rgba(t.color[0], t.color[1], t.color[2], a);
+    let w = draw::text_width(font, &t.text, size);
+    let x = match t.align {
+        macroanimate::TextAlign::Center => t.pos.0 + (t.width - w) * 0.5,
+        macroanimate::TextAlign::Right => t.pos.0 + t.width - w,
+        macroanimate::TextAlign::Left => t.pos.0,
+    };
+    // The box is top-anchored; approximate the baseline.
+    let y = t.pos.1 + size * 0.85;
+    draw::text(font, &t.text, x, y, size, color);
+}
+
+/// Draw a `player_ui` XFL page full-window, advancing its timeline.
+fn draw_flash(ctx: &UiCtx, page: &str, elapsed: f64) {
+    if !crate::app::anim::player_ui_loaded() {
+        draw::text(
+            ctx.font.as_ref(),
+            "player_ui.xfl not loaded",
+            40.0,
+            60.0,
+            20.0,
+            theme::DANGER,
+        );
+        return;
+    }
+    crate::app::anim::with_player_ui(|ui| {
+        let Some(ui) = ui else { return };
+        let Some(clip) = ui.get(page) else {
+            return;
+        };
+        let frames = clip.frames().max(1);
+        let fps = clip.fps().max(1.0);
+        let frame = ((elapsed.max(0.0) as f32 * fps) as usize) % frames;
+        let scale = ctx.scale;
+        let ox = (ctx.w - 1280.0 * scale) * 0.5;
+        let oy = (ctx.h - 760.0 * scale) * 0.5;
+        let xf = macroanimate::XflDrawXf {
+            pos: (ox, oy),
+            scale,
+            rotation: 0.0,
+            alpha: 1.0,
+            tint: None,
+        };
+        // Vectors/bitmaps via macroanimate, then the static text via macroquad.
+        clip.draw(frame, &xf);
+        for t in clip.text_draws(frame, &xf) {
+            draw_flash_text(ctx.font.as_ref(), &t);
+        }
+    });
+    draw::text(
+        ctx.font.as_ref(),
+        &format!("FLASH  {page}   ·   1-5 切页 · ESC 退出"),
+        24.0,
+        ctx.h - 24.0,
+        13.0,
+        theme::TEXT_MUTED,
+    );
+}
+
 pub async fn run() {
     set_pc_assets_folder(&platform::asset_dir().to_string_lossy());
 
@@ -235,8 +311,27 @@ pub async fn run() {
     egui_macroquad::ui(|_| {});
     egui_macroquad::draw();
 
-    // Load the Animate project (movies referenced by name, e.g. `ui.get(..)`).
+    // Load the Animate projects (movies referenced by name, e.g. `ui.get(..)`).
     crate::app::anim::init();
+    crate::app::anim::init_player_ui();
+
+    // Flash mode: render the `player_ui` XFL pages instead of the self-drawn UI.
+    // `MAI2_UI_FLASH=1` (or `select`/`settings`/`game`/`pause`) starts on a page;
+    // keys 1..5 switch pages and ESC leaves the mode.
+    let mut flash_page: Option<usize> = std::env::var("MAI2_UI_FLASH").ok().map(|v| {
+        if let Ok(i) = v.parse::<usize>() {
+            i.min(FLASH_PAGES.len() - 1)
+        } else {
+            match v.as_str() {
+                "select" | "song_select" => 1,
+                "settings" => 2,
+                "game" | "gameplay" => 3,
+                "pause" => 4,
+                _ => 0,
+            }
+        }
+    });
+    let flash_start = get_time();
 
     loop {
         let now = get_time();
@@ -245,6 +340,7 @@ pub async fn run() {
 
         clear_background(theme::VOID);
         crate::app::anim::tick();
+        crate::app::anim::tick_player_ui();
 
         let ctx = UiCtx {
             w: screen_width(),
@@ -263,7 +359,28 @@ pub async fn run() {
         input.begin_frame();
         app.poll_audio();
         app.poll_chart();
-        pages::draw(&mut app, &mut input, &ctx);
+        if let Some(pi) = flash_page {
+            for (i, k) in [
+                KeyCode::Key1,
+                KeyCode::Key2,
+                KeyCode::Key3,
+                KeyCode::Key4,
+                KeyCode::Key5,
+            ]
+            .iter()
+            .enumerate()
+            {
+                if is_key_pressed(*k) {
+                    flash_page = Some(i);
+                }
+            }
+            if is_key_pressed(KeyCode::Escape) {
+                flash_page = None;
+            }
+            draw_flash(&ctx, FLASH_PAGES[pi.min(FLASH_PAGES.len() - 1)], now - flash_start);
+        } else {
+            pages::draw(&mut app, &mut input, &ctx);
+        }
         input.end_frame();
 
         // Dev harness page switch (equivalent to a button click mid-draw).
@@ -274,8 +391,10 @@ pub async fn run() {
 
         // Page transition: capture the outgoing scene once, then composite the
         // masked wipe (next scene left, previous scene sliding right).
-        pages::capture_transition(&mut app, &ctx);
-        pages::draw_transition(&mut app, &ctx);
+        if flash_page.is_none() {
+            pages::capture_transition(&mut app, &ctx);
+            pages::draw_transition(&mut app, &ctx);
+        }
 
         // Fill in cover art without stalling any single frame.
         app.library.pump_covers(6.0);

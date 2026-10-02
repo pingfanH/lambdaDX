@@ -79,6 +79,47 @@ pub struct ShapePath {
     pub stroke: Option<(SolidColor, f32)>,
 }
 
+/// Horizontal alignment of a static text field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
+/// A static text field (`DOMStaticText`). Rendered by the caller's own text
+/// stack — this crate does not rasterize glyphs.
+#[derive(Clone, Debug)]
+pub struct TextRun {
+    pub text: String,
+    /// Box matrix (the `DOMStaticText` `<matrix>`), in px.
+    pub matrix: Matrix,
+    /// Font size in px (from the run's `textAttrs size`, or `lineHeight/1.4`).
+    pub size: f32,
+    /// Straight-alpha RGBA.
+    pub color: [u8; 4],
+    pub align: TextAlign,
+    /// Box width in px (used to resolve center/right alignment).
+    pub width: f32,
+    /// Opacity multiplier (1.0 = opaque).
+    pub alpha: f32,
+}
+
+/// A text field already transformed to screen space for drawing.
+#[derive(Clone, Debug)]
+pub struct TextDraw {
+    pub text: String,
+    /// Box top-left position, in screen px.
+    pub pos: (f32, f32),
+    /// Font size in screen px.
+    pub size: f32,
+    pub color: [u8; 4],
+    pub align: TextAlign,
+    /// Box width in screen px.
+    pub width: f32,
+    pub alpha: f32,
+}
+
 /// A drawable element placed on a timeline frame.
 #[derive(Clone, Debug)]
 pub enum Element {
@@ -103,6 +144,7 @@ pub enum Element {
         members: Vec<Element>,
         alpha: f32,
     },
+    Text(TextRun),
 }
 
 impl Element {
@@ -113,6 +155,7 @@ impl Element {
             | Element::Instance { matrix, .. }
             | Element::Shape { matrix, .. }
             | Element::Group { matrix, .. } => *matrix,
+            Element::Text(run) => run.matrix,
         }
     }
 
@@ -123,6 +166,7 @@ impl Element {
             | Element::Instance { alpha, .. }
             | Element::Group { alpha, .. } => *alpha,
             Element::Shape { .. } => 1.0,
+            Element::Text(run) => run.alpha,
         }
     }
 }
@@ -186,6 +230,8 @@ pub enum PartContent {
     Bitmap(String),
     /// Draw filled/stroked polygons (local coordinates).
     Vector(Vec<ShapePath>),
+    /// A static text field for the caller to rasterize.
+    Text(TextRun),
 }
 
 #[derive(Clone, Debug)]
