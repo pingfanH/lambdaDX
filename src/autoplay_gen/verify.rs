@@ -92,24 +92,45 @@ fn slot_area(slot: OuterSlot) -> SensorArea {
     }
 }
 
+/// Per-arc timing knobs for the enumeration.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ArcTiming {
+    /// Shift the arc's start (and its head) by this many microseconds.
+    pub offset_us: i64,
+    /// Rush every area except the last, then land the **last** area at the
+    /// judgment time (`judge_at`). This keeps the star off neighbouring slides
+    /// while still completing the arc in its Perfect window.
+    pub fast: bool,
+}
+
+/// Gap between rushed early areas in `fast` mode.
+const FAST_STEP_US: i64 = 12_000;
+
 /// Build events from the core's **lowered chart**: each runtime arc holds every
-/// sensor area of its judge queue in order, spread across the arc's span by
-/// arrow progress. `offsets[i]` shifts the i-th runtime arc (the enumeration's
-/// knob); slide heads stay at their chart time.
-pub fn build_events_with_offsets(spec: &ChartSpec, offsets: &[i64]) -> Vec<TimedInputEvent> {
+/// sensor area of its judge queue in order. `timings[i]` picks the i-th arc's
+/// offset / fast-mode (the enumeration's knobs); slide heads follow their arc.
+pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec<TimedInputEvent> {
     use std::collections::HashMap;
     let mut events = Vec::new();
 
     // A slide head shares its body arc's `logicalSlideId`; apply that arc's
-    // offset to the head too (the head hit drives the slide grade).
-    let mut by_logical: HashMap<u64, i64> = HashMap::new();
+    // timing to the head too (the head hit drives the slide grade).
+    let mut by_logical: HashMap<u64, ArcTiming> = HashMap::new();
     for (i, slide) in spec.slides.iter().enumerate() {
-        by_logical.insert(slide.logical_slide_id, offsets.get(i).copied().unwrap_or(0));
+        by_logical.insert(
+            slide.logical_slide_id,
+            timings.get(i).copied().unwrap_or_default(),
+        );
     }
 
     for head in &spec.slide_heads {
+        let timing = by_logical
+            .get(&head.logical_slide_id)
+            .copied()
+            .unwrap_or_default();
         let area = slot_area(head.slot);
-        let tp = head.timing + by_logical.get(&head.logical_slide_id).copied().unwrap_or(0);
+        let tp = head.timing + timing.offset_us;
+        let hold = if timing.fast { FAST_STEP_US } else { 15_000 };
         events.push(TimedInputEvent::SensorClick { tp, area });
         events.push(TimedInputEvent::SensorHold {
             tp,
@@ -117,18 +138,21 @@ pub fn build_events_with_offsets(spec: &ChartSpec, offsets: &[i64]) -> Vec<Timed
             is_down: true,
         });
         events.push(TimedInputEvent::SensorHold {
-            tp: tp + 15_000,
+            tp: tp + hold,
             area,
             is_down: false,
         });
     }
 
     for (i, slide) in spec.slides.iter().enumerate() {
-        let offset_us = offsets.get(i).copied().unwrap_or(0);
+        let timing = timings.get(i).copied().unwrap_or_default();
+        let offset_us = timing.offset_us;
         let len = slide.length.max(1);
         let start = slide.start_timing + offset_us;
         let end = start + len;
+        let judge = slide.judge_at.map(|j| j + offset_us).unwrap_or(end);
         for track in &slide.judge_queues {
+            let n = track.len();
             let max_fin = track
                 .iter()
                 .map(|a| a.arrow_progress_when_finished)
@@ -136,11 +160,20 @@ pub fn build_events_with_offsets(spec: &ChartSpec, offsets: &[i64]) -> Vec<Timed
                 .unwrap_or(1)
                 .max(1);
             let mut prev: Option<SensorArea> = None;
-            for area_spec in track {
+            for (k, area_spec) in track.iter().enumerate() {
                 let Some(&area) = area_spec.target_areas.first() else {
                     continue;
                 };
-                let t = start + len * area_spec.arrow_progress_when_finished as i64 / max_fin as i64;
+                let is_last = k + 1 == n;
+                let t = if timing.fast {
+                    if is_last {
+                        judge
+                    } else {
+                        start + k as i64 * FAST_STEP_US
+                    }
+                } else {
+                    start + len * area_spec.arrow_progress_when_finished as i64 / max_fin as i64
+                };
                 if let Some(p) = prev {
                     events.push(TimedInputEvent::SensorHold {
                         tp: t,

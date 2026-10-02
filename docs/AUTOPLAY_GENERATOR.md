@@ -1,6 +1,7 @@
 # 想法：按游戏机制生成「理论上必然 Perfect」的 autoplay
 
-> 状态：**想法 / 待验证**。本文只记录设想与约束，不含实现。
+> 状态：**部分实现 / 持续迭代**。`src/autoplay_gen/` 已可用；事件模型已确认，
+> 正在做重定时枚举（见文末「实现状态」与「接下来的任务」）。
 
 ## 动机
 
@@ -134,4 +135,96 @@ for unit in overlapping_units:          # 重叠单位
   （或上一个）时间块里一起划完。
 - **ex**：判定落在除 miss 以外的任意区间都算 perfect，故 ex 的时间重合无需规避；
   只有非 ex 的 normal tap/hold 的 great/good 窗口需要避开。
+
+## 实现状态
+
+代码在 `src/autoplay_gen/`，bin 名 `autoplay_gen`；另有 preview bin `lambda_dx_pad_preview`。
+
+| 文件 | 职责 |
+|---|---|
+| `main.rs` | CLI、加载谱面与内核 lowered chart、编排 verify / search、缓存 tactic、启动 preview |
+| `model.rs` | 把 `chart_doc` 建模成 `SlidePlan`（`head_s`/`end_s`/`runtime_start`/`runtime_parts`） |
+| `planner.rs` | 重叠单位 `group_units`、`assign_slide`、`candidate_offsets`、`is_a_ring_segment` |
+| `report.rs` | 输出调度表与 A 区冲突警告 |
+| `verify.rs` | 事件生成 + 用内核 60fps 重放，收集每个 runtime arc 的判定 |
+| `search.rs` | baseline-first、局部化重定时枚举 |
+
+### 事件模型（已确认的关键结论）
+
+**事件模型是瓶颈**。每条 segment 只 hold 一个 zone 无法驱动一条 runtime arc；
+必须按 arc 的完整 zone 序列生成事件，即 `verify::build_events_from_spec(spec)`。
+基于 chart-shape 的 `build_events` 仍保留用于探索，但会耗尽候选并报 `failed`。
+
+- `build_events_with_offsets(spec, &[ArcTiming])`：第 i 个 runtime arc 用 `timings[i]`
+  控制偏移/fast 模式；slide head 按 `logical_slide_id` 跟随其 body arc
+  （head 命中决定 slide 等级）。
+- `ArcTiming { offset_us: i64, fast: bool }`：
+  - `offset_us`：整条 arc 及其 head 平移的微秒数；
+  - `fast`：rush 除最后一区外的所有区，最后区落在 `judge_at`——让星星尽量远离
+    相邻滑条，同时仍在自身的 Perfect 窗口内完成。
+  - `FAST_STEP_US = 12_000`：fast 模式早期区之间的间隔。
+  - 正常模式：第 k 区落在 `start + len * arrow_progress_when_finished / max_fin`。
+- `all_perfect()` 已收紧：不只看 Miss，而是要求每个已判定 arc 都是 Perfect 家族
+  （`!miss/too_fast && !great && !good`），避免假阳性。
+
+### CLI
+
+```text
+autoplay_gen [CHART] [--diff N] [--block S] [--max-tries N]
+             [--preview] [--default-tactic] [--spec]
+```
+
+- `--spec`：读内核 lowered chart，按每条 runtime arc 的完整 zone 序列生成事件并验证。
+  实测对 `./assets/charts/test/`、`サイエンス2/` 均 `misses: 0`。
+- `--default-tactic`：用内核自带 tactic 走同一套验证（校验「验证 + 预览」链路）。
+- `--preview`：仅当所有已判定 arc 均 Perfect 时，把事件写成 JSON 并通过
+  `--autoplay-tactic <file>` 交给 `lambda_dx_pad_preview`。
+- 缓存路径：`out/autoplay_gen/<title>_lv<level>.json`（`/out/` 已 gitignore）。
+
+### 预览外部 tactic 链路
+
+`--autoplay-tactic <file>`（env `MAI2_AUTOPLAY_TACTIC`）
+→ `PadPreviewState.autoplay_tactic_path` → `external_autoplay = true`
+→ `player::autoplay::tick` **原样重放**事件（跳过 click-hold 预处理）。
+
+### search.rs 现状（baseline-first，局部化）
+
+1. 先用 chart-time tactic 验证；若全 Perfect 直接结束。
+2. 否则收集失败的 chart slide + 生命周期与之重叠的 slide，作为工作集。
+3. 只对工作集内的 runtime arc 重定时（贪心：选能让 `result.bad()` 下降最多的偏移），
+   新失败会把更多 slide 拉进工作集，直到无改进。
+4. 受 `--max-tries` 限制内核评估次数。
+
+常量：`OFFSET_STEP_US = 10_000`、`OFFSET_STEPS = 12`（±120ms）。
+
+### 验证观察（待解决）
+
+`assets/charts/autotest/maidata.txt = (210){8},,1h[4:1],,,,1>4[4:1],,1>4[4:1]`
+（两条完全相同的 `1>4`）。
+
+- 结果：`arcs 2 judged 2 misses 0 non-perfect 1`，`grades: 0:Perfect 1:FastGreat`。
+- 内核自带 default tactic 也得到 arc1 `FastGreat`；`MAI2_DEBUG_FORCE_PEREVENT=1` 不变；
+  均匀偏移（±48ms，2ms 步长）也不变。
+- 推断：需用 `fast` 模式 + 更细的 **每条 track 间隔** 枚举，而不是只平移整条 arc。
+
+## 接下来的任务
+
+按优先级排列：
+
+1. **修复编译**：`search.rs` 仍是旧的 `offsets: Vec<i64>` 并调用
+   `build_events_with_offsets(spec, &trial)`；`verify.rs` 已改为 `&[ArcTiming]`，
+   故当前 `search.rs` 与 `verify.rs` 不一致。先把它改成 `timings: Vec<ArcTiming>`。
+2. **扩展搜索空间**：每个工作 arc 枚举 `{ offset_us ∈ k*OFFSET_STEP_US,
+   fast ∈ {false,true} }`，贪心目标仍是降低 `result.bad()`。
+3. **细化 fast 模式**：不要把「最后区」写死；对每条 track 枚举「rush 间隔」
+   （或至少枚举几个 `FAST_STEP_US` 候选），最后区落在 `judge_at`，
+   release 放在判定之后（当前 release 用 `end`，可能过早）。
+4. **跑通 autotest**：`cargo run --bin autoplay_gen -- ./assets/charts/autotest/ --max-tries N`，
+   确认 `grades` 全 Perfect；再 `--preview` 缓存 JSON 并启动，用 `MAI2_DEBUG_SLIDE=1`
+   核对 preview 判定与生成器一致。
+5. **A 区冲突窗口**：把「非 ex note 的 great/good 判定时刻」纳入枚举禁放窗口
+   （见上文「补充约束」；ex 无需规避）。
+6. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
+7. **收尾**：确认 chart-shape 的 `build_events` 路径不回归（探索用途）；
+   补一条 autotest 的回归测试。
 </content>
