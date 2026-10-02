@@ -36,6 +36,8 @@
   "touchhold_scale": 0.6,
   "touchhold_rot_offset": 0.0,
   "hold_spawn_time": 0.0,
+  "sensor_range_enable": false,
+  "sensor_range_px": 10.0,
   "pad_zoom": 0.78,
   "pad_zone_scale": 1.1599998,
   "note_speed_default": 11.0,

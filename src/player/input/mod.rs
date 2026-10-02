@@ -14,4 +14,4 @@ pub mod pointer;
 pub mod touch_evdev;
 
 pub use keyboard::{handle_global_hotkeys, handle_lane_input};
-pub use pointer::{collect_pointer_events, handle_touch_controls};
+pub use pointer::{UiPointer, collect_pointer_events, handle_touch_controls, ui_pointer};

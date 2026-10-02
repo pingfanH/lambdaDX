@@ -8,6 +8,7 @@ use macroquad::prelude::*;
 
 use crate::app::types::RectF;
 use crate::player::font;
+use crate::player::input::UiPointer;
 use crate::player::render::progress;
 use crate::player::state::PadPreviewState;
 
@@ -47,26 +48,27 @@ fn geometry(r: RectF, scale: f32) -> (RectF, RectF) {
 
 fn bar_frac(app: &PadPreviewState, bar: RectF) -> f32 {
     let dur = app.song_duration();
-    if app.scrubbing {
-        let (mx, _) = mouse_position();
-        ((mx - bar.x) / bar.w).clamp(0.0, 1.0)
-    } else {
-        (app.song_time() / dur).clamp(0.0, 1.0)
-    }
+    // `scrub_to` keeps `song_time` in sync with the drag, so this tracks the
+    // pointer for both mouse and touch without reading the mouse.
+    (app.song_time() / dur).clamp(0.0, 1.0)
 }
 
-/// Handle progress-bar scrubbing and the AUTO button. Returns `true` when the
-/// mouse should be ignored by the pad's touch routing.
-pub fn handle_input(app: &mut PadPreviewState, header: RectF, scale: f32) -> bool {
+/// Handle progress-bar scrubbing and the AUTO button with the unified UI
+/// pointer (mouse **and** touch). Returns the pointer id that was consumed, so
+/// the pad's touch routing can ignore it this frame.
+pub fn handle_input(
+    app: &mut PadPreviewState,
+    header: RectF,
+    scale: f32,
+    ui: UiPointer,
+) -> Option<u64> {
     let (bar, auto_r) = geometry(header, scale);
-    let (mx, my) = mouse_position();
-    let pos = vec2(mx, my);
-    let pressed = is_mouse_button_pressed(MouseButton::Left);
+    let pos = ui.pos;
 
-    if pressed && contains(auto_r, pos) {
+    if ui.pressed && contains(auto_r, pos) {
         let on = !app.autoplay;
         crate::player::autoplay::set_on(app, on);
-        return true;
+        return Some(ui.id);
     }
 
     let hit = RectF {
@@ -75,22 +77,27 @@ pub fn handle_input(app: &mut PadPreviewState, header: RectF, scale: f32) -> boo
         w: bar.w,
         h: bar.h + 20.0 * scale,
     };
-    if pressed && contains(hit, pos) {
+    if ui.pressed && contains(hit, pos) {
         app.scrubbing = true;
+        app.scrub_pointer = Some(ui.id);
         app.stop_audio_if_any();
     }
     if app.scrubbing {
-        let dur = app.song_duration();
-        let t = ((pos.x - bar.x) / bar.w).clamp(0.0, 1.0) * dur;
-        if is_mouse_button_released(MouseButton::Left) {
-            app.seek_to(t);
-            app.scrubbing = false;
-        } else if is_mouse_button_down(MouseButton::Left) {
-            app.scrub_to(t);
+        // Only the pointer that grabbed the bar drives it; others pass through.
+        if app.scrub_pointer.is_none() || app.scrub_pointer == Some(ui.id) {
+            let dur = app.song_duration();
+            let t = ((pos.x - bar.x) / bar.w).clamp(0.0, 1.0) * dur;
+            if ui.released {
+                app.seek_to(t);
+                app.scrubbing = false;
+                app.scrub_pointer = None;
+            } else if ui.down {
+                app.scrub_to(t);
+            }
+            return Some(ui.id);
         }
-        return true;
     }
-    false
+    None
 }
 
 /// Draw the header strip: title, progress bar, elapsed time and AUTO toggle.

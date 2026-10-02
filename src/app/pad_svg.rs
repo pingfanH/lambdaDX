@@ -123,6 +123,36 @@ impl PadSvgDef {
         }
         None
     }
+
+    /// Range hit-test: treat the pointer as a circle of `range_px` screen px and
+    /// return **every** zone the circle touches (contains the point, or passes
+    /// within `range_px` of a polygon edge). `range_px <= 0` is equivalent to
+    /// [`Self::hit_test`] but returns the zones as a list. Used by the range
+    /// trigger so an imprecise touch/mouse still lands on the sensor area.
+    pub fn hit_test_range(
+        &self,
+        screen_point: Vec2,
+        pad: &super::types::PadGeom,
+        range_px: f32,
+    ) -> Vec<PadZone> {
+        let svg_pt = screen_to_svg(screen_point, pad);
+        let scale = svg_scale(pad);
+        let r_svg = if scale > 0.0 {
+            (range_px / scale).max(0.0)
+        } else {
+            0.0
+        };
+
+        let mut zones = Vec::new();
+        for def in &self.zones {
+            if point_in_polygon(svg_pt, &def.svg_verts)
+                || (r_svg > 0.0 && dist_to_polygon(svg_pt, &def.svg_verts) <= r_svg)
+            {
+                zones.push(def.zone);
+            }
+        }
+        zones
+    }
 }
 
 /// Recursively collect zone elements. Handles `<g>` wrappers (like C1).
@@ -319,16 +349,22 @@ fn apply_rect_transform(transform_str: &str, corners: &[Vec2; 4]) -> [Vec2; 4] {
     corners.map(transform_point)
 }
 
+/// SVG → screen scale for the zone cluster: the pad radius ratio times the
+/// independent `pad_zone_scale` zoom about the pad centre.
+fn svg_scale(pad: &super::types::PadGeom) -> f32 {
+    if pad.outer_r > 0.0 {
+        pad.outer_r / SVG_BG_R * super::params::pad_zone_scale()
+    } else {
+        1.0
+    }
+}
+
 /// Transform a point from SVG viewBox coordinates to screen coordinates.
 ///
 /// The zone cluster is scaled about the pad centre by `params::pad_zone_scale`,
 /// independent of the pad radius, so the sensor ring can be zoomed on its own.
 fn svg_to_screen(svg_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
-    let scale = if pad.outer_r > 0.0 {
-        pad.outer_r / SVG_BG_R * super::params::pad_zone_scale()
-    } else {
-        1.0
-    };
+    let scale = svg_scale(pad);
     vec2(
         pad.cx + (svg_pt.x - SVG_BG_CX) * scale,
         pad.cy + (svg_pt.y - SVG_BG_CY) * scale,
@@ -337,16 +373,38 @@ fn svg_to_screen(svg_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
 
 /// Transform a point from screen coordinates to SVG viewBox coordinates.
 fn screen_to_svg(screen_pt: Vec2, pad: &super::types::PadGeom) -> Vec2 {
-    let zone = super::params::pad_zone_scale();
-    let inv_scale = if pad.outer_r > 0.0 && zone > 0.0 {
-        SVG_BG_R / (pad.outer_r * zone)
-    } else {
-        1.0
-    };
+    let scale = svg_scale(pad);
+    let inv_scale = if scale > 0.0 { 1.0 / scale } else { 1.0 };
     vec2(
         SVG_BG_CX + (screen_pt.x - pad.cx) * inv_scale,
         SVG_BG_CY + (screen_pt.y - pad.cy) * inv_scale,
     )
+}
+
+/// Shortest distance from `point` to the closed polygon `poly` (0 if inside).
+fn dist_to_polygon(point: Vec2, poly: &[Vec2]) -> f32 {
+    let n = poly.len();
+    if n == 0 {
+        return f32::INFINITY;
+    }
+    let mut best = f32::INFINITY;
+    for i in 0..n {
+        let a = poly[i];
+        let b = poly[(i + 1) % n];
+        best = best.min(dist_to_segment(point, a, b));
+    }
+    best
+}
+
+/// Shortest distance from `point` to the line segment `a`–`b`.
+fn dist_to_segment(point: Vec2, a: Vec2, b: Vec2) -> f32 {
+    let ab = b - a;
+    let len2 = ab.dot(ab);
+    if len2 <= f32::EPSILON {
+        return (point - a).length();
+    }
+    let t = ((point - a).dot(ab) / len2).clamp(0.0, 1.0);
+    (point - (a + ab * t)).length()
 }
 
 /// Ray-casting point-in-polygon test.
@@ -579,6 +637,39 @@ mod tests {
         let c = def.pad_visual_center(&pad).expect("center zone");
         assert!((c.x - pad.cx).abs() < 12.0, "cx {}", c.x);
         assert!((c.y - pad.cy).abs() < 12.0, "cy {}", c.y);
+    }
+
+    /// The range-trigger hit test returns every zone whose polygon the pointer's
+    /// circle touches: a point on the pad centre hits only C exactly, but a wide
+    /// range reaches the surrounding ring zones too.
+    #[test]
+    fn range_hit_test_triggers_nearby_zones() {
+        use crate::app::types::PadGeom;
+        use macroquad::prelude::vec2;
+
+        let def = PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg"))
+            .expect("bundled pad SVG must parse");
+        let pad = PadGeom {
+            cx: 640.0,
+            cy: 380.0,
+            outer_r: super::SVG_BG_R,
+        };
+        let center = def.pad_visual_center(&pad).expect("center zone");
+
+        let exact = def.hit_test_range(center, &pad, 0.0);
+        assert!(!exact.is_empty(), "point on centre must hit a zone");
+        assert_eq!(exact, def.hit_test(center, &pad).into_iter().collect::<Vec<_>>());
+
+        let wide = def.hit_test_range(center, &pad, pad.outer_r);
+        assert!(
+            wide.len() > exact.len(),
+            "a large range must touch more zones ({wide:?} vs {exact:?})"
+        );
+
+        // A tiny offset in the empty gap between zones still fires a zone once
+        // the range reaches across it.
+        let nudged = vec2(center.x + 1.0, center.y + 1.0);
+        assert!(!def.hit_test_range(nudged, &pad, 6.0).is_empty());
     }
 
     /// `pad_zone_scale` zooms the zone cluster about the pad centre without

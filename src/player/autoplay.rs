@@ -234,7 +234,7 @@ fn mirror_visual(pad: &mut PadPreviewState, event: &crate::core::types::TimedInp
     }
     let key = u64::from(zone.to_id()) | (1u64 << 40);
     if is_down {
-        pad.active_pointer_zones.insert(key, zone);
+        pad.active_pointer_zones.insert(key, vec![zone]);
         pad.push_feedback(zone, 0.12);
     } else {
         pad.active_pointer_zones.remove(&key);

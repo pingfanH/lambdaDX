@@ -822,6 +822,7 @@ name = "lambda_dx_pad_preview"
 version = "0.1.0"
 dependencies = [
  "egui-macroquad",
+ "egui-miniquad",
  "evdev",
  "hound",
  "image",

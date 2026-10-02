@@ -55,6 +55,9 @@ image = { version = "0.24.9", default-features = false, features = ["jpeg"] }
 roxmltree = "0.20"
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
 egui-macroquad = { version = "0.17", default-features = false }
+# Direct egui<->miniquad bridge, vendored in `app::egui_bridge` to add touch
+# input to the egui params panel (egui-macroquad only forwards mouse/keyboard).
+egui-miniquad = "0.16"
 # Gameplay core backend (see [features]): rust (default) or lean (unmodified
 # vendored crate). Selected by the `backend-*` features.
 lnmai-core = { path = "lnmai-core", optional = true }

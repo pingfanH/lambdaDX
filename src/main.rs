@@ -312,16 +312,14 @@ async fn run(args: LaunchArgs) {
         }
         player::input::handle_lane_input(&mut app);
         let pointer_events = player::input::collect_pointer_events();
+        // Unified pointer (mouse + touch + evdev) so the HUD reacts to touch too.
+        let ui_pointer = player::input::ui_pointer(&pointer_events);
         let ui_scale = player::render::ui_scale(&app);
         // The HUD progress bar / AUTO button take priority over pad touches.
-        let hud_consumed = player::hud::handle_input(&mut app, layout.header, ui_scale);
-        let pointer_events: Vec<_> = if hud_consumed {
-            pointer_events
-                .into_iter()
-                .filter(|e| e.id != MOUSE_POINTER_ID)
-                .collect()
-        } else {
-            pointer_events
+        let hud_consumed = player::hud::handle_input(&mut app, layout.header, ui_scale, ui_pointer);
+        let pointer_events: Vec<_> = match hud_consumed {
+            Some(id) => pointer_events.into_iter().filter(|e| e.id != id).collect(),
+            None => pointer_events,
         };
         player::input::handle_touch_controls(&mut app, pad_geom, &pointer_events);
 
@@ -358,9 +356,11 @@ async fn run(args: LaunchArgs) {
 
         app.tick_feedback();
 
-        // egui params panel on top (F1).
-        egui_macroquad::ui(|ctx| player::params_panel::draw(ctx, &mut app));
-        egui_macroquad::draw();
+        // egui params panel on top (F1). Touch-aware bridge: feed the unified
+        // pointer so the panel works with a touchscreen, not just the mouse.
+        app::egui_bridge::pointer(ui_pointer.pos, ui_pointer.pressed, ui_pointer.released);
+        app::egui_bridge::ui(|ctx| player::params_panel::draw(ctx, &mut app));
+        app::egui_bridge::draw();
 
         // Release the frozen song clock once the first frame is on screen.
         if app.playback_pending {

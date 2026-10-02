@@ -138,7 +138,10 @@ pub struct PadPreviewState {
 
     // ── Pad interaction ──────────────────────────────────────────────
     pub pad_svg: Option<PadSvgDef>,
-    pub active_pointer_zones: HashMap<u64, PadZone>,
+    /// Zones currently held by each pointer. A single pointer can hold several
+    /// zones at once when the sensor range trigger is on (and its range circle
+    /// crosses a boundary), so this is a set rather than a single zone.
+    pub active_pointer_zones: HashMap<u64, Vec<PadZone>>,
     pub prev_pointer_pos: HashMap<u64, Vec2>,
     pub pad_feedback: Vec<PadFeedback>,
     pub judge_feedback: Vec<JudgeFeedback>,
@@ -233,6 +236,8 @@ pub struct PadPreviewState {
     // ── Progress / seeking ───────────────────────────────────────────
     /// True while the progress bar is being dragged.
     pub scrubbing: bool,
+    /// Which pointer id is dragging the progress bar (touch or mouse).
+    pub scrub_pointer: Option<u64>,
 
     // ── Background video ─────────────────────────────────────────────
     /// `bg.mp4` decoder (only used by the standalone pad preview).
@@ -370,6 +375,7 @@ impl PadPreviewState {
             autoplay_tactic_path: None,
             external_autoplay: false,
             scrubbing: false,
+            scrub_pointer: None,
             video_bg: VideoBg::new(),
             mobile_ui,
             ui_scale_override,

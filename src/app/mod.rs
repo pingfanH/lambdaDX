@@ -3,6 +3,7 @@ mod beat_format;
 pub mod anim;
 pub mod chart;
 pub mod cli;
+pub mod egui_bridge;
 pub mod guide;
 pub mod maichart;
 pub mod maidata;

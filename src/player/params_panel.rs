@@ -169,6 +169,9 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     param(ui, &mut p.pad_zoom, 0.05, 0.3..=2.0, "pad_zoom 整体缩放");
                     // 感应区整体缩放：独立于 pad 半径，只缩放触摸区。
                     param(ui, &mut p.pad_zone_scale, 0.02, 0.5..=1.5, "pad_zone_scale 感应区缩放");
+                    // 感应区范围触发：点不必精准落在感应区内，10px 圆碰到即触发。
+                    ui.checkbox(&mut p.sensor_range_enable, "sensor_range 感应区范围触发(圆碰到就触发)");
+                    param(ui, &mut p.sensor_range_px, 1.0, 0.0..=120.0, "sensor_range_px 范围半径(px)");
                     // 出生位置 = where notes lock, as a fraction of the judge radius.
                     param(ui, &mut p.note_spawn_frac, 0.01, 0.05..=1.0, "note_spawn_frac 出生位置");
                     // tap 出生(飞行前的缩放)时间，0 = 随流速。

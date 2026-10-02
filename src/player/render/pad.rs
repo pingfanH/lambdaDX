@@ -121,7 +121,12 @@ pub fn draw_zones(app: &PadPreviewState, pad: &PadGeom, scale: f32) {
         return;
     };
 
-    let active_zones: Vec<PadZone> = app.active_pointer_zones.values().copied().collect();
+    let active_zones: Vec<PadZone> = app
+        .active_pointer_zones
+        .values()
+        .flatten()
+        .copied()
+        .collect();
     let feedback_zones: Vec<PadZone> = app.pad_feedback.iter().map(|fb| fb.zone).collect();
 
     for def in &pad_svg.zones {

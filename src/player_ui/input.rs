@@ -44,13 +44,28 @@ impl Default for Input {
 }
 
 impl Input {
-    /// Sample macroquad's mouse for this frame.
+    /// Sample macroquad's pointer for this frame. A touch (when present) takes
+    /// priority over the mouse, so the UI is usable on a touchscreen too.
     pub fn begin_frame(&mut self) {
-        let (x, y) = mouse_position();
-        self.pos = vec2(x, y);
-        self.down = is_mouse_button_down(MouseButton::Left);
-        self.pressed = is_mouse_button_pressed(MouseButton::Left);
-        self.released = is_mouse_button_released(MouseButton::Left);
+        let touch = touches().into_iter().next();
+        match touch {
+            Some(t) => {
+                self.pos = t.position;
+                self.pressed = t.phase == TouchPhase::Started;
+                self.released = matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled);
+                self.down = matches!(
+                    t.phase,
+                    TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary
+                );
+            }
+            None => {
+                let (x, y) = mouse_position();
+                self.pos = vec2(x, y);
+                self.down = is_mouse_button_down(MouseButton::Left);
+                self.pressed = is_mouse_button_pressed(MouseButton::Left);
+                self.released = is_mouse_button_released(MouseButton::Left);
+            }
+        }
         self.wheel = mouse_wheel().1;
         self.consumed = false;
     }

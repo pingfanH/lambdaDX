@@ -135,6 +135,15 @@ pub struct Params {
     /// flying. `0` = follow the note speed (original).
     pub hold_spawn_time: f32,
 
+    // ── Touch input (sensor range trigger) ───────────────────────────
+    /// Range-trigger for sensor zones. When on, a pointer does not have to land
+    /// precisely inside a zone: every zone whose polygon comes within
+    /// `sensor_range_px` of the pointer also fires. Applies to touch and mouse.
+    pub sensor_range_enable: bool,
+    /// Range-trigger radius in screen px (default 10). The pointer is treated as
+    /// a circle of this radius; any zone the circle touches is triggered.
+    pub sensor_range_px: f32,
+
     // ── Gameplay / playfield ─────────────────────────────────────────
     /// Overall pad zoom: scales the pad radius *and* everything drawn on it
     /// (notes, zone strokes, labels). 1.0 = design size.
@@ -329,6 +338,9 @@ impl Default for Params {
             touchhold_rot_offset: t::TOUCHHOLD_ROT_OFFSET,
             hold_spawn_time: 0.0,
 
+            sensor_range_enable: false,
+            sensor_range_px: 10.0,
+
             note_speed_default: t::NOTE_SPEED,
             touch_speed_default: t::NOTE_SPEED * 0.7,
             pad_zoom: 1.0,
@@ -505,6 +517,7 @@ param_accessors!(
     touchhold_scale,
     touchhold_rot_offset,
     hold_spawn_time,
+    sensor_range_px,
     note_speed_default,
     touch_speed_default,
     pad_zoom,
@@ -581,6 +594,23 @@ pub fn speed_scales_visuals() -> bool {
 /// Whether the lnmai-core backend is bypassed (pre-lnmai autoplay / rendering).
 pub fn no_core() -> bool {
     PARAMS.with(|p| p.borrow().no_core)
+}
+
+/// Whether the sensor range trigger is enabled.
+pub fn sensor_range_enable() -> bool {
+    PARAMS.with(|p| p.borrow().sensor_range_enable)
+}
+
+/// Effective sensor range-trigger radius in screen px (`0` when disabled).
+pub fn sensor_range_radius() -> f32 {
+    PARAMS.with(|p| {
+        let p = p.borrow();
+        if p.sensor_range_enable {
+            p.sensor_range_px.max(0.0)
+        } else {
+            0.0
+        }
+    })
 }
 
 /// Whether the tap guide texture is enabled.

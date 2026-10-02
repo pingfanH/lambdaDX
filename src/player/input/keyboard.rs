@@ -11,7 +11,7 @@ use macroquad::prelude::*;
 
 use crate::app::types::zone::PadZone;
 use crate::app::types::{Mode, PAD_C_ZONE};
-use crate::player::input::pointer::update_pointer_zone;
+use crate::player::input::pointer::update_pointer_zones;
 use crate::player::state::PadPreviewState;
 
 /// Keyboard lane bindings: 1-8 for the A ring, T for the centre zone.
@@ -33,10 +33,10 @@ pub fn handle_lane_input(app: &mut PadPreviewState) {
         let pointer_id = u64::MAX - 100 - lane as u64;
         let zone = PadZone::from(lane);
         if is_key_pressed(key) {
-            update_pointer_zone(app, pointer_id, Some(zone));
+            update_pointer_zones(app, pointer_id, &[zone]);
         }
         if is_key_released(key) {
-            update_pointer_zone(app, pointer_id, None);
+            update_pointer_zones(app, pointer_id, &[]);
         }
     }
 }
