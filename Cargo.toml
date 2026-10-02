@@ -79,5 +79,13 @@ debug-assertions = false
 
 # Our own debug code also has hot loops (audio decode/resample, pad rendering).
 # opt-level 1 keeps incremental builds quick while removing the worst stalls.
+#
+# `incremental = false`: with concurrent edits (multiple agents/sessions writing
+# src simultaneously) the incremental cache can reuse stale cross-CGU objects,
+# leaving anonymous `_anon.*.llvm.*` share-generics symbols undefined at link
+# time (bins fail to link while `cargo check` passes). Disabling it makes dev
+# links deterministic; a `cargo clean` / deleting target/debug/incremental is no
+# longer needed.
 [profile.dev]
 opt-level = 1
+incremental = false
