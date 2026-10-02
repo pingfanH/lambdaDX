@@ -179,7 +179,7 @@
   {
    "page": "UI/page_song_select",
    "id": "ss.pill1",
-   "text": "Lv.12",
+   "text": "Lv.13",
    "x": 768,
    "y": 523,
    "w": 78,
@@ -190,7 +190,7 @@
   {
    "page": "UI/page_song_select",
    "id": "ss.pill2",
-   "text": "Lv.12",
+   "text": "Lv.14",
    "x": 854,
    "y": 523,
    "w": 78,
@@ -201,7 +201,7 @@
   {
    "page": "UI/page_song_select",
    "id": "ss.pill3",
-   "text": "Lv.12",
+   "text": "Lv.15",
    "x": 940,
    "y": 523,
    "w": 78,

@@ -115,7 +115,7 @@ pub struct Hit {
 }
 
 impl Hit {
-    fn contains(&self, x: f32, y: f32) -> bool {
+    pub fn contains_point(&self, x: f32, y: f32) -> bool {
         x >= self.rect.x && x <= self.rect.x + self.rect.w && y >= self.rect.y && y <= self.rect.y + self.rect.h
     }
 }
@@ -270,17 +270,22 @@ impl FlashUi {
         released: bool,
     ) -> Option<Action> {
         let list = hits(page);
-        self.hover = pointer.and_then(|(x, y)| list.iter().rposition(|h| h.contains(x, y)));
+        self.hover = pointer.and_then(|(x, y)| list.iter().rposition(|h| h.contains_point(x, y)));
         let mut action = None;
         if pressed {
             self.press = self.hover;
         }
         if down {
             if let (Some(p), Some((x, _))) = (self.press, pointer) {
-                if list.get(p).is_some_and(|h| h.kind == Kind::Slider) {
-                    let h = &list[p];
+                if let Some(h) = list.get(p).filter(|h| h.kind == Kind::Slider) {
+                    // Report the slider's ordinal (its Action payload), not its
+                    // position in the hit list.
+                    let ord = match h.action {
+                        Action::SetSlider(o, _) => o,
+                        _ => p,
+                    };
                     let frac = ((x - h.rect.x) / h.rect.w).clamp(0.0, 1.0);
-                    action = Some(Action::SetSlider(p, frac));
+                    action = Some(Action::SetSlider(ord, frac));
                 }
             }
         }

@@ -142,7 +142,7 @@ def _num(v):
     return str(int(v)) if v == int(v) else repr(v)
 
 
-def inst(name, tx=0, ty=0, rot=0, sx=1, sy=1, alpha=None, firstFrame=0, tpx=0, tpy=0, loop="single frame"):
+def inst(name, tx=0, ty=0, rot=0, sx=1, sy=1, alpha=None, firstFrame=0, tpx=0, tpy=0, loop="single frame", sym_type="graphic"):
     th = math.radians(rot)
     a, b = sx * math.cos(th), sx * math.sin(th)
     c, d = -sy * math.sin(th), sy * math.cos(th)
@@ -151,17 +151,18 @@ def inst(name, tx=0, ty=0, rot=0, sx=1, sy=1, alpha=None, firstFrame=0, tpx=0, t
     ff = f' firstFrame="{firstFrame}"' if firstFrame else ""
     tp = f'<Point x="{_num(tpx)}" y="{_num(tpy)}"/>' if (tpx or tpy) else "<Point/>"
     return (
-        f'<DOMSymbolInstance libraryItemName="UI/{name}" symbolType="movieclip" loop="{loop}"{ff}>'
+        f'<DOMSymbolInstance libraryItemName="UI/{name}" symbolType="{sym_type}" loop="{loop}"{ff}>'
         f"<matrix>{mat}</matrix><transformationPoint>{tp}</transformationPoint>{col}</DOMSymbolInstance>"
     )
 
 
-def frame(i, els=None, dur=1, tween=False):
+def frame(i, els=None, dur=1, tween=False, stop=False):
     d = f' duration="{dur}"' if dur != 1 else ""
     t = ' tweenType="motion" motionTweenSnap="true"' if tween else ""
     km = 17921 if tween else 9728
     body = "<elements>" + "".join(els) + "</elements>" if els else "<elements/>"
-    return f'<DOMFrame index="{i}"{d}{t} keyMode="{km}">{body}</DOMFrame>'
+    act = "<Actionscript><script><![CDATA[stop();]]></script></Actionscript>" if stop else ""
+    return f'<DOMFrame index="{i}"{d}{t} keyMode="{km}">{act}{body}</DOMFrame>'
 
 
 def layer(name, frames, locked=False):
@@ -169,11 +170,11 @@ def layer(name, frames, locked=False):
     return f'<DOMLayer name="{name}" color="#9933CC"{l} autoNamed="false"><frames>{"".join(frames)}</frames></DOMLayer>'
 
 
-def sym(name, layers, last_uid=1):
+def sym(name, layers, last_uid=1, symbol_type="graphic"):
     return (
         f'<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
         f'xmlns="http://ns.adobe.com/xfl/2008/" name="UI/{name}" itemID="{uid()}" '
-        f'symbolType="movieclip" lastModified="{LAST}" lastUniqueIdentifier="{last_uid}">'
+        f'symbolType="{symbol_type}" lastModified="{LAST}" lastUniqueIdentifier="{last_uid}">'
         f'<timeline><DOMTimeline name="{name}" layerDepthEnabled="true">'
         f'<layers>{"".join(layers)}</layers></DOMTimeline></timeline></DOMSymbolItem>'
     )
@@ -470,6 +471,7 @@ def build_pages():
         layer("bg", [frame(0, [rect(0, 0, 1280, 760, VOID),
                                inst("ui_panel_list", tx=0, ty=64),
                                rect(419, 64, 1, 696, BORDER)], dur=25)]),
+        layer("action", [frame(0, [], dur=24), frame(24, [], stop=True)]),
     ], last_uid=26))
 
     # Settings: side surface + reused tabs (labels in page) + toggle/sliders.
@@ -521,6 +523,7 @@ def build_pages():
         layer("panel", [frame(0, [inst("ui_pause_panel", tx=430, ty=180, sx=0.9, sy=0.9, alpha=0, tpx=210, tpy=200)], dur=12, tween=True),
                         frame(12, [inst("ui_pause_panel", tx=430, ty=180, sx=1, sy=1, alpha=1, tpx=210, tpy=200)], dur=1)]),
         layer("dim", [frame(0, [rect(0, 0, 1280, 760, "#0B0B0C", alpha=0.72)], dur=13)]),
+        layer("action", [frame(0, [], dur=12), frame(12, [], stop=True)]),
     ], last_uid=13))
 
 
@@ -554,7 +557,7 @@ def build_slots():
         slot("page_pause", "pause.time", "当前时间  01:23", 458, 314, 364, 12, TEXT_MUTED),
     ]
     for i in range(4):
-        out.append(slot("page_song_select", f"ss.pill{i}", "Lv.12",
+        out.append(slot("page_song_select", f"ss.pill{i}", f"Lv.{12 + i}",
                         682 + i * 86, 523, 78, 15, VOID if i == 1 else TEXT, "center"))
     return out
 
@@ -569,7 +572,7 @@ def dom_document():
         f'''     <DOMLayer name="P{i+1}_{p}" color="#9933CC">
       <frames>
        <DOMFrame index="0" keyMode="9728">
-        <elements>{inst(p, tx=i*1340, ty=0)}</elements>
+        <elements>{inst(p, tx=i*1340, ty=0, sym_type="movieclip", loop="loop")}</elements>
        </DOMFrame>
       </frames>
      </DOMLayer>'''
@@ -615,6 +618,9 @@ def main():
     build_atoms()
     build_compositions()
     build_pages()
+    for _n in list(SYMBOLS):
+        if _n.startswith("page_"):
+            SYMBOLS[_n] = SYMBOLS[_n].replace('symbolType="graphic"', 'symbolType="movieclip"', 1)
     files = {"DOMDocument.xml": dom_document()}
     for name, xml in SYMBOLS.items():
         files[f"LIBRARY/UI/{name}.xml"] = xml

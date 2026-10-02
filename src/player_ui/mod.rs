@@ -600,6 +600,17 @@ pub async fn run() {
     if flash_page.is_some() && flash_slots.is_empty() {
         eprintln!("player-ui: no text slots (assets/player_ui/text_slots.json)");
     }
+    // Dev harness: synthesise one click at a page-space point (x,y), and/or
+    // dump the page's text draws, so the Flash UI can be checked headlessly.
+    let flash_click: Option<(f32, f32)> = std::env::var("MAI2_UI_FLASH_CLICK")
+        .ok()
+        .and_then(|v| {
+            let mut it = v.split(',');
+            Some((it.next()?.trim().parse().ok()?, it.next()?.trim().parse().ok()?))
+        });
+    let flash_dump = std::env::var("MAI2_UI_FLASH_DUMP").is_ok();
+    let mut click_done = false;
+    let mut dump_done = false;
 
     loop {
         let now = get_time();
@@ -651,6 +662,41 @@ pub async fn run() {
             let released = is_mouse_button_released(MouseButton::Left);
             if let Some(action) = flash_ui.update(flash::PAGES[next], hover, down, pressed, released) {
                 apply_flash_action(&mut app, action, &mut next);
+            }
+            if let Some((cx, cy)) = flash_click {
+                if !click_done && now - flash_start > 1.0 {
+                    let list = flash::hits(flash::PAGES[next]);
+                    match list.iter().rev().find(|h| h.contains_point(cx, cy)) {
+                        Some(h) => {
+                            eprintln!("flash-click {} {:?}", h.id, h.action);
+                            apply_flash_action(&mut app, h.action, &mut next);
+                        }
+                        None => eprintln!("flash-click ({cx},{cy}) no hit on {}", flash::PAGES[next]),
+                    }
+                    click_done = true;
+                }
+            }
+            if flash_dump && !dump_done {
+                let px = flash::PageXf::new(ctx.w, ctx.h, ctx.scale);
+                let xf = macroanimate::XflDrawXf {
+                    pos: (px.ox, px.oy),
+                    scale: px.scale,
+                    rotation: 0.0,
+                    alpha: 1.0,
+                    tint: None,
+                };
+                crate::app::anim::with_player_ui(|ui| {
+                    if let Some(ui) = ui {
+                        if let Some(clip) = ui.get(flash::PAGES[next]) {
+                            let t = clip.text_draws(0, &xf);
+                            eprintln!("flash-dump {}: {} text draws", flash::PAGES[next], t.len());
+                            for d in t.iter().take(24) {
+                                eprintln!("   {:?} @({:.0},{:.0}) {:.0}px", d.text, d.pos.0, d.pos.1, d.size);
+                            }
+                        }
+                    }
+                });
+                dump_done = true;
             }
             if is_key_pressed(KeyCode::Escape) {
                 flash_page = None;
