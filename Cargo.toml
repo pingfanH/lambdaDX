@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [".", "lnmai-core"]
+members = [".", "lnmai-core", "animation_ir"]
 # The Rust shim pulls in an external pure-Rust port via an absolute path; it is
 # excluded so a missing port does not break the default (Lean) build. It is only
 # loaded when `backend-rust` is enabled.

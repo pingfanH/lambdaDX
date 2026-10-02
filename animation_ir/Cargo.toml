@@ -1,0 +1,13 @@
+[package]
+name = "animation_ir"
+version = "0.1.0"
+edition = "2024"
+description = "Render-independent Animation IR (XFL/FLA -> IR) for the Rive + macroquad migration."
+license-file = "../macroanimate/LICENSE"
+
+[dependencies]
+# Parser only. The IR itself does not depend on macroanimate or Rive types at
+# runtime; conversion happens in `from_xfl`.
+macroanimate = { path = "../macroanimate" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

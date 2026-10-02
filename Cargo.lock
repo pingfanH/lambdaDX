@@ -74,6 +74,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "animation_ir"
+version = "0.1.0"
+dependencies = [
+ "macroanimate",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
