@@ -50,6 +50,7 @@ fn main() {
             PartContent::Bitmap(n) => format!("bitmap {n}"),
             PartContent::Vector(v) => format!("vector {} paths", v.len()),
             PartContent::Text(t) => format!("text {:?} @{:.0}px", t.text, t.size),
+            PartContent::NineSlice { parts, .. } => format!("slice {} parts", parts.len()),
         };
         let m = p.matrix;
         println!(

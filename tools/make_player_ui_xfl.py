@@ -142,6 +142,15 @@ def _num(v):
     return str(int(v)) if v == int(v) else repr(v)
 
 
+SCALE9 = {"ui_slider": (6.0, 0.0, 294.0, 36.0)}
+
+
+def _scale9_for(name):
+    if name.startswith("ui_btn_"):
+        return (8.0, 8.0, 172.0, 38.0)
+    return SCALE9.get(name)
+
+
 def inst(name, tx=0, ty=0, rot=0, sx=1, sy=1, alpha=None, firstFrame=0, tpx=0, tpy=0, loop="single frame", sym_type="graphic"):
     th = math.radians(rot)
     a, b = sx * math.cos(th), sx * math.sin(th)
@@ -150,9 +159,16 @@ def inst(name, tx=0, ty=0, rot=0, sx=1, sy=1, alpha=None, firstFrame=0, tpx=0, t
     col = f'<color><Color alphaMultiplier="{alpha}"/></color>' if alpha is not None else ""
     ff = f' firstFrame="{firstFrame}"' if firstFrame else ""
     tp = f'<Point x="{_num(tpx)}" y="{_num(tpy)}"/>' if (tpx or tpy) else "<Point/>"
+    s9 = _scale9_for(name)
+    s9x = (
+        f'<scale9Grid scaleGridLeft="{s9[0]:g}" scaleGridTop="{s9[1]:g}" '
+        f'scaleGridRight="{s9[2]:g}" scaleGridBottom="{s9[3]:g}"/>'
+        if s9
+        else ""
+    )
     return (
         f'<DOMSymbolInstance libraryItemName="UI/{name}" symbolType="{sym_type}" loop="{loop}"{ff}>'
-        f"<matrix>{mat}</matrix><transformationPoint>{tp}</transformationPoint>{col}</DOMSymbolInstance>"
+        f"<matrix>{mat}</matrix>{s9x}<transformationPoint>{tp}</transformationPoint>{col}</DOMSymbolInstance>"
     )
 
 
@@ -385,8 +401,8 @@ def build_compositions():
     btn_els = []
     for i, (lab, symn) in enumerate(labels):
         y = 180 + i * 56
-        btn_els.append(inst(symn, tx=28, ty=y))
-        btn_els.append(text(28, y + 14, 180, lab, 16, VOID if symn in ("ui_btn_primary", "ui_btn_danger") else TEXT, "center"))
+        btn_els.append(inst(symn, tx=28, ty=y, sx=364.0 / 180.0))
+        btn_els.append(text(28, y + 14, 364, lab, 16, VOID if symn in ("ui_btn_primary", "ui_btn_danger") else TEXT, "center"))
     add("ui_pause_panel", sym("ui_pause_panel", [
         layer("buttons", [frame(0, btn_els)]),
         layer("copy", [frame(0, [text(28, 38, 364, "PLAY SESSION", 11, ACCENT),

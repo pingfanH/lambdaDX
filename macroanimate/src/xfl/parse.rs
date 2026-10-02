@@ -220,12 +220,24 @@ fn parse_element(node: NodeRef) -> Option<Element> {
         "DOMSymbolInstance" => {
             let name = node.attribute("libraryItemName")?.to_string();
             let matrix = instance_matrix(node);
+            let scale9 = node
+                .descendants()
+                .find(|n| n.tag_name().name() == "scale9Grid")
+                .map(|g| {
+                    [
+                        attr_f32(g, "scaleGridLeft").unwrap_or(0.0),
+                        attr_f32(g, "scaleGridTop").unwrap_or(0.0),
+                        attr_f32(g, "scaleGridRight").unwrap_or(0.0),
+                        attr_f32(g, "scaleGridBottom").unwrap_or(0.0),
+                    ]
+                });
             Some(Element::Instance {
                 name,
                 matrix,
                 loop_mode: parse_loop(node.attribute("loop")),
                 first_frame: attr_usize(node, "firstFrame").unwrap_or(0),
                 alpha: parse_alpha(node),
+                scale9,
             })
         }
         "DOMBitmapInstance" => {

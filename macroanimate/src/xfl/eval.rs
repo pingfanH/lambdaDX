@@ -78,6 +78,7 @@ impl XflAtlas {
                 name,
                 loop_mode,
                 first_frame,
+                scale9,
                 ..
             } => {
                 let Some((_, timeline)) = self.symbols.get(name) else {
@@ -90,6 +91,47 @@ impl XflAtlas {
                     LoopMode::PlayOnce => raw.min(total - 1),
                     LoopMode::SingleFrame => (*first_frame).min(total - 1),
                 };
+                if let Some(grid) = scale9 {
+                    // Collect the child in its own frame so the 9-slice can
+                    // stretch its geometry between the grid lines.
+                    let mut child = Vec::new();
+                    self.collect(timeline, child_frame, IDENTITY, 1.0, &mut child);
+                    let mut nat = [
+                        f32::INFINITY,
+                        f32::INFINITY,
+                        f32::NEG_INFINITY,
+                        f32::NEG_INFINITY,
+                    ];
+                    let mut has_geometry = false;
+                    for p in &child {
+                        if let PartContent::Vector(paths) = &p.content {
+                            let m = p.matrix;
+                            for path in paths {
+                                for pt in &path.points {
+                                    let x = m[0] * pt[0] + m[2] * pt[1] + m[4];
+                                    let y = m[1] * pt[0] + m[3] * pt[1] + m[5];
+                                    nat[0] = nat[0].min(x);
+                                    nat[1] = nat[1].min(y);
+                                    nat[2] = nat[2].max(x);
+                                    nat[3] = nat[3].max(y);
+                                    has_geometry = true;
+                                }
+                            }
+                        }
+                    }
+                    if has_geometry {
+                        out.push(DrawPart {
+                            content: PartContent::NineSlice {
+                                parts: child,
+                                natural: nat,
+                                grid: *grid,
+                            },
+                            matrix,
+                            alpha,
+                        });
+                        return;
+                    }
+                }
                 self.collect(timeline, child_frame, matrix, alpha, out);
             }
         }

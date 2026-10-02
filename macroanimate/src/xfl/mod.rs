@@ -192,6 +192,12 @@ pub fn draw_part_tinted(
             );
         }
         PartContent::Vector(paths) => draw_vector(paths, &part.matrix, origin, part.alpha, tint),
+        PartContent::NineSlice { parts, natural, grid } => {
+            let mut m = part.matrix;
+            m[4] += origin.0;
+            m[5] += origin.1;
+            draw_nine_slice(parts, natural, grid, &m, part.alpha, tint, None);
+        }
         // Text is rasterized by the caller (see `XflAsset::text_draws`).
         PartContent::Text(_) => {}
     }
@@ -213,6 +219,76 @@ pub fn draw_vector(
 /// Like [`draw_vector`] but `rgb_override` **replaces** each path's fill/stroke
 /// RGB (alpha still comes from the path, times `alpha`/`mul`). Used to tint a
 /// loaded movie by grade while sharing the cached geometry.
+fn draw_paths_with<F: Fn([f32; 2]) -> (f32, f32)>(
+    paths: &[ShapePath],
+    transform: F,
+    alpha: f32,
+    mul: [u8; 4],
+    rgb_override: Option<[u8; 3]>,
+) {
+    let modulate = |rgba: [u8; 4]| -> [u8; 4] {
+        let base = rgb_override.unwrap_or([rgba[0], rgba[1], rgba[2]]);
+        [
+            (base[0] as f32 * mul[0] as f32 / 255.0).clamp(0.0, 255.0) as u8,
+            (base[1] as f32 * mul[1] as f32 / 255.0).clamp(0.0, 255.0) as u8,
+            (base[2] as f32 * mul[2] as f32 / 255.0).clamp(0.0, 255.0) as u8,
+            (rgba[3] as f32 * alpha.clamp(0.0, 1.0) * mul[3] as f32 / 255.0).clamp(0.0, 255.0) as u8,
+        ]
+    };
+    for path in paths {
+        let mut ring = path.points.clone();
+        if ring.len() >= 2 && ring.first() == ring.last() {
+            ring.pop();
+        }
+        if ring.len() < 2 {
+            continue;
+        }
+        let vertices: Vec<Vertex> = ring
+            .iter()
+            .map(|p| {
+                let (x, y) = transform(*p);
+                Vertex {
+                    position: vec3(x, y, 0.0),
+                    uv: vec2(0.0, 0.0),
+                    color: [255, 255, 255, 255],
+                    normal: vec4(0.0, 0.0, 1.0, 0.0),
+                }
+            })
+            .collect();
+        if ring.len() == 2 {
+            if let Some((stroke, weight)) = path.stroke {
+                let [r, g, b, a] = modulate(stroke.rgba());
+                let p0 = vertices[0].position;
+                let p1 = vertices[1].position;
+                draw_line(p0.x, p0.y, p1.x, p1.y, weight, Color::from_rgba(r, g, b, a));
+            }
+            continue;
+        }
+        if let Some(fill) = path.fill {
+            let rgba = modulate(fill.rgba());
+            let mut verts = vertices.clone();
+            for v in &mut verts {
+                v.color = rgba;
+            }
+            let indices: Vec<u16> = (1..ring.len() as u16 - 1).flat_map(|i| [0, i, i + 1]).collect();
+            draw_mesh(&Mesh {
+                vertices: verts,
+                indices,
+                texture: None,
+            });
+        }
+        if let Some((stroke, weight)) = path.stroke {
+            let [r, g, b, a] = modulate(stroke.rgba());
+            let color = Color::from_rgba(r, g, b, a);
+            for i in 0..ring.len() {
+                let p0 = vertices[i].position;
+                let p1 = vertices[(i + 1) % ring.len()].position;
+                draw_line(p0.x, p0.y, p1.x, p1.y, weight, color);
+            }
+        }
+    }
+}
+
 pub(crate) fn draw_vector_ex(
     paths: &[ShapePath],
     matrix: &Matrix,
@@ -222,77 +298,89 @@ pub(crate) fn draw_vector_ex(
     rgb_override: Option<[u8; 3]>,
 ) {
     let [a, b, c, d, tx, ty] = *matrix;
-    let transform = |p: [f32; 2]| {
-        vec3(
-            origin.0 + a * p[0] + c * p[1] + tx,
-            origin.1 + b * p[0] + d * p[1] + ty,
-            0.0,
-        )
+    draw_paths_with(
+        paths,
+        move |p: [f32; 2]| (origin.0 + a * p[0] + c * p[1] + tx, origin.1 + b * p[0] + d * p[1] + ty),
+        alpha,
+        mul,
+        rgb_override,
+    );
+}
+
+/// Draw a 9-sliced instance: corner cells keep their size, the middle stretches.
+fn draw_nine_slice(
+    parts: &[DrawPart],
+    natural: &[f32; 4],
+    grid: &[f32; 4],
+    m: &Matrix,
+    alpha: f32,
+    mul: [u8; 4],
+    rgb_override: Option<[u8; 3]>,
+) {
+    let [a, b, c, d, tx, ty] = *m;
+    // Rotation/shear is not 9-sliceable here; fall back to a plain draw.
+    if b.abs() > 1e-4 || c.abs() > 1e-4 {
+        for part in parts {
+            if let PartContent::Vector(paths) = &part.content {
+                draw_vector_ex(paths, m, (0.0, 0.0), alpha * part.alpha, mul, rgb_override);
+            }
+        }
+        return;
+    }
+    let x0 = a * natural[0] + tx;
+    let x1 = a * natural[2] + tx;
+    let y0 = d * natural[1] + ty;
+    let y1 = d * natural[3] + ty;
+    let gls = a * grid[0] + tx;
+    let grs = a * grid[2] + tx;
+    let gts = d * grid[1] + ty;
+    let gbs = d * grid[3] + ty;
+    let xl = x0 + (grid[0] - natural[0]).abs();
+    let xr = x1 - (natural[2] - grid[2]).abs();
+    let yt = y0 + (grid[1] - natural[1]).abs();
+    let yb = y1 - (natural[3] - grid[3]).abs();
+    let seg = |s0: f32, s1: f32, d0: f32, d1: f32, s: f32| {
+        if (s1 - s0).abs() < 1e-6 {
+            d0
+        } else {
+            d0 + (s - s0) * (d1 - d0) / (s1 - s0)
+        }
     };
-    let modulate = |rgba: [u8; 4]| -> [u8; 4] {
-        let base = rgb_override.unwrap_or([rgba[0], rgba[1], rgba[2]]);
-        [
-            (base[0] as f32 * mul[0] as f32 / 255.0).clamp(0.0, 255.0) as u8,
-            (base[1] as f32 * mul[1] as f32 / 255.0).clamp(0.0, 255.0) as u8,
-            (base[2] as f32 * mul[2] as f32 / 255.0).clamp(0.0, 255.0) as u8,
-            (rgba[3] as f32 * alpha.clamp(0.0, 1.0) * mul[3] as f32 / 255.0)
-                .clamp(0.0, 255.0) as u8,
-        ]
+    let mapx = move |s: f32| {
+        if s <= gls {
+            seg(x0, gls, x0, xl, s)
+        } else if s >= grs {
+            seg(grs, x1, xr, x1, s)
+        } else {
+            seg(gls, grs, xl, xr, s)
+        }
     };
-
-    for path in paths {
-        let mut ring = path.points.clone();
-        if ring.len() >= 2 && ring.first() == ring.last() {
-            ring.pop();
+    let mapy = move |s: f32| {
+        if s <= gts {
+            seg(y0, gts, y0, yt, s)
+        } else if s >= gbs {
+            seg(gbs, y1, yb, y1, s)
+        } else {
+            seg(gts, gbs, yt, yb, s)
         }
-        if ring.len() < 2 {
-            continue;
-        }
-        // A two-point path is a stroked line segment (e.g. the hero ticks) —
-        // it has no interior to fill.
-        if ring.len() == 2 {
-            if let Some((stroke, weight)) = path.stroke {
-                let [r, g, b, a] = modulate(stroke.rgba());
-                let p0 = transform(ring[0]);
-                let p1 = transform(ring[1]);
-                draw_line(p0.x, p0.y, p1.x, p1.y, weight, Color::from_rgba(r, g, b, a));
+    };
+    for part in parts {
+        match &part.content {
+            PartContent::Vector(paths) => {
+                let l = part.matrix;
+                draw_paths_with(
+                    paths,
+                    move |p: [f32; 2]| {
+                        let cx = l[0] * p[0] + l[2] * p[1] + l[4];
+                        let cy = l[1] * p[0] + l[3] * p[1] + l[5];
+                        (mapx(a * cx + tx), mapy(d * cy + ty))
+                    },
+                    alpha * part.alpha,
+                    mul,
+                    rgb_override,
+                );
             }
-            continue;
-        }
-        let vertices: Vec<Vertex> = ring
-            .iter()
-            .map(|p| Vertex {
-                position: transform(*p),
-                uv: vec2(0.0, 0.0),
-                color: [255, 255, 255, 255],
-                normal: vec4(0.0, 0.0, 1.0, 0.0),
-            })
-            .collect();
-
-        if let Some(fill) = path.fill {
-            let rgba = modulate(fill.rgba());
-            let mut vertices = vertices.clone();
-            for v in &mut vertices {
-                v.color = rgba;
-            }
-            let indices: Vec<u16> = (1..ring.len() as u16 - 1)
-                .flat_map(|i| [0, i, i + 1])
-                .collect();
-            draw_mesh(&Mesh {
-                vertices,
-                indices,
-                texture: None,
-            });
-        }
-
-        if let Some((stroke, weight)) = path.stroke {
-            let [r, g, b, a] = modulate(stroke.rgba());
-            let color = Color::from_rgba(r, g, b, a);
-            for i in 0..ring.len() {
-                let p0 = vertices[i].position;
-                let p1 = vertices[(i + 1) % ring.len()].position;
-                draw_line(p0.x, p0.y, p1.x, p1.y, weight, color);
-            }
+            _ => {}
         }
     }
 }
@@ -495,6 +583,9 @@ impl XflAsset {
                 PartContent::Vector(paths) => {
                     draw_vector_ex(paths, &mm, (0.0, 0.0), a, [255, 255, 255, 255], None)
                 }
+                PartContent::NineSlice { parts, natural, grid } => {
+                    draw_nine_slice(parts, natural, grid, &mm, a, [255, 255, 255, 255], None)
+                }
                 PartContent::Text(_) => {}
             }
         }
@@ -576,6 +667,9 @@ pub fn draw_parts_xf(parts: &[DrawPart], textures: &HashMap<String, Texture2D>, 
             }
             PartContent::Vector(paths) => {
                 draw_vector_ex(paths, &m, (0.0, 0.0), alpha, [255, 255, 255, 255], xf.tint)
+            }
+            PartContent::NineSlice { parts, natural, grid } => {
+                draw_nine_slice(parts, natural, grid, &m, alpha, [255, 255, 255, 255], xf.tint)
             }
             // Text has no font stack here; the caller draws it (see
             // [`XflAsset::text_draws`]).

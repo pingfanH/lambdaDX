@@ -134,6 +134,8 @@ pub enum Element {
         loop_mode: LoopMode,
         first_frame: usize,
         alpha: f32,
+        /// Scale-9 grid `[left, top, right, bottom]` in the child's local px.
+        scale9: Option<[f32; 4]>,
     },
     Shape {
         matrix: Matrix,
@@ -232,6 +234,14 @@ pub enum PartContent {
     Vector(Vec<ShapePath>),
     /// A static text field for the caller to rasterize.
     Text(TextRun),
+    /// A 9-sliced instance: child parts (child-local matrices) stretched so the
+    /// corner cells keep their size. `natural` is the child's bbox
+    /// `[x0, y0, x1, y1]`, `grid` the scale-9 lines `[l, t, r, b]`.
+    NineSlice {
+        parts: Vec<DrawPart>,
+        natural: [f32; 4],
+        grid: [f32; 4],
+    },
 }
 
 #[derive(Clone, Debug)]
