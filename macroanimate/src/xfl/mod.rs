@@ -425,22 +425,74 @@ impl XflAsset {
         let (sin, cos) = xf.rotation.sin_cos();
         let s = xf.scale;
         let g: Matrix = [s * cos, s * sin, -s * sin, s * cos, xf.pos.0, xf.pos.1];
+        self.text_parts_xf(&parts, &g, xf.alpha)
+    }
+
+    fn text_parts_xf(&self, parts: &[DrawPart], m: &Matrix, alpha: f32) -> Vec<TextDraw> {
+        let scale = (m[0] * m[0] + m[1] * m[1]).sqrt().max(1e-6);
         let mut out = Vec::new();
         for part in parts.iter() {
             if let PartContent::Text(run) = &part.content {
-                let m = mul(&g, &part.matrix);
+                let mm = mul(m, &part.matrix);
                 out.push(TextDraw {
                     text: run.text.clone(),
-                    pos: (m[4], m[5]),
-                    size: run.size * xf.scale,
+                    pos: (mm[4], mm[5]),
+                    size: run.size * scale,
                     color: run.color,
                     align: run.align,
-                    width: run.width * xf.scale,
-                    alpha: part.alpha * xf.alpha,
+                    width: run.width * scale,
+                    alpha: part.alpha * alpha,
                 });
             }
         }
         out
+    }
+
+    /// Draw a clip's frame with a raw 2×3 screen-space matrix (+ opacity).
+    ///
+    /// Unlike [`XflAsset::draw`] this allows non-uniform scale, which is what
+    /// overlaying a state frame of a widget (e.g. a button scaled to its box)
+    /// needs. Text is still skipped — use [`XflAsset::text_draws_matrix`].
+    pub fn draw_matrix(&self, clip: &str, frame: usize, m: &Matrix, alpha: f32) {
+        let parts = self.frame_parts(clip, frame);
+        for part in parts.iter() {
+            let mm = mul(m, &part.matrix);
+            let a = part.alpha * alpha;
+            match &part.content {
+                PartContent::Bitmap(name) => {
+                    let Some(texture) = self.textures.get(name) else {
+                        continue;
+                    };
+                    let sprite = AnimateSprite {
+                        x: 0.0,
+                        y: 0.0,
+                        w: texture.width(),
+                        h: texture.height(),
+                        rotated: false,
+                    };
+                    draw_part_mesh_tinted(
+                        texture,
+                        &sprite,
+                        &mm,
+                        texture.width(),
+                        texture.height(),
+                        0.0,
+                        0.0,
+                        [255, 255, 255, (a.clamp(0.0, 1.0) * 255.0) as u8],
+                    );
+                }
+                PartContent::Vector(paths) => {
+                    draw_vector_ex(paths, &mm, (0.0, 0.0), a, [255, 255, 255, 255], None)
+                }
+                PartContent::Text(_) => {}
+            }
+        }
+    }
+
+    /// Static text of a clip/frame under a raw screen-space matrix.
+    pub fn text_draws_matrix(&self, clip: &str, frame: usize, m: &Matrix, alpha: f32) -> Vec<TextDraw> {
+        let parts = self.frame_parts(clip, frame);
+        self.text_parts_xf(&parts, m, alpha)
     }
 }
 

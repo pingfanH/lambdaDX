@@ -5,6 +5,7 @@
 
 pub mod anim;
 pub mod draw;
+pub mod flash;
 pub mod input;
 pub mod library;
 pub mod pages;
@@ -16,6 +17,7 @@ use macroquad::prelude::*;
 use macroquad::Window;
 
 use crate::app::{self, audio, pad_svg, params, platform};
+use crate::app::types::RectF;
 use crate::player;
 use crate::player_ui::input::Input;
 use crate::player_ui::library::Library;
@@ -91,15 +93,6 @@ fn draw_loading(msg: &str) {
     draw_rectangle(w * 0.5 - 120.0, h * 0.5 + 18.0, 60.0, 3.0, theme::ACCENT);
 }
 
-/// The five player pages exported to the `player_ui` XFL project.
-const FLASH_PAGES: [&str; 5] = [
-    "UI/page_start",
-    "UI/page_song_select",
-    "UI/page_settings",
-    "UI/page_gameplay_hud",
-    "UI/page_pause",
-];
-
 /// Rasterize one XFL static-text field with macroquad's font, resolving the
 /// box alignment (the XFL box is top-left anchored).
 fn draw_flash_text(font: Option<&Font>, t: &macroanimate::TextDraw) {
@@ -120,8 +113,58 @@ fn draw_flash_text(font: Option<&Font>, t: &macroanimate::TextDraw) {
     draw::text(font, &t.text, x, y, size, color);
 }
 
-/// Draw a `player_ui` XFL page full-window, advancing its timeline.
-fn draw_flash(ctx: &UiCtx, page: &str, elapsed: f64) {
+/// The state frame a widget should show for the current app/interaction state.
+fn hit_frame(app: &PlayerUiApp, h: &flash::Hit, idx: usize, ui_state: &flash::FlashUi) -> usize {
+    let hovered = ui_state.hover == Some(idx);
+    let pressed = ui_state.press == Some(idx);
+    match h.kind {
+        flash::Kind::Button => {
+            if pressed {
+                2
+            } else if hovered {
+                1
+            } else {
+                0
+            }
+        }
+        flash::Kind::Row => {
+            let selected = matches!(h.action, flash::Action::SelectRow(i)
+                if app.loaded == Some(i) || app.selected == i);
+            if selected {
+                2
+            } else if hovered {
+                1
+            } else {
+                0
+            }
+        }
+        flash::Kind::Tab => {
+            let selected = matches!(h.action, flash::Action::Section(i) if app.settings_section == i);
+            if selected || hovered {
+                1
+            } else {
+                0
+            }
+        }
+        flash::Kind::Toggle => usize::from(app.pad.audio_enabled),
+        flash::Kind::Slider => 0,
+    }
+}
+
+/// Value fraction of the slider at `idx` (note/touch speed, fade, play speed).
+fn slider_frac(app: &PlayerUiApp, idx: usize) -> f32 {
+    let (v, lo, hi) = match idx {
+        0 => (app.pad.note_speed, 5.0, 10.0),
+        1 => (app.pad.touch_speed, 5.0, 10.0),
+        2 => (app.pad.slide_fade_in, 0.2, 1.2),
+        _ => (app.pad.play_speed, 0.5, 2.0),
+    };
+    ((v - lo) / (hi - lo)).clamp(0.0, 1.0)
+}
+
+/// Draw a `player_ui` XFL page: vectors, then per-widget state overlays, then
+/// the page's static text on top.
+fn draw_flash(app: &PlayerUiApp, ctx: &UiCtx, ui_state: &flash::FlashUi, page: &str, elapsed: f64) {
     if !crate::app::anim::player_ui_loaded() {
         draw::text(
             ctx.font.as_ref(),
@@ -133,26 +176,58 @@ fn draw_flash(ctx: &UiCtx, page: &str, elapsed: f64) {
         );
         return;
     }
+    let px = flash::PageXf::new(ctx.w, ctx.h, ctx.scale);
+    let hits = flash::hits(page);
     crate::app::anim::with_player_ui(|ui| {
         let Some(ui) = ui else { return };
-        let Some(clip) = ui.get(page) else {
-            return;
-        };
+        let Some(clip) = ui.get(page) else { return };
         let frames = clip.frames().max(1);
         let fps = clip.fps().max(1.0);
         let frame = ((elapsed.max(0.0) as f32 * fps) as usize) % frames;
-        let scale = ctx.scale;
-        let ox = (ctx.w - 1280.0 * scale) * 0.5;
-        let oy = (ctx.h - 760.0 * scale) * 0.5;
         let xf = macroanimate::XflDrawXf {
-            pos: (ox, oy),
-            scale,
+            pos: (px.ox, px.oy),
+            scale: px.scale,
             rotation: 0.0,
             alpha: 1.0,
             tint: None,
         };
-        // Vectors/bitmaps via macroanimate, then the static text via macroquad.
         clip.draw(frame, &xf);
+        for (i, h) in hits.iter().enumerate() {
+            let wf = hit_frame(app, h, i, ui_state);
+            let m = px.widget(h);
+            ui.draw_matrix(h.sym, wf, &m, 1.0);
+            // Sliders: erase the baked fill/knob band, then draw the live value.
+            if let flash::Action::SetSlider(idx, _) = h.action {
+                let ty = h.rect.y + 24.0;
+                let (x0, y0) = (px.x(h.rect.x), px.y(ty - 8.0));
+                let (w0, h0) = (h.rect.w * px.scale, 22.0 * px.scale);
+                draw::rect(RectF { x: x0, y: y0, w: w0, h: h0 }, theme::RAISED);
+                let frac = slider_frac(app, idx);
+                let track_y = px.y(ty);
+                draw::rect(
+                    RectF {
+                        x: x0,
+                        y: track_y,
+                        w: w0 * frac,
+                        h: 6.0 * px.scale,
+                    },
+                    theme::ACCENT,
+                );
+                let kx = x0 + w0 * frac;
+                draw::rect(
+                    RectF {
+                        x: kx - 6.0 * px.scale,
+                        y: track_y - 5.0 * px.scale,
+                        w: 12.0 * px.scale,
+                        h: 16.0 * px.scale,
+                    },
+                    theme::TEXT,
+                );
+            }
+            for t in ui.text_draws_matrix(h.sym, wf, &m, 1.0) {
+                draw_flash_text(ctx.font.as_ref(), &t);
+            }
+        }
         for t in clip.text_draws(frame, &xf) {
             draw_flash_text(ctx.font.as_ref(), &t);
         }
@@ -165,6 +240,89 @@ fn draw_flash(ctx: &UiCtx, page: &str, elapsed: f64) {
         13.0,
         theme::TEXT_MUTED,
     );
+}
+
+/// Apply a Flash-UI action; may change the active page index.
+fn apply_flash_action(app: &mut PlayerUiApp, action: flash::Action, page_idx: &mut usize) {
+    match action {
+        flash::Action::GoStart => *page_idx = 0,
+        flash::Action::GoSelect => {
+            let n = app.library.songs.len();
+            if n > 0 {
+                let i = app.selected.min(n - 1);
+                let _ = app.request_load_song(i);
+            }
+            *page_idx = 1;
+        }
+        flash::Action::GoSettings => {
+            app.open_settings();
+            *page_idx = 2;
+        }
+        flash::Action::GoGameplay => {
+            let _ = app.begin_gameplay();
+            *page_idx = 3;
+        }
+        flash::Action::CloseSettings => {
+            app.close_settings();
+            *page_idx = match app.page {
+                Page::SongSelect => 1,
+                Page::Pause => 4,
+                _ => 0,
+            };
+        }
+        flash::Action::SelectRow(i) => {
+            if let Err(e) = app.request_load_song(i) {
+                app.error = Some(e);
+            }
+        }
+        flash::Action::Resume => {
+            app.resume();
+            *page_idx = 3;
+        }
+        flash::Action::Restart => {
+            app.restart();
+            *page_idx = 3;
+        }
+        flash::Action::ExitToSelect => {
+            app.exit_to_select();
+            *page_idx = 1;
+        }
+        flash::Action::Section(i) => app.settings_section = i,
+        flash::Action::ToggleAudio => app.pad.audio_enabled = !app.pad.audio_enabled,
+        flash::Action::ResetSettings => {
+            app.pad.audio_enabled = true;
+            app.pad.note_speed = 7.5;
+            app.pad.touch_speed = 7.5;
+            app.pad.slide_fade_in = 3.926_913 / 7.5;
+            app.pad.set_play_speed(1.0);
+            app.pad.ui_scale_override = None;
+            app.pad.mobile_ui = false;
+            app.status = "已恢复默认设置".to_string();
+        }
+        flash::Action::SetSlider(idx, frac) => {
+            let v = match idx {
+                0 => 5.0 + frac * 5.0,
+                1 => 5.0 + frac * 5.0,
+                2 => 0.2 + frac * 1.0,
+                _ => 0.5 + frac * 1.5,
+            };
+            match idx {
+                0 => app.pad.note_speed = v,
+                1 => app.pad.touch_speed = v,
+                2 => app.pad.slide_fade_in = v,
+                _ => app.pad.set_play_speed(v),
+            }
+        }
+        flash::Action::ToggleAutoplay => {
+            let on = !app.pad.autoplay;
+            app.set_autoplay(on);
+        }
+        flash::Action::TogglePlay => app.pad.toggle_play(),
+        flash::Action::PauseGame => {
+            app.pause();
+            *page_idx = 4;
+        }
+    }
 }
 
 pub async fn run() {
@@ -320,7 +478,7 @@ pub async fn run() {
     // keys 1..5 switch pages and ESC leaves the mode.
     let mut flash_page: Option<usize> = std::env::var("MAI2_UI_FLASH").ok().map(|v| {
         if let Ok(i) = v.parse::<usize>() {
-            i.min(FLASH_PAGES.len() - 1)
+            i.min(flash::PAGES.len() - 1)
         } else {
             match v.as_str() {
                 "select" | "song_select" => 1,
@@ -332,6 +490,7 @@ pub async fn run() {
         }
     });
     let flash_start = get_time();
+    let mut flash_ui = flash::FlashUi::default();
 
     loop {
         let now = get_time();
@@ -360,6 +519,7 @@ pub async fn run() {
         app.poll_audio();
         app.poll_chart();
         if let Some(pi) = flash_page {
+            let mut next = pi.min(flash::PAGES.len() - 1);
             for (i, k) in [
                 KeyCode::Key1,
                 KeyCode::Key2,
@@ -371,13 +531,28 @@ pub async fn run() {
             .enumerate()
             {
                 if is_key_pressed(*k) {
-                    flash_page = Some(i);
+                    next = i;
                 }
+            }
+            let px = flash::PageXf::new(ctx.w, ctx.h, ctx.scale);
+            let (mx, my) = mouse_position();
+            let hover = Some(px.to_page(mx, my));
+            let down = is_mouse_button_down(MouseButton::Left);
+            let pressed = is_mouse_button_pressed(MouseButton::Left);
+            let released = is_mouse_button_released(MouseButton::Left);
+            if let Some(action) = flash_ui.update(flash::PAGES[next], hover, down, pressed, released) {
+                apply_flash_action(&mut app, action, &mut next);
             }
             if is_key_pressed(KeyCode::Escape) {
                 flash_page = None;
+            } else {
+                flash_page = Some(next);
+                // Gameplay/pause render the pad behind the HUD.
+                if next >= 3 {
+                    pages::gameplay::draw_view(&mut app, &ctx, &mut input);
+                }
+                draw_flash(&app, &ctx, &flash_ui, flash::PAGES[next], now - flash_start);
             }
-            draw_flash(&ctx, FLASH_PAGES[pi.min(FLASH_PAGES.len() - 1)], now - flash_start);
         } else {
             pages::draw(&mut app, &mut input, &ctx);
         }
