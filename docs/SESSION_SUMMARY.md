@@ -65,7 +65,8 @@
 - `search.rs` baseline-first 局部化枚举（贪心降 `bad()`）：
   仅重定时失败 + 重叠的 slide；`MAI2_DEBUG_FORCE_BATCH=1` 下曾修复一个失败谱面
   （`work slides: [0]`、`arcs re-timed: 1`、全非 Miss）。
-- **缓存 + 预览链路**：验证通过后写 `out/autoplay_gen/<title>_lv<level>.json`，
+- **缓存 + 预览链路**：验证通过后写
+  `out/autoplay_gen/<title>_lv<level>_<hash>.json`（`<hash>` 为谱面路径短哈希），
   并可用 `--autoplay-tactic <file>` / env `MAI2_AUTOPLAY_TACTIC` 让 preview **原样重放**。
 - `VerifyResult.grades` + `print_verify` 打印每个 arc 的判定等级。
 
@@ -93,8 +94,9 @@
 结果：`autotest` → `all judged arcs Perfect`，缓存 `out/autoplay_gen/TEST_lv2.json`；
 `test/`、`サイエンス1/2/` 无回归（misses: 0，已判定 arc 全 Perfect）。
 
-待办见 [`AUTOPLAY_GENERATOR.md` 的「接下来的任务」](./AUTOPLAY_GENERATOR.md#接下来的任务)：
-A 区与非 ex note 冲突窗口、缓存键冲突（サイエンス1/2 同名覆盖）、回归测试。
+缓存键已加入谱面路径哈希，`サイエンス1/2` 不再互相覆盖。待办见
+[`AUTOPLAY_GENERATOR.md` 的「接下来的任务」](./AUTOPLAY_GENERATOR.md#接下来的任务)：
+A 区与非 ex note 冲突窗口、`fast`/track 间隔、回归测试。
 
 ## 三、Git 状态（截至本记录）
 

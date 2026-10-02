@@ -212,7 +212,7 @@ fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyR
         println!("not all-Perfect — nothing cached, preview skipped");
         return;
     }
-    let cached = match cache_tactic(title, level, &result.events) {
+    let cached = match cache_tactic(chart, title, level, &result.events) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("cache failed: {e}");
@@ -239,8 +239,19 @@ fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyR
     }
 }
 
-/// Write the event list to `out/autoplay_gen/<title>_lv<level>.json`.
-fn cache_tactic(title: &str, level: u32, events: &[TimedInputEvent]) -> Result<PathBuf, String> {
+/// Write the event list to `out/autoplay_gen/<title>_lv<level>_<hash>.json`.
+///
+/// The hash is of the chart path: two charts can share title+level (e.g.
+/// `サイエンス1/` and `サイエンス2/`), and their tactics must not overwrite
+/// each other.
+fn cache_tactic(
+    chart: &Path,
+    title: &str,
+    level: u32,
+    events: &[TimedInputEvent],
+) -> Result<PathBuf, String> {
+    use std::hash::{Hash, Hasher};
+
     let dir = PathBuf::from("out/autoplay_gen");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     let slug: String = title
@@ -249,7 +260,11 @@ fn cache_tactic(title: &str, level: u32, events: &[TimedInputEvent]) -> Result<P
         .collect();
     let slug = slug.trim_matches('_');
     let slug = if slug.is_empty() { "chart" } else { slug };
-    let path = dir.join(format!("{slug}_lv{level}.json"));
+    let key = chart.canonicalize().unwrap_or_else(|_| chart.to_path_buf());
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.to_string_lossy().hash(&mut hasher);
+    let tag = hasher.finish() & 0xffff_ffff;
+    let path = dir.join(format!("{slug}_lv{level}_{tag:08x}.json"));
     let json = serde_json::to_string(events).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
     Ok(path)

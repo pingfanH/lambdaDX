@@ -179,7 +179,8 @@ autoplay_gen [CHART] [--diff N] [--block S] [--max-tries N]
 - `--default-tactic`：用内核自带 tactic 走同一套验证（校验「验证 + 预览」链路）。
 - `--preview`：仅当所有已判定 arc 均 Perfect 时，把事件写成 JSON 并通过
   `--autoplay-tactic <file>` 交给 `lambda_dx_pad_preview`。
-- 缓存路径：`out/autoplay_gen/<title>_lv<level>.json`（`/out/` 已 gitignore）。
+- 缓存路径：`out/autoplay_gen/<title>_lv<level>_<hash>.json`，`<hash>` 是谱面路径的
+  短哈希（避免 `サイエンス1/`、`サイエンス2/` 同名同等级互相覆盖）；`/out/` 已 gitignore。
 
 ### 预览外部 tactic 链路
 
@@ -233,21 +234,19 @@ autoplay_gen [CHART] [--diff N] [--block S] [--max-tries N]
 
 ## 接下来的任务
 
-已完成（本轮）：1–4 全部落地——`search.rs` 改用 `Vec<ArcTiming>` 并枚举
-`{offset × fast}`；修复末区 hold；autotest 跑通并缓存；`test/`、`サイエンス1/2/`
-无回归。
+已完成：`search.rs` 改用 `Vec<ArcTiming>` 并枚举 `{offset × fast}`；修复末区
+hold；autotest 跑通并缓存；`test/`、`サイエンス1/2/` 无回归；缓存键加入谱面路径哈希
+（`サイエンス1/2` 不再互相覆盖）。
 
 待办：
 
 1. **A 区冲突窗口**：把「非 ex note 的 great/good 判定时刻」纳入枚举禁放窗口
    （见上文「补充约束」；ex 无需规避）。
-2. **缓存键冲突**：缓存文件名只用 `title_lvN`，`サイエンス1/` 与 `サイエンス2/`
-   标题、等级相同 → 互相覆盖。应把谱面路径/内容哈希并入文件名或内容。
-3. **`fast` 与 track 间隔**：本轮靠 `offset` 解决。`fast` 已接入枚举但未命中也未
+2. **`fast` 与 track 间隔**：本轮靠 `offset` 解决。`fast` 已接入枚举但未命中也未
    证伪；若要覆盖更一般的重叠，需枚举每条 track 的 rush 间隔。
-4. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
-5. **预览核对**：`--preview` 已可缓存并启动；用 `MAI2_DEBUG_SLIDE=1` 核对
+3. **粒度决策**：时间块按拍子还是固定 0.1s；两者都换算成秒计算。
+4. **预览核对**：`--preview` 已可缓存并启动；用 `MAI2_DEBUG_SLIDE=1` 核对
    preview 判定与生成器一致（终端环境未实际开窗）。
-6. **回归测试**：补一条 autotest 的回归测试；确认 chart-shape 的 `build_events`
+5. **回归测试**：补一条 autotest 的回归测试；确认 chart-shape 的 `build_events`
    探索路径不回归。
 </content>
