@@ -723,7 +723,10 @@ impl PadPreviewState {
             }
             engine.debug_dump_slide_bindings();
         }
-        self.autoplay_tactic = engine.default_tactic().unwrap_or_default();
+        // `MAI2_AUTOPLAY_TACTIC=<file>` overrides the core's default tactic with
+        // an external JSON event list (used by the `autoplay_gen` generator).
+        self.autoplay_tactic = external_autoplay_tactic()
+            .unwrap_or_else(|| engine.default_tactic().unwrap_or_default());
         self.autoplay_tactic_cursor = 0;
         self.judge_engine = Some(engine);
         self.engine_events.clear();
@@ -1027,6 +1030,14 @@ impl PadPreviewState {
         self.engine_events
             .extend(crate::player::engine::hold_events_for_zone(zone, tp));
     }
+}
+
+/// Load an external autoplay tactic from `MAI2_AUTOPLAY_TACTIC=<path>`: a JSON
+/// list of `TimedInputEvent`. Returns `None` when unset, unreadable or invalid.
+fn external_autoplay_tactic() -> Option<Vec<crate::core::types::TimedInputEvent>> {
+    let path = std::env::var_os("MAI2_AUTOPLAY_TACTIC")?;
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
 }
 
 /// Judge-label → hit-effect tint.

@@ -570,7 +570,7 @@ fn force_per_event() -> bool {
     *ON.get_or_init(|| std::env::var_os("MAI2_DEBUG_FORCE_PEREVENT").is_some())
 }
 
-fn step_engine_events(
+pub(crate) fn step_engine_events(
     engine: &mut JudgeEngine,
     now: f32,
     mut events: Vec<TimedInputEvent>,

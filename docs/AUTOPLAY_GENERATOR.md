@@ -99,6 +99,20 @@ for unit in overlapping_units:          # 重叠单位
 5. **定位分工**：可把现有 `default_tactic` 视为「快速近似」，新生成器作为「理论基准 / 校验」，
    两者对不上的地方即需要排查内核或步进。
 
+## 最小实现
+
+`cargo run --bin autoplay_gen -- <chart> [--diff N] [--block S] [--preview]`
+（代码在 `src/autoplay_gen/`）：
+
+- `model.rs` 建模生命周期 / 区块；`planner.rs` 分块 + 重叠单位 + 贪心枚举；
+  `report.rs` 输出调度与 A 区冲突。
+- `verify.rs` 把计划转成传感器事件，喂给 lnmai-core 重放，报告每个 runtime arc 的判定。
+- `--default-tactic` 用内核自带 tactic 走同一套验证（用于验证「验证 + 预览」链路）。
+- `--preview` 在**所有已判定 arc 均非 Miss** 时，把生成的事件写成 JSON 并通过
+  `MAI2_AUTOPLAY_TACTIC=<file>` 交给 `lambda_dx_pad_preview` 显示。
+
+当前事件生成还很朴素（每段一次 hold），尚不能全 Perfect；枚举器本身是后续工作。
+
 ## 未决问题
 
 - 时间块粒度（0.1s）与 BPM 的关系：是否应按拍子而非固定秒数切分（但计算仍换算成秒）。
