@@ -129,7 +129,7 @@ fn main() {
     if spec_events {
         let engine = player::engine::JudgeEngine::load(&text, level).expect("engine");
         let spec = engine.chart_spec().expect("lowered chart");
-        let events = verify::build_events_from_spec(&spec, 0);
+        let events = verify::build_events_from_spec(&spec);
         println!(
             "\nevents: {} (spec-derived, {} slide arcs)",
             events.len(),
@@ -146,27 +146,37 @@ fn main() {
         return;
     }
 
-    // ── Backtracking enumeration ───────────────────────────────────────
-    let outcome = search::search(&text, level, &mut plans, block_s, max_tries);
-    let units = planner::group_units(&plans);
+    // ── Baseline + localized enumeration over spec runtime arcs ────────
+    let engine = player::engine::JudgeEngine::load(&text, level).expect("engine");
+    let spec = engine.chart_spec().expect("lowered chart");
+    let song_end = spec
+        .slides
+        .iter()
+        .map(|s| (s.start_timing + s.length) as f64 / 1e6)
+        .fold(0.0_f64, f64::max) as f32;
+
+    let units = plan(&mut plans, block_s);
     print_report(&chart_doc, &plans, &units, block_s);
 
-    println!("\n== enumeration ==");
-    println!(
-        "tries: {}   failed slides: {}   (block={:.3}s, max_tries={})",
-        outcome.tries,
-        outcome.failed.len(),
-        block_s,
-        max_tries
-    );
-    if !outcome.failed.is_empty() {
-        println!("  failed slides: {:?}", outcome.failed);
+    let outcome = search::search(&text, level, &plans, &spec, song_end, max_tries);
+    if outcome.baseline_perfect {
+        println!(
+            "\n== baseline ==\nchart-time tactic is already all-Perfect — enumeration skipped (tries {})",
+            outcome.tries
+        );
+    } else {
+        let moved = outcome.offsets.iter().filter(|o| **o != 0).count();
+        println!("\n== enumeration ==");
+        println!(
+            "tries: {}   work slides: {:?}   arcs re-timed: {}",
+            outcome.tries, outcome.work_slides, moved
+        );
     }
     print_verify(&outcome.final_verify);
     maybe_preview(
         preview,
         &path,
-        outcome.perfect(),
+        outcome.final_verify.all_perfect(),
         &outcome.final_verify.events,
     );
 }

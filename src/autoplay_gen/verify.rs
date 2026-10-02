@@ -83,16 +83,16 @@ fn slot_area(slot: OuterSlot) -> SensorArea {
     }
 }
 
-/// Build events from the core's **lowered chart** instead of the chart-shape
-/// plan: each runtime arc holds every sensor area of its judge queue in order,
-/// spread across the arc's span by arrow progress. `offset_us` shifts every
-/// arc (the enumeration's knob).
-pub fn build_events_from_spec(spec: &ChartSpec, offset_us: i64) -> Vec<TimedInputEvent> {
+/// Build events from the core's **lowered chart**: each runtime arc holds every
+/// sensor area of its judge queue in order, spread across the arc's span by
+/// arrow progress. `offsets[i]` shifts the i-th runtime arc (the enumeration's
+/// knob); slide heads stay at their chart time.
+pub fn build_events_with_offsets(spec: &ChartSpec, offsets: &[i64]) -> Vec<TimedInputEvent> {
     let mut events = Vec::new();
 
     for head in &spec.slide_heads {
         let area = slot_area(head.slot);
-        let tp = head.timing + offset_us;
+        let tp = head.timing;
         events.push(TimedInputEvent::SensorClick { tp, area });
         events.push(TimedInputEvent::SensorHold {
             tp,
@@ -106,7 +106,8 @@ pub fn build_events_from_spec(spec: &ChartSpec, offset_us: i64) -> Vec<TimedInpu
         });
     }
 
-    for slide in &spec.slides {
+    for (i, slide) in spec.slides.iter().enumerate() {
+        let offset_us = offsets.get(i).copied().unwrap_or(0);
         let len = slide.length.max(1);
         let start = slide.start_timing + offset_us;
         let end = start + len;
@@ -149,6 +150,11 @@ pub fn build_events_from_spec(spec: &ChartSpec, offset_us: i64) -> Vec<TimedInpu
 
     events.sort_by_key(timed_input_tp);
     events
+}
+
+/// [`build_events_with_offsets`] with every arc at its chart time.
+pub fn build_events_from_spec(spec: &ChartSpec) -> Vec<TimedInputEvent> {
+    build_events_with_offsets(spec, &[])
 }
 
 /// Replay `events` at 60 fps and collect the slide judge per runtime arc.
