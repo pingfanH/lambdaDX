@@ -20,8 +20,10 @@ use crate::player_ui::UiCtx;
 pub fn draw(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     backdrop(ctx);
 
+    // Pad visuals first, input last: the UI widgets get first refusal on the
+    // pointer, so a button overlapping a sensor zone wins over the pad.
     if app.shows_gameplay_background() {
-        gameplay::draw_view(app, ctx, input);
+        gameplay::draw_view(app, ctx);
     }
 
     match app.page {
@@ -33,6 +35,10 @@ pub fn draw(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
             gameplay::draw_hud(app, input, ctx);
             pause::draw(app, input, ctx);
         }
+    }
+
+    if app.shows_gameplay_background() {
+        gameplay::handle_pad_input(app, ctx, input);
     }
 
     if let Some(err) = app.error.clone() {

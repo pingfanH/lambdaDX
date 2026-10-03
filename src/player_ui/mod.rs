@@ -794,7 +794,10 @@ pub async fn run() {
                 flash_page = Some(page_idx);
                 // Gameplay/pause render the pad behind the HUD.
                 if page_idx >= 3 {
-                    pages::gameplay::draw_view(&mut app, &ctx, &mut input);
+                    pages::gameplay::draw_view(&mut app, &ctx);
+                    // The Flash UI is not driven through `Input`, so the pad
+                    // takes the pointer here.
+                    pages::gameplay::handle_pad_input(&mut app, &ctx, &mut input);
                 }
                 draw_flash(&app, &ctx, &mut flash_ui, &flash_slots, page, page_idx, frame, now);
             }

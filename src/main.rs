@@ -315,13 +315,32 @@ async fn run(args: LaunchArgs) {
         // Unified pointer (mouse + touch + evdev) so the HUD reacts to touch too.
         let ui_pointer = player::input::ui_pointer(&pointer_events);
         let ui_scale = player::render::ui_scale(&app);
+
+        // egui params panel runs first so an open panel owns the pointer: its
+        // buttons must beat a sensor zone sitting behind them. Drawn later (on
+        // top) via `draw`.
+        app::egui_bridge::pointer(
+            ui_pointer.pos,
+            ui_pointer.down,
+            ui_pointer.pressed,
+            ui_pointer.released,
+        );
+        app::egui_bridge::ui(|ctx| player::params_panel::draw(ctx, &mut app));
+        let egui_wants_pointer = app::egui_bridge::wants_pointer();
+
         // The HUD progress bar / AUTO button take priority over pad touches.
-        let hud_consumed = player::hud::handle_input(&mut app, layout.header, ui_scale, ui_pointer);
+        let hud_consumed = if egui_wants_pointer {
+            None
+        } else {
+            player::hud::handle_input(&mut app, layout.header, ui_scale, ui_pointer)
+        };
         let pointer_events: Vec<_> = match hud_consumed {
             Some(id) => pointer_events.into_iter().filter(|e| e.id != id).collect(),
             None => pointer_events,
         };
-        player::input::handle_touch_controls(&mut app, pad_geom, &pointer_events);
+        if !egui_wants_pointer {
+            player::input::handle_touch_controls(&mut app, pad_geom, &pointer_events);
+        }
 
         audio::service_audio(&mut app).await;
 
@@ -356,10 +375,8 @@ async fn run(args: LaunchArgs) {
 
         app.tick_feedback();
 
-        // egui params panel on top (F1). Touch-aware bridge: feed the unified
-        // pointer so the panel works with a touchscreen, not just the mouse.
-        app::egui_bridge::pointer(ui_pointer.pos, ui_pointer.pressed, ui_pointer.released);
-        app::egui_bridge::ui(|ctx| player::params_panel::draw(ctx, &mut app));
+        // egui params panel on top (F1); its logic already ran above so the
+        // pointer was routed with the panel taking priority over the pad.
         app::egui_bridge::draw();
 
         // Release the frozen song clock once the first frame is on screen.

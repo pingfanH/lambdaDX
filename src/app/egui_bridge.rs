@@ -21,6 +21,13 @@ use macroquad::prelude::{Vec2, get_internal_gl};
 struct Egui {
     egui_mq: EguiMq,
     input_subscriber_id: usize,
+    /// Pointer held state and last position, so a dropped touch edge still
+    /// produces the matching press/release for egui (a button otherwise shows
+    /// pressed forever without ever firing).
+    pointer_down: bool,
+    last_pos: Vec2,
+    /// Whether egui wanted the pointer on the last frame it ran.
+    wants_pointer: bool,
 }
 
 thread_local! {
@@ -33,6 +40,9 @@ fn with_egui<R>(f: impl FnOnce(&mut Egui) -> R) -> R {
         let egui = slot.get_or_insert_with(|| Egui {
             egui_mq: EguiMq::new(unsafe { get_internal_gl() }.quad_context),
             input_subscriber_id: macroquad::input::utils::register_input_subscriber(),
+            pointer_down: false,
+            last_pos: Vec2::ZERO,
+            wants_pointer: false,
         });
         f(egui)
     })
@@ -46,6 +56,9 @@ impl Egui {
         let gl = unsafe { get_internal_gl() };
         macroquad::input::utils::repeat_all_miniquad_input(self, self.input_subscriber_id);
         self.egui_mq.run(gl.quad_context, f);
+        // Recorded so the caller can keep the pad from stealing a touch that is
+        // interacting with a panel widget.
+        self.wants_pointer = self.egui_mq.egui_ctx().wants_pointer_input();
     }
 
     fn draw(&mut self) {
@@ -56,16 +69,32 @@ impl Egui {
 
     /// Push this frame's pointer (mouse or touch) into egui. `pos` is fed every
     /// frame so hover works even with no button down.
-    fn pointer(&mut self, pos: Vec2, pressed: bool, released: bool) {
+    ///
+    /// The press/release edges are derived from the `down` transition as well as
+    /// the reported phase, so a dropped Started/Ended event still resolves to a
+    /// complete click (using the last known position for a synthesised release).
+    fn pointer(&mut self, pos: Vec2, down: bool, pressed: bool, released: bool) {
+        let press = pressed || (down && !self.pointer_down);
+        let release = released || (!down && self.pointer_down);
+        if down || pressed {
+            self.last_pos = pos;
+        }
+
+        // Hover / drag position, every frame.
         self.egui_mq.mouse_motion_event(pos.x, pos.y);
-        if pressed {
+
+        if press {
             self.egui_mq
                 .mouse_button_down_event(mq::MouseButton::Left, pos.x, pos.y);
         }
-        if released {
+        if release {
+            // An explicit Ended carries its own position; a synthesised release
+            // (dropped touch edge) reuses the last held position.
+            let up = if released { pos } else { self.last_pos };
             self.egui_mq
-                .mouse_button_up_event(mq::MouseButton::Left, pos.x, pos.y);
+                .mouse_button_up_event(mq::MouseButton::Left, up.x, up.y);
         }
+        self.pointer_down = down;
     }
 }
 
@@ -85,9 +114,80 @@ pub fn draw() {
 }
 
 /// Feed the unified pointer for this frame. `pos` is the cursor / first-touch
-/// position; `pressed`/`released` describe the button edges.
-pub fn pointer(pos: Vec2, pressed: bool, released: bool) {
-    with_egui(|egui| egui.pointer(pos, pressed, released));
+/// position; `down`/`pressed`/`released` describe the button state.
+pub fn pointer(pos: Vec2, down: bool, pressed: bool, released: bool) {
+    with_egui(|egui| egui.pointer(pos, down, pressed, released));
+}
+
+/// Whether egui wanted the pointer on the last frame it ran (a panel widget is
+/// hovered or being interacted with). The pad should then ignore the touch.
+pub fn wants_pointer() -> bool {
+    with_egui(|egui| egui.wants_pointer)
+}
+
+#[cfg(test)]
+mod tests {
+    use egui_macroquad::egui;
+
+    /// One egui frame with a button pinned at `rect`; returns whether it fired.
+    fn frame(ctx: &egui::Context, events: Vec<egui::Event>, rect: egui::Rect) -> bool {
+        let mut raw = egui::RawInput::default();
+        raw.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1280.0, 760.0),
+        ));
+        raw.events = events;
+        let mut clicked = false;
+        let _ = ctx.run(raw, |c| {
+            egui::CentralPanel::default().show(c, |ui| {
+                if ui.put(rect, egui::Button::new("x")).clicked() {
+                    clicked = true;
+                }
+            });
+        });
+        clicked
+    }
+
+    /// The press-then-release sequence we feed from touch must register a click.
+    #[test]
+    fn pointer_press_then_release_clicks_a_button() {
+        let ctx = egui::Context::default();
+        let rect = egui::Rect::from_min_size(egui::pos2(400.0, 300.0), egui::vec2(120.0, 32.0));
+        let p = egui::pos2(460.0, 316.0);
+        let md = egui::Modifiers::default();
+
+        // Warm-up frame establishes the layout.
+        frame(&ctx, vec![egui::Event::PointerMoved(p)], rect);
+        // Press.
+        assert!(!frame(
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: md,
+                },
+            ],
+            rect,
+        ));
+        // Release in place.
+        let clicked = frame(
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: md,
+                },
+            ],
+            rect,
+        );
+        assert!(clicked, "a press+release on the button must click it");
+    }
 }
 
 impl mq::EventHandler for Egui {

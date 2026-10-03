@@ -46,26 +46,40 @@ impl Default for Input {
 impl Input {
     /// Sample macroquad's pointer for this frame. A touch (when present) takes
     /// priority over the mouse, so the UI is usable on a touchscreen too.
+    ///
+    /// Press/release edges are derived from the *held* state as well as the
+    /// reported phase: touch stacks frequently drop a Started/Ended edge between
+    /// frames, which otherwise leaves a button stuck showing "pressed" without
+    /// ever firing its click.
     pub fn begin_frame(&mut self) {
+        let prev_down = self.down;
+
         let touch = touches().into_iter().next();
-        match touch {
-            Some(t) => {
-                self.pos = t.position;
-                self.pressed = t.phase == TouchPhase::Started;
-                self.released = matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled);
-                self.down = matches!(
+        let (pos, raw_down, raw_pressed, raw_released) = match touch {
+            Some(t) => (
+                t.position,
+                matches!(
                     t.phase,
                     TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary
-                );
-            }
+                ),
+                t.phase == TouchPhase::Started,
+                matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled),
+            ),
             None => {
                 let (x, y) = mouse_position();
-                self.pos = vec2(x, y);
-                self.down = is_mouse_button_down(MouseButton::Left);
-                self.pressed = is_mouse_button_pressed(MouseButton::Left);
-                self.released = is_mouse_button_released(MouseButton::Left);
+                (
+                    vec2(x, y),
+                    is_mouse_button_down(MouseButton::Left),
+                    is_mouse_button_pressed(MouseButton::Left),
+                    is_mouse_button_released(MouseButton::Left),
+                )
             }
-        }
+        };
+
+        self.pos = pos;
+        self.pressed = raw_pressed || (raw_down && !prev_down);
+        self.released = raw_released || (!raw_down && prev_down);
+        self.down = raw_down;
         self.wheel = mouse_wheel().1;
         self.consumed = false;
     }
@@ -81,6 +95,11 @@ impl Input {
     /// takes priority over overlapping UI).
     pub fn consume(&mut self) {
         self.consumed = true;
+    }
+
+    /// Whether a widget already claimed the pointer this frame.
+    pub fn is_consumed(&self) -> bool {
+        self.consumed
     }
 
     pub fn hover(&self, r: RectF) -> bool {

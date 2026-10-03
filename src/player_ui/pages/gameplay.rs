@@ -13,11 +13,11 @@ use crate::player_ui::state::{Page, PlayerUiApp};
 use crate::player_ui::theme;
 use crate::player_ui::UiCtx;
 
-/// Draw the pad view. Pad input is forwarded on gameplay and pause pages, so a
-/// paused slide can still be tracked manually. Both binaries share
-/// [`render::draw_pad_panel`]; this passes the player's themed surface (flat
-/// panel + dot grid + border) instead of the preview's flat one.
-pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
+/// Draw the pad view (visual only). Pad input is routed separately by
+/// [`handle_pad_input`] *after* the UI, so overlapping UI widgets win.
+/// Both binaries share [`render::draw_pad_panel`]; this passes the player's
+/// themed surface (flat panel + dot grid + border).
+pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx) {
     // Feed the pad renderer the current song's cover (updates as it decodes).
     if let Some(i) = app.loaded.or(Some(app.selected)) {
         app.pad.cover_texture = app.library.cover(i).cloned();
@@ -32,18 +32,31 @@ pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
     };
     let pad_geom = playout::compute_pad_geom(pad_rect);
 
-    if matches!(app.page, Page::Gameplay | Page::Pause) {
-        pinput::handle_lane_input(&mut app.pad);
-        let pointer_events = pinput::collect_pointer_events();
-        let pad_hit = pinput::handle_touch_controls(&mut app.pad, pad_geom, &pointer_events);
-        // While paused, a pad contact has priority over the overlay controls.
-        if app.page == Page::Pause && pad_hit {
-            input.consume();
-        }
-    }
-
     let bg_a = params::pad_bg_alpha().clamp(0.0, 255.0) / 255.0;
     render::draw_pad_panel(&app.pad, pad_rect, pad_geom, PadSurface::themed(bg_a));
+}
+
+/// Route pad input on gameplay/pause (so a paused slide can still be tracked).
+/// Call this after the UI has drawn: a widget that captured the pointer sets
+/// `input.consumed`, and the pad then ignores the contact — otherwise a button
+/// sitting on top of a sensor zone would be swallowed by the pad.
+pub fn handle_pad_input(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
+    if !matches!(app.page, Page::Gameplay | Page::Pause) || input.is_consumed() {
+        return;
+    }
+    let pad_rect = RectF {
+        x: 0.0,
+        y: 0.0,
+        w: ctx.w,
+        h: ctx.h,
+    };
+    let pad_geom = playout::compute_pad_geom(pad_rect);
+    pinput::handle_lane_input(&mut app.pad);
+    let pointer_events = pinput::collect_pointer_events();
+    let pad_hit = pinput::handle_touch_controls(&mut app.pad, pad_geom, &pointer_events);
+    if pad_hit {
+        input.consume();
+    }
 }
 
 pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
