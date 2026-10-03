@@ -601,6 +601,46 @@ mod tests {
         assert_eq!(n.slide[0].runtime_parts, 3, "lnmai splits it per arc");
     }
 
+    /// The bundled `all_stars` test chart must exercise **every** baked slide
+    /// prefab and every segment must map to one (no procedural fallback).
+    #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+    #[test]
+    fn bundled_all_stars_chart_covers_every_prefab_type() {
+        let text = include_str!("../../assets/charts/all_stars/maidata.txt");
+        let c = from_maidata(text, None).expect("parse all_stars");
+        let mut keys = std::collections::BTreeSet::new();
+        let mut missing = Vec::new();
+        for n in c
+            .notes
+            .iter()
+            .filter(|n| matches!(n.note_type, crate::app::types::NoteType::Slide))
+        {
+            for sl in &n.slide {
+                let mut start = n.lane;
+                for seg in &sl.segments {
+                    let end = seg.points.last().map(|p| p.zone.to_id()).unwrap_or(start);
+                    let turn = seg.points.first().map(|p| p.zone.to_id()).unwrap_or(0);
+                    match crate::app::slide_svg::prefab_key(seg.shape, start, end, turn) {
+                        Some(k) => {
+                            keys.insert(k.name);
+                        }
+                        None => missing.push(format!("{:?} {start}->{end} t{turn}", seg.shape)),
+                    }
+                    if let Some(last) = seg.points.last() {
+                        start = last.zone.to_id();
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "unmapped segments: {missing:?}");
+        let expected: std::collections::BTreeSet<String> = crate::app::slide_svg::defs()
+            .iter_names()
+            .map(str::to_string)
+            .collect();
+        let uncovered: Vec<&String> = expected.difference(&keys).collect();
+        assert!(uncovered.is_empty(), "chart misses prefab types: {uncovered:?}");
+    }
+
     #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
     #[test]
     fn slide_without_timing_defaults_body_to_one_note_increment() {

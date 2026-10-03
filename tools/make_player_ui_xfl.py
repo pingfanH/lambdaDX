@@ -33,6 +33,13 @@ LAST = int(time.time())
 TW = 20
 STAGE_W, STAGE_H, FPS = 1280, 760, 60
 
+# Hero spin, matched to the pure-macroquad reference
+# (`src/player_ui/pages/start.rs`): sweep ~-0.6 rad/s (10.5 s/turn), ticks
+# ~+0.15 rad/s (41.9 s/turn) — ticks are 4x slower. A looping clip only looks
+# seamless if each rotor completes whole turns, so the 4:1 ratio needs a 40 s
+# span: sweep 4 turns, ticks 1 turn. +1 for the terminal keyframe.
+HERO_FRAMES = 2401
+
 VOID = "#171719"
 PANEL = "#202022"
 PANEL_ALT = "#242427"
@@ -394,13 +401,13 @@ def build_compositions():
     add("ui_hero_sweep", sym("ui_hero_sweep", [layer("arc", [frame(0, sweep)])]))
 
     add("ui_hero", sym("ui_hero", [
-        layer("badge", [frame(0, [circle(150, 150, 38, PANEL_ALT), circle(150, 150, 38, None, (ACCENT, 2)), text(112, 130, 76, "DX", 24, ACCENT, "center")], dur=121)]),
-        layer("sweep", _spin("ui_hero_sweep", 120, 8, 150, 150, -1)),
-        layer("ticks", _spin("ui_hero_ticks", 120, 8, 150, 150, 1)),
+        layer("badge", [frame(0, [circle(150, 150, 38, PANEL_ALT), circle(150, 150, 38, None, (ACCENT, 2)), text(112, 130, 76, "DX", 24, ACCENT, "center")], dur=HERO_FRAMES)]),
+        layer("sweep", _spin("ui_hero_sweep", HERO_FRAMES - 1, 32, 150, 150, -1, turns=4)),
+        layer("ticks", _spin("ui_hero_ticks", HERO_FRAMES - 1, 8, 150, 150, 1, turns=1)),
         layer("rings", [frame(0, [circle(150, 150, 150, None, (BORDER, 1), n=36),
                                   circle(150, 150, 108, None, (BORDER_SOFT, 1), n=36),
-                                  circle(150, 150, 90, PANEL, n=36)], dur=121)]),
-    ], last_uid=121))
+                                  circle(150, 150, 90, PANEL, n=36)], dur=HERO_FRAMES)]),
+    ], last_uid=HERO_FRAMES))
 
     # Pause panel composes the pause surface + buttons + text.
     labels = [("继续游玩", "ui_btn_primary"), ("重新开始", "ui_btn_secondary"),
@@ -420,11 +427,11 @@ def build_compositions():
     ]))
 
 
-def _spin(symname, total, steps, tx, ty, direction):
+def _spin(symname, span, steps, tx, ty, direction, turns=1.0):
     frames = []
-    seg = total // steps
+    seg = span // steps
     for k in range(steps + 1):
-        rot = direction * 360.0 * k / steps
+        rot = direction * 360.0 * turns * k / steps
         frames.append(frame(k * seg, [inst(symname, tx=tx, ty=ty, rot=rot, loop="loop")], dur=seg if k < steps else 1, tween=k < steps))
     return frames
 
@@ -439,20 +446,20 @@ def _labelled_btn(symn, x, y, w, h, lab, color, dur):
 
 
 def build_pages():
-    # Start page: hero animates, so the page spans the hero's 121 frames.
+    # Start page: hero animates, so the page spans the hero's HERO_FRAMES frames.
     add("page_start", sym("page_start", [
-        layer("hero", [frame(0, [inst("ui_hero", tx=810, ty=230, loop="loop")], dur=121)]),
-        _labelled_btn("ui_btn_primary", 56, 362, 360, 50, "开始 · 选歌", VOID, 121),
-        _labelled_btn("ui_btn_secondary", 56, 424, 360, 50, "设置", TEXT, 121),
+        layer("hero", [frame(0, [inst("ui_hero", tx=810, ty=230, loop="loop")], dur=HERO_FRAMES)]),
+        _labelled_btn("ui_btn_primary", 56, 362, 360, 50, "开始 · 选歌", VOID, HERO_FRAMES),
+        _labelled_btn("ui_btn_secondary", 56, 424, 360, 50, "设置", TEXT, HERO_FRAMES),
         layer("copy", [frame(0, [
             text(56, 198, 500, "ARCADE CHART PLAYER", 12, ACCENT),
             inst("ui_logo", tx=56, ty=230),
             text(56, 332, 520, "把节拍变成动作。选择谱面，设定难度，进入你的下一局。", 15, TEXT_DIM),
             text(56, 502, 400, "曲库 · 12 首", 12, TEXT_MUTED),
             text(56, 520, 500, "assets/charts", 11, TEXT_MUTED),
-        ], dur=121)]),
-        layer("bg", [frame(0, [rect(0, 0, 1280, 760, VOID)], dur=121)]),
-    ], last_uid=122))
+        ], dur=HERO_FRAMES)]),
+        layer("bg", [frame(0, [rect(0, 0, 1280, 760, VOID)], dur=HERO_FRAMES)]),
+    ], last_uid=HERO_FRAMES))
 
     # Song select: list panel + header + reused rows (staggered) + detail.
     rows = []

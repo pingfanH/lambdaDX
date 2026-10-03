@@ -413,6 +413,11 @@ impl Default for XflDrawXf {
 /// Per-frame sampled-parts cache keyed by `(clip, frame)`.
 type FrameCache = HashMap<(String, usize), Rc<Vec<DrawPart>>>;
 
+/// Upper bound on cached sampled frames. A long looping clip (e.g. the 40 s hero
+/// ring) would otherwise accumulate one entry per frame forever; dropping the
+/// cache once it grows past this keeps memory bounded (frames re-sample cheaply).
+const MAX_FRAME_CACHE: usize = 2048;
+
 /// A loaded XFL project plus its textures and a per-frame geometry cache.
 ///
 /// Movies/sprites are referenced **by name inside the project**, e.g.
@@ -505,7 +510,11 @@ impl XflAsset {
             return parts.clone();
         }
         let parts = Rc::new(self.atlas.parts(clip, frame));
-        self.cache.borrow_mut().insert(key, parts.clone());
+        let mut cache = self.cache.borrow_mut();
+        if cache.len() >= MAX_FRAME_CACHE {
+            cache.clear();
+        }
+        cache.insert(key, parts.clone());
         parts
     }
 

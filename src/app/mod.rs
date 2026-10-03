@@ -12,6 +12,7 @@ pub mod params;
 pub mod platform;
 pub mod slide;
 pub mod slide_render;
+pub mod slide_svg;
 pub mod types;
 pub mod ui;
 

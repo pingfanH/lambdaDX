@@ -1,5 +1,6 @@
 use super::pad_svg::PadSvgDef;
 use super::slide::segmentation;
+use super::slide_svg;
 use super::types::{Note, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, PAD_ROTATION_RAD, PadGeom, SLIDE_MIN_DURATION_S, Slide, SlideShape};
 use crate::app::slide::path::{
     slide_shape_caret, slide_shape_left, slide_shape_line, slide_shape_p, slide_shape_pp,
@@ -131,6 +132,50 @@ fn draw_polyline_band(path: &[Vec2], width: f32, color: Color) {
     }
 }
 
+/// Place a sub-slide's `slideok` overlay from the baked prefab pose.
+///
+/// Returns `(centre, rotation, width, height)` in screen space (before the
+/// caller's per-variant `adj.rot`/flips), or `None` when the slide has no
+/// reference prefab (wifi and off-ring locations fall back to the procedural
+/// placement).
+fn prefab_ok(
+    note: &Note,
+    slide: &Slide,
+    spawn_cx: Vec2,
+    outer_r: f32,
+    adj: crate::app::params::SlideJustParams,
+) -> Option<(Vec2, f32, f32, f32)> {
+    let seg = slide.segments.last()?;
+    if matches!(seg.shape, SlideShape::Wifi) {
+        return None;
+    }
+    let starts = segment_start_lanes(note, slide);
+    let start = *starts.last()?;
+    if !(1..=8).contains(&start) {
+        return None;
+    }
+    let end = seg.points.last().map(|p| p.zone.to_id()).unwrap_or(start);
+    let turn = seg.points.first().map(|p| p.zone.to_id()).unwrap_or(0);
+    let key = slide_svg::prefab_key(seg.shape, start, end, turn)?;
+    let def = slide_svg::defs().get(&key.name)?;
+    // Reference `SlideDrop.LoadSkin`: the one baked straight pose is flipped
+    // when its side does not match the mirror state. Curv poses never flip.
+    let fix_up = match seg.shape {
+        SlideShape::Caret | SlideShape::Left | SlideShape::Right => false,
+        _ => slide_svg::is_just_right(seg.shape, start, end, turn) == key.mirror,
+    };
+    let unit = prefab_unit(outer_r);
+    let ok = slide_svg::ok_screen(def, start, key.mirror, spawn_cx, unit, fix_up)?;
+    let offset = vec2(adj.off_x, adj.off_y) * params::pad_scale();
+    let s = adj.scale.max(0.01);
+    Some((
+        ok.pos + offset,
+        ok.rot,
+        ok.size.x * unit * s,
+        ok.size.y * unit * s,
+    ))
+}
+
 /// Draw the MajdataView `slideok` judgment overlay for one sub-slide.
 ///
 /// Registration differs by shape:
@@ -154,6 +199,24 @@ pub fn draw_slide_just(
     tint: Color,
     adj: crate::app::params::SlideJustParams,
 ) {
+    // Baked prefab pose (reference registration) — non-wifi only for now.
+    if let Some((center, rotation, w, h)) = prefab_ok(note, slide, spawn_cx, outer_r, adj) {
+        draw_texture_ex(
+            tex,
+            center.x - w * 0.5,
+            center.y - h * 0.5,
+            tint,
+            DrawTextureParams {
+                dest_size: Some(vec2(w, h)),
+                rotation: rotation + adj.rot,
+                flip_x: adj.flip_x,
+                flip_y: adj.flip_y,
+                pivot: Some(center),
+                ..Default::default()
+            },
+        );
+        return;
+    }
     let aspect = tex.height() / tex.width().max(1.0);
     let size = adj.scale.max(0.01);
     let offset = vec2(adj.off_x, adj.off_y) * params::pad_scale();
@@ -262,12 +325,131 @@ pub fn build_slide_path(
     spawn_cx: Vec2,
     outer_r: f32,
 ) -> Vec<Vec2> {
+    // Prefer the baked MajdataPlay prefab curve; fall back to the procedural
+    // geometry for chains/paths the reference has no prefab for.
+    if let Some(path) = prefab_slide_path(note, slide, spawn_cx, outer_r) {
+        return path;
+    }
     let mut path = Vec::new();
     if let Some(start) = slide_start_point(note, svg, pad, spawn_cx, outer_r) {
         path.push(start);
     }
     append_segments(&mut path, note, slide, outer_r, spawn_cx, pad, svg, scale);
     path
+}
+
+/// Screen length of one prefab unit: the on-screen A-ring radius over 4.8.
+pub fn prefab_unit(outer_r: f32) -> f32 {
+    (outer_r + params::tap_target_offset()) / slide_svg::PREFAB_UNIT
+}
+
+/// The start button of each segment (the note's lane, then the previous end).
+pub fn segment_start_lanes(note: &Note, slide: &Slide) -> Vec<u8> {
+    let mut starts = Vec::with_capacity(slide.segments.len());
+    let mut start = note.lane;
+    for seg in &slide.segments {
+        starts.push(start);
+        if let Some(last) = seg.points.last() {
+            start = last.zone.to_id();
+        }
+    }
+    starts
+}
+
+/// The reference prefab key for a segment (shape + start + end + turn).
+pub fn segment_key(seg: &crate::app::types::SlideSegment, start: u8) -> Option<slide_svg::PrefabKey> {
+    let end = seg.points.last().map(|p| p.zone.to_id()).unwrap_or(start);
+    let turn = seg.points.first().map(|p| p.zone.to_id()).unwrap_or(0);
+    slide_svg::prefab_key(seg.shape, start, end, turn)
+}
+
+/// Build the slide curve from the baked prefab polylines (one per segment).
+///
+/// Returns `None` when any segment has no prefab (wifi, off-ring zones, or an
+/// out-of-range geometry), so the caller can fall back to procedural drawing.
+pub fn prefab_slide_path(
+    note: &Note,
+    slide: &Slide,
+    spawn_cx: Vec2,
+    outer_r: f32,
+) -> Option<Vec<Vec2>> {
+    prefab_slide_path_bounded(note, slide, spawn_cx, outer_r).map(|(p, _)| p)
+}
+
+/// Like [`prefab_slide_path`] but also returns the per-segment path indices
+/// (same meaning as the procedural builder's `seg_boundaries`).
+pub fn prefab_slide_path_bounded(
+    note: &Note,
+    slide: &Slide,
+    spawn_cx: Vec2,
+    outer_r: f32,
+) -> Option<(Vec<Vec2>, Vec<usize>)> {
+    // Wifi keeps its dedicated three-track renderer.
+    if slide
+        .segments
+        .iter()
+        .any(|s| matches!(s.shape, SlideShape::Wifi))
+    {
+        return None;
+    }
+    // Chains: the prefab type is derived per arc, but the reference's
+    // upper/lower-half mirror rule mis-maps arcs that cross the half (e.g.
+    // `3>4` → a 304° mirrored `circle8`). The procedural builder already joins
+    // chained arcs smoothly, so only single-segment slides use the prefab
+    // geometry here.
+    if slide.segments.len() > 1 {
+        return None;
+    }
+    let unit = prefab_unit(outer_r);
+    let defs = slide_svg::defs();
+    let starts = segment_start_lanes(note, slide);
+    let mut out: Vec<Vec2> = Vec::new();
+    let mut bounds: Vec<usize> = Vec::with_capacity(slide.segments.len() + 1);
+    let mut push = |out: &mut Vec<Vec2>, p: Vec2| {
+        if out
+            .last()
+            .map(|q: &Vec2| (*q - p).length_squared() > 1e-6)
+            .unwrap_or(true)
+        {
+            out.push(p);
+        }
+    };
+    // The prefab's tile row is inset from its start/end buttons, so a chained
+    // slide (`1>2>3`) would leave an ~11° straight gap at each junction. Mirror
+    // the reference (`StarPositions = [ring(start), bars…, ring(end)]`) by
+    // pinning the exact A-ring point at *every* segment's start and end; the
+    // shared junction point then bridges consecutive arcs smoothly.
+    for (seg, &start) in slide.segments.iter().zip(&starts) {
+        if !(1..=8).contains(&start) {
+            return None;
+        }
+        let key = segment_key(seg, start)?;
+        let def = defs.get(&key.name)?;
+        if let Some(p) = ring_point(start, spawn_cx, outer_r) {
+            push(&mut out, p);
+        }
+        bounds.push(out.len());
+        let placed = slide_svg::place(def, start, key.mirror, spawn_cx, unit);
+        for p in placed.points {
+            push(&mut out, p);
+        }
+        if let Some(end) = seg.points.last().and_then(|p| ring_point(p.zone.to_id(), spawn_cx, outer_r)) {
+            push(&mut out, end);
+        }
+    }
+    bounds.push(out.len());
+    (out.len() >= 2).then_some((out, bounds))
+}
+
+/// Screen point of an A-ring button's tap target (`outer_r + tap offset`).
+fn ring_point(lane: u8, spawn_cx: Vec2, outer_r: f32) -> Option<Vec2> {
+    if !(1..=8).contains(&lane) {
+        return None;
+    }
+    let idx = (lane - 1) as f32;
+    let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
+    let r = outer_r + params::tap_target_offset();
+    Some(spawn_cx + vec2(ang.cos(), ang.sin()) * r)
 }
 
 /// Screen-space start point of a slide path: the outer tap ring for A zones,
@@ -448,7 +630,19 @@ pub fn draw_slide(
         }
     }
 
-    // ── 构建路径：起点 + 各 segment ──
+    // ── 构建路径：优先使用烘焙的 prefab 折线，否则程序化生成。──
+    let is_wifi = slide
+        .segments
+        .iter()
+        .any(|s| matches!(s.shape, SlideShape::Wifi));
+    let prefab_built = if is_wifi {
+        None
+    } else {
+        prefab_slide_path_bounded(note, slide, spawn_cx, outer_r)
+    };
+    let (path, seg_boundaries): (Vec<Vec2>, Vec<usize>) = if let Some(built) = prefab_built {
+        built
+    } else {
     let mut path: Vec<Vec2> = Vec::new();
 
     // 起点：A 区用外环 tap 圆点位置
@@ -820,6 +1014,8 @@ pub fn draw_slide(
         }
     }
     seg_boundaries.push(path.len());
+        (path, seg_boundaries)
+    };
 
     if path.len() < 2 {
         return;
@@ -1232,4 +1428,129 @@ fn area_bar_boundary(bars: usize, areas: usize, passed: usize) -> usize {
         }
     }
     acc.min(bars)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::types::zone::PadZone;
+    use crate::app::types::{SlidePoint, SlideSegment};
+
+    fn line_slide(start: u8, end: u8) -> (Note, Slide) {
+        let note = Note {
+            lane: start,
+            ..Default::default()
+        };
+        let slide = Slide {
+            segments: vec![SlideSegment {
+                points: vec![SlidePoint {
+                    zone: PadZone::from(end),
+                    beat_offset: 0.0,
+                }],
+                shape: SlideShape::Line,
+            }],
+            slide_duration: 1.0,
+            slide_start_delay: 0.0,
+            slide_is_break: false,
+            runtime_parts: 1,
+        };
+        (note, slide)
+    }
+
+    /// `line3` (start 3 → end 5) resolves to the baked prefab polyline, rotated
+    /// onto the start button, with bar centres on the A-ring.
+    #[test]
+    fn prefab_path_builds_line3_from_the_asset() {
+        let (note, slide) = line_slide(3, 5);
+        let spawn = vec2(0.0, 0.0);
+        let outer_r = 480.0;
+        let path = prefab_slide_path(&note, &slide, spawn, outer_r).expect("line3 prefab path");
+        // The tap-ring start point plus the densified prefab polyline.
+        assert!(path.len() > 20, "n={}", path.len());
+        let r = path[0].length() / prefab_unit(outer_r);
+        assert!((r - slide_svg::PREFAB_UNIT).abs() < 0.05, "start radius {r}");
+        // Some later point is the A-ring tile (just inside the ring).
+        let inner = path[3].length() / prefab_unit(outer_r);
+        assert!(inner < slide_svg::PREFAB_UNIT, "first tile radius {inner}");
+    }
+
+    /// A wifi slide keeps its dedicated renderer: no prefab path.
+    #[test]
+    fn wifi_has_no_prefab_path() {        let note = Note {
+            lane: 1,
+            ..Default::default()
+        };
+        let slide = Slide {
+            segments: vec![SlideSegment {
+                points: vec![SlidePoint {
+                    zone: PadZone::from(5),
+                    beat_offset: 0.0,
+                }],
+                shape: SlideShape::Wifi,
+            }],
+            slide_duration: 1.0,
+            slide_start_delay: 0.0,
+            slide_is_break: false,
+            runtime_parts: 1,
+        };
+        assert!(prefab_slide_path(&note, &slide, vec2(0.0, 0.0), 480.0).is_none());
+    }
+
+    /// A chained slide must still join smoothly. Chains fall back to the
+    /// procedural builder, so this guards the whole `draw_slide` path really is
+    /// smooth for a `1>2>3<4<5<6` zig-zag.
+    #[test]
+    fn chained_slide_junctions_are_smooth() {
+        let note = Note {
+            lane: 1,
+            ..Default::default()
+        };
+        let chain = [
+            (2u8, SlideShape::Right),
+            (3, SlideShape::Right),
+            (4, SlideShape::Left),
+            (5, SlideShape::Left),
+            (6, SlideShape::Left),
+        ];
+        let segments: Vec<SlideSegment> = chain
+            .iter()
+            .map(|&(e, sh)| SlideSegment {
+                points: vec![SlidePoint {
+                    zone: PadZone::from(e),
+                    beat_offset: 0.0,
+                }],
+                shape: sh,
+            })
+            .collect();
+        let slide = Slide {
+            segments,
+            slide_duration: 1.0,
+            slide_start_delay: 0.0,
+            slide_is_break: false,
+            runtime_parts: 5,
+        };
+        let pad_svg = PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")).expect("pad svg");
+        let pad = PadGeom {
+            cx: 0.0,
+            cy: 0.0,
+            outer_r: 326.57,
+        };
+        let path = build_slide_path(&note, &slide, &pad, &pad_svg, 1.0, vec2(0.0, 0.0), 326.57);
+        assert!(path.len() > 5);
+        let mut worst = 0.0_f32;
+        for i in 1..path.len() - 1 {
+            let a = path[i] - path[i - 1];
+            let b = path[i + 1] - path[i];
+            if a.length() < 1e-6 || b.length() < 1e-6 {
+                continue;
+            }
+            worst = worst.max(
+                (a.dot(b) / (a.length() * b.length()))
+                    .clamp(-1.0, 1.0)
+                    .acos()
+                    .to_degrees(),
+            );
+        }
+        assert!(worst < 15.0, "junction corner {worst}deg");
+    }
 }

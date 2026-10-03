@@ -335,7 +335,9 @@ fn parse_shape(node: NodeRef) -> Element {
             .iter()
             .map(|p| [p[0] / TWIPS_PER_PX, p[1] / TWIPS_PER_PX])
             .collect();
-        if points.len() < 3 {
+        // 2-point paths are stroke-only line segments (the renderer draws them
+        // via `draw_line`); only drop degenerate single-point paths.
+        if points.len() < 2 {
             continue;
         }
         let fill = attr_usize(edge, "fillStyle1")
@@ -388,8 +390,12 @@ fn parse_strokes(node: NodeRef) -> HashMap<usize, (SolidColor, f32)> {
 }
 
 /// First `<SolidColor>` anywhere under `node`.
+///
+/// Fills put `<SolidColor>` directly under `<FillStyle>`, but strokes nest it at
+/// `<StrokeStyle><SolidStroke><fill><SolidColor>` — so search descendants, not
+/// just direct children, or every stroke resolves to no colour.
 fn find_solid_color(node: NodeRef) -> Option<SolidColor> {
-    elements(node)
+    node.descendants()
         .filter(|n| n.tag_name().name() == "SolidColor")
         .find_map(|c| {
             let hex = c.attribute("color").unwrap_or("#000000");
