@@ -39,7 +39,15 @@ impl SkinVariant {
     }
 
     pub fn of(note: &Note) -> Self {
-        Self::of_flags(note.is_break, note.is_each)
+        // FX holds borrow the break skin so they stand out from ordinary holds
+        // (the core marks their head EX, but they carry no `is_break`).
+        if note.is_break || note.fx.is_some() {
+            SkinVariant::Break
+        } else if note.is_each {
+            SkinVariant::Each
+        } else {
+            SkinVariant::Normal
+        }
     }
 }
 
@@ -152,6 +160,21 @@ pub fn star_ex<'a>(app: &'a PadPreviewState, note: &Note) -> Option<&'a Texture2
     ex(app, kind).or_else(|| ex(app, SkinKind::Star))
 }
 
+/// Flicker factor for an FX sprite (`1.0` for ordinary / inactive notes).
+///
+/// The sprite only blinks while this FX note is the one currently **being
+/// held** (`app.fx_active_note`, set per frame in `update_fx_state`) — so it
+/// flashes on the hit and stops on release. The strobe is fast (~16 Hz) with a
+/// per-note phase offset so simultaneous FX do not flash in lockstep.
+pub fn fx_blink(app: &PadPreviewState, note: &Note) -> f32 {
+    if app.fx_active_note != Some(note.id) {
+        return 1.0;
+    }
+    let phase = note.id as f32 * 0.7;
+    let x = ((macroquad::prelude::get_time() as f32) * 16.0 + phase).rem_euclid(1.0);
+    if x < 0.5 { 1.0 } else { 0.28 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +206,15 @@ mod tests {
         assert_eq!(SkinVariant::of_flags(true, true), SkinVariant::Break);
         assert_eq!(SkinVariant::of_flags(false, true), SkinVariant::Each);
         assert_eq!(SkinVariant::of_flags(false, false), SkinVariant::Normal);
+    }
+
+    #[test]
+    fn fx_hold_uses_the_break_skin() {
+        let fx = crate::app::fx::parse_fx_effect("gate").expect("fx");
+        let note = Note {
+            fx: Some(fx),
+            ..Default::default()
+        };
+        assert_eq!(SkinVariant::of(&note), SkinVariant::Break);
     }
 }

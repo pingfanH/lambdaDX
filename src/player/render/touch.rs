@@ -136,6 +136,8 @@ fn draw_touch_hold(
     let d = hold_dist * 0.707; // √2/2 for the diagonal arms
     let hts = params::touchhold_cross_base() * params::touchhold_scale() * scale;
     let ro = params::touchhold_rot_offset();
+    // FX touch-holds blink while held (same as ring FX).
+    let tint = Color::from_rgba(255, 255, 255, (alpha as f32 * skin::fx_blink(app, note)) as u8);
 
     // Four arms, 45° off the regular touch cross, starting top-right.
     let positions = [
@@ -161,7 +163,7 @@ fn draw_touch_hold(
                 tex,
                 px - tw * 0.5,
                 py - th * 0.5,
-                Color::from_rgba(255, 255, 255, alpha),
+                tint,
                 DrawTextureParams {
                     dest_size: Some(vec2(tw, th)),
                     rotation: *rot,
@@ -220,7 +222,7 @@ fn draw_touch_hold(
             tex,
             center.x - ps * 0.5,
             center.y - ps * 0.5,
-            Color::from_rgba(255, 255, 255, alpha),
+            tint,
             DrawTextureParams {
                 dest_size: Some(vec2(ps, ps)),
                 ..Default::default()

@@ -411,25 +411,14 @@ fn draw_hold(
 
     let head_pos = vec2(hx, hy);
     let tail_pos = vec2(tx, ty);
+    // FX holds blink (strobe alpha) while being held.
+    let tint_a = (255.0 * skin::fx_blink(app, note)) as u8;
+    let tint = Color::from_rgba(255, 255, 255, tint_a);
     if let Some(tex) = hold_tex {
-        draw_hold_9slice_segment(
-            tex,
-            head_pos,
-            tail_pos,
-            body_w,
-            Color::from_rgba(255, 255, 255, 255),
-            dir,
-        );
+        draw_hold_9slice_segment(tex, head_pos, tail_pos, body_w, tint, dir);
         if note.is_ex {
             if let Some(ex_tex) = skin::ex(app, skin::SkinKind::Hold) {
-                draw_hold_9slice_segment(
-                    ex_tex,
-                    head_pos,
-                    tail_pos,
-                    body_w,
-                    Color::from_rgba(255, 255, 255, 255),
-                    dir,
-                );
+                draw_hold_9slice_segment(ex_tex, head_pos, tail_pos, body_w, tint, dir);
             }
         }
     } else {
@@ -440,13 +429,13 @@ fn draw_hold(
             tx,
             ty,
             params::hold_width() * 0.233 * scale * head_motion.scale,
-            Color::from_rgba(251, 113, 133, 200),
+            Color::from_rgba(251, 113, 133, tint_a),
         );
         draw_circle(
             tx,
             ty,
             params::hold_width() * 0.167 * scale * head_motion.scale,
-            Color::from_rgba(253, 164, 175, 255),
+            Color::from_rgba(253, 164, 175, tint_a),
         );
     }
 }
