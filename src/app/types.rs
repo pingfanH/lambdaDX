@@ -530,6 +530,10 @@ pub struct Note {
     #[serde(default = "default_hi_speed", skip_serializing_if = "is_one_f32")]
     pub hi_speed: f32,
     pub slide: Vec<Slide>,
+    /// FX 长条效果（`@type(params)` 的解析结果）；`None` = 普通音符。
+    /// 音符类型仍复用 `Hold` / `TouchHold`（决策 D2）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fx: Option<crate::app::fx::AudioEffect>,
     /// If this note was expanded from a template instance, tracks its origin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_source: Option<NoteTemplateSource>,
@@ -861,6 +865,13 @@ pub struct HitFx {
 pub fn hold_tail_time(note: &Note, bpms: &[BpmChange]) -> f32 {
     let dur_s = mdur_to_secs(note.hold_duration, note.time, bpms).max(0.0);
     note_secs(note, bpms) + dur_s
+}
+
+impl Note {
+    /// 是否带 FX 效果（`Hold` / `TouchHold` 上的音频副作用）。
+    pub fn is_fx(&self) -> bool {
+        self.fx.is_some()
+    }
 }
 
 pub fn sanitize_note_zone(_note_type: NoteType, lane: u8) -> u8 {

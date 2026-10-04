@@ -186,6 +186,7 @@ pub fn ser_to_note(s: &SerNote) -> Note {
         ),
         hi_speed: 1.0,
         slide: s.slide.clone(),
+        fx: None,
         template_source: None,
     }
 }

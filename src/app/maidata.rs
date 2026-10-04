@@ -333,11 +333,21 @@ mod lean {
         }
     }
 
+    /// 解析 token 上的 FX 效果串；未知类型 / 语法错误时返回 `None`
+    /// （决策 D5：该音符退化为普通 Hold，不使整谱失败）。
+    fn parse_fx(
+        token: &crate::core::types::RawNoteToken,
+    ) -> Option<crate::app::fx::AudioEffect> {
+        token
+            .fx_effect
+            .as_deref()
+            .and_then(|s| crate::app::fx::parse_fx_effect(s).ok())
+    }
+
     fn simple_note(
         token: &crate::core::types::RawNoteToken,
         bpms: &[BpmChange],
-    ) -> Option<Note> {
-        let time = measure(token.timing, bpms);
+    ) -> Option<Note> {        let time = measure(token.timing, bpms);
         let hi_speed = rational_f32(&token.h_speed);
         match token.kind {
             RawNoteKind::Tap => Some(Note {
@@ -357,6 +367,7 @@ mod lean {
                 is_break: token.is_break,
                 is_ex: token.is_ex,
                 hi_speed,
+                fx: parse_fx(token),
                 ..Default::default()
             }),
             RawNoteKind::Touch => Some(Note {
@@ -377,6 +388,7 @@ mod lean {
                 is_ex: token.is_ex,
                 is_touch: true,
                 hi_speed,
+                fx: parse_fx(token),
                 ..Default::default()
             }),
             RawNoteKind::Slide | RawNoteKind::Rest | RawNoteKind::Unknown => None,

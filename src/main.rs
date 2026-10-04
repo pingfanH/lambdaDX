@@ -350,6 +350,8 @@ async fn run(args: LaunchArgs) {
         player::autoplay::tick(&mut app);
         // Step the lnmai-core judgment engine and apply its feedback/sfx.
         player::engine::step_judge_engine(&mut app);
+        // Apply the held FX note to the BGM (dry when nothing is held).
+        app.update_fx_state();
 
         // Background video (bg.mp4) via the ffmpeg sidecar.
         let video_cfg = player::video::VideoConfig {
@@ -549,6 +551,7 @@ async fn run_export(app: &mut PadPreviewState, args: &LaunchArgs, output: PathBu
 
         player::autoplay::tick(app);
         player::engine::step_judge_engine(app);
+        app.update_fx_state();
         app.tick_feedback();
         app.video_bg.sync(&video_cfg, t);
 

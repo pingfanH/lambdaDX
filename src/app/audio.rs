@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use super::platform;
 use super::types::WavPcm;
+use crate::app::audio_fx::{FxControl, FxSource};
+use crate::app::fx::ResolvedFx;
 use crate::player::state::PadPreviewState;
 
 // ---------------------------------------------------------------------------
@@ -250,6 +252,8 @@ pub struct BgmPlayer {
     _stream: OutputStream,
     handle: OutputStreamHandle,
     sink: Option<Sink>,
+    /// Shared FX channel; the audio thread reads the currently-active effect.
+    fx_control: Arc<FxControl>,
 }
 
 impl BgmPlayer {
@@ -260,17 +264,25 @@ impl BgmPlayer {
             _stream: stream,
             handle,
             sink: None,
+            fx_control: FxControl::new(),
         })
     }
 
     pub fn play(&mut self, samples: &[f32], channels: u16, sample_rate: u32, speed: f32) {
         self.stop();
-        let source = SamplesBuffer::new(channels, sample_rate, samples.to_vec()).speed(speed);
+        let buffer = SamplesBuffer::new(channels, sample_rate, samples.to_vec());
+        let source = FxSource::new(buffer, self.fx_control.clone()).speed(speed);
         if let Ok(sink) = Sink::try_new(&self.handle) {
             sink.set_volume(1.0);
             sink.append(source);
             self.sink = Some(sink);
         }
+    }
+
+    /// Set (or clear) the FX currently applied to the BGM. Takes effect on the
+    /// audio thread within ~20 ms. `None` = dry passthrough.
+    pub fn set_active_fx(&self, fx: Option<Arc<ResolvedFx>>) {
+        self.fx_control.set(fx);
     }
 
     /// Fire a one-shot effect on the shared output without touching the BGM.
@@ -283,6 +295,7 @@ impl BgmPlayer {
     }
 
     pub fn stop(&mut self) {
+        self.fx_control.clear();
         if let Some(sink) = self.sink.take() {
             sink.stop();
         }

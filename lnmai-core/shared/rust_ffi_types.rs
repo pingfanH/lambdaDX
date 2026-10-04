@@ -407,6 +407,9 @@ pub struct RawNoteToken {
     pub is_break: bool,
     #[serde(rename = "isEX", default)]
     pub is_ex: bool,
+    /// `@type(params)` 原始串（不含 `@`）；`None` = 非 FX 音符。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fx_effect: Option<String>,
     #[serde(default)]
     pub is_hanabi: bool,
     #[serde(default)]
@@ -652,6 +655,9 @@ pub struct HoldChartNote {
     pub is_break: bool,
     #[serde(rename = "isEX", default)]
     pub is_ex: bool,
+    /// `@type(params)` 原始串（不含 `@`）；`None` = 非 FX 音符。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fx_effect: Option<String>,
     #[serde(default)]
     pub is_touch: bool,
     #[serde(default)]
@@ -695,6 +701,9 @@ pub struct TouchHoldChartNote {
     pub is_break: bool,
     #[serde(rename = "isEX", default)]
     pub is_ex: bool,
+    /// `@type(params)` 原始串（不含 `@`）；`None` = 非 FX 音符。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fx_effect: Option<String>,
     #[serde(default)]
     pub source_group_id: Option<u64>,
     #[serde(default)]

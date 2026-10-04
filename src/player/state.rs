@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use macroquad::prelude::{Color, Texture2D, Vec2, get_time};
 
@@ -159,6 +160,11 @@ pub struct PadPreviewState {
     pub pending_audio_start: bool,
     pub audio_enabled: bool,
     pub bgm_player: Option<BgmPlayer>,
+    /// Id of the FX note currently applied to the BGM (`None` = dry).
+    pub fx_active_note: Option<u64>,
+    /// Resolved effect for [`Self::fx_active_note`], cached so the audio thread
+    /// only rebuilds its DSP state when the selection changes.
+    pub fx_active: Option<Arc<crate::app::fx::ResolvedFx>>,
     /// One-shot cue sound (`Sfx/answer.wav`) played at tap / hold head / hold tail.
     pub answer_sfx: Option<SfxBuffer>,
     /// Judgment cue sounds per kind, if present. The mapping from a note/event
@@ -326,6 +332,8 @@ impl PadPreviewState {
             pending_audio_start: false,
             audio_enabled: true,
             bgm_player: BgmPlayer::new().ok(),
+            fx_active_note: None,
+            fx_active: None,
             answer_sfx: None,
             sfx_tap: None,
             sfx_touch: None,
@@ -424,6 +432,98 @@ impl PadPreviewState {
     pub fn stop_audio_if_any(&mut self) {
         if let Some(player) = &mut self.bgm_player {
             player.stop();
+        }
+    }
+
+    /// 每帧根据“当前按住 + 音符窗口”决定叠加到 BGM 的 FX。
+    ///
+    /// 同时命中多个时取 head 最晚的一个（后触发覆盖，见 `docs/FX_NOTE_PLAN.md` §12）；
+    /// 无命中则切干声。未知类型 / 解析失败的音符在映射阶段已退化为普通 Hold。
+    ///
+    /// 调试直达：环境变量 `LAMBDADX_FX_TEST=<type(params)>` 时，按住任意 pad 区即
+    /// 叠加该效果（用于 Lean 核心 D 阶段落地前的手动验收）。
+    pub fn update_fx_state(&mut self) {
+        if let Some(text) = std::env::var("LAMBDADX_FX_TEST")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
+            self.update_debug_fx(&text);
+            return;
+        }
+
+        use crate::app::fx::{self, ResolvedFx};
+        use crate::app::types::{NoteType, bpm_at, hold_tail_time, note_secs};
+        use std::sync::Arc;
+
+        let t = self.song_time();
+        let held: HashSet<u8> = self
+            .active_pointer_zones
+            .values()
+            .flatten()
+            .map(|z| z.to_id())
+            .collect();
+
+        let mut best: Option<(u64, f32, Arc<ResolvedFx>)> = None;
+        {
+            let bpms = &self.chart.bpms;
+            for note in &self.chart.notes {
+                let Some(effect) = note.fx.as_ref() else {
+                    continue;
+                };
+                if !matches!(note.note_type, NoteType::Hold | NoteType::TouchHold) {
+                    continue;
+                }
+                if !held.contains(&note.lane) {
+                    continue;
+                }
+                let head = note_secs(note, bpms);
+                let tail = hold_tail_time(note, bpms);
+                if t < head - 1e-3 || t > tail {
+                    continue;
+                }
+                if best.as_ref().is_none_or(|(_, h, _)| head > *h) {
+                    let bpm = bpm_at(note.time, bpms);
+                    best = Some((note.id, head, Arc::new(fx::resolve(effect, bpm))));
+                }
+            }
+        }
+
+        let best_note = best.as_ref().map(|(id, _, _)| *id);
+        if best_note != self.fx_active_note {
+            self.fx_active_note = best_note;
+            self.fx_active = best.map(|(_, _, r)| r);
+        }
+        if let Some(player) = &self.bgm_player {
+            player.set_active_fx(self.fx_active.clone());
+        }
+    }
+
+    fn update_debug_fx(&mut self, text: &str) {
+        use crate::app::fx::{self, ResolvedFx};
+        use std::sync::{Arc, OnceLock};
+
+        // 调试用固定 BPM 换算时值；仅用于听感验收。
+        static CACHE: OnceLock<Option<Arc<ResolvedFx>>> = OnceLock::new();
+        let resolved = CACHE.get_or_init(|| {
+            fx::parse_fx_effect(text)
+                .ok()
+                .map(|e| Arc::new(fx::resolve(&e, 120.0)))
+        });
+        let active = if self.active_pointer_zones.is_empty() {
+            None
+        } else {
+            resolved.clone()
+        };
+        let changed = match (&self.fx_active, &active) {
+            (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+            (None, None) => false,
+            _ => true,
+        };
+        if changed {
+            self.fx_active = active.clone();
+        }
+        if let Some(player) = &self.bgm_player {
+            player.set_active_fx(active);
         }
     }
 
