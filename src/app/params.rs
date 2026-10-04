@@ -157,6 +157,10 @@ pub struct Params {
     pub touch_speed_default: f32,
     /// Where notes spawn (locked) as a fraction of the judge radius.
     pub note_spawn_frac: f32,
+    /// Tap `NoteAppearRate` (MajdataPlay): the tap's birth scale ramp
+    /// `scale = distance·rate + (1 − rate·lock)`. Higher = appears later /
+    /// smaller window; the reference default is `0.265`.
+    pub note_appear_rate: f32,
     /// Tap "birth" time (seconds): how long a tap scales up before it starts
     /// flying to the ring. `0` = follow the note speed (original behavior).
     pub tap_spawn_time: f32,
@@ -342,9 +346,10 @@ impl Default for Params {
             sensor_range_px: 10.0,
 
             note_speed_default: t::NOTE_SPEED,
-            touch_speed_default: t::NOTE_SPEED * 0.7,
+            touch_speed_default: t::NOTE_SPEED,
             pad_zoom: 1.0,
             pad_zone_scale: 1.0,            note_spawn_frac: 1.225 / 4.8,
+            note_appear_rate: 0.265,
             tap_spawn_time: 0.0,
             note_accel: 0.0,
             tap_guide: true,
@@ -523,6 +528,7 @@ param_accessors!(
     pad_zoom,
     pad_zone_scale,
     note_spawn_frac,
+    note_appear_rate,
     tap_spawn_time,
     note_accel,
     tap_guide_size,

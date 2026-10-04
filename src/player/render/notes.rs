@@ -51,7 +51,7 @@ fn draw_guide_pass(
 ) {
     let bpms = &app.chart.bpms;
     for note in app.chart.notes.iter() {
-        if matches!(note.note_type, NoteType::Slide) {
+        if matches!(note.note_type, NoteType::Slide) || note.is_touch {
             continue;
         }
         if app.hidden_notes.contains(&note.id) {
@@ -182,10 +182,12 @@ fn draw_pass(
         }
     } else {
         for (note, t) in &visible {
-            if t.zone <= 8 {
-                ring::draw(app, note, t, scale, spawn_cx, pad.outer_r);
-            } else {
+            // Touch / touch-hold render on the screen zones (A-zone touch notes
+            // share zone 1..=8 with the ring but are still touch notes).
+            if note.is_touch {
                 touch::draw(app, note, t, pad, scale, current_t);
+            } else {
+                ring::draw(app, note, t, scale, spawn_cx, pad.outer_r);
             }
         }
     }

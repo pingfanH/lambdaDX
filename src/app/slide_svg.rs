@@ -201,7 +201,8 @@ pub fn prefab_key(shape: SlideShape, start: u8, end: u8, turn: u8) -> Option<Pre
             }
         }
         SlideShape::Right => {
-            // `>`
+            // `>`: upper-half start is the canonical increasing arc; a
+            // lower-half start mirrors (reference `DetectShapeFromText`).
             if is_upper_half(start) {
                 key(format!("circle{r}"), false)
             } else {
@@ -209,7 +210,8 @@ pub fn prefab_key(shape: SlideShape, start: u8, end: u8, turn: u8) -> Option<Pre
             }
         }
         SlideShape::Left => {
-            // `<`
+            // `<`: lower-half start is the canonical increasing arc; an
+            // upper-half start mirrors.
             if !is_upper_half(start) {
                 key(format!("circle{r}"), false)
             } else {
@@ -434,9 +436,19 @@ mod tests {
             prefab_key(SlideShape::Right, 1, 3, 0),
             Some(PrefabKey { name: "circle3".into(), mirror: false })
         );
-        // `5>7` (lower-half start) → "-circle7" (relative end 3 mirror-keyed to 7).
+        // `5>7` (lower-half start) mirrors → "-circle7".
         assert_eq!(
             prefab_key(SlideShape::Right, 5, 7, 0),
+            Some(PrefabKey { name: "circle7".into(), mirror: true })
+        );
+        // `4<5` (lower-half start, `<`) is the canonical circle2, no mirror.
+        assert_eq!(
+            prefab_key(SlideShape::Left, 4, 5, 0),
+            Some(PrefabKey { name: "circle2".into(), mirror: false })
+        );
+        // `1<3` (upper-half start) mirrors → "-circle7".
+        assert_eq!(
+            prefab_key(SlideShape::Left, 1, 3, 0),
             Some(PrefabKey { name: "circle7".into(), mirror: true })
         );
         // `1s5` / `1z5`.

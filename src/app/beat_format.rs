@@ -180,6 +180,10 @@ pub fn ser_to_note(s: &SerNote) -> Note {
         is_ex: s.is_ex,
         is_star: s.is_star,
         is_tapless: s.is_tapless,
+        is_touch: matches!(
+            s.note_type,
+            crate::app::types::NoteType::Touch | crate::app::types::NoteType::TouchHold
+        ),
         hi_speed: 1.0,
         slide: s.slide.clone(),
         template_source: None,

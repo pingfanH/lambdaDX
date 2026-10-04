@@ -129,6 +129,9 @@ pub struct PadPreviewState {
     // ── Chart ────────────────────────────────────────────────────────
     pub chart: ChartDoc,
     pub hidden_notes: HashSet<u64>,
+    /// Hold / touch-hold notes whose **head** already had its hit sound played
+    /// (detected locally, since the core reports holds only at their tail).
+    pub hold_head_hits: HashSet<u64>,
     pub slide_progress: HashMap<(u64, usize), SlideProgress>,
     /// Per-sub-slide `just`/`miss` overlay shown after a slide judgment.
     pub slide_judge: HashMap<(u64, usize), SlideJudgeFx>,
@@ -302,10 +305,11 @@ impl PadPreviewState {
             timeline_view_time: 0.0,
             forced_time: None,
             note_speed: NOTE_SPEED,
-            touch_speed: NOTE_SPEED*0.7,
-            slide_fade_in: 3.926_913 / NOTE_SPEED,
+            touch_speed: NOTE_SPEED,
+            slide_fade_in: 3.926_913 / crate::app::types::note_speed_from_setting(NOTE_SPEED),
             chart,
             hidden_notes: HashSet::new(),
+            hold_head_hits: HashSet::new(),
             slide_progress: HashMap::new(),
             slide_judge: HashMap::new(),
             slideok_tex: HashMap::new(),
@@ -465,6 +469,8 @@ impl PadPreviewState {
         self.prev_pointer_pos.clear();
         self.slide_progress.clear();
         self.slide_judge.clear();
+        self.hidden_notes.clear();
+        self.hold_head_hits.clear();
         // Restarting from the top rebuilds the core session so combo/DX reset.
         if time <= 1e-4 {
             self.reset_engine();
@@ -552,15 +558,24 @@ impl PadPreviewState {
         cue: crate::player::cues::Cue,
         is_break: bool,
         is_ex: bool,
+        is_touch: bool,
     ) -> Option<&SfxBuffer> {
         use crate::player::render::skin::SkinVariant;
         use crate::player::sfx::{self, SfxKind};
         use crate::player::cues::Cue;
         let kind = match cue {
             Cue::Tap => SfxKind::Tap,
+            Cue::Touch => SfxKind::Touch,
             Cue::SlideHead => SfxKind::SlideCue,
-            // No dedicated hold sound ships; hold head/tail use the tap sound.
-            Cue::HoldHead | Cue::HoldTail => SfxKind::Tap,
+            // Touch-holds are touch notes; regular holds have no dedicated
+            // sound so they use the tap sound.
+            Cue::HoldHead | Cue::HoldTail => {
+                if is_touch {
+                    SfxKind::Touch
+                } else {
+                    SfxKind::Tap
+                }
+            }
         };
         let variant = SkinVariant::of_flags(is_break, false);
         sfx::select(self, kind, variant, is_ex)
@@ -577,25 +592,26 @@ impl PadPreviewState {
             .as_mut()
             .map(|track| track.take_due_cues(t))
             .unwrap_or_default();
-        use crate::player::cues::Cue;
         let core = self.use_core();
         for ev in due {
-            let is_hold = matches!(ev.cue, Cue::HoldHead | Cue::HoldTail);
-            // The generic answer cue plays on the note timeline in both the core
-            // and no-core paths. Holds skip it: they use their own hit sound.
-            if params::answer_sfx() && !is_hold {
+            // 正解音 (answer.wav): the generic cue on the note timeline for
+            // **every** cue — tap / touch / hold head+tail / touch-hold
+            // head+tail / slide head. This is independent of `hit_sfx`.
+            if params::answer_sfx() {
                 self.play_sfx(self.answer_sfx.as_ref());
             }
             if !params::hit_sfx() {
                 continue;
             }
-            // Without a core, every cue plays on the timeline. With a core, the
-            // per-kind hit SFX comes from actual judgments (`play_audio_command`)
-            // — except the hold **head**: the core only judges a hold at its
-            // tail, so the head would be silent.
-            let timeline_cue = !core || matches!(ev.cue, Cue::HoldHead);
+            // 击打音 (tap/touch.wav): only from an actual hit. With a core,
+            // hits come from the judge events (`play_audio_command`) plus the
+            // locally-detected hold/touch-hold **head** press (`play_hold_head_hits`).
+            // Without a core there is no judging, so tap/slide/hold preview
+            // their sounds on the timeline. Touch is press-triggered and never
+            // timeline-plays.
+            let timeline_cue = !core && !ev.is_touch;
             if timeline_cue {
-                let buf = self.cue_sfx(ev.cue, ev.is_break, ev.is_ex);
+                let buf = self.cue_sfx(ev.cue, ev.is_break, ev.is_ex, ev.is_touch);
                 self.play_sfx(buf);
             }
         }
@@ -753,6 +769,8 @@ impl PadPreviewState {
         self.core_score = None;
         self.slide_progress.clear();
         self.slide_judge.clear();
+        self.hidden_notes.clear();
+        self.hold_head_hits.clear();
         self.simai_source = Some(simai_text.to_string());
         self.simai_level = level_index;
         self.simai_fragments =
@@ -779,6 +797,8 @@ impl PadPreviewState {
         self.core_score = None;
         self.slide_progress.clear();
         self.slide_judge.clear();
+        self.hidden_notes.clear();
+        self.hold_head_hits.clear();
         self.simai_source = None;
         self.simai_level = 0;
         self.simai_fragments.clear();

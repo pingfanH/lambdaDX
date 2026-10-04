@@ -45,7 +45,10 @@ pub const TOUCH_GROW_FRAC: f32 = 0.25;
 /// fraction of its whole duration before the arms start moving inward. This
 /// stall is carved out of the fade-in (the inward-motion window is unchanged).
 pub const TOUCH_STALL_FRAC: f32 = 0.06;
-pub const TOUCH_DISAPPEAR_TIME: f32 = -0.1;
+/// Seconds a touch note lingers **at/after** its judgment instant before it is
+/// culled (`visible()` keeps it while `dt >= -TOUCH_DISAPPEAR_TIME`). Must be
+/// ≥ 0: a negative value culls the note *before* its arms finish closing.
+pub const TOUCH_DISAPPEAR_TIME: f32 = 0.1;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const TAP_SIZE: f32 = 52.0;
@@ -191,10 +194,13 @@ pub fn note_radial_motion_continue(
         }
         ((distance - appear_d) / (NOTE_LOCK_DISTANCE - appear_d).max(1e-3)).clamp(0.0, 1.0)
     } else {
-        if distance < NOTE_VISIBLE_DISTANCE {
+        // Reference TapDrop: `destScale = distance·rate + (1 − rate·lock)`,
+        // reaching 0 (first visible) at `tap_visible_distance`.
+        let rate = super::params::note_appear_rate();
+        if distance < tap_visible_distance(rate) {
             return None;
         }
-        (distance * 0.4 + 0.51).clamp(0.0, 1.0)
+        (distance * rate + (1.0 - rate * NOTE_LOCK_DISTANCE)).clamp(0.0, 1.0)
     };
 
     // Only the upper bound is lifted: approach is unchanged, post-hit overshoots.
@@ -263,6 +269,9 @@ pub enum NoteType {
     Tap,
     Touch,
     Hold,
+    /// Sensor touch-hold. Distinct from `Hold` so its (press-triggered) sound,
+    /// rendering and judgment are never confused with a ring hold.
+    TouchHold,
     Slide,
 }
 impl Default for NoteType {
@@ -277,12 +286,25 @@ impl Default for NoteType {
 /// This is the default value for the configurable note speed (流速).
 pub const NOTE_SPEED: f32 = 7.5;
 
-/// Effective flight speed for a note (`base_speed` × hi-speed). `base_speed` is
-/// the configurable note speed (流速), e.g. `PlayerState::note_speed`.
-pub fn note_flight_speed(note: &Note, base_speed: f32) -> f32 {
+/// Map the user's note-speed setting (流速 / MajdataPlay `TapSpeed`) to the
+/// reference flight speed (radial units/sec):
+/// `NoteSpeed = 107.25 / (71.4184491 * (TapSpeed + 0.9975)^-0.985558604)`.
+///
+/// A negative setting reverses the scroll direction, matching the reference.
+pub fn note_speed_from_setting(setting: f32) -> f32 {
+    let x = setting.abs() + 0.9975;
+    let v = 107.25 / (71.4184491 * x.powf(-0.985_558_6));
+    if setting < 0.0 { -v } else { v }
+}
+
+/// Effective flight speed for a note (`base_setting` × hi-speed). `base_setting`
+/// is the configurable note speed (流速, e.g. `PlayerState::note_speed`) and is
+/// run through [`note_speed_from_setting`] so the mapped flight speed matches
+/// MajdataPlay.
+pub fn note_flight_speed(note: &Note, base_setting: f32) -> f32 {
     // Editor-created notes leave `hi_speed` at its Default (0); treat that as 1x.
     let hs = if note.hi_speed > 0.0 { note.hi_speed } else { 1.0 };
-    base_speed * hs
+    note_speed_from_setting(base_setting) * hs
 }
 
 /// Seconds before the hit moment a note first becomes visible, given a flight
@@ -292,10 +314,60 @@ pub fn note_lead_time(speed: f32) -> f32 {
     (NOTE_OUTER_DISTANCE - NOTE_VISIBLE_DISTANCE) / speed.max(0.1)
 }
 
-/// MajdataView touch-note total visible duration:
+/// Distance (in the 4.8-unit flight space) at which a shrink-to-zero note first
+/// appears, given the reference `NoteAppearRate`: scale is
+/// `distance*rate + (1 - rate*lock)`, which hits 0 at this distance.
+pub fn tap_visible_distance(rate: f32) -> f32 {
+    if rate > 1e-6 {
+        -(1.0 - rate * NOTE_LOCK_DISTANCE) / rate
+    } else {
+        NOTE_VISIBLE_DISTANCE
+    }
+}
+
+/// Lead time for a tap/slide head: the tap appears when its scale reaches 0.
+pub fn tap_lead_time(speed: f32) -> f32 {
+    (NOTE_OUTER_DISTANCE - tap_visible_distance(super::params::note_appear_rate())).max(0.0)
+        / speed.max(0.1)
+}
+
+/// Touch-note total visible duration:
 /// `wholeDuration = 3.209385682 * speed^-0.9549621752`.
 pub fn touch_whole_duration(speed: f32) -> f32 {
     3.209_385_7 * speed.max(0.1).powf(-0.954_962_2)
+}
+
+/// Touch-note motion at `time_until_hit` seconds, mirroring MajdataPlay's
+/// `TouchDrop`: a fade-in over `displayDuration = 0.2 * whole`, then the four
+/// arms ease inward from `distance = 0.4` to `0` over `moveDuration =
+/// 0.8 * whole` following `-exp(8·(timing·0.43/move) − 0.85) + 0.42`.
+#[derive(Debug, Clone, Copy)]
+pub struct TouchMotion {
+    /// Fade-in opacity (0..1).
+    pub alpha: f32,
+    /// Arm offset, `0.4` (outer) → `0` (on the point).
+    pub distance: f32,
+}
+
+pub fn touch_motion(
+    time_until_hit: f32,
+    speed: f32,
+    duration_scale: f32,
+) -> Option<TouchMotion> {
+    let whole = touch_whole_duration(speed) * duration_scale.max(0.05);
+    let move_dur = 0.8 * whole;
+    let display = (0.2 * whole).max(1e-3);
+    if time_until_hit >= whole {
+        return None;
+    }
+    let alpha = ((whole - time_until_hit) / display).clamp(0.0, 1.0);
+    let distance = if time_until_hit <= move_dur {
+        let timing = -time_until_hit;
+        (-(8.0 * timing * 0.43 / move_dur.max(1e-3) - 0.85).exp() + 0.42).clamp(0.0, 0.4)
+    } else {
+        0.4
+    };
+    Some(TouchMotion { alpha, distance })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -449,6 +521,11 @@ pub struct Note {
     pub is_star: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_tapless: bool,
+    /// True for sensor/touch notes (`Touch` / touch-hold), independent of the
+    /// zone number. A-zone touch notes share zone `1..=8` with ring notes, so
+    /// this flag is what keeps them off the ring renderer (and its judge dots).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_touch: bool,
     /// Note-speed multiplier from Simai `[x]` hi-speed markers (default 1.0).
     #[serde(default = "default_hi_speed", skip_serializing_if = "is_one_f32")]
     pub hi_speed: f32,
@@ -847,7 +924,8 @@ pub struct TemplateInstance {
 mod note_motion_tests {
     use super::{
         NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, NOTE_VISIBLE_DISTANCE, accel_progress,
-        note_radial_motion, note_radial_motion_continue,
+        note_radial_motion, note_radial_motion_continue, note_speed_from_setting, touch_motion,
+        touch_whole_duration,
     };
 
     const SPEED: f32 = 7.0; // MajdataView default tap speed.
@@ -933,6 +1011,34 @@ mod note_motion_tests {
         let b = note_radial_motion_continue(t, SPEED, 100.0, 15.0).expect("visible");
         assert!((a.radius - b.radius).abs() < 1e-6);
         assert!((a.progress - b.progress).abs() < 1e-6);
+    }
+
+    /// The reference note-speed curve: TapSpeed 7.5 → ~12.37 units/s.
+    #[test]
+    fn note_speed_curve_matches_reference() {
+        let s = note_speed_from_setting(7.5);
+        assert!((s - 12.371).abs() < 0.05, "speed {s}");
+        // Negative setting reverses the scroll.
+        assert!(note_speed_from_setting(-7.5) < 0.0);
+    }
+
+    /// Touch moves inward from 0.4 to 0 over `move`, fading in over `display`.
+    #[test]
+    fn touch_motion_follows_the_reference() {
+        let speed = 7.5;
+        let whole = touch_whole_duration(speed);
+        // Not visible before the whole duration.
+        assert!(touch_motion(whole + 0.01, speed, 1.0).is_none());
+        // On the hit: fully opaque, at the centre.
+        let hit = touch_motion(0.0, speed, 1.0).expect("visible");
+        assert!((hit.alpha - 1.0).abs() < 1e-6);
+        assert!(hit.distance.abs() < 0.02, "distance {}", hit.distance);
+        // Start of the inward move (`move = 0.8·whole`): at the outer offset.
+        let start = touch_motion(whole * 0.8, speed, 1.0).expect("visible");
+        assert!((start.distance - 0.4).abs() < 0.02, "distance {}", start.distance);
+        // Just after appearing: faint.
+        let born = touch_motion(whole - 1e-3, speed, 1.0).expect("visible");
+        assert!(born.alpha < 0.05, "alpha {}", born.alpha);
     }
 }
 

@@ -525,6 +525,62 @@ fn sensor_area_for_button(zone: ButtonZone) -> SensorArea {
 ///
 /// Diagnostic overrides: `MAI2_DEBUG_FORCE_BATCH` treats every frame as normal
 /// (batched), `MAI2_DEBUG_FORCE_PEREVENT` steps every frame per event.
+/// Play the 击打音 for a hold / touch-hold **head** the instant it is pressed.
+///
+/// The core reports a hold only at its tail (`stepRegularHoldHead*` emits no
+/// event), so the head hit is detected locally from the input events: a press
+/// on the hold's lane within its head window plays the note's hit sound (tap
+/// for a regular hold, touch for a touch-hold) exactly once.
+fn play_hold_head_hits(app: &mut PadPreviewState, events: &[TimedInputEvent]) {
+    use crate::player::render::skin::SkinVariant;
+    use crate::player::sfx::{self, SfxKind};
+
+    const HEAD_WINDOW_SEC: f32 = 0.10;
+    let mut hits: Vec<(u64, SfxKind, bool)> = Vec::new();
+    for event in events {
+        let (tp, zone, down) = match event {
+            TimedInputEvent::SensorClick { tp, area } => (*tp, zone_for_sensor(*area), true),
+            TimedInputEvent::SensorHold { tp, area, is_down } => {
+                (*tp, zone_for_sensor(*area), *is_down)
+            }
+            TimedInputEvent::ButtonClick { tp, zone } => (*tp, zone_for_button(*zone), true),
+            TimedInputEvent::ButtonHold { tp, zone, is_down } => {
+                (*tp, zone_for_button(*zone), *is_down)
+            }
+        };
+        if !down {
+            continue;
+        }
+        let t = tp as f32 / 1e6;
+        for note in &app.chart.notes {
+            if !matches!(note.note_type, NoteType::Hold | NoteType::TouchHold) {
+                continue;
+            }
+            if note.lane != zone.to_id() || app.hold_head_hits.contains(&note.id) {
+                continue;
+            }
+            if hits.iter().any(|(id, ..)| *id == note.id) {
+                continue;
+            }
+            let ns = crate::app::types::note_secs(note, &app.chart.bpms);
+            if (t - ns).abs() > HEAD_WINDOW_SEC {
+                continue;
+            }
+            let kind = if note.is_touch {
+                SfxKind::Touch
+            } else {
+                SfxKind::Tap
+            };
+            hits.push((note.id, kind, note.is_break));
+        }
+    }
+    for (id, kind, is_break) in hits {
+        let buf = sfx::select(app, kind, SkinVariant::of_flags(is_break, false), false);
+        app.play_sfx(buf);
+        app.hold_head_hits.insert(id);
+    }
+}
+
 pub fn step_judge_engine(app: &mut PadPreviewState) {
     // `no_core`: bypass lnmai-core entirely (pre-lnmai autoplay + star motion).
     if !app.use_core() {
@@ -532,6 +588,10 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
     }
     let now = app.song_time();
     let events = std::mem::take(&mut app.engine_events);
+    // The core reports a hold only at its tail, so play the **head** hit here
+    // the moment it is actually pressed (a regular hold uses tap.wav, a
+    // touch-hold touch.wav).
+    play_hold_head_hits(app, &events);
     let results = {
         let engine = app.judge_engine.as_mut().unwrap();
         step_engine_events(engine, now, events)
@@ -712,6 +772,19 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
     // Record slide judgments so the renderer can show the `slideok` overlay.
     for fx in collect_slide_judge_fx(&app.chart, app.judge_engine.as_ref(), &result) {
         app.record_slide_judge(fx.note_id, fx.slide_idx, fx.grade);
+    }
+    // A touch note vanishes the instant it is judged (hit or miss), matching
+    // MajdataPlay's `TouchDrop.End`, instead of lingering for a fixed time.
+    let judged_touch: Vec<u64> = result
+        .events
+        .iter()
+        .filter(|event| event.kind == JudgeEventKind::Touch)
+        .filter_map(|event| chart_note(&app.chart, event.note_index))
+        .filter(|note| matches!(note.note_type, NoteType::Touch))
+        .map(|note| note.id)
+        .collect();
+    for id in judged_touch {
+        app.hidden_notes.insert(id);
     }
     for command in &result.audio_commands {
         play_audio_command(app, command);
@@ -927,7 +1000,13 @@ fn chart_slide_tail_zone(chart: &ChartDoc, runtime_slide_index: usize) -> Option
 }
 
 fn chart_note_head_zone(chart: &ChartDoc, note_index: u64) -> Option<PadZone> {
-    let note = chart
+    chart_note(chart, note_index).map(|note| PadZone::from(note.lane))
+}
+
+/// Resolve the chart note for a lnmai `noteIndex` (the runtime index is the
+/// chart note id, or a 1-based position when ids are absent).
+fn chart_note<'a>(chart: &'a ChartDoc, note_index: u64) -> Option<&'a crate::app::types::Note> {
+    chart
         .notes
         .iter()
         .find(|note| note.id == note_index)
@@ -935,8 +1014,7 @@ fn chart_note_head_zone(chart: &ChartDoc, note_index: u64) -> Option<PadZone> {
             usize::try_from(note_index)
                 .ok()
                 .and_then(|index| chart.notes.get(index.saturating_sub(1)))
-        })?;
-    Some(PadZone::from(note.lane))
+        })
 }
 
 /// Map a runtime slide index onto the chart's `(note_id, slide_idx)`.
@@ -986,15 +1064,22 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
             kind,
             grade,
             is_break,
+            note_index,
             ..
         } => {
             if judge_sfx_allowed(*grade) {
                 let sfx_kind = match kind {
                     JudgeEventKind::Tap => SfxKind::Tap,
                     JudgeEventKind::Touch => SfxKind::Touch,
-                    // No dedicated hold sound ships; the hold head/tail
-                    // judgment uses the tap sound.
-                    JudgeEventKind::Hold => SfxKind::Tap,
+                    // lnmai reports touch-holds as `Hold`; they use the touch
+                    // sound, regular holds the tap sound.
+                    JudgeEventKind::Hold => {
+                        if chart_note(&app.chart, *note_index).is_some_and(|n| n.is_touch) {
+                            SfxKind::Touch
+                        } else {
+                            SfxKind::Tap
+                        }
+                    }
                     JudgeEventKind::Slide => SfxKind::SlideJudge,
                     JudgeEventKind::Break => SfxKind::Tap,
                 };

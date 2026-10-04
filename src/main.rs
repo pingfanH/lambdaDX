@@ -117,7 +117,7 @@ fn dump_chart(c: &app::types::ChartDoc) {
         match n.note_type {
             NoteType::Tap => taps += 1,
             NoteType::Hold => holds += 1,
-            NoteType::Touch => touches += 1,
+            NoteType::Touch | NoteType::TouchHold => touches += 1,
             NoteType::Slide => {}
         }
     }
@@ -407,7 +407,7 @@ fn chart_end_secs(chart: &app::types::ChartDoc) -> f32 {    use app::types::{Not
     let mut end = 0.0_f32;
     for n in &chart.notes {
         let e = match n.note_type {
-            NoteType::Hold => hold_tail_time(n, &chart.bpms),
+            NoteType::Hold | NoteType::TouchHold => hold_tail_time(n, &chart.bpms),
             NoteType::Slide => {
                 let dur = n
                     .slide

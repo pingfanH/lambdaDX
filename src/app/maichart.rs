@@ -292,10 +292,11 @@ fn convert(mai: MaiChart, diff_override: Option<i32>) -> ChartDoc {
             notes.push(Note {
                 time: measure_of(h.hit_time),
                 lane,
-                note_type: NoteType::Hold,
+                note_type: NoteType::TouchHold,
                 hold_duration: duration_of(h.hold_time),
                 is_break: h.is_break,
                 is_ex: h.is_ex,
+                is_touch: true,
                 ..Default::default()
             });
         }

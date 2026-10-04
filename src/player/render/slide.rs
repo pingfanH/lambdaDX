@@ -193,6 +193,7 @@ pub fn draw(
                     [None; 3],
                     core_driven,
                     SlideLayer::Trail,
+                    true,
                 );
                 if let Some(last) = segment.points.last() {
                     seg_note.lane = last.zone.to_id();
@@ -222,6 +223,7 @@ pub fn draw(
             track_bars,
             core_driven,
             layer,
+            false,
         );
     }
 }

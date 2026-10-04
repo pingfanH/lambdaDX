@@ -238,9 +238,12 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
             ui.heading("Speed 流速 (默认值 · 持久保存)");
             param(ui, &mut p.note_speed_default, 0.5, 1.0..=20.0, "note_speed_default 默认流速");
             param(ui, &mut p.touch_speed_default, 0.5, 1.0..=20.0, "touch_speed_default 出生速度");
+            param(ui, &mut p.note_appear_rate, 0.005, 0.05..=0.6, "note_appear_rate 出现率");
             ui.label(format!(
-                "live: note {:.2} / touch {:.2}  (Save 持久保存)",
-                app.note_speed, app.touch_speed
+                "live: note {:.2} → flight {:.2} / touch {:.2}  (Save 持久保存)",
+                app.note_speed,
+                crate::app::types::note_speed_from_setting(app.note_speed),
+                app.touch_speed
             ));
 
             ui.separator();

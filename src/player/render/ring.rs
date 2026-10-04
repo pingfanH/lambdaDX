@@ -90,8 +90,13 @@ pub fn judge_points(
     let idx = (t.zone - 1) as f32;
     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
     let dir = vec2(ang.cos(), ang.sin());
+    // Touch / touch-hold have no ring judgment points (their dots would read as
+    // a phantom tap/hold on the ring).
+    if note.is_touch {
+        return Vec::new();
+    }
     match note.note_type {
-        NoteType::Slide | NoteType::Touch => Vec::new(),
+        NoteType::Slide | NoteType::Touch | NoteType::TouchHold => Vec::new(),
         NoteType::Hold => {
             let lock_r = note_lock_radius(outer_r, params::tap_target_offset());
             let head_motion = note_radial_motion_hold(
@@ -166,7 +171,7 @@ pub fn draw_guides(
     let dir = vec2(ang.cos(), ang.sin());
 
     match note.note_type {
-        NoteType::Slide | NoteType::Touch => {}
+        NoteType::Slide | NoteType::Touch | NoteType::TouchHold => {}
         NoteType::Hold => {
             let lock_r = note_lock_radius(outer_r, params::tap_target_offset());
             let head_motion = note_radial_motion_hold(

@@ -364,16 +364,18 @@ mod lean {
                 lane: sensor_lane(token.sensor_pos?)?,
                 note_type: NoteType::Touch,
                 is_break: token.is_break,
+                is_touch: true,
                 hi_speed,
                 ..Default::default()
             }),
             RawNoteKind::TouchHold => Some(Note {
                 time,
                 lane: sensor_lane(token.sensor_pos?)?,
-                note_type: NoteType::Hold,
+                note_type: NoteType::TouchHold,
                 hold_duration: duration(token.length.unwrap_or(0), token.timing, bpms),
                 is_break: token.is_break,
                 is_ex: token.is_ex,
+                is_touch: true,
                 hi_speed,
                 ..Default::default()
             }),

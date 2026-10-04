@@ -15,6 +15,8 @@ use crate::app::types::{ChartDoc, NoteType, hold_tail_time, note_secs};
 pub enum Cue {
     /// A tap note reaching its judgment point.
     Tap,
+    /// A touch note reaching its judgment point.
+    Touch,
     /// A hold note's head reaching its judgment point.
     HoldHead,
     /// A hold note's tail reaching its judgment point.
@@ -31,6 +33,9 @@ pub struct CueEvent {
     pub is_break: bool,
     /// Ex note → the Ex sound can be used instead of the kind's sound.
     pub is_ex: bool,
+    /// Sensor/touch note → its cue uses the touch sound (touch-hold heads/tails
+    /// are `Hold`-typed but still touch notes).
+    pub is_touch: bool,
 }
 
 /// Sorted cue instants plus a monotonic cursor.
@@ -53,19 +58,22 @@ impl CueTrack {
                     cue: Cue::Tap,
                     is_break: n.is_break,
                     is_ex: n.is_ex,
+                    is_touch: false,
                 }),
-                NoteType::Hold => {
+                NoteType::Hold | NoteType::TouchHold => {
                     events.push(CueEvent {
                         time: note_secs(n, bpms),
                         cue: Cue::HoldHead,
                         is_break: n.is_break,
                         is_ex: n.is_ex,
+                        is_touch: n.is_touch,
                     });
                     events.push(CueEvent {
                         time: hold_tail_time(n, bpms),
                         cue: Cue::HoldTail,
                         is_break: n.is_break,
                         is_ex: n.is_ex,
+                        is_touch: n.is_touch,
                     });
                 }
                 NoteType::Slide => events.push(CueEvent {
@@ -73,8 +81,15 @@ impl CueTrack {
                     cue: Cue::SlideHead,
                     is_break: n.is_break,
                     is_ex: n.is_ex,
+                    is_touch: false,
                 }),
-                NoteType::Touch => {}
+                NoteType::Touch => events.push(CueEvent {
+                    time: note_secs(n, bpms),
+                    cue: Cue::Touch,
+                    is_break: n.is_break,
+                    is_ex: n.is_ex,
+                    is_touch: true,
+                }),
             }
         }
         events.sort_by(|a, b| a.time.total_cmp(&b.time));

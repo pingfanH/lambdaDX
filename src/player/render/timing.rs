@@ -54,7 +54,7 @@ pub fn compute(
     let dt_scaled = dt / speed_scale;
 
     // Hold and slide tails differ from the head; other note types reuse `dt`.
-    let tail_dt = if matches!(note.note_type, NoteType::Hold) {
+    let tail_dt = if matches!(note.note_type, NoteType::Hold | NoteType::TouchHold) {
         hold_tail_time(note, bpms) - current_t
     } else {
         dt
@@ -62,12 +62,20 @@ pub fn compute(
     let tail_dt_scaled = tail_dt / speed_scale;
 
     let speed = note_flight_speed(note, app.note_speed);
-    let touch_flight = note_flight_speed(note, app.touch_speed);
+    // Touch uses the touch-speed setting *directly* (the reference does not run
+    // it through the note-speed curve).
+    let touch_hs = if note.hi_speed > 0.0 { note.hi_speed } else { 1.0 };
+    let touch_flight = app.touch_speed.abs() * touch_hs;
 
     // Ring notes fly in over `note_lead_time`; touch/hold use the touch
     // whole-duration model; slides use the head's radial lead. Taps may appear
     // earlier when `tap_spawn_time` gives them a longer birth animation.
-    let lead_time = if zone <= 8 {
+    let lead_time = if note.is_touch {
+        // Touch / touch-hold use the touch whole-duration model regardless of
+        // which pad zone they sit on (A-zone touch notes have zone 1..=8).
+        touch_whole_duration(touch_flight)
+            * crate::app::params::touch_duration_scale().max(0.05)
+    } else if zone <= 8 {
         match note.note_type {
             NoteType::Tap => tap_lead_time(speed),
             // The slide head star inherits the tap's birth timing / start.
@@ -77,8 +85,9 @@ pub fn compute(
         }
     } else {
         match note.note_type {
-            NoteType::Touch | NoteType::Hold => touch_whole_duration(touch_flight),
             NoteType::Slide | NoteType::Tap => note_lead_time(speed),
+            _ => touch_whole_duration(touch_flight)
+                * crate::app::params::touch_duration_scale().max(0.05),
         }
     };
 
@@ -88,8 +97,8 @@ pub fn compute(
         tail_dt
     };
 
-    // How long the note lingers after its tail time.
-    // * Touch: uses its own (negative) constant.
+    // How long the note lingers at/after its tail time.
+    // * Touch: lingers through its judgment instant and a moment after.
     // * Hold: zero — the hold vanishes the instant its tail reaches the
     //   judgment ring.
     // * Slide: zero — the trail is consumed by the star and the note vanishes
@@ -97,7 +106,7 @@ pub fn compute(
     // * Tap: keeps flying past the ring for a moment (see `ring`).
     let disappear_time = match note.note_type {
         NoteType::Touch => crate::app::types::TOUCH_DISAPPEAR_TIME,
-        NoteType::Hold | NoteType::Slide => 0.0,
+        NoteType::Hold | NoteType::TouchHold | NoteType::Slide => 0.0,
         NoteType::Tap => 0.18,
     };
 
@@ -118,13 +127,14 @@ pub fn compute(
 }
 
 /// Lead time for a tap. When `tap_spawn_time` is set, the tap appears that much
-/// earlier so it can run its scale-up ("birth") animation before flying out.
+/// earlier so it can run its scale-up ("birth") animation before flying out;
+/// otherwise it appears when its reference scale reaches zero.
 fn tap_lead_time(speed: f32) -> f32 {
     let spawn_t = crate::app::params::tap_spawn_time();
     if spawn_t > 0.0 {
         (NOTE_OUTER_DISTANCE - NOTE_LOCK_DISTANCE) / speed.max(0.1) + spawn_t
     } else {
-        note_lead_time(speed)
+        crate::app::types::tap_lead_time(speed)
     }
 }
 

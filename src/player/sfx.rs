@@ -99,7 +99,7 @@ pub async fn load_pad_sfx(app: &mut PadPreviewState) {
     ])
     .await;
     app.sfx_ex = audio::load_sfx(&["Sfx/tap_ex.wav", "Sfx/tap_perfect.wav"]).await;
-    app.sfx_touch = audio::load_sfx(&["Sfx/touch.wav", "Sfx/answer.wav"]).await;
+    app.sfx_touch = audio::load_sfx(&["Sfx/touch.wav"]).await;
     app.sfx_slide = audio::load_sfx(&["Sfx/slide.wav"]).await;
     app.sfx_hold = audio::load_sfx(&["Sfx/hold.wav"]).await;
     app.sfx_break = audio::load_sfx(&["Sfx/break.wav"]).await;

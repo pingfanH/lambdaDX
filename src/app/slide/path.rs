@@ -785,6 +785,8 @@ pub fn slide_shape_left(
         outer_r,
         spawn_cx,
         -1,
+        // Reference rule: a `<` starting in the lower half is the short
+        // increasing arc; an upper-half `<` mirrors to the decreasing arc.
         if note.lane < 7 && note.lane > 2 {
             ArcDir::CCW
         } else {
@@ -803,6 +805,9 @@ pub fn slide_shape_right(
     svg: &PadSvgDef,
     scale: f32,
 ) {
+    // Reference rule (MajdataPlay `DetectShapeFromText`): a `>` starting in the
+    // upper half is the short increasing arc; a lower-half `>` mirrors to the
+    // decreasing arc. (Both `slide_shape_*` and `prefab_key` must agree.)
     build_a_ring_arc(
         path,
         note,

@@ -10,7 +10,7 @@ use macroquad::math::{Vec2, vec2};
 use macroquad::prelude::{DrawTextureParams, draw_texture_ex};
 
 use crate::app::types::zone::PadZone;
-use crate::app::types::{PadGeom, hold_tail_time, touch_whole_duration};
+use crate::app::types::{PadGeom, hold_tail_time, touch_motion};
 use crate::player::render::timing::NoteTiming;
 use crate::player::render::skin;
 use crate::player::state::PadPreviewState;
@@ -34,43 +34,27 @@ pub fn draw(
         return;
     };
 
-    // Whole-duration progress: 0 when the note first appears, 1 at hit time.
-    // `raw` is the remaining fraction; `progress` is eased. The total visible
-    // time is the speed-derived duration scaled by `touch_duration_scale`.
-    let travel = touch_whole_duration(t.touch_flight) * params::touch_duration_scale().max(0.05);
-    let raw = (travel - t.dt_scaled) / travel;
-    let progress = smoothstep(raw.clamp(0.0, 1.0));
-
-    // Phases:
-    //   1. fade in  [0, spawn_frac)         — appears, no movement
-    //   2. stall    [spawn_frac, GROW_FRAC) — fully opaque, still held at the
-    //                                          outer distance (brief pause)
-    //   3. move in  [GROW_FRAC, 1]          — arms travel inward, slow -> fast
-    //
-    // `touch_spawn_frac` sets the birth (fade-in) fraction directly.
-    let fade_frac = params::touch_spawn_frac().clamp(0.001, 0.99);
-    let alpha = if progress < fade_frac {
-        (progress / fade_frac * 255.0) as u8
-    } else {
-        255
+    // Reference `TouchDrop` motion: fade in over `0.2·whole`, then the arms ease
+    // inward over `0.8·whole` following `-exp(8·(t·0.43/move) − 0.85) + 0.42`.
+    let Some(motion) = touch_motion(
+        t.dt_scaled,
+        t.touch_flight,
+        params::touch_duration_scale(),
+    ) else {
+        return;
     };
-    let move_progress = if progress < params::touch_grow_frac() {
-        0.0
-    } else {
-        ((progress - params::touch_grow_frac()) / (1.0 - params::touch_grow_frac())).clamp(0.0, 1.0)
-    };
-    // Slow -> fast: the speed ramps linearly from 0.5x (outer half, slower) to
-    // 1.5x (inner half, faster), averaging 1x so the total time is unchanged.
-    // eased(t) = t·(0.5 + 0.5t) is the integral of v(t) = 0.5 + t.
-    let ramp = params::touch_move_ramp();
-    let move_eased = move_progress * ((1.0 - ramp) + ramp * move_progress);
-    let dist = (params::touch_start_dist() + (params::touch_end_dist() - params::touch_start_dist()) * move_eased)
+    let alpha = (motion.alpha * 255.0) as u8;
+    // `motion.distance` runs 0.4 (outer) → 0 (on the point); map it onto the
+    // configurable start/end arm distances.
+    let move_in = (1.0 - motion.distance / 0.4).clamp(0.0, 1.0);
+    let dist = (params::touch_start_dist()
+        + (params::touch_end_dist() - params::touch_start_dist()) * move_in)
         * params::touch_scale()
         * scale;
     let ts = params::touch_cross_size() * params::touch_scale() * scale;
 
     // ── Regular touch cross (not for holds) ──
-    if !matches!(note.note_type, crate::app::types::NoteType::Hold) {
+    if !matches!(note.note_type, crate::app::types::NoteType::TouchHold) {
         let tri_tex = skin::body_or_normal(
             app,
             skin::SkinKind::TouchTri,
@@ -101,7 +85,7 @@ pub fn draw(
     }
 
     // Centre dot (holds draw theirs on top later).
-    if !matches!(note.note_type, crate::app::types::NoteType::Hold) {
+    if !matches!(note.note_type, crate::app::types::NoteType::TouchHold) {
         let pt_tex = skin::body_or_normal(
             app,
             skin::SkinKind::TouchPoint,
@@ -122,8 +106,8 @@ pub fn draw(
         }
     }
 
-    if matches!(note.note_type, crate::app::types::NoteType::Hold) {
-        draw_touch_hold(app, note, t, bpms, center, alpha, move_eased, current_t, scale);
+    if matches!(note.note_type, crate::app::types::NoteType::TouchHold) {
+        draw_touch_hold(app, note, t, bpms, center, alpha, move_in, current_t, scale);
     }
 }
 
@@ -142,9 +126,12 @@ fn draw_touch_hold(
     // Progress through the hold (0..1), used to sweep the border.
     let hold_progress = ((current_t - t.ns) / (hold_tail_time(note, bpms) - t.ns).max(0.01))
         .clamp(0.0, 1.0);
-    let hold_dist = (params::touchhold_start_dist()
-        + (params::touchhold_end_dist() - params::touchhold_start_dist()) * move_amount)
-        * params::touchhold_scale()
+    // MajdataPlay `TouchHoldDrop.SetFansPosition` uses the **same**
+    // `(0.226 + distance)` fan radius as `TouchDrop` (only the angle differs:
+    // diagonal vs cardinal), so the arms ease inward over the same range.
+    let hold_dist = (params::touch_start_dist()
+        + (params::touch_end_dist() - params::touch_start_dist()) * move_amount)
+        * params::touch_scale()
         * scale;
     let d = hold_dist * 0.707; // √2/2 for the diagonal arms
     let hts = params::touchhold_cross_base() * params::touchhold_scale() * scale;
@@ -184,36 +171,40 @@ fn draw_touch_hold(
         }
     }
 
-    // Progress border. The first (transparent) pass is a ghost so the shader
-    // only paints the swept portion; `progress` drives the mask shader.
-    if let Some(border) = &app.touchhold_border_tex {
-        let bs = params::touchhold_border_base() * params::touchhold_scale() * scale;
-        draw_texture_ex(
-            border,
-            center.x - bs * 0.5,
-            center.y - bs * 0.5,
-            Color::from_rgba(255, 255, 255, 0),
-            DrawTextureParams {
-                dest_size: Some(vec2(bs, bs)),
-                ..Default::default()
-            },
-        );
-        if let Some(ref mat) = app.mask_material {
-            macroquad::material::gl_use_material(mat);
-            mat.set_uniform("progress", hold_progress);
-        }
-        draw_texture_ex(
-            border,
-            center.x - bs * 0.5,
-            center.y - bs * 0.5,
-            WHITE,
-            DrawTextureParams {
-                dest_size: Some(vec2(bs, bs)),
-                ..Default::default()
-            },
-        );
-        if app.mask_material.is_some() {
-            macroquad::material::gl_use_default_material();
+    // Progress border. The reference activates it **at the head**
+    // (`SetBorderActive(true)` on arrival) with progress 0, so nothing shows
+    // during the fade-in/approach. The first (transparent) pass is a ghost so
+    // the shader only paints the swept portion.
+    if current_t >= t.ns {
+        if let Some(border) = &app.touchhold_border_tex {
+            let bs = params::touchhold_border_base() * params::touchhold_scale() * scale;
+            draw_texture_ex(
+                border,
+                center.x - bs * 0.5,
+                center.y - bs * 0.5,
+                Color::from_rgba(255, 255, 255, 0),
+                DrawTextureParams {
+                    dest_size: Some(vec2(bs, bs)),
+                    ..Default::default()
+                },
+            );
+            if let Some(ref mat) = app.mask_material {
+                macroquad::material::gl_use_material(mat);
+                mat.set_uniform("progress", hold_progress);
+            }
+            draw_texture_ex(
+                border,
+                center.x - bs * 0.5,
+                center.y - bs * 0.5,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(bs, bs)),
+                    ..Default::default()
+                },
+            );
+            if app.mask_material.is_some() {
+                macroquad::material::gl_use_default_material();
+            }
         }
     }
 
@@ -236,10 +227,4 @@ fn draw_touch_hold(
             },
         );
     }
-}
-
-/// Hermite smoothstep on `[0, 1]`.
-fn smoothstep(x: f32) -> f32 {
-    let t = x.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }

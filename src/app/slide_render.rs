@@ -580,6 +580,10 @@ pub fn draw_slide(
     track_bars: [Option<usize>; 3],
     core_driven: bool,
     layer: SlideLayer,
+    // True when this call renders one arc of a chained slide (the trail is split
+    // per arc): the per-arc core fraction is the correct progress, not the
+    // whole-chain star position.
+    chain_arc: bool,
 ) {
     // `slide_dur_s` is the total span from the head (tail = ns + slide_dur_s).
     // The star motion fills the `[start_delay, total]` window; the travel time
@@ -595,7 +599,7 @@ pub fn draw_slide(
     let dt_scaled = dt / speed_scale.max(0.1);
     // The slide head star uses the same radial flight as a Tap note.
     let head_speed = super::types::note_flight_speed(note, base_speed);
-    let head_lead = super::types::note_lead_time(head_speed);
+    let head_lead = super::types::tap_lead_time(head_speed);
     // Head-star spin, continuous from the moment the star spawns. The radial
     // `progress` stays 0 while the star grows at the lock radius, so a
     // progress-based spin only started after the fly-out; this makes it rotate
@@ -635,7 +639,11 @@ pub fn draw_slide(
         .segments
         .iter()
         .any(|s| matches!(s.shape, SlideShape::Wifi));
-    let prefab_built = if is_wifi {
+    // A chained slide's per-arc trail is rendered from 1-segment dummy slides;
+    // keep those on the procedural path so the per-arc core hiding (which is
+    // keyed to the original geometry) stays correct. Only whole sub-slides use
+    // the baked prefab curve.
+    let prefab_built = if is_wifi || chain_arc {
         None
     } else {
         prefab_slide_path_bounded(note, slide, spawn_cx, outer_r)
@@ -1085,7 +1093,7 @@ pub fn draw_slide(
     );
     // Core progress is per chart segment; map each segment's consumed fraction
     // onto its path-distance range to get the trail-bar frontier.
-    let hidden_until = if core_driven && seg_frac.len() == 1 {
+    let core_hidden = if core_driven && seg_frac.len() == 1 {
         // Straight-line (single segment) slides: the star crosses one sensor
         // area per judge step, so distribute the bars evenly across those areas
         // instead of by raw path distance (the first/last area get a fixed
@@ -1126,7 +1134,12 @@ pub fn draw_slide(
     } else {
         0
     };
-    let hidden_until = hidden_until.min(segmentation.bars.len());
+    // Reference MajdataPlay hides each judge area's trail bars once the star
+    // passes it (`HideBar(area.ArrowProgressWhenFinished)`), driven by the
+    // star's own position along the path. Wifi keeps its per-track core cutoff.
+    let star_hidden = hidden_bars_for_star(&segmentation, star_dist_along.max(0.0));
+    let hidden_until = if chain_arc { core_hidden } else { star_hidden }
+        .min(segmentation.bars.len());
     if matches!(layer, SlideLayer::Trail) && crate::player::engine::debug_slide_enabled() {
         // Tag by note **and** segment: a continuous chain renders one trail per
         // arc, and a shared per-note tag made the dedup flap (print every frame).
@@ -1399,6 +1412,28 @@ pub fn draw_slide(
 /// Used for single-segment (straight-line) slides: the first and last area hide
 /// a fixed small share, the middle areas split the remaining bars evenly, so the
 /// trail consumes in even per-area steps rather than by raw path distance.
+/// Number of trail bars to hide as the star reaches `star_dist`: every judge
+/// area whose end bar is at or behind the star's current bar is fully consumed
+/// (MajdataPlay `HideBar(area.ArrowProgressWhenFinished)`).
+fn hidden_bars_for_star(seg: &segmentation::SlideSegmentation, star_dist: f32) -> usize {
+    let Some(bar_idx) = seg
+        .bars
+        .iter()
+        .rposition(|b| b.distance_along <= star_dist)
+    else {
+        return 0;
+    };
+    let mut hidden = 0;
+    for s in &seg.judge_segments {
+        if bar_idx + 1 >= s.end_bar {
+            hidden = s.end_bar;
+        } else {
+            break;
+        }
+    }
+    hidden.min(seg.bars.len())
+}
+
 fn area_bar_boundary(bars: usize, areas: usize, passed: usize) -> usize {
     if passed == 0 || areas == 0 || bars == 0 {
         return 0;
@@ -1496,8 +1531,7 @@ mod tests {
         assert!(prefab_slide_path(&note, &slide, vec2(0.0, 0.0), 480.0).is_none());
     }
 
-    /// A chained slide must still join smoothly. Chains fall back to the
-    /// procedural builder, so this guards the whole `draw_slide` path really is
+    /// A chained slide must still join smoothly. Chains fall back to the    /// procedural builder, so this guards the whole `draw_slide` path really is
     /// smooth for a `1>2>3<4<5<6` zig-zag.
     #[test]
     fn chained_slide_junctions_are_smooth() {
@@ -1552,5 +1586,87 @@ mod tests {
             );
         }
         assert!(worst < 15.0, "junction corner {worst}deg");
+    }
+
+    /// `>` is always the clockwise (increasing-lane) direction: a lower-half
+    /// `5>7` must take the 2-step arc (~+90°), not the 6-step long way.
+    #[test]
+    /// Reference `DetectShapeFromText`: a lower-half `<` (e.g. `4<5`) is the
+    /// short increasing arc — not the 7-step long way.
+    #[test]
+    fn lower_half_left_arc_is_the_short_way() {
+        let note = Note {
+            lane: 4,
+            ..Default::default()
+        };
+        let seg = SlideSegment {
+            points: vec![SlidePoint {
+                zone: PadZone::from(5),
+                beat_offset: 0.0,
+            }],
+            shape: SlideShape::Left,
+        };
+        let pad_svg = PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")).expect("pad svg");
+        let pad = PadGeom {
+            cx: 0.0,
+            cy: 0.0,
+            outer_r: 326.57,
+        };
+        let mut path = Vec::new();
+        super::super::slide::path::slide_shape_left(
+            &mut path,
+            &note,
+            &seg,
+            326.57,
+            vec2(0.0, 0.0),
+            &pad,
+            &pad_svg,
+            1.0,
+        );
+        assert!(path.len() > 2);
+        // Total signed turn around the pad centre: one step (~+45°).
+        let mut turn = 0.0_f32;
+        for i in 1..path.len() {
+            let d = path[i].y.atan2(path[i].x) - path[i - 1].y.atan2(path[i - 1].x);
+            let d = d.rem_euclid(std::f32::consts::TAU);
+            turn += if d > std::f32::consts::PI {
+                d - std::f32::consts::TAU
+            } else {
+                d
+            };
+        }
+        assert!(
+            (turn.to_degrees() - 45.0).abs() < 15.0,
+            "turn {}deg",
+            turn.to_degrees()
+        );
+    }
+
+    /// Star-driven trail hiding: a judge area is consumed once the star passes
+    /// its last bar (MajdataPlay `HideBar(area.ArrowProgressWhenFinished)`).
+    #[test]
+    fn star_hiding_consumes_judge_areas_in_order() {
+        use segmentation::{SlideBar, SlideJudgeSegment, SlideSegmentation};
+        let bar = |distance_along: f32| SlideBar {
+            position: vec2(0.0, 0.0),
+            rotation: 0.0,
+            zone: None,
+            distance_along,
+        };
+        let area = |zone, start_bar, end_bar| SlideJudgeSegment { zone, start_bar, end_bar };
+        let seg = SlideSegmentation {
+            bars: (0..10).map(|i| bar(i as f32)).collect(),
+            judge_segments: vec![
+                area(PadZone::A1, 0, 3),
+                area(PadZone::A2, 3, 7),
+                area(PadZone::A3, 7, 10),
+            ],
+        };
+        assert_eq!(hidden_bars_for_star(&seg, -1.0), 0);
+        assert_eq!(hidden_bars_for_star(&seg, 0.5), 0);
+        assert_eq!(hidden_bars_for_star(&seg, 2.5), 3);
+        assert_eq!(hidden_bars_for_star(&seg, 5.5), 3);
+        assert_eq!(hidden_bars_for_star(&seg, 6.5), 7);
+        assert_eq!(hidden_bars_for_star(&seg, 9.5), 10);
     }
 }
