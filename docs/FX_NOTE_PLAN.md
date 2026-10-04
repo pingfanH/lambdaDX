@@ -13,9 +13,16 @@
 | B | 两份 `shared/rust_ffi_types.rs` 增 `fx_effect` | ✅ 完成 |
 | C | `Note.fx` + `maidata::simple_note` 映射 | ✅ 完成 |
 | E | `src/app/audio_fx/` DSP + `FxSource` + `BgmPlayer` | ✅ 完成（4 测） |
-| F | player 接线（`PadPreviewState::update_fx_state`） | ✅ 完成，**当前交付测试点** |
-| D | 外部 Lean 核心解析 | ⬜ 待开工（外部 `fxnote` 分支） |
-| G | 集成测试 / 手工验收 | 🔶 单测已绿，谱面级待 D |
+| F | player 接线（`PadPreviewState::update_fx_state`） | ✅ 完成 |
+| D | 外部 Lean 核心解析 | ✅ 完成（外部 `fxnote` 分支） |
+| G | 集成测试 / 手工验收 | ✅ 集成已绿（`assets/charts/fxtest`）；听感验收走 §8 F1b / 正式谱面 |
+
+> D 阶段实现偏离原设计：**不新增 `RawNoteKind` 变体**，而是复用 `.hold` /
+> `.touchHold` 并在 token 上带 `fxEffect` + `isEX := true`（`isBreak`/`isHanabi`
+> 启发式显式覆盖）。lambdaDX 侧零额外分支，判定/计分天然并入 Hold。
+>
+> 端到端已用 `simai-parser-cli`（inspection JSON 含 `fxEffect`）与
+> `cargo test bundled_fxtest_chart_maps_fx_effects` 验证。
 
 > F 阶段交付时：Lean 核心还不会解析 `@`，故用 `LAMBDADX_FX_TEST`（见 §8 F1b）
 > 手动验收 5 个效果的听感与启停。
@@ -232,10 +239,14 @@ pub fx: Option<crate::app::fx::AudioEffect>,
 
 ---
 
-## 6. 阶段 D：外部 Lean 核心（**推迟，另行开工**）
+## 6. 阶段 D：外部 Lean 核心（已完成，外部 `fxnote` 分支）
 
-> 以下为落地清单，基于 `FX_NOTE_FORMAT.md` §7。开工前需先确认工程路径与
-> `lake build` 可用。**本阶段先不做。**
+> 落地清单（`FX_NOTE_FORMAT.md` §7）。已在外部 checkout 的 `fxnote` 分支实现：
+> `LnmaiCore/Simai/Syntax.lean`（`RawNoteToken.fxEffect`）、`Tokenize.lean`
+> （`fxHeadKind` / `fxEffectOf`、`inferKind`、`mkRawToken` 覆盖、
+> `applyInlineDirectiveFuel` 与 `expandTokenList` 放行、`splitTopLevel` 支持圆括号）。
+> **不改** `Normalize`/`ChartLoader`/`Lifecycle`：token 复用 `.hold`/`.touchHold`
+> 且 `isEX := true`，下游自然按 EX hold 处理。
 
 ### D1 `LnmaiCore/Simai/Tokenize.lean`
 

@@ -1,0 +1,14 @@
+&title=FX Test
+&artist=lnmai
+&first=0
+&lv_1=1
+&des_1=fx
+&inote_1=
+(120){4}
+1fx@gate[4:1],
+2fx@bit_crusher[4:1],
+3fx@wobble[4:1],
+4fx@sidechain(1:2;10ms;50ms;1:16;1>5)[4:1],
+5fx@hpf(80hz-2khz)[4:1],
+6,
+A3fx@sc(wl=1:4;r=60)[4:1],

@@ -684,4 +684,46 @@ mod tests {
             - crate::app::types::secs_to_measure(core_head_s, &c.bpms);
         assert!((sl.slide_duration - core_span).abs() < 1e-4, "{sl:?} vs {core_span}");
     }
+
+    /// End-to-end: the bundled `fxtest` chart's `@type(params)` heads must map
+    /// onto `Note.fx` (all five effects), keep their hold type, and be EX,
+    /// while plain notes stay unaffected.
+    #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+    #[test]
+    fn bundled_fxtest_chart_maps_fx_effects() {
+        use crate::app::fx::FxKind;
+        use crate::app::types::NoteType;
+
+        let text = include_str!("../../assets/charts/fxtest/maidata.txt");
+        let c = from_maidata(text, None).expect("parse fxtest");
+
+        let fx: Vec<_> = c.notes.iter().filter(|n| n.fx.is_some()).collect();
+        assert_eq!(fx.len(), 6, "five ring + one touch FX note");
+
+        let kinds: Vec<FxKind> = fx.iter().map(|n| n.fx.as_ref().unwrap().kind).collect();
+        for want in [
+            FxKind::Gate,
+            FxKind::BitCrusher,
+            FxKind::Wobble,
+            FxKind::Sidechain,
+            FxKind::HighPassFilter,
+        ] {
+            assert!(kinds.contains(&want), "missing {want:?} in {kinds:?}");
+        }
+
+        assert!(
+            fx.iter()
+                .all(|n| matches!(n.note_type, NoteType::Hold | NoteType::TouchHold) && n.is_ex),
+            "FX heads must be EX holds/touch-holds"
+        );
+        assert!(fx.iter().any(|n| n.note_type == NoteType::TouchHold));
+        assert!(fx.iter().all(|n| n.hold_duration > 0.0));
+
+        let plain = c
+            .notes
+            .iter()
+            .find(|n| matches!(n.note_type, NoteType::Tap) && n.fx.is_none())
+            .expect("plain tap");
+        assert!(!plain.is_ex);
+    }
 }
