@@ -77,8 +77,8 @@ evdev = "0.13"
 # "Time shouldn't move backwards" even though it is harmless in release. Our own
 # crate keeps its debug assertions.
 [profile.dev.package."*"]
-opt-level = 3
-debug-assertions = false
+# opt-level = 3
+# debug-assertions = false
 
 # Our own debug code also has hot loops (audio decode/resample, pad rendering).
 # opt-level 1 keeps incremental builds quick while removing the worst stalls.
@@ -90,5 +90,5 @@ debug-assertions = false
 # links deterministic; a `cargo clean` / deleting target/debug/incremental is no
 # longer needed.
 [profile.dev]
-opt-level = 1
-incremental = false
+# opt-level = 1
+# incremental = false
