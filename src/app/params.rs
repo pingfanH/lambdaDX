@@ -94,6 +94,9 @@ pub struct Params {
     pub star_spawn_scale_gain: f32,
     /// Star pop-in: start alpha (0..1), ending at 1.
     pub star_spawn_alpha_start: f32,
+    /// Break-shine flash speed multiplier. `1.0` = MajdataPlay's `0.17` rad per
+    /// 60 fps frame (~0.62 s period); higher flashes faster.
+    pub break_shine_speed: f32,
     /// Note pass draw order. `false` = later notes drawn on top (default),
     /// `true` = earlier notes drawn on top (reverse the note pass).
     pub note_earlier_on_top: bool,
@@ -316,6 +319,7 @@ impl Default for Params {
             slide_tail_gap: 26.0,
             star_spawn_scale_gain: 0.5,
             star_spawn_alpha_start: 0.5,
+            break_shine_speed: 2.0,
             note_earlier_on_top: false,
             slide_tile_reverse: false,
             slide_sub_reverse: false,
@@ -676,6 +680,32 @@ pub fn hold_spawn_time_effective() -> f32 {
     }
 }
 
+/// MajdataPlay "break shine" brightness multiplier for a break sprite.
+///
+/// Mirrors `BreakShineController` / `TapBase`:
+/// `_Brightness = 0.95 + max(sin(frame * 0.17) * 0.5, 0)` where
+/// `frame = audio_ms / 16.6667` (60 fps frames). The result rests at `0.95`,
+/// peaks at `1.45`, and is clamped to the sine's positive half. The phase is
+/// scaled by [`break_shine_speed`].
+pub fn break_shine(current_t: f32) -> f32 {
+    break_shine_at(current_t, BREAK_SHINE_BASE_RATE * break_shine_speed())
+}
+
+/// Radians per 60 fps frame at `break_shine_speed == 1` (MajdataPlay's value).
+const BREAK_SHINE_BASE_RATE: f32 = 0.17;
+
+/// The raw MajdataPlay pulse for an explicit phase `rate` (rad/frame).
+fn break_shine_at(current_t: f32, rate: f32) -> f32 {
+    let frame = current_t * 1000.0_f32 / 16.6667_f32;
+    let extra = (frame * rate).sin().max(0.0_f32) * 0.5_f32;
+    0.95_f32 + extra
+}
+
+/// Break-shine flash speed multiplier (see [`Params::break_shine_speed`]).
+pub fn break_shine_speed() -> f32 {
+    PARAMS.with(|p| p.borrow().break_shine_speed)
+}
+
 /// Explicit background-video path (empty = `<assets>/bg.mp4`).
 pub fn bg_video_path() -> String {
     PARAMS.with(|p| p.borrow().bg_video_path.clone())
@@ -705,7 +735,23 @@ pub fn save(p: &Params) -> Result<PathBuf, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::Params;
+    use super::{Params, break_shine_at};
+
+    /// The break pulse matches MajdataPlay: rest at 0.95, peak at 1.45, and the
+    /// negative half of the sine clamps back to the rest value.
+    #[test]
+    fn break_shine_matches_majdataplay_pulse() {
+        // frame 0 -> sin 0.
+        assert!((break_shine_at(0.0, 0.17) - 0.95).abs() < 1e-6);
+
+        // Peak of the positive half (frame * 0.17 == pi/2) -> 1.45.
+        let peak_t = (std::f32::consts::FRAC_PI_2 / 0.17_f32) * 16.6667_f32 / 1000.0;
+        assert!((break_shine_at(peak_t, 0.17) - 1.45).abs() < 1e-4);
+
+        // Negative half (frame * 0.17 == 3pi/2) clamps back to 0.95.
+        let trough_t = (3.0 * std::f32::consts::FRAC_PI_2 / 0.17_f32) * 16.6667_f32 / 1000.0;
+        assert!((break_shine_at(trough_t, 0.17) - 0.95).abs() < 1e-4);
+    }
 
     #[test]
     fn partial_json_falls_back_to_defaults() {

@@ -115,6 +115,32 @@ pub fn body_or_normal(
     body(app, kind, variant).or_else(|| body(app, kind, SkinVariant::Normal))
 }
 
+/// Run `draw` with MajdataPlay's break-shine brightness pulse applied to a
+/// break sprite.
+///
+/// MajdataPlay multiplies the sprite RGB by `_Brightness` (`0.95..1.45`) through
+/// a material uniform, so a break note rests near white and flashes **brighter
+/// than white**. macroquad packs vertex tints as `u8` and clamps them at `1.0`,
+/// so break bodies are routed through [`PadPreviewState::break_shine_material`]
+/// instead. If that material is missing (shader failed to load) the body is
+/// drawn unchanged.
+pub fn with_break_shine<R>(
+    app: &PadPreviewState,
+    current_t: f32,
+    draw: impl FnOnce() -> R,
+) -> R {
+    match &app.break_shine_material {
+        Some(mat) => {
+            macroquad::material::gl_use_material(mat);
+            mat.set_uniform("brightness", crate::app::params::break_shine(current_t));
+            let r = draw();
+            macroquad::material::gl_use_default_material();
+            r
+        }
+        None => draw(),
+    }
+}
+
 /// Ex overlay texture for a kind, if present.
 pub fn ex(app: &PadPreviewState, kind: SkinKind) -> Option<&Texture2D> {
     EX_TABLE

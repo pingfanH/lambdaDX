@@ -206,6 +206,9 @@ pub struct PadPreviewState {
     pub star_ex_tex: Option<Texture2D>,
     pub star_double_ex_tex: Option<Texture2D>,
     pub mask_material: Option<macroquad::material::Material>,
+    /// Break-shine shader: pulses a break sprite's brightness past white
+    /// (MajdataPlay's `_Brightness`), which a `u8` vertex tint cannot do.
+    pub break_shine_material: Option<macroquad::material::Material>,
     /// Cover art drawn as the pad's circular background (set by the UI player).
     pub cover_texture: Option<Texture2D>,
     /// Optional guide texture drawn under each tap (aligned with flight).
@@ -365,6 +368,7 @@ impl PadPreviewState {
             star_ex_tex: None,
             star_double_ex_tex: None,
             mask_material: None,
+            break_shine_material: None,
             cover_texture: None,
             tap_guide_tex: None,
             tap_guide_each_tex: None,

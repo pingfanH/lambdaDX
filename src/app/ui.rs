@@ -64,6 +64,52 @@ void main() {
     .map_err(|e| format!("{e:?}"))
 }
 
+/// Load the break-shine shader: the sprite RGB is multiplied by a `brightness`
+/// uniform (MajdataPlay's break `_Brightness`). macroquad packs vertex tints as
+/// `u8`, so it cannot express the `>1.0` bright phase — this material can.
+pub fn load_break_shine_material() -> Result<macroquad::material::Material, String> {
+    use macroquad::material::{MaterialParams, load_material};
+    use macroquad::prelude::{ShaderSource, UniformDesc, UniformType};
+
+    let vertex = r#"#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+varying vec2 uv;
+varying vec4 color;
+uniform mat4 Model;
+uniform mat4 Projection;
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1.0);
+    uv = texcoord;
+    color = color0 / 255.0;
+}"#;
+
+    load_material(
+        ShaderSource::Glsl {
+            vertex,
+            fragment: include_str!("break_shine.frag"),
+        },
+        MaterialParams {
+            uniforms: vec![UniformDesc::new("brightness", UniformType::Float1)],
+            pipeline_params: macroquad::miniquad::PipelineParams {
+                color_blend: Some(macroquad::miniquad::BlendState::new(
+                    macroquad::miniquad::Equation::Add,
+                    macroquad::miniquad::BlendFactor::Value(
+                        macroquad::miniquad::BlendValue::SourceAlpha,
+                    ),
+                    macroquad::miniquad::BlendFactor::OneMinusValue(
+                        macroquad::miniquad::BlendValue::SourceAlpha,
+                    ),
+                )),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .map_err(|e| format!("{e:?}"))
+}
+
 /// Point-in-rect test for screen-space UI buttons.
 pub fn rect_contains(r: RectF, p: Vec2) -> bool {
     p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h

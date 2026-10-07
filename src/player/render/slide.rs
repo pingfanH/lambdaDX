@@ -172,29 +172,36 @@ pub fn draw(
                     .and_then(|p| p.seg_frac.get(seg_idx).copied())
                     .unwrap_or(0.0);
                 let seg_frac_one = [frac];
-                slide_render::draw_slide(
-                    &seg_note,
-                    &seg_slide,
-                    current_t,
-                    ns,
-                    slide_dur_s,
-                    fade_in_s,
-                    pad,
-                    svg,
-                    scale,
-                    spawn_cx,
-                    outer_r,
-                    &seg_tex,
-                    false,
-                    t.speed_scale,
-                    app.note_speed,
-                    params::slide_fade_in(),
-                    &seg_frac_one,
-                    [None; 3],
-                    core_driven,
-                    SlideLayer::Trail,
-                    true,
-                );
+                let draw_seg = || {
+                    slide_render::draw_slide(
+                        &seg_note,
+                        &seg_slide,
+                        current_t,
+                        ns,
+                        slide_dur_s,
+                        fade_in_s,
+                        pad,
+                        svg,
+                        scale,
+                        spawn_cx,
+                        outer_r,
+                        &seg_tex,
+                        false,
+                        t.speed_scale,
+                        app.note_speed,
+                        params::slide_fade_in(),
+                        &seg_frac_one,
+                        [None; 3],
+                        core_driven,
+                        SlideLayer::Trail,
+                        true,
+                    );
+                };
+                if note.is_break || sl.slide_is_break {
+                    skin::with_break_shine(app, current_t, draw_seg);
+                } else {
+                    draw_seg();
+                }
                 if let Some(last) = segment.points.last() {
                     seg_note.lane = last.zone.to_id();
                 }
@@ -202,29 +209,36 @@ pub fn draw(
             continue;
         }
 
-        slide_render::draw_slide(
-            note,
-            sl,
-            current_t,
-            ns,
-            slide_dur_s,
-            fade_in_s,
-            pad,
-            svg,
-            scale,
-            spawn_cx,
-            outer_r,
-            &tex,
-            false,
-            t.speed_scale,
-            app.note_speed,
-            params::slide_fade_in(),
-            seg_frac,
-            track_bars,
-            core_driven,
-            layer,
-            false,
-        );
+        let draw_slide = || {
+            slide_render::draw_slide(
+                note,
+                sl,
+                current_t,
+                ns,
+                slide_dur_s,
+                fade_in_s,
+                pad,
+                svg,
+                scale,
+                spawn_cx,
+                outer_r,
+                &tex,
+                false,
+                t.speed_scale,
+                app.note_speed,
+                params::slide_fade_in(),
+                seg_frac,
+                track_bars,
+                core_driven,
+                layer,
+                false,
+            );
+        };
+        if note.is_break || sl.slide_is_break {
+            skin::with_break_shine(app, current_t, draw_slide);
+        } else {
+            draw_slide();
+        }
     }
 }
 

@@ -30,6 +30,8 @@ pub fn draw(
     let idx = (t.zone - 1) as f32;
     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
     let dir = vec2(ang.cos(), ang.sin());
+    // Current song time for the break-shine brightness pulse.
+    let current_t = t.ns - t.dt;
 
     // Fixed radial direction per lane; `motion` gives radius + growth scale.
     //
@@ -63,7 +65,7 @@ pub fn draw(
 
     // Slide heads are drawn by the slide renderer; everything else draws a tap.
     if !matches!(note.note_type, NoteType::Hold | NoteType::Slide) {
-        draw_tap(app, note, motion, ang, px, py, scale);
+        draw_tap(app, note, motion, ang, px, py, scale, current_t);
     }
 
     // A brief white ring when the note is exactly on its hit instant.
@@ -317,22 +319,33 @@ fn draw_tap(
     px: f32,
     py: f32,
     scale: f32,
+    current_t: f32,
 ) {
     let motion_scale = motion.scale;
     let ts = params::tap_size() * scale * motion_scale;
-    let tap_tex = skin::body_or_normal(app, skin::SkinKind::Tap, skin::SkinVariant::of(note));
+    let variant = skin::SkinVariant::of(note);
+    let tap_tex = skin::body_or_normal(app, skin::SkinKind::Tap, variant);
 
     if let Some(tex) = tap_tex {
-        draw_texture_ex(
-            tex,
-            px - ts * 0.5,
-            py - ts * 0.5,
-            WHITE,
-            DrawTextureParams {
-                dest_size: Some(vec2(ts, ts)),
-                ..Default::default()
-            },
-        );
+        let draw_body = || {
+            draw_texture_ex(
+                tex,
+                px - ts * 0.5,
+                py - ts * 0.5,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(ts, ts)),
+                    ..Default::default()
+                },
+            );
+        };
+        // Break taps flash via the brightness material (peaks above white); the
+        // Ex overlay stays as-is.
+        if variant == skin::SkinVariant::Break {
+            skin::with_break_shine(app, current_t, draw_body);
+        } else {
+            draw_body();
+        }
         if note.is_ex {
             if let Some(ex_tex) = skin::ex(app, skin::SkinKind::Tap) {
                 draw_texture_ex(
@@ -407,19 +420,20 @@ fn draw_hold(
     let tx = spawn_cx.x + dir.x * tail_r;
     let ty = spawn_cx.y + dir.y * tail_r;
 
-    let hold_tex = skin::body_or_normal(app, skin::SkinKind::Hold, skin::SkinVariant::of(note));
+    let variant = skin::SkinVariant::of(note);
+    let hold_tex = skin::body_or_normal(app, skin::SkinKind::Hold, variant);
+    let current_t = t.ns - t.dt;
 
     let head_pos = vec2(hx, hy);
     let tail_pos = vec2(tx, ty);
     if let Some(tex) = hold_tex {
-        draw_hold_9slice_segment(
-            tex,
-            head_pos,
-            tail_pos,
-            body_w,
-            Color::from_rgba(255, 255, 255, 255),
-            dir,
-        );
+        let draw_body = || draw_hold_9slice_segment(tex, head_pos, tail_pos, body_w, WHITE, dir);
+        // Break holds flash via the brightness material; the Ex overlay stays.
+        if variant == skin::SkinVariant::Break {
+            skin::with_break_shine(app, current_t, draw_body);
+        } else {
+            draw_body();
+        }
         if note.is_ex {
             if let Some(ex_tex) = skin::ex(app, skin::SkinKind::Hold) {
                 draw_hold_9slice_segment(

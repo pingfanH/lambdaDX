@@ -112,6 +112,8 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
                     param(ui, &mut p.slide_tail_gap, 1.0, 0.0..=120.0, "tail_gap");
                     param(ui, &mut p.star_spawn_scale_gain, 0.05, 0.0..=2.0, "spawn_scale_gain");
                     param(ui, &mut p.star_spawn_alpha_start, 0.05, 0.0..=1.0, "spawn_alpha_start");
+                    // Break 闪烁速度倍率（1 = MajdataPlay 原始 ~0.17 rad/帧）。
+                    param(ui, &mut p.break_shine_speed, 0.1, 0.0..=8.0, "break_shine_speed");
                     ui.checkbox(&mut p.note_earlier_on_top, "note: earlier on top");
                     ui.checkbox(&mut p.slide_tile_reverse, "slide: tiles reverse");
                     ui.checkbox(&mut p.slide_sub_reverse, "slide: sub-slides reverse");

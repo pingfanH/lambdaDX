@@ -263,6 +263,10 @@ async fn run(args: LaunchArgs) {
         Ok(m) => app.mask_material = Some(m),
         Err(e) => app.set_status(format!("Shader: {e}")),
     }
+    match app::ui::load_break_shine_material() {
+        Ok(m) => app.break_shine_material = Some(m),
+        Err(e) => app.set_status(format!("Break shine shader: {e}")),
+    }
 
     // Desktop Linux: announce the multi-touch touchscreen (if any).
     #[cfg(target_os = "linux")]
