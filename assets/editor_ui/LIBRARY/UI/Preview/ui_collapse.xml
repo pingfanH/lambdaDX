@@ -1,0 +1,40 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/Preview/ui_collapse" itemID="6ac70991-000001a4">
+  <timeline>
+    <DOMTimeline name="ui_collapse" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="artwork" color="#6699CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape isDrawingObject="true">
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#45454A"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!240 7920|240 8480!240 8480|0 8480!0 8480|0 7920!0 7920|240 7920"/>
+                  </edges>
+                </DOMShape>
+                <DOMShape isDrawingObject="true">
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#CFCFD3"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!86 8226|112 8200!112 8200|86 8174!86 8174|84 8172!84 8172|83 8170!83 8170|82 8168!82 8168|81 8165!81 8165|80 8163!80 8163|80 8160!80 8160|80 8157!80 8157|81 8155!81 8155|82 8152!82 8152|83 8150!83 8150|84 8148!84 8148|86 8146!86 8146
+|88 8144!88 8144|90 8143!90 8143|92 8142!92 8142|95 8141!95 8141|97 8140!97 8140|100 8140!100 8140|103 8140!103 8140|105 8141!105 8141|108 8142!108 8142|110 8143!110 8143|112 8144!112 8144|114 8146!114 8146|154 8186!154 8186|156 8188
+!156 8188|157 8190!157 8190|158 8192!158 8192|159 8195!159 8195|160 8197!160 8197|160 8200!160 8200|160 8203!160 8203|159 8205!159 8205|158 8208!158 8208|157 8210!157 8210|156 8212!156 8212|154 8214!154 8214|114 8254!114 8254|112 8256
+!112 8256|110 8257!110 8257|108 8258!108 8258|105 8259!105 8259|103 8260!103 8260|100 8260!100 8260|97 8260!97 8260|95 8259!95 8259|92 8258!92 8258|90 8257!90 8257|88 8256!88 8256|86 8254!86 8254|84 8252!84 8252|83 8250!83 8250|82 8248
+!82 8248|81 8245!81 8245|80 8243!80 8243|80 8240!80 8240|80 8237!80 8237|81 8235!81 8235|82 8232!82 8232|83 8230!83 8230|84 8228!84 8228|86 8226"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

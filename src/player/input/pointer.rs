@@ -15,7 +15,7 @@ use crate::player::state::PadPreviewState;
 /// Append the desktop mouse's press/hold/release as pointer events.
 fn push_mouse_events(events: &mut Vec<PointerEvent>) {
     let (mx, my) = mouse_position();
-    let pos = vec2(mx, my);
+    let pos = crate::app::viewport::to_canvas(vec2(mx, my));
     if is_mouse_button_pressed(MouseButton::Left) {
         events.push(PointerEvent {
             id: MOUSE_POINTER_ID,
@@ -68,7 +68,7 @@ pub fn collect_pointer_events() -> Vec<PointerEvent> {
         events.push(PointerEvent {
             id: t.id,
             phase: t.phase,
-            position: t.position,
+            position: crate::app::viewport::to_canvas(t.position),
         });
     }
 
@@ -117,7 +117,7 @@ pub fn ui_pointer(events: &[PointerEvent]) -> UiPointer {
         }
         None => {
             let (mx, my) = mouse_position();
-            out.pos = vec2(mx, my);
+            out.pos = crate::app::viewport::to_canvas(vec2(mx, my));
         }
     }
     out.pressed = events.iter().any(|e| e.phase == TouchPhase::Started);

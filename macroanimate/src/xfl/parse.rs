@@ -4,9 +4,9 @@ use std::collections::HashMap;
 
 use roxmltree::Node;
 
+use super::XflError;
 use super::model::*;
 use super::shape;
-use super::XflError;
 
 type NodeRef<'a, 'i> = Node<'a, 'i>;
 
@@ -26,7 +26,10 @@ pub fn parse(files: &HashMap<String, Vec<u8>>) -> Result<XflAtlas, XflError> {
     let height = attr_f32(root, "height").unwrap_or(400.0);
 
     let mut bitmaps: HashMap<String, BitmapAsset> = HashMap::new();
-    for item in root.descendants().filter(|n| n.tag_name().name() == "DOMBitmapItem") {
+    for item in root
+        .descendants()
+        .filter(|n| n.tag_name().name() == "DOMBitmapItem")
+    {
         let Some(name) = item.attribute("name") else {
             continue;
         };
@@ -69,7 +72,10 @@ pub fn parse(files: &HashMap<String, Vec<u8>>) -> Result<XflAtlas, XflError> {
 
     let mut symbols: HashMap<String, (SymbolType, Timeline)> = HashMap::new();
     let mut scale9: HashMap<String, [f32; 4]> = HashMap::new();
-    for inc in root.descendants().filter(|n| n.tag_name().name() == "Include") {
+    for inc in root
+        .descendants()
+        .filter(|n| n.tag_name().name() == "Include")
+    {
         let Some(href) = inc.attribute("href") else {
             continue;
         };
@@ -83,13 +89,10 @@ pub fn parse(files: &HashMap<String, Vec<u8>>) -> Result<XflAtlas, XflError> {
             continue;
         };
         let sym_root = sym.root_element();
-        let sym_name = sym_root
-            .attribute("name")
-            .map(str::to_string)
-            .or_else(|| {
-                inc.attribute("href")
-                    .map(|h| base_name(h).trim_end_matches(".xml").to_string())
-            });
+        let sym_name = sym_root.attribute("name").map(str::to_string).or_else(|| {
+            inc.attribute("href")
+                .map(|h| base_name(h).trim_end_matches(".xml").to_string())
+        });
         let Some(sym_name) = sym_name else { continue };
         let sym_type = parse_symbol_type(sym_root.attribute("symbolType"));
         let timeline = parse_timeline(first_descendant(sym_root, "DOMTimeline"));
@@ -172,7 +175,10 @@ fn parse_symbol_type(v: Option<&str>) -> SymbolType {
 fn parse_loop(v: Option<&str>) -> LoopMode {
     // Animate writes "play once" / "single frame" (spaced); accept the
     // compact forms too.
-    let v = v.unwrap_or("loop").to_ascii_lowercase().replace([' ', '-'], "_");
+    let v = v
+        .unwrap_or("loop")
+        .to_ascii_lowercase()
+        .replace([' ', '-'], "_");
     match v.as_str() {
         "play_once" => LoopMode::PlayOnce,
         "single_frame" => LoopMode::SingleFrame,
@@ -283,7 +289,10 @@ fn parse_static_text(node: NodeRef) -> Element {
     let mut size = 12.0_f32;
     let mut color = [0u8, 0, 0, 255];
     let mut align = TextAlign::Left;
-    for run in node.descendants().filter(|n| n.tag_name().name() == "DOMTextRun") {
+    for run in node
+        .descendants()
+        .filter(|n| n.tag_name().name() == "DOMTextRun")
+    {
         let chars = first_child(run, "characters")
             .and_then(|c| c.text())
             .unwrap_or("");
@@ -379,9 +388,7 @@ fn parse_strokes(node: NodeRef) -> HashMap<usize, (SolidColor, f32)> {
             continue;
         };
         let stroke = first_child(style, "SolidStroke");
-        let weight = stroke
-            .and_then(|s| attr_f32(s, "weight"))
-            .unwrap_or(1.0);
+        let weight = stroke.and_then(|s| attr_f32(s, "weight")).unwrap_or(1.0);
         if let Some(color) = find_solid_color(style) {
             out.insert(idx, (color, weight));
         }
@@ -439,12 +446,24 @@ fn instance_matrix(node: NodeRef) -> Matrix {
     let matrix = parse_matrix(node);
     let tp = first_child(node, "transformationPoint")
         .and_then(|p| first_child(p, "Point"))
-        .map(|p| [attr_f32(p, "x").unwrap_or(0.0), attr_f32(p, "y").unwrap_or(0.0)])
+        .map(|p| {
+            [
+                attr_f32(p, "x").unwrap_or(0.0),
+                attr_f32(p, "y").unwrap_or(0.0),
+            ]
+        })
         .unwrap_or([0.0, 0.0]);
     // `world = M * (p - P) + P`
     let [a, b, c, d, tx, ty] = matrix;
     let [px, py] = tp;
-    [a, b, c, d, tx - (a * px + c * py) + px, ty - (b * px + d * py) + py]
+    [
+        a,
+        b,
+        c,
+        d,
+        tx - (a * px + c * py) + px,
+        ty - (b * px + d * py) + py,
+    ]
 }
 
 /// An instance's opacity from `<color><Color alphaMultiplier="…"/></color>`.
@@ -484,9 +503,7 @@ fn first_descendant<'a, 'i>(node: NodeRef<'a, 'i>, name: &str) -> Option<NodeRef
     node.descendants().find(|n| n.tag_name().name() == name)
 }
 
-pub(crate) fn elements<'a, 'i>(
-    node: NodeRef<'a, 'i>,
-) -> impl Iterator<Item = NodeRef<'a, 'i>> {
+pub(crate) fn elements<'a, 'i>(node: NodeRef<'a, 'i>) -> impl Iterator<Item = NodeRef<'a, 'i>> {
     node.children().filter(|n| n.is_element())
 }
 
@@ -533,9 +550,46 @@ pub fn resolve(files: &HashMap<String, Vec<u8>>, base: &str, href: &str) -> Opti
     {
         return Some(k.clone());
     }
+    // Includes are relative to LIBRARY even when Adobe omits that prefix.
+    // Match the full symbol path before basename fallback: different folders
+    // commonly contain widgets with the same filename.
+    let library_candidate = if base_dir.is_empty() {
+        format!("LIBRARY/{href}")
+    } else {
+        format!("{base_dir}/LIBRARY/{href}")
+    };
+    if let Some(k) = files
+        .keys()
+        .find(|k| k.eq_ignore_ascii_case(&library_candidate))
+    {
+        return Some(k.clone());
+    }
     let wanted = base_name(&href).to_ascii_lowercase();
     files
         .keys()
         .find(|k| base_name(k).to_ascii_lowercase() == wanted)
         .cloned()
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn include_resolution_preserves_symbol_folder_with_duplicate_basenames() {
+        let files = HashMap::from([
+            ("LIBRARY/UI/Header/ui_grid.xml".to_owned(), Vec::new()),
+            ("LIBRARY/UI/Timeline/ui_grid.xml".to_owned(), Vec::new()),
+        ]);
+        for folder in ["Header", "Timeline"] {
+            assert_eq!(
+                resolve(
+                    &files,
+                    "DOMDocument.xml",
+                    &format!("UI/{folder}/ui_grid.xml")
+                ),
+                Some(format!("LIBRARY/UI/{folder}/ui_grid.xml"))
+            );
+        }
+    }
 }

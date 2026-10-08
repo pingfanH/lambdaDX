@@ -1,0 +1,127 @@
+<DOMDocument xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" backgroundColor="#202020" width="1570" height="856" frameRate="60" currentTimeline="1" xflVersion="23.0" creatorInfo="Adobe Animate" platform="Macintosh" versionInfo="Saved by Animate Macintosh 24.0 build 305" majorVersion="24" buildNumber="305" viewAngle3D="112.122399236057" vanishingPoint3DX="785" vanishingPoint3DY="428" nextSceneIdentifier="2" playOptionsPlayLoop="false" playOptionsPlayPages="false" playOptionsPlayFrameActions="false" filetypeGUID="DD0DDBBF-5BEF-45B2-9F24-A3048D2A676F" fileGUID="A5ACD3550219403D8D473993CFFD9DD4">
+     <folders>
+          <DOMFolderItem name="UI" itemID="6ac70991-0000018f"/>
+          <DOMFolderItem name="UI/Background" itemID="6ac70991-00000190"/>
+          <DOMFolderItem name="UI/Header" itemID="6ac70991-00000192"/>
+          <DOMFolderItem name="UI/Inspector" itemID="6ac70991-000001a5"/>
+          <DOMFolderItem name="UI/Preview" itemID="6ac70991-000001a2"/>
+          <DOMFolderItem name="UI/Preview/Sensors" itemID="6ac70991-000001bd"/>
+          <DOMFolderItem name="UI/Timeline" itemID="6ac70991-0000019e"/>
+          <DOMFolderItem name="UI/Tools" itemID="6ac70991-000001e1"/>
+          <DOMFolderItem name="UI/Transport" itemID="6ac70991-000001a0"/>
+     </folders>
+     <media>
+          <DOMBitmapItem name="preview_cover.png" itemID="6ac70993-000001f3" sourceExternalFilepath="./LIBRARY/preview_cover.png" sourceLastImported="1791429003" sourcePlatform="macintosh" externalFileSize="477465" allowSmoothing="true" originalCompressionType="lossless" quality="50" href="preview_cover.png" bitmapDataHRef="M 1 1791429011.dat" frameRight="13880" frameBottom="13920"/>
+          <DOMBitmapItem name="toolbar_shadow.png" itemID="6ac70993-000001f7" sourceExternalFilepath="./LIBRARY/toolbar_shadow.png" sourceLastImported="1791429003" sourcePlatform="macintosh" externalFileSize="3168" allowSmoothing="true" useImportedJPEGData="false" compressionType="lossless" originalCompressionType="lossless" quality="50" href="toolbar_shadow.png" bitmapDataHRef="M 2 1791429011.dat" frameRight="2160" frameBottom="11360"/>
+     </media>
+     <symbols>
+          <Include href="UI/Background/ui_background.xml" loadImmediate="false" itemID="6ac70991-00000191"/>
+          <Include href="UI/Header/ui_audio.xml" loadImmediate="false" itemID="6ac70991-00000196"/>
+          <Include href="UI/Header/ui_brand.xml" loadImmediate="false" itemID="6ac70991-00000194"/>
+          <Include href="UI/Header/ui_export.xml" loadImmediate="false" itemID="6ac70991-00000198"/>
+          <Include href="UI/Header/ui_grid.xml" loadImmediate="false" itemID="6ac70991-00000197"/>
+          <Include href="UI/Header/ui_header.xml" loadImmediate="false" itemID="6ac70991-0000019d"/>
+          <Include href="UI/Header/ui_load.xml" loadImmediate="false" itemID="6ac70991-0000019a"/>
+          <Include href="UI/Header/ui_menu_background.xml" loadImmediate="false" itemID="6ac70991-00000193"/>
+          <Include href="UI/Header/ui_open.xml" loadImmediate="false" itemID="6ac70991-00000199"/>
+          <Include href="UI/Header/ui_save.xml" loadImmediate="false" itemID="6ac70991-0000019b"/>
+          <Include href="UI/Header/ui_title.xml" loadImmediate="false" itemID="6ac70991-00000195"/>
+          <Include href="UI/Header/ui_window_chrome.xml" loadImmediate="false" itemID="6ac70991-0000019c"/>
+          <Include href="UI/Inspector/ui_detail_00.xml" loadImmediate="false" itemID="6ac70991-000001a6"/>
+          <Include href="UI/Inspector/ui_detail_01.xml" loadImmediate="false" itemID="6ac70991-000001a7"/>
+          <Include href="UI/Inspector/ui_detail_02.xml" loadImmediate="false" itemID="6ac70991-000001a8"/>
+          <Include href="UI/Inspector/ui_detail_03.xml" loadImmediate="false" itemID="6ac70991-000001a9"/>
+          <Include href="UI/Inspector/ui_detail_04.xml" loadImmediate="false" itemID="6ac70991-000001aa"/>
+          <Include href="UI/Inspector/ui_detail_05.xml" loadImmediate="false" itemID="6ac70991-000001ab"/>
+          <Include href="UI/Inspector/ui_detail_06.xml" loadImmediate="false" itemID="6ac70991-000001ac"/>
+          <Include href="UI/Inspector/ui_detail_07.xml" loadImmediate="false" itemID="6ac70991-000001ad"/>
+          <Include href="UI/Inspector/ui_detail_08.xml" loadImmediate="false" itemID="6ac70991-000001ae"/>
+          <Include href="UI/Inspector/ui_detail_09.xml" loadImmediate="false" itemID="6ac70991-000001af"/>
+          <Include href="UI/Inspector/ui_detail_10.xml" loadImmediate="false" itemID="6ac70991-000001b0"/>
+          <Include href="UI/Inspector/ui_detail_11.xml" loadImmediate="false" itemID="6ac70991-000001b1"/>
+          <Include href="UI/Inspector/ui_detail_12.xml" loadImmediate="false" itemID="6ac70991-000001b2"/>
+          <Include href="UI/Inspector/ui_detail_13.xml" loadImmediate="false" itemID="6ac70991-000001b3"/>
+          <Include href="UI/Inspector/ui_detail_14.xml" loadImmediate="false" itemID="6ac70991-000001b4"/>
+          <Include href="UI/Inspector/ui_detail_15.xml" loadImmediate="false" itemID="6ac70991-000001b5"/>
+          <Include href="UI/Inspector/ui_detail_16.xml" loadImmediate="false" itemID="6ac70991-000001b6"/>
+          <Include href="UI/Inspector/ui_detail_17.xml" loadImmediate="false" itemID="6ac70991-000001b7"/>
+          <Include href="UI/Inspector/ui_detail_18.xml" loadImmediate="false" itemID="6ac70991-000001b8"/>
+          <Include href="UI/Inspector/ui_detail_19.xml" loadImmediate="false" itemID="6ac70991-000001b9"/>
+          <Include href="UI/Inspector/ui_detail_20.xml" loadImmediate="false" itemID="6ac70991-000001ba"/>
+          <Include href="UI/Inspector/ui_inspector.xml" loadImmediate="false" itemID="6ac70991-000001bb"/>
+          <Include href="UI/page_editor.xml" loadImmediate="false" itemID="6ac70991-000001ed"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_01.xml" loadImmediate="false" itemID="6ac70991-000001be"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_02.xml" loadImmediate="false" itemID="6ac70991-000001bf"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_03.xml" loadImmediate="false" itemID="6ac70991-000001c0"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_04.xml" loadImmediate="false" itemID="6ac70991-000001c1"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_05.xml" loadImmediate="false" itemID="6ac70991-000001c2"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_06.xml" loadImmediate="false" itemID="6ac70991-000001c3"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_07.xml" loadImmediate="false" itemID="6ac70991-000001c4"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_08.xml" loadImmediate="false" itemID="6ac70991-000001c5"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_09.xml" loadImmediate="false" itemID="6ac70991-000001c6"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_10.xml" loadImmediate="false" itemID="6ac70991-000001c7"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_11.xml" loadImmediate="false" itemID="6ac70991-000001c8"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_12.xml" loadImmediate="false" itemID="6ac70991-000001c9"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_13.xml" loadImmediate="false" itemID="6ac70991-000001ca"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_14.xml" loadImmediate="false" itemID="6ac70991-000001cb"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_15.xml" loadImmediate="false" itemID="6ac70991-000001cc"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_16.xml" loadImmediate="false" itemID="6ac70991-000001cd"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_17.xml" loadImmediate="false" itemID="6ac70991-000001ce"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_18.xml" loadImmediate="false" itemID="6ac70991-000001cf"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_19.xml" loadImmediate="false" itemID="6ac70991-000001d0"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_20.xml" loadImmediate="false" itemID="6ac70991-000001d1"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_21.xml" loadImmediate="false" itemID="6ac70991-000001d2"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_22.xml" loadImmediate="false" itemID="6ac70991-000001d3"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_23.xml" loadImmediate="false" itemID="6ac70991-000001d4"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_24.xml" loadImmediate="false" itemID="6ac70991-000001d5"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_25.xml" loadImmediate="false" itemID="6ac70991-000001d6"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_26.xml" loadImmediate="false" itemID="6ac70991-000001d7"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_27.xml" loadImmediate="false" itemID="6ac70991-000001d8"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_28.xml" loadImmediate="false" itemID="6ac70991-000001d9"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_29.xml" loadImmediate="false" itemID="6ac70991-000001da"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_30.xml" loadImmediate="false" itemID="6ac70991-000001db"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_31.xml" loadImmediate="false" itemID="6ac70991-000001dc"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_32.xml" loadImmediate="false" itemID="6ac70991-000001dd"/>
+          <Include href="UI/Preview/Sensors/ui_sensor_33.xml" loadImmediate="false" itemID="6ac70991-000001de"/>
+          <Include href="UI/Preview/ui_collapse.xml" loadImmediate="false" itemID="6ac70991-000001a4"/>
+          <Include href="UI/Preview/ui_cover.xml" loadImmediate="false" itemID="6ac70991-000001bc" lastModified="1791429011"/>
+          <Include href="UI/Preview/ui_pad.xml" loadImmediate="false" itemID="6ac70991-000001df"/>
+          <Include href="UI/Preview/ui_preview_panel.xml" loadImmediate="false" itemID="6ac70991-000001e0"/>
+          <Include href="UI/Preview/ui_sidebar_background.xml" loadImmediate="false" itemID="6ac70991-000001a3"/>
+          <Include href="UI/Timeline/ui_grid.xml" loadImmediate="false" itemID="6ac70991-0000019f"/>
+          <Include href="UI/Tools/ui_button_00.xml" loadImmediate="false" itemID="6ac70991-000001e3"/>
+          <Include href="UI/Tools/ui_button_01.xml" loadImmediate="false" itemID="6ac70991-000001e4"/>
+          <Include href="UI/Tools/ui_button_02.xml" loadImmediate="false" itemID="6ac70991-000001e5"/>
+          <Include href="UI/Tools/ui_button_03.xml" loadImmediate="false" itemID="6ac70991-000001e6"/>
+          <Include href="UI/Tools/ui_button_04.xml" loadImmediate="false" itemID="6ac70991-000001e7"/>
+          <Include href="UI/Tools/ui_button_05.xml" loadImmediate="false" itemID="6ac70991-000001e8"/>
+          <Include href="UI/Tools/ui_button_06.xml" loadImmediate="false" itemID="6ac70991-000001e9"/>
+          <Include href="UI/Tools/ui_button_07.xml" loadImmediate="false" itemID="6ac70991-000001ea"/>
+          <Include href="UI/Tools/ui_panel.xml" loadImmediate="false" itemID="6ac70991-000001e2"/>
+          <Include href="UI/Tools/ui_shadow.xml" loadImmediate="false" itemID="6ac70991-000001eb" lastModified="1791429011"/>
+          <Include href="UI/Tools/ui_toolbar.xml" loadImmediate="false" itemID="6ac70991-000001ec"/>
+          <Include href="UI/Transport/ui_progress.xml" loadImmediate="false" itemID="6ac70991-000001a1"/>
+     </symbols>
+     <timelines>
+          <DOMTimeline name="Scene 1" layerDepthEnabled="true">
+               <layers>
+                    <DOMLayer name="Editor" color="#6699CC" current="true" isSelected="true" autoNamed="false">
+                         <frames>
+                              <DOMFrame index="0" keyMode="9728">
+                                   <elements>
+                                        <DOMSymbolInstance libraryItemName="UI/page_editor" name="page_editor">
+                                             <transformationPoint>
+                                                  <Point/>
+                                             </transformationPoint>
+                                        </DOMSymbolInstance>
+                                   </elements>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+               </layers>
+          </DOMTimeline>
+     </timelines>
+     <scripts/>
+     <PrinterSettings platform="macintosh"/>
+     <publishHistory/>
+</DOMDocument>

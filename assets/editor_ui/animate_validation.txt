@@ -1,0 +1,100 @@
+Saved FLA: assets/Editor-1.fla
+Stage: 1570 x 856
+Library items: 97
+UI | folder
+UI/Background | folder
+UI/Header | folder
+UI/Timeline | folder
+UI/Transport | folder
+UI/Preview | folder
+UI/Inspector | folder
+UI/Preview/Sensors | folder
+UI/Tools | folder
+UI/Background/ui_background | movie clip
+UI/Header/ui_menu_background | movie clip
+UI/Header/ui_brand | movie clip
+UI/Header/ui_title | movie clip
+UI/Header/ui_audio | movie clip
+UI/Header/ui_grid | movie clip
+UI/Header/ui_export | movie clip
+UI/Header/ui_open | movie clip
+UI/Header/ui_load | movie clip
+UI/Header/ui_save | movie clip
+UI/Header/ui_window_chrome | movie clip
+UI/Header/ui_header | movie clip
+UI/Timeline/ui_grid | movie clip
+UI/Transport/ui_progress | movie clip
+UI/Preview/ui_sidebar_background | movie clip
+UI/Preview/ui_collapse | movie clip
+UI/Inspector/ui_detail_00 | movie clip
+UI/Inspector/ui_detail_01 | movie clip
+UI/Inspector/ui_detail_02 | movie clip
+UI/Inspector/ui_detail_03 | movie clip
+UI/Inspector/ui_detail_04 | movie clip
+UI/Inspector/ui_detail_05 | movie clip
+UI/Inspector/ui_detail_06 | movie clip
+UI/Inspector/ui_detail_07 | movie clip
+UI/Inspector/ui_detail_08 | movie clip
+UI/Inspector/ui_detail_09 | movie clip
+UI/Inspector/ui_detail_10 | movie clip
+UI/Inspector/ui_detail_11 | movie clip
+UI/Inspector/ui_detail_12 | movie clip
+UI/Inspector/ui_detail_13 | movie clip
+UI/Inspector/ui_detail_14 | movie clip
+UI/Inspector/ui_detail_15 | movie clip
+UI/Inspector/ui_detail_16 | movie clip
+UI/Inspector/ui_detail_17 | movie clip
+UI/Inspector/ui_detail_18 | movie clip
+UI/Inspector/ui_detail_19 | movie clip
+UI/Inspector/ui_detail_20 | movie clip
+UI/Inspector/ui_inspector | movie clip
+UI/Preview/ui_cover | movie clip
+UI/Preview/Sensors/ui_sensor_01 | movie clip
+UI/Preview/Sensors/ui_sensor_02 | movie clip
+UI/Preview/Sensors/ui_sensor_03 | movie clip
+UI/Preview/Sensors/ui_sensor_04 | movie clip
+UI/Preview/Sensors/ui_sensor_05 | movie clip
+UI/Preview/Sensors/ui_sensor_06 | movie clip
+UI/Preview/Sensors/ui_sensor_07 | movie clip
+UI/Preview/Sensors/ui_sensor_08 | movie clip
+UI/Preview/Sensors/ui_sensor_09 | movie clip
+UI/Preview/Sensors/ui_sensor_10 | movie clip
+UI/Preview/Sensors/ui_sensor_11 | movie clip
+UI/Preview/Sensors/ui_sensor_12 | movie clip
+UI/Preview/Sensors/ui_sensor_13 | movie clip
+UI/Preview/Sensors/ui_sensor_14 | movie clip
+UI/Preview/Sensors/ui_sensor_15 | movie clip
+UI/Preview/Sensors/ui_sensor_16 | movie clip
+UI/Preview/Sensors/ui_sensor_17 | movie clip
+UI/Preview/Sensors/ui_sensor_18 | movie clip
+UI/Preview/Sensors/ui_sensor_19 | movie clip
+UI/Preview/Sensors/ui_sensor_20 | movie clip
+UI/Preview/Sensors/ui_sensor_21 | movie clip
+UI/Preview/Sensors/ui_sensor_22 | movie clip
+UI/Preview/Sensors/ui_sensor_23 | movie clip
+UI/Preview/Sensors/ui_sensor_24 | movie clip
+UI/Preview/Sensors/ui_sensor_25 | movie clip
+UI/Preview/Sensors/ui_sensor_26 | movie clip
+UI/Preview/Sensors/ui_sensor_27 | movie clip
+UI/Preview/Sensors/ui_sensor_28 | movie clip
+UI/Preview/Sensors/ui_sensor_29 | movie clip
+UI/Preview/Sensors/ui_sensor_30 | movie clip
+UI/Preview/Sensors/ui_sensor_31 | movie clip
+UI/Preview/Sensors/ui_sensor_32 | movie clip
+UI/Preview/Sensors/ui_sensor_33 | movie clip
+UI/Preview/ui_pad | movie clip
+UI/Preview/ui_preview_panel | movie clip
+UI/Tools/ui_panel | movie clip
+UI/Tools/ui_button_00 | movie clip
+UI/Tools/ui_button_01 | movie clip
+UI/Tools/ui_button_02 | movie clip
+UI/Tools/ui_button_03 | movie clip
+UI/Tools/ui_button_04 | movie clip
+UI/Tools/ui_button_05 | movie clip
+UI/Tools/ui_button_06 | movie clip
+UI/Tools/ui_button_07 | movie clip
+UI/Tools/ui_shadow | movie clip
+UI/Tools/ui_toolbar | movie clip
+UI/page_editor | movie clip
+preview_cover.png | bitmap
+toolbar_shadow.png | bitmap

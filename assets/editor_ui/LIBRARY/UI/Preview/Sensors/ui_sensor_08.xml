@@ -1,0 +1,36 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/Preview/Sensors/ui_sensor_08" itemID="6ac70991-000001c5">
+  <timeline>
+    <DOMTimeline name="ui_sensor_08" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="artwork" color="#6699CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape isDrawingObject="true">
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#3A3A3D" alpha="0.580392156862745"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!5291 4937|6210 5622!6210 5622|5587 6229!5587 6229|4913 5316!4913 5316|5274 5312!5274 5312|5284 5312!5284 5312|5284 5302!5284 5302|5291 4937"/>
+                  </edges>
+                </DOMShape>
+                <DOMShape isDrawingObject="true">
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#4A4A4F" alpha="0.580392156862745"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!5588 6213|6194 5623!6194 5623|5301 4956!5301 4956|5294 5322!5294 5322|4932 5326!4932 5326|5588 6213!5274 5302|5282 4917!5282 4917|6225 5621!6225 5621|5586 6244!5586 6244|4893 5306!4893 5306|5274 5302"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

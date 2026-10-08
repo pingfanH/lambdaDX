@@ -1,0 +1,12 @@
+{
+  "stage": [
+    1570,
+    856
+  ],
+  "symbolCount": 86,
+  "missingSymbolFiles": [],
+  "brokenSymbolReferences": [],
+  "meanAbsoluteRGBError": 0.4772637756215648,
+  "fractionPixelsWithChannelErrorOver20": 0.0036869754152032857,
+  "flaBytes": 1416165
+}

@@ -124,7 +124,10 @@ pub fn draw(app: &PadPreviewState, header: RectF, scale: f32) {
     let frac = bar_frac(app, bar);
     progress::progress_bar(bar, frac, ACCENT, RAISED, BORDER);
 
-    let hovered = contains(bar, vec2(mouse_position().0, mouse_position().1));
+    let hovered = contains(
+        bar,
+        crate::app::viewport::to_canvas(vec2(mouse_position().0, mouse_position().1)),
+    );
     let handle_r = if hovered || app.scrubbing { 7.0 * scale } else { 5.0 * scale };
     draw_circle(
         bar.x + bar.w * frac,

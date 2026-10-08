@@ -1,0 +1,37 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="UI/Preview/Sensors/ui_sensor_32" itemID="6ac70991-000001dd">
+  <timeline>
+    <DOMTimeline name="ui_sensor_32" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="artwork" color="#6699CC" current="true" isSelected="true" autoNamed="false">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMShape isDrawingObject="true">
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#3A3A3D" alpha="0.580392156862745"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!668 1420|1645 2161!1645 2161|1630 2472!1630 2472|1449 2901!1449 2901|1229 3122!1229 3122|35 2950!35 2950|254 2151!254 2151|668 1420"/>
+                  </edges>
+                </DOMShape>
+                <DOMShape isDrawingObject="true">
+                  <fills>
+                    <FillStyle index="1">
+                      <SolidColor color="#4A4A4F" alpha="0.580392156862745"/>
+                    </FillStyle>
+                  </fills>
+                  <edges>
+                    <Edge fillStyle1="1" edges="!1620 2470|1635 2166!1635 2166|671 1435!671 1435|263 2155!263 2155|47 2942!47 2942|1225 3111!1225 3111|1440 2896!1440 2896|1620 2470!665 1405|1655 2156!1655 2156|1639 2475!1639 2475|1457 2907!1457 2907|1232 3132!1232 3132|22 2958!22 2958
+|244 2147!244 2147|665 1405"/>
+                  </edges>
+                </DOMShape>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

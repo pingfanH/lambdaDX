@@ -15,5 +15,6 @@ pub mod slide_render;
 pub mod slide_svg;
 pub mod types;
 pub mod ui;
+pub mod viewport;
 
 pub use ui::window_conf;

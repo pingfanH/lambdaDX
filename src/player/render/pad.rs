@@ -49,6 +49,57 @@ pub fn draw_pad_disc(cx: f32, cy: f32, outer_r: f32) {
     draw_circle(cx, cy, outer_r, Color::from_rgba(35, 35, 35, 255));
 }
 
+/// Draw **only the pad simulation** (disc, cover, zones, A-ring, notes, hit FX,
+/// judgment) with a square, self-contained backdrop centered on `(cx, cy)`.
+///
+/// Unlike [`crate::player::render::draw_pad_panel`] this takes no panel rect and
+/// draws no window-anchored chrome — no header, no score/simai blocks, no
+/// screen-sized surface or dot grid — so it can be scaled and centered freely.
+/// The backdrop is a square of `pad_circle_scale()*outer_r` centered on the pad,
+/// so the A-ring dots and the tap guide ring stay on it at any zoom.
+pub fn draw_pad_sim(app: &PadPreviewState, cx: f32, cy: f32, outer_r: f32, scale: f32) {
+    let pad = PadGeom { cx, cy, outer_r };
+    let backdrop_r = outer_r * params::pad_circle_scale().max(1.0);
+    draw_circle(cx, cy, backdrop_r, Color::from_rgba(30, 30, 30, 255));
+
+    let bg_r = outer_r * params::pad_bg_scale();
+    draw_pad_disc(cx, cy, bg_r);
+    draw_cover(app, cx, cy, bg_r);
+
+    let spawn_cx = app
+        .pad_svg
+        .as_ref()
+        .and_then(|svg| svg.pad_visual_center(&pad))
+        .unwrap_or(vec2(cx, cy));
+    if !params::hide_zones() {
+        draw_spawn_dot(spawn_cx, scale);
+        draw_zones(app, &pad, scale);
+        draw_ring_indicators(spawn_cx, outer_r, scale);
+    }
+
+    let current_t = match app.mode {
+        crate::app::types::Mode::Playing | crate::app::types::Mode::Recording => app.song_time(),
+        crate::app::types::Mode::Idle => app.timeline_view_time,
+    };
+    let speed_scale = if params::speed_scales_visuals() {
+        1.0
+    } else {
+        app.play_speed.max(0.1)
+    };
+    if !params::hide_notes() {
+        crate::player::render::notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale);
+        crate::player::render::slide::draw_just_overlays(app, &pad, scale, spawn_cx);
+    }
+    draw_outer_circle(&pad, scale);
+    if !params::hide_notes() {
+        crate::player::render::hit_fx::draw(app, &pad, outer_r, spawn_cx, scale);
+        crate::player::render::feedback::draw(app, &pad, outer_r, spawn_cx, scale);
+        crate::player::render::notes::draw_judge_dots(
+            app, &pad, scale, spawn_cx, current_t, speed_scale,
+        );
+    }
+}
+
 /// Background video frame, cover-fit into `rect` then zoomed/offset by the
 /// `bg_video_*` params. No-op until a frame has been decoded.
 pub fn draw_video_background(app: &PadPreviewState, rect: RectF, scale: f32) {

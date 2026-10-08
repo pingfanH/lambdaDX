@@ -32,6 +32,12 @@ path = "src/main.rs"
 name = "lambda_dx_player_ui"
 path = "src/player_ui_main.rs"
 
+# Chart editor. For now it is just the pad preview player in a resizable window
+# with uniform (whole-player) scaling.
+[[bin]]
+name = "lambda_dx_editor"
+path = "src/editor_main.rs"
+
 [[bin]]
 name = "macroanimate_test"
 path = "src/macroanimate_test.rs"

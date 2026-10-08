@@ -1,0 +1,957 @@
+{
+  "stage": [
+    1570,
+    856
+  ],
+  "frameRate": 60,
+  "source": "/Users/pingfanh/project/Mai2Chart/demo/gpui_editor/assets/Editor-1.svg",
+  "symbols": [
+    {
+      "symbol": "UI/Background/ui_background",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        0,
+        15
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_menu_background",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        1
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_brand",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        2
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_title",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        8
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_audio",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        9
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_grid",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        10
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_export",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        11
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_open",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        12
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_load",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        13
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_save",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        14
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_window_chrome",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "symbol": "UI/Header/ui_header",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": []
+    },
+    {
+      "symbol": "UI/Timeline/ui_grid",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92
+      ]
+    },
+    {
+      "symbol": "UI/Transport/ui_progress",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        93,
+        94,
+        95
+      ]
+    },
+    {
+      "symbol": "UI/Preview/ui_sidebar_background",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        96
+      ]
+    },
+    {
+      "symbol": "UI/Preview/ui_collapse",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        97,
+        98
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_00",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        99
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_01",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        100
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_02",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        101
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_03",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        102
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_04",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        103
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_05",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        104
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_06",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        105
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_07",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        106
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_08",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        107
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_09",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        108
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_10",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        109
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_11",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        110
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_12",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        111
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_13",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        112
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_14",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        113
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_15",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        114
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_16",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        115
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_17",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        116
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_18",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        117
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_19",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        118
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_detail_20",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        119
+      ]
+    },
+    {
+      "symbol": "UI/Inspector/ui_inspector",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": []
+    },
+    {
+      "symbol": "UI/Preview/ui_cover",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        120
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_01",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        121
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_02",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        122
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_03",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        123
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_04",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        124
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_05",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        125
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_06",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        126
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_07",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        127
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_08",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        128
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_09",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        129
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_10",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        130
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_11",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        131
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_12",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        132
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_13",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        133
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_14",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        134
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_15",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        135
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_16",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        136
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_17",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        137
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_18",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        138
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_19",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        139
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_20",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        140
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_21",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        141
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_22",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        142
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_23",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        143
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_24",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        144
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_25",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        145
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_26",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        146
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_27",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        147
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_28",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        148
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_29",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        149
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_30",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        150
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_31",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        151
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_32",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        152
+      ]
+    },
+    {
+      "symbol": "UI/Preview/Sensors/ui_sensor_33",
+      "origin": [
+        65,
+        84
+      ],
+      "svgElements": [
+        153
+      ]
+    },
+    {
+      "symbol": "UI/Preview/ui_pad",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": []
+    },
+    {
+      "symbol": "UI/Preview/ui_preview_panel",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": []
+    },
+    {
+      "symbol": "UI/Tools/ui_panel",
+      "origin": [
+        468,
+        123
+      ],
+      "svgElements": [
+        154
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_button_00",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        155,
+        156
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_button_01",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        157,
+        158,
+        159
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_button_02",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        160,
+        161,
+        162
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_button_03",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        163,
+        164,
+        165,
+        166
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_button_04",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        167,
+        168,
+        169
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_button_05",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        170,
+        171,
+        172,
+        173
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_button_06",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        174,
+        175,
+        176
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_button_07",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": [
+        177,
+        178,
+        179
+      ]
+    },
+    {
+      "symbol": "UI/Tools/ui_shadow",
+      "origin": [
+        468,
+        123
+      ],
+      "svgElements": []
+    },
+    {
+      "symbol": "UI/Tools/ui_toolbar",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": []
+    },
+    {
+      "symbol": "UI/page_editor",
+      "origin": [
+        0,
+        0
+      ],
+      "svgElements": []
+    }
+  ]
+}
