@@ -8,8 +8,8 @@
 
 use crate::app::types::{
     BpmChange, NOTE_LOCK_DISTANCE, NOTE_OUTER_DISTANCE, Note, NoteType, hold_tail_time,
-    note_flight_speed, note_lead_time, note_secs, sanitize_note_zone, slide_end_time,
-    touch_whole_duration,
+    note_flight_speed, note_is_touch, note_lead_time, note_secs, sanitize_note_zone,
+    slide_end_time, touch_whole_duration,
 };
 use crate::player::state::PadPreviewState;
 
@@ -70,7 +70,7 @@ pub fn compute(
     // Ring notes fly in over `note_lead_time`; touch/hold use the touch
     // whole-duration model; slides use the head's radial lead. Taps may appear
     // earlier when `tap_spawn_time` gives them a longer birth animation.
-    let lead_time = if note.is_touch {
+    let lead_time = if note_is_touch(note) {
         // Touch / touch-hold use the touch whole-duration model regardless of
         // which pad zone they sit on (A-zone touch notes have zone 1..=8).
         touch_whole_duration(touch_flight)

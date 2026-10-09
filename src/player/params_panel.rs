@@ -68,12 +68,24 @@ fn param(
 
 /// Draw the panel if enabled.
 pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
+    draw_impl(ctx, app, Some(1.3));
+}
+
+/// Draw the panel from a host that manages its own `pixels_per_point` (the
+/// editor). The panel keeps the host's scale instead of bumping it to 1.3.
+pub fn draw_embedded(ctx: &egui::Context, app: &mut PadPreviewState) {
+    draw_impl(ctx, app, None);
+}
+
+fn draw_impl(ctx: &egui::Context, app: &mut PadPreviewState, pixels_per_point: Option<f32>) {
     if !app.show_params {
         return;
     }
 
-    // Bigger panel text (idempotent — sets, does not multiply).
-    ctx.set_pixels_per_point(1.3);
+    if let Some(ppp) = pixels_per_point {
+        // Bigger panel text (idempotent — sets, does not multiply).
+        ctx.set_pixels_per_point(ppp);
+    }
     ensure_egui_font(ctx);
 
     let mut p = app.params.clone();
@@ -81,6 +93,7 @@ pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
     let mut message: Option<String> = None;
 
     egui::Window::new("Params  (F1)")
+        .order(egui::Order::Foreground)
         .open(&mut open)
         .resizable(true)
         .default_width(380.0)

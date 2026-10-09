@@ -1135,11 +1135,17 @@ pub fn draw_slide(
         0
     };
     // Reference MajdataPlay hides each judge area's trail bars once the star
-    // passes it (`HideBar(area.ArrowProgressWhenFinished)`), driven by the
-    // star's own position along the path. Wifi keeps its per-track core cutoff.
+    // passes it (`HideBar(area.ArrowProgressWhenFinished)`). That star-driven
+    // frontier is only correct **without** lnmai-core; when the core owns the
+    // slide (no_core off), the trail must follow the core's consumed progress
+    // instead, otherwise the bar slides on its own.
     let star_hidden = hidden_bars_for_star(&segmentation, star_dist_along.max(0.0));
-    let hidden_until = if chain_arc { core_hidden } else { star_hidden }
-        .min(segmentation.bars.len());
+    let hidden_until = if chain_arc || core_driven {
+        core_hidden
+    } else {
+        star_hidden
+    }
+    .min(segmentation.bars.len());
     if matches!(layer, SlideLayer::Trail) && crate::player::engine::debug_slide_enabled() {
         // Tag by note **and** segment: a continuous chain renders one trail per
         // arc, and a shared per-note tag made the dedup flap (print every frame).

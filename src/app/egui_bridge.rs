@@ -74,6 +74,14 @@ impl Egui {
     /// the reported phase, so a dropped Started/Ended event still resolves to a
     /// complete click (using the last known position for a synthesised release).
     fn pointer(&mut self, pos: Vec2, down: bool, pressed: bool, released: bool) {
+        // `pos` is in macroquad's logical space; egui lays out in its own
+        // `screen_rect` space. On HiDPI these differ (egui's space is the
+        // framebuffer/ppp), so convert, otherwise widget hit-testing is offset.
+        let sw = macroquad::window::screen_width();
+        let ew = self.egui_mq.egui_ctx().screen_rect().width();
+        let scale = if sw > 1.0 && ew > 1.0 { ew / sw } else { 1.0 };
+        let pos = pos * scale;
+
         let press = pressed || (down && !self.pointer_down);
         let release = released || (!down && self.pointer_down);
         if down || pressed {

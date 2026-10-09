@@ -871,6 +871,16 @@ pub fn is_touch_zone(zone: u8) -> bool {
     zone >= PAD_B_START
 }
 
+/// Whether a note renders on the touch layer.
+///
+/// A-zone touch notes share zones `1..=8` with the ring, so the note **type** is
+/// checked as well as the explicit flag — the flag alone is easy to forget when
+/// constructing a `Note` (and a mis-routed touch note lands back on ring angle
+/// `(zone-1) mod 8`, i.e. it would draw as a ring tap).
+pub fn note_is_touch(note: &Note) -> bool {
+    note.is_touch || matches!(note.note_type, NoteType::Touch | NoteType::TouchHold)
+}
+
 /// Slide end time in seconds — the tail sits at head + the longest slide's
 /// total span (`slide_duration` already includes the start delay).
 pub fn slide_end_time(note: &Note, bpms: &[BpmChange]) -> f32 {
@@ -1049,4 +1059,29 @@ pub struct NoteTemplateSource {
     pub template_id: String,
     pub template_version: u32,
     pub source_note_id: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Note, NoteType, note_is_touch};
+
+    #[test]
+    fn touch_notes_are_detected_by_type_or_flag() {
+        let by_type = Note {
+            note_type: NoteType::Touch,
+            ..Default::default()
+        };
+        assert!(note_is_touch(&by_type));
+        let touch_hold = Note {
+            note_type: NoteType::TouchHold,
+            ..Default::default()
+        };
+        assert!(note_is_touch(&touch_hold));
+        let by_flag = Note {
+            is_touch: true,
+            ..Default::default()
+        };
+        assert!(note_is_touch(&by_flag));
+        assert!(!note_is_touch(&Note::default()));
+    }
 }

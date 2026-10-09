@@ -7,7 +7,7 @@ use macroquad::prelude::{
     DrawTextureParams, draw_circle, draw_circle_lines, draw_line, draw_texture_ex,
 };
 
-use crate::app::types::{HIT_WINDOW, HOLD_SPAWN_BODY_WIDTH_FRAC, NoteMotion, NoteType, PAD_ROTATION_RAD, note_lock_radius, note_radial_motion, note_radial_motion_continue, note_radial_motion_hold};
+use crate::app::types::{HIT_WINDOW, HOLD_SPAWN_BODY_WIDTH_FRAC, NoteMotion, NoteType, PAD_ROTATION_RAD, note_is_touch, note_lock_radius, note_radial_motion, note_radial_motion_continue, note_radial_motion_hold};
 use crate::app::ui::draw_hold_9slice_segment;
 use crate::player::render::timing::NoteTiming;
 use crate::player::render::skin;
@@ -27,6 +27,11 @@ pub fn draw(
     spawn_cx: Vec2,
     outer_r: f32,
 ) {
+    // Touch / touch-hold notes never belong to the ring: zone > 8 wraps back
+    // onto ring angle `(zone-1) mod 8`, which would draw them as ring taps.
+    if note_is_touch(note) || t.zone > 8 {
+        return;
+    }
     let idx = (t.zone - 1) as f32;
     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
     let dir = vec2(ang.cos(), ang.sin());
@@ -94,7 +99,7 @@ pub fn judge_points(
     let dir = vec2(ang.cos(), ang.sin());
     // Touch / touch-hold have no ring judgment points (their dots would read as
     // a phantom tap/hold on the ring).
-    if note.is_touch {
+    if note_is_touch(note) {
         return Vec::new();
     }
     match note.note_type {

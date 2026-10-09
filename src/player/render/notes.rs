@@ -7,7 +7,7 @@ use macroquad::prelude::draw_circle;
 
 use crate::app::params;
 use crate::app::slide_render::SlideLayer;
-use crate::app::types::{Note, NoteType, PadGeom};
+use crate::app::types::{Note, NoteType, PadGeom, note_is_touch};
 use crate::player::render::timing::{self, NoteTiming};
 use crate::player::render::{ring, slide, touch};
 use crate::player::state::PadPreviewState;
@@ -51,7 +51,7 @@ fn draw_guide_pass(
 ) {
     let bpms = &app.chart.bpms;
     for note in app.chart.notes.iter() {
-        if matches!(note.note_type, NoteType::Slide) || note.is_touch {
+        if matches!(note.note_type, NoteType::Slide) || note_is_touch(note) {
             continue;
         }
         if app.hidden_notes.contains(&note.id) {
@@ -184,7 +184,7 @@ fn draw_pass(
         for (note, t) in &visible {
             // Touch / touch-hold render on the screen zones (A-zone touch notes
             // share zone 1..=8 with the ring but are still touch notes).
-            if note.is_touch {
+            if note_is_touch(note) {
                 touch::draw(app, note, t, pad, scale, current_t);
             } else {
                 ring::draw(app, note, t, scale, spawn_cx, pad.outer_r);

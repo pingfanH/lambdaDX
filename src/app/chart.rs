@@ -236,6 +236,7 @@ pub fn fallback_chart() -> ChartDoc {
                 time: 3.0,
                 lane: 9,
                 note_type: NoteType::Touch,
+                is_touch: true,
                 ..Default::default()
             },
             Note {
@@ -297,8 +298,22 @@ pub fn fallback_chart() -> ChartDoc {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_audio_in_dir, load_chart_from_path};
+    use super::{fallback_chart, find_audio_in_dir, load_chart_from_path};
+    use crate::app::types::NoteType;
     use std::path::Path;
+
+    #[test]
+    fn fallback_chart_touch_notes_are_flagged() {
+        for note in &fallback_chart().notes {
+            if matches!(note.note_type, NoteType::Touch | NoteType::TouchHold) {
+                assert!(
+                    note.is_touch,
+                    "touch note id={} must set is_touch (else it routes to the ring)",
+                    note.id
+                );
+            }
+        }
+    }
 
     fn bundled_dir() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/charts/jack_ripper")
