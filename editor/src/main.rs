@@ -132,6 +132,14 @@ async fn run() {
         .unwrap_or(0.6);
     let start_time = get_time();
 
+    // `MAI2_EDITOR_FPS=1` prints a once-per-second frame-time summary to stderr
+    // (a lightweight perf read-out; no-op otherwise).
+    let fps_dbg = std::env::var("MAI2_EDITOR_FPS").is_ok();
+    let mut fps_last = get_time();
+    let mut fps_acc = 0.0f32;
+    let mut fps_n = 0u32;
+    let mut fps_worst = 0.0f32;
+
     loop {
         app::anim::tick();
         player::input::handle_global_hotkeys(&mut app);
@@ -270,6 +278,28 @@ async fn run() {
         app.tick_feedback();
         app::egui_bridge::draw();
         app.finalize_playback_start();
+
+        if fps_dbg {
+            let now = get_time();
+            let dt = (now - fps_last) as f32;
+            fps_last = now;
+            fps_acc += dt;
+            fps_n += 1;
+            if dt > fps_worst {
+                fps_worst = dt;
+            }
+            if fps_acc >= 1.0 {
+                eprintln!(
+                    "[fps] avg={:.1} worst={:.1}ms ({:.0} fps)",
+                    fps_acc / fps_n as f32 * 1000.0,
+                    fps_worst * 1000.0,
+                    fps_n as f32 / fps_acc,
+                );
+                fps_acc = 0.0;
+                fps_n = 0;
+                fps_worst = 0.0;
+            }
+        }
 
         if let Some(path) = &shot_path {
             if get_time() - start_time > shot_at {

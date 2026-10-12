@@ -376,7 +376,7 @@ fn draw_trail_segment(
     let tw_nat = tex.width() * draw::SLIDE_TILE_SCALE;
     let th_nat = tex.height() * draw::SLIDE_TILE_SCALE;
     let tile_h = th_nat * (bar_w / tw_nat.max(0.001)).max(0.001);
-    let spacing = draw::SLIDE_TILE_SPACING;
+    let spacing = draw::SLIDE_TILE_SPACING * s;
     let angle = dy.atan2(dx) + std::f32::consts::PI;
     let steps = (seg_len / spacing).ceil().max(1.0) as i32;
     for k in 0..=steps {

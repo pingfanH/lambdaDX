@@ -61,14 +61,18 @@ impl Layout {
     }
 }
 
+/// Width of the seam handle between the timeline and the info panel (egui
+/// points). The central panel reserves this at its right edge, so the timeline
+/// column is `central_width - PANEL_HANDLE_W`.
+pub const PANEL_HANDLE_W: f32 = 14.0;
+
 /// Width of the right-hand info panel for a given screen width.
 ///
-/// Matches the authored design's ~47 % split (panel ≈ 468/993 of the content),
-/// keeping at least ~360px of timeline and never dropping below 320px.
+/// The timeline column (the central panel minus the seam handle) is given the
+/// same width as the panel, i.e. the two columns split the content evenly.
+/// Never drops below 320px.
 pub fn sidebar_width(screen_w: f32) -> f32 {
-    let target = screen_w * 0.47;
-    let max = (screen_w - 360.0).max(320.0);
-    target.clamp(320.0, max)
+    ((screen_w - PANEL_HANDLE_W) * 0.5).max(320.0)
 }
 
 #[cfg(test)]
@@ -76,9 +80,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sidebar_is_about_half_the_window() {
+    fn sidebar_matches_timeline_width() {
+        // 1600 → panel ≈ 793, and the central panel (minus the handle) is the
+        // same, so the timeline and panel columns are equal.
         let w = sidebar_width(1600.0);
-        assert!(w > 700.0 && w < 760.0, "1600 → {w}");
+        assert!((w - 793.0).abs() < 1.0, "1600 → {w}");
+        let central = 1600.0 - w;
+        assert!((central - PANEL_HANDLE_W - w).abs() < 0.5, "timeline != panel");
         // Tiny windows clamp to the minimum.
         assert_eq!(sidebar_width(400.0), 320.0);
     }

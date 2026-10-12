@@ -100,8 +100,8 @@
       上方(`editor/src/ui/tools.rs`、`main.rs`/`ui/mod.rs` 布局)。
 - [x] **顶栏软件工具条** — Save/Load/Open/Export/Grid/Audio + 难度/预览模式/布局,
       不依赖 mac 原生菜单栏(`editor/src/ui/toolbar.rs`、`editor/src/io.rs`)。
-- [x] **右侧面板宽度比例** — 信息面板 ≈ 窗口宽度的 47%(与设计一致),时间轴保留
-      其余宽度;窗口默认 1600×900 且可缩放,比例自适应。
+- [x] **右侧面板宽度比例** — 信息面板与时间轴列等宽(各占内容宽的一半减去中缝手柄);
+      窗口默认 1600×900 且可缩放,比例自适应。
       见 `editor/src/ui/layout.rs::sidebar_width`、`editor/src/main.rs`。
 
 ## 移植版已领先(无需回补)

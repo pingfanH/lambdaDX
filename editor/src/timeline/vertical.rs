@@ -84,7 +84,22 @@ pub fn draw(
     waveform::draw_vertical(
         waveform, plot_left, plot_right, plot_top, plot_bottom, judge_y, now, pps, s,
     );
-    draw_measure_grid(rect, plot_left, plot_right, plot_top, plot_bottom, bpms, y_of, s);
+    // Time at the plot's top/bottom edges: time flows up, so the bottom edge is
+    // earlier. `draw_measure_grid` needs these in *seconds* (not pixels).
+    let t_top = now + (judge_y - plot_top) / pps;
+    let t_bottom = now + (judge_y - plot_bottom) / pps;
+    draw_measure_grid(
+        rect,
+        plot_left,
+        plot_right,
+        plot_top,
+        plot_bottom,
+        t_bottom.min(t_top),
+        t_bottom.max(t_top),
+        bpms,
+        y_of,
+        s,
+    );
     draw_lanes(plot_left, plot_top, plot_bottom, lane_w, rect.y + 16.0 * s, lane_x, s);
 
     let ctx = VNoteCtx {
@@ -139,13 +154,15 @@ fn draw_measure_grid(
     plot_right: f32,
     plot_top: f32,
     plot_bottom: f32,
+    t_lo: f32,
+    t_hi: f32,
     bpms: &[BpmChange],
     y_of: impl Fn(f32) -> f32,
     s: f32,
 ) {
     const SUBDIV: i32 = 64;
-    let start_m = secs_to_measure(y_of(plot_bottom).min(y_of(plot_top)), bpms).floor();
-    let end_m = secs_to_measure(y_of(plot_bottom).max(y_of(plot_top)), bpms) + 1.0;
+    let start_m = secs_to_measure(t_lo, bpms).floor();
+    let end_m = secs_to_measure(t_hi, bpms) + 1.0;
     let mut m = start_m;
     while m <= end_m {
         for i in 0..SUBDIV {
@@ -408,7 +425,7 @@ fn draw_trail_segment(
     let tw_nat = tex.width() * draw::SLIDE_TILE_SCALE;
     let th_nat = tex.height() * draw::SLIDE_TILE_SCALE;
     let tile_h = th_nat * (bar_w / tw_nat.max(0.001)).max(0.001);
-    let spacing = draw::SLIDE_TILE_SPACING;
+    let spacing = draw::SLIDE_TILE_SPACING * s;
     let angle = dy.atan2(dx) + std::f32::consts::PI;
     let steps = (seg_len / spacing).ceil().max(1.0) as i32;
     for k in 0..=steps {

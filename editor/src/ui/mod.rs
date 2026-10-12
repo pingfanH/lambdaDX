@@ -121,7 +121,7 @@ impl EditorUi {
         let workspace = ui.max_rect();
 
         // Collapse/expand handle on the seam between the timeline and the panel.
-        let handle_w = 14.0;
+        let handle_w = layout::PANEL_HANDLE_W;
         let handle = egui::Rect::from_min_max(
             egui::pos2(workspace.right() - handle_w, workspace.top()),
             workspace.right_bottom(),
