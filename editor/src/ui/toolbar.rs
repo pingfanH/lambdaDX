@@ -11,9 +11,9 @@ use crate::app::types::ChartDoc;
 use crate::state::{EditorLayout, EditorState};
 use crate::io::save_chart;
 use crate::runtime::preview_mode_label;
-use crate::theme::{ACCENT_BLUE, ACCENT_GREEN, ACCENT_YELLOW, FONT_BODY, FONT_HEADER, TEXT, TEXT_DIM};
+use crate::theme::{ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, FONT_BODY, FONT_HEADER, TEXT, TEXT_DIM};
 
-use super::widgets::{toolbar_button, toolbar_separator};
+use super::widgets::{toolbar_button, toolbar_button_enabled, toolbar_separator};
 
 /// Draw the toolbar. Returns `true` if audio was just turned off so the caller
 /// can stop any playing track (avoids a second `&mut app` borrow here).
@@ -32,6 +32,22 @@ pub fn draw(
                 .color(TEXT)
                 .strong(),
         );
+        // Unsaved-changes marker (design has no explicit *; a dot reads cleanly).
+        ui.label(
+            egui::RichText::new(if editor.dirty { "●" } else { "·" })
+                .size(FONT_HEADER)
+                .color(if editor.dirty { ACCENT_RED } else { TEXT_DIM }),
+        );
+        toolbar_separator(ui);
+
+        let can_undo = !editor.undo.is_empty();
+        let can_redo = !editor.redo.is_empty();
+        if toolbar_button_enabled(ui, "Undo", can_undo, "Undo  (⌘Z)") {
+            editor.undo(chart);
+        }
+        if toolbar_button_enabled(ui, "Redo", can_redo, "Redo  (⇧⌘Z)") {
+            editor.redo(chart);
+        }
         toolbar_separator(ui);
 
         if toolbar_button(ui, "Save", false, "Write output/editor_chart.json  (⌘S)") {
@@ -51,6 +67,14 @@ pub fn draw(
         if toolbar_button(ui, "Grid", editor.snap_enabled, "Snap placement / drag to the grid") {
             editor.snap_enabled = !editor.snap_enabled;
         }
+        if toolbar_button(
+            ui,
+            "Wheel ↕",
+            editor.scroll_invert,
+            "Invert the scroll / wheel direction (use when the OS \"natural scrolling\" feels backwards)",
+        ) {
+            editor.scroll_invert = !editor.scroll_invert;
+        }
         if toolbar_button(ui, "Audio", *audio_enabled, "Toggle audio playback") {
             *audio_enabled = !*audio_enabled;
             audio_turned_off = !*audio_enabled;
@@ -59,6 +83,11 @@ pub fn draw(
         if !editor.level_slots.is_empty() {
             toolbar_separator(ui);
             draw_difficulty(ui, editor);
+        }
+
+        toolbar_separator(ui);
+        if toolbar_button(ui, "?", editor.show_help, "Keyboard shortcuts  (?)") {
+            editor.show_help = !editor.show_help;
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

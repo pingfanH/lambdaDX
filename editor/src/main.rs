@@ -26,6 +26,7 @@ mod player;
 
 mod audio;
 mod edit_ops;
+mod gesture;
 mod io;
 mod runtime;
 mod state;
@@ -39,7 +40,7 @@ use macroquad::prelude::*;
 
 use app::pad_svg;
 use player::state::PadPreviewState;
-use state::EditorState;
+use state::{EditorState, PendingAction};
 use ui::EditorUi;
 
 fn editor_window_conf() -> Conf {
@@ -112,6 +113,8 @@ async fn run() {
 
     let mut ui = EditorUi::new();
     let mut editor = EditorState::default();
+    // Trackpad pinch-to-zoom (macOS); a no-op elsewhere.
+    gesture::install();
     if std::env::var("MAI2_EDITOR_LAYOUT")
         .map(|v| v.eq_ignore_ascii_case("horizontal"))
         .unwrap_or(false)
@@ -141,6 +144,16 @@ async fn run() {
     let mut fps_worst = 0.0f32;
 
     loop {
+        // OS close requests are deferred while there are unsaved changes: with a
+        // dirty document we cancel the quit and raise a confirm action instead
+        // (resolved by the Save / Discard / Cancel dialog).
+        if editor.dirty {
+            macroquad::input::prevent_quit();
+        }
+        if macroquad::input::is_quit_requested() {
+            editor.pending_action = Some(PendingAction::Quit);
+        }
+
         app::anim::tick();
         player::input::handle_global_hotkeys(&mut app);
         player::input::handle_lane_input(&mut app);
@@ -223,8 +236,40 @@ async fn run() {
             player::input::handle_touch_controls(&mut app, pad, &pad_events);
         }
 
+        // Slide-edit mode: a pad press on an A-zone (1-8) completes a pending
+        // shape key, otherwise the pressed zone is appended as a waypoint on the
+        // editing slide's last segment. Not gated on `egui_wants_pointer`: while
+        // editing the pad is the interaction surface, and the sidebar merely
+        // hovers it (egui reports `wants_pointer_input` for any covered area).
+        if editor.is_slide_edit() {
+            let zone = {
+                let svg = app.pad_svg.as_ref();
+                pad_events
+                    .iter()
+                    .filter(|e| e.phase == macroquad::prelude::TouchPhase::Started)
+                    .find_map(|e| {
+                        svg.and_then(|s| {
+                            s.hit_test(e.position, &pad)
+                                .or_else(|| s.hit_test_range(e.position, &pad, 0.0).into_iter().next())
+                        })
+                    })
+            };
+            if let Some(z) = zone {
+                let id = z.to_id();
+                if let (Some(shape), true) = (editor.pending_shape, (1..=8).contains(&id)) {
+                    editor.pending_shape = None;
+                    editor.apply_slide_shape(&mut app.chart, shape, id);
+                } else {
+                    editor.append_slide_waypoint(&mut app.chart, z);
+                }
+            }
+        }
+
         // Same audio / cue / autoplay / judgment pipeline as the preview.
         app.scrubbing = editor.scrubbing;
+        // Star (slide) edit mode shows only the slide being edited, with its
+        // whole trail (no time culling); everything else is hidden.
+        app.edit_solo_note = editor.editing_slide;
         runtime::tick_player(&mut app).await;
 
         clear_background(theme::to_mq(theme::BG_WINDOW));
@@ -270,6 +315,10 @@ async fn run() {
                 rect,
                 current_time,
                 &waveform,
+                // Geometry scale (egui points → macroquad logical). The timeline
+                // renderer uses this for positions so it matches the egui-space
+                // input hit-testing; it keeps content (glyph) sizes at logical
+                // 1.0 internally so notes don't shrink on HiDPI.
                 to_mq,
             );
             unsafe { get_internal_gl() }.quad_gl.scissor(None);
@@ -331,13 +380,25 @@ fn to_scissor(rect: egui::Rect, s_phys: f32, fb_w: f32) -> (i32, i32, i32, i32) 
 }
 
 /// Apply editor-raised IO requests (native picker / reload / export) before the
-/// next frame draws.
+/// next frame draws. Load/open/quit are gated on the unsaved-changes prompt:
+/// when the document is dirty they are deferred to `pending_action` and run
+/// later, once the confirm dialog resolves (Save / Discard).
 fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
+    // Resolve a confirmed deferred action first (Save/Discard was chosen).
+    if editor.pending_confirmed {
+        editor.pending_confirmed = false;
+        match editor.pending_action.take() {
+            Some(PendingAction::Reload) => reload_chart(editor, app),
+            Some(PendingAction::Open) => open_chart(editor, app),
+            Some(PendingAction::Quit) => quit_editor(),
+            None => {}
+        }
+    }
+
     if editor.open_dialog {
         editor.open_dialog = false;
-        if let Some(path) = io::pick_chart_path() {
-            editor.chart_dir = path;
-            editor.reload_request = true;
+        if !editor.defer_if_dirty(PendingAction::Open) {
+            open_chart(editor, app);
         }
     }
     if editor.export_request {
@@ -346,17 +407,40 @@ fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
     }
     if editor.reload_request {
         editor.reload_request = false;
-        let dir = std::path::PathBuf::from(&editor.chart_dir);
-        let want = editor.level_slots.get(editor.level_index).copied();
-        runtime::load_chart_into(app, &dir, want);
-        editor.level_slots = app::chart::read_simai_source(&dir)
-            .map(|t| app::maidata::inote_keys(&t))
-            .unwrap_or_default();
-        if editor.level_index >= editor.level_slots.len() {
-            editor.level_index = editor.level_slots.len().saturating_sub(1);
+        if !editor.defer_if_dirty(PendingAction::Reload) {
+            reload_chart(editor, app);
         }
-        editor.selected.clear();
-        editor.view_start = 0.0;
-        editor.status = Some(format!("Loaded {}", editor.chart_dir));
     }
+}
+
+/// Native folder picker, then load the chosen folder (no dirty guard — the
+/// caller has already resolved any unsaved changes).
+fn open_chart(editor: &mut EditorState, app: &mut PadPreviewState) {
+    if let Some(path) = io::pick_chart_path() {
+        editor.chart_dir = path;
+        reload_chart(editor, app);
+    }
+}
+
+/// (Re)load the chart currently named by [`EditorState::chart_dir`]. A successful
+/// load clears the dirty flag (the on-disk chart now matches the buffer).
+fn reload_chart(editor: &mut EditorState, app: &mut PadPreviewState) {
+    let dir = std::path::PathBuf::from(&editor.chart_dir);
+    let want = editor.level_slots.get(editor.level_index).copied();
+    runtime::load_chart_into(app, &dir, want);
+    editor.level_slots = app::chart::read_simai_source(&dir)
+        .map(|t| app::maidata::inote_keys(&t))
+        .unwrap_or_default();
+    if editor.level_index >= editor.level_slots.len() {
+        editor.level_index = editor.level_slots.len().saturating_sub(1);
+    }
+    editor.selected.clear();
+    editor.view_start = 0.0;
+    editor.dirty = false;
+    editor.status = Some(format!("Loaded {}", editor.chart_dir));
+}
+
+/// Exit the editor (used by the confirm dialog / a clean quit request).
+fn quit_editor() -> ! {
+    std::process::exit(0);
 }

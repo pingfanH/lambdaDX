@@ -51,12 +51,14 @@ pub fn dragged_position(g: &DragGrab, cur_measure: f32, cur_lane: i32, division:
     )
 }
 
-/// Select a single note, or toggle it in the set when `additive` (Shift).
-pub fn toggle_select(editor: &mut EditorState, id: u64, additive: bool) {
+/// Select a single note, or add it to the current set when `additive` (Shift).
+///
+/// Mirrors the original editor: a plain click replaces the selection and Shift
+/// adds to it (adding an already-selected note is a no-op rather than a toggle,
+/// so a Shift-clicked note can't be accidentally dropped from a group).
+pub fn select_note(editor: &mut EditorState, id: u64, additive: bool) {
     if additive {
-        if !editor.selected.remove(&id) {
-            editor.selected.insert(id);
-        }
+        editor.selected.insert(id);
     } else {
         editor.select_only(id);
     }
@@ -81,6 +83,21 @@ pub fn paint_marquee(ui: &egui::Ui, rect: egui::Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn select_note_replaces_or_appends() {
+        let mut editor = EditorState::default();
+        select_note(&mut editor, 1, false);
+        assert_eq!(editor.selected.len(), 1);
+        select_note(&mut editor, 2, false);
+        assert_eq!(editor.selected.len(), 1, "a plain click replaces");
+        assert!(editor.selected.contains(&2));
+        select_note(&mut editor, 3, true);
+        assert_eq!(editor.selected.len(), 2, "Shift adds to the selection");
+        assert!(editor.selected.contains(&2) && editor.selected.contains(&3));
+        select_note(&mut editor, 3, true);
+        assert_eq!(editor.selected.len(), 2, "re-adding is a no-op, not a toggle");
+    }
 
     #[test]
     fn drag_preserves_grab_offset() {

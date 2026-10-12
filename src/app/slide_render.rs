@@ -400,6 +400,16 @@ pub fn prefab_slide_path_bounded(
     if slide.segments.len() > 1 {
         return None;
     }
+    // The prefab only encodes a start/end (plus one turn vertex for `v`), so a
+    // segment carrying extra free-form waypoints (as the trajectory editor
+    // builds) must use the procedural builder instead — otherwise the middle
+    // points are silently dropped and the path collapses to start→new-end.
+    if slide.segments.iter().any(|s| match s.shape {
+        SlideShape::VShape => s.points.len() > 2,
+        _ => s.points.len() > 1,
+    }) {
+        return None;
+    }
     let unit = prefab_unit(outer_r);
     let defs = slide_svg::defs();
     let starts = segment_start_lanes(note, slide);
@@ -1513,6 +1523,29 @@ mod tests {
         // Some later point is the A-ring tile (just inside the ring).
         let inner = path[3].length() / prefab_unit(outer_r);
         assert!(inner < slide_svg::PREFAB_UNIT, "first tile radius {inner}");
+    }
+
+    /// A free-form segment (extra waypoints) must not use the start→end prefab,
+    /// which would drop the middle points the trajectory editor added.
+    #[test]
+    fn free_form_waypoints_bypass_the_prefab() {
+        let (note, mut slide) = line_slide(1, 5);
+        assert!(
+            prefab_slide_path(&note, &slide, vec2(0.0, 0.0), 480.0).is_some(),
+            "a single-waypoint Line segment still uses the prefab"
+        );
+        // Add a middle waypoint (1 → 3 → 5); now the prefab can't represent it.
+        slide.segments[0].points.insert(
+            0,
+            SlidePoint {
+                zone: PadZone::from(3u8),
+                beat_offset: 0.0,
+            },
+        );
+        assert!(
+            prefab_slide_path(&note, &slide, vec2(0.0, 0.0), 480.0).is_none(),
+            "a multi-waypoint segment must fall back to the procedural builder"
+        );
     }
 
     /// A wifi slide keeps its dedicated renderer: no prefab path.

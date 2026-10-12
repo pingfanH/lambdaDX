@@ -115,6 +115,12 @@ pub struct PadPreviewState {
     pub mode_song_offset: f32,
     /// Playback requested but the song clock is frozen until the first frame.
     pub playback_pending: bool,
+    /// A (re)start was requested and the audio has not begun yet this session:
+    /// while set, `song_time()` stays frozen at the offset so the timeline does
+    /// not drift ahead during the audio load and then snap back (the "twitch"
+    /// when starting playback from the top). Cleared by `service_audio` once the
+    /// audio is actually started (or the silent fallback begins).
+    pub audio_start_pending: bool,
     pub play_speed: f32,
     pub timeline_view_time: f32,
     /// Video export: when `Some`, `song_time()` returns this instead of the
@@ -242,6 +248,9 @@ pub struct PadPreviewState {
     // ── Progress / seeking ───────────────────────────────────────────
     /// True while the progress bar is being dragged.
     pub scrubbing: bool,
+    /// Editor-only: when set, the pad preview renders *only* this note (the
+    /// slide being edited) with no time culling, hiding everything else.
+    pub edit_solo_note: Option<u64>,
     /// Which pointer id is dragging the progress bar (touch or mouse).
     pub scrub_pointer: Option<u64>,
 
@@ -304,6 +313,7 @@ impl PadPreviewState {
             mode_wall_anchor: get_time(),
             mode_song_offset: 0.0,
             playback_pending: false,
+            audio_start_pending: false,
             play_speed: 1.0,
             timeline_view_time: 0.0,
             forced_time: None,
@@ -383,6 +393,7 @@ impl PadPreviewState {
             autoplay_tactic_path: None,
             external_autoplay: false,
             scrubbing: false,
+            edit_solo_note: None,
             scrub_pointer: None,
             video_bg: VideoBg::new(),
             mobile_ui,
@@ -418,7 +429,7 @@ impl PadPreviewState {
         if let Some(t) = self.forced_time {
             return t;
         }
-        if self.playback_pending {
+        if self.playback_pending || self.audio_start_pending {
             return self.mode_song_offset;
         }
         let elapsed_wall = (get_time() - self.mode_wall_anchor) as f32;
@@ -441,6 +452,7 @@ impl PadPreviewState {
             self.mode = Mode::Idle;
             self.mode_wall_anchor = get_time();
             self.playback_pending = false;
+            self.audio_start_pending = false;
             self.stop_audio_if_any();
             self.timeline_view_time = self.mode_song_offset;
             self.active_pointer_zones.clear();
@@ -451,6 +463,7 @@ impl PadPreviewState {
             self.mode = Mode::Playing;
             self.mode_wall_anchor = get_time();
             self.playback_pending = false;
+            self.audio_start_pending = true;
             self.reset_cues(self.mode_song_offset);
             self.request_audio_start();
             self.set_status(format!(
@@ -468,6 +481,7 @@ impl PadPreviewState {
         self.mode_song_offset = time.max(0.0);
         self.mode_wall_anchor = get_time();
         self.playback_pending = true;
+        self.audio_start_pending = true;
         self.audio_seek_offset = Some(time.max(0.0));
         self.active_pointer_zones.clear();
         self.prev_pointer_pos.clear();
@@ -844,6 +858,7 @@ impl PadPreviewState {
         self.timeline_view_time = 0.0;
         self.mode_wall_anchor = get_time();
         self.playback_pending = false;
+        self.audio_start_pending = false;
 
         self.hidden_notes.clear();
         self.hold_head_hits.clear();

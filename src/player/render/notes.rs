@@ -137,7 +137,11 @@ fn draw_pass(
         // conslide** may never get such a command (the core only ends a chain
         // once its head is touched), so fall back to a local tail cull a short
         // grace after the slide's end. Without an engine, use the local cull.
-        let is_visible = if is_slide && app.use_core() {
+        // Editor solo view: render only the slide being edited (no time culling,
+        // so its whole trail stays visible).
+        let is_visible = if let Some(solo) = app.edit_solo_note {
+            note.id == solo
+        } else if is_slide && app.use_core() {
             t.dt_scaled <= t.lead_time && t.slide_tail_dt >= -CORE_SLIDE_FALLBACK_GRACE
         } else {
             t.visible()

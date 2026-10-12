@@ -25,6 +25,13 @@ struct Egui {
     /// produces the matching press/release for egui (a button otherwise shows
     /// pressed forever without ever firing).
     pointer_down: bool,
+    /// Held state of the middle / secondary buttons. The explicit feed above is
+    /// left-only (it follows the unified touch/mouse pointer), so these are
+    /// derived from macroquad's own mouse state and pushed as press/release
+    /// edges — otherwise `Response::middle_clicked()` / `secondary_clicked()`
+    /// never fire.
+    middle_down: bool,
+    secondary_down: bool,
     last_pos: Vec2,
     /// Whether egui wanted the pointer on the last frame it ran.
     wants_pointer: bool,
@@ -41,6 +48,8 @@ fn with_egui<R>(f: impl FnOnce(&mut Egui) -> R) -> R {
             egui_mq: EguiMq::new(unsafe { get_internal_gl() }.quad_context),
             input_subscriber_id: macroquad::input::utils::register_input_subscriber(),
             pointer_down: false,
+            middle_down: false,
+            secondary_down: false,
             last_pos: Vec2::ZERO,
             wants_pointer: false,
         });
@@ -103,6 +112,37 @@ impl Egui {
                 .mouse_button_up_event(mq::MouseButton::Left, up.x, up.y);
         }
         self.pointer_down = down;
+
+        // Middle / secondary buttons. These never travel through the unified
+        // pointer, so forward macroquad's own button state as press/release
+        // edges (the editor uses middle-click to enter star-edit mode and
+        // right-click to delete a note).
+        self.sync_button(mq::MouseButton::Middle, pos);
+        self.sync_button(mq::MouseButton::Right, pos);
+    }
+
+    /// Mirror a macroquad mouse button into an egui press/release edge, using
+    /// the stored held state to detect the transition.
+    fn sync_button(&mut self, button: mq::MouseButton, pos: Vec2) {
+        let down = macroquad::input::is_mouse_button_down(button);
+        let held = match button {
+            mq::MouseButton::Middle => self.middle_down,
+            mq::MouseButton::Right => self.secondary_down,
+            _ => return,
+        };
+        if down == held {
+            return;
+        }
+        match button {
+            mq::MouseButton::Middle => self.middle_down = down,
+            mq::MouseButton::Right => self.secondary_down = down,
+            _ => return,
+        }
+        if down {
+            self.egui_mq.mouse_button_down_event(button, pos.x, pos.y);
+        } else {
+            self.egui_mq.mouse_button_up_event(button, pos.x, pos.y);
+        }
     }
 }
 

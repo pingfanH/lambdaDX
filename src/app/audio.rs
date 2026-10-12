@@ -306,6 +306,12 @@ pub async fn service_audio(app: &mut PadPreviewState) {
 
     app.stop_audio_if_any();
 
+    // The song clock stayed frozen while the start was pending; release it now,
+    // at the moment playback (or the silent fallback) actually begins, so the
+    // timeline does not drift ahead during the audio load and then snap back.
+    app.audio_start_pending = false;
+    app.mode_wall_anchor = macroquad::prelude::get_time();
+
     if !app.audio_enabled {
         return;
     }

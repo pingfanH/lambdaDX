@@ -5,26 +5,30 @@
 
 ## 与 Editor.svg 对齐(缺口)
 
-- [ ] `ui_grid`:时间轴网格样式对齐设计(线色/粗细/小节号/拍高亮/判定线)。
-- [ ] `ui_progress`:底部进度条样式对齐设计(圆角/色/手柄/刻度)。
-- [ ] `ui_inspector` + `ui_detail_00..20`:齿轮图标、collapse 三角、分隔线;
-      逐项对照 `components.json` 补齐 21 个细节元件映射。
-- [ ] Inspector 缺失字段:Slide 延时/时长;BPM/Offset 可编辑;Chart 元数据。
+- [x] `ui_grid`:线色/拍高亮/判定线按 svg 取样(`GRID_MINOR/LINE/BEAT/LANE/LANE_CENTER`,
+      判定线 1px `#FF3B50`,去掉红色小节线);小节号/刻度间距随缩放。
+- [x] `ui_progress`:进度条对齐设计(10px `#2B2B2D` + 左端 1px 红起点 + 刻度/播放头)。
+- [~] `ui_inspector` + `ui_detail_00..20`:齿轮图标、collapse 三角、分隔线(`#2A2A2D`)、
+      标签/取值色(`#8D8D94`/`#BDBDC2`)已对齐;逐项对照 `components.json` 补齐映射待做。
+- [x] Inspector 缺失字段:Slide 延时/时长(`slide_start_delay`/`slide_duration`,写回全部子滑条);
+      BPM/Offset 可编辑(改 BPM 同步 `bpms[0]`);Chart 元数据 Title/Artist 文本可编辑。
 - [ ] `ui_brand`:矢量/图标化(可选)。
-- [ ] Tools:确定 8 个工具集合 + 图标 + 阴影/选中态(记录“浮动→横条”偏离)。
+- [x] Tools:8 个工具 + 图标 + 阴影/选中态,并**按 svg 复刻浮动面板**
+      (38×268 `#252529` 阴影,4/2/2 分组;新增 TouchHold/Break)。
 - [ ] `ui_cover`/`Sensors`:确认预览面板 cover 与 33 感应区样式与设计一致。
 - [-] `ui_title` / `ui_window_chrome`:按需求不实现(标注)。
 
 ## P0 — 闭环
 
-- [ ] 顶栏 Undo/Redo 按钮(含灰化)。
-- [ ] `dirty` 未保存指示 + 载入/退出前提示。
-- [ ] `?` 快捷键帮助浮层。
-- [ ] Inspector 多选聚合显示(相同/混合)。
-- [ ] 框选贴边自动滚动;hover 音符信息。
-- [ ] 右键删除最近音符。
+- [x] 顶栏 Undo/Redo 按钮(含灰化)。
+- [x] `dirty` 未保存指示(顶栏红点 + 保存清空)+ 载入/打开/退出前确认(Save/Discard/Cancel);
+      载入成功清空 `dirty`(顺带修复之前切图后红点不消的 bug)。
+- [x] `?` 快捷键帮助浮层(顶栏 `?` 按钮 / 按 `?` / `F1` 切换)。
+- [x] Inspector 多选聚合显示(相同/混合)。
+- [x] 框选贴边自动滚动(横向平移 / 纵向 seek);hover 音符信息(进度条右读数)。
+- [x] 右键删除最近音符。
 - [ ] Hold/Slide 头/尾时长拖拽手柄。
-- [ ] 方向键微调选中音符(±1 格)。
+- [x] 方向键微调选中音符(±1 格;←→ 时间、↑↓ 轨道)。
 
 ## P1 — 效率与视图
 

@@ -9,6 +9,9 @@ use super::state::EditorState;
 pub fn save_chart(editor: &mut EditorState, chart: &ChartDoc) {
     let result = crate::app::beat_format::chart_to_json(chart)
         .and_then(|json| crate::app::platform::write_output_text("editor_chart.json", &json));
+    if result.is_ok() {
+        editor.dirty = false;
+    }
     editor.status = Some(match result {
         Ok(path) => format!("Saved {}", path.display()),
         Err(e) => format!("Save failed: {e}"),

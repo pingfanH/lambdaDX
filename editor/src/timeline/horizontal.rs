@@ -60,17 +60,21 @@ pub fn draw(
     waveform: &WaveformPyramid,
     scale: f32,
 ) {
-    let s = scale.max(0.1);
+    // `g` = geometry scale (egui points → macroquad logical), used for anything
+    // positional; `s` = content scale for glyph sizes / strokes / fonts (kept at
+    // logical 1.0 so notes don't shrink on HiDPI).
+    let g = scale.max(0.1);
+    let s = 1.0_f32;
     let bpms = &chart.bpms;
-    let gutter = LANE_GUTTER * s;
-    let ruler_h = RULER_H * s;
+    let gutter = LANE_GUTTER * g;
+    let ruler_h = RULER_H * g;
     let plot_left = rect.x + gutter;
     let plot_right = rect.x + rect.w;
     let lanes_top = rect.y + ruler_h;
     let lanes_bottom = rect.y + rect.h;
     let lanes_h = (lanes_bottom - lanes_top).max(1.0);
     let lane_h = lanes_h / LANE_COUNT as f32;
-    let pps = editor.pixels_per_second * s;
+    let pps = editor.pixels_per_second * g;
     let view = editor.view_start;
 
     mq::draw_rectangle(rect.x, rect.y, rect.w, rect.h, draw::c(24, 24, 27));
@@ -80,8 +84,8 @@ pub fn draw(
     let view_end = view + (plot_right - plot_left) / pps;
     waveform::draw_horizontal(waveform, plot_left, plot_right, lanes_top, lanes_h, view, pps, s);
 
-    draw_measure_grid(rect, plot_left, plot_right, lanes_top, lanes_bottom, view, view_end, bpms, pps, s);
-    draw_lanes(rect, plot_left, plot_right, lanes_top, lanes_bottom, lane_h, s);
+    draw_measure_grid(rect, plot_left, plot_right, lanes_top, lanes_bottom, view, view_end, bpms, pps, g, s);
+    draw_lanes(rect, plot_left, plot_right, lanes_top, lanes_bottom, lane_h, g, s);
 
     let ctx = NoteCtx {
         app,
@@ -104,14 +108,14 @@ pub fn draw(
             _ => head,
         };
         let x_tail = ctx.x_of(tail);
-        if x_tail < plot_left - 80.0 * s || x > plot_right + 80.0 * s {
+        if x_tail < plot_left - 80.0 * g || x > plot_right + 80.0 * g {
             continue;
         }
         draw_note(&ctx, note, x, x_tail, y, editor.selected.contains(&note.id));
     }
 
     let px = ctx.x_of(current_time);
-    if px >= plot_left - 2.0 * s && px <= plot_right + 2.0 * s {
+    if px >= plot_left - 2.0 * g && px <= plot_right + 2.0 * g {
         mq::draw_line(px, rect.y, px, lanes_bottom, 2.0 * s, draw::c(208, 70, 70));
     }
 }
@@ -127,6 +131,7 @@ fn draw_measure_grid(
     view_end: f32,
     bpms: &[BpmChange],
     pps: f32,
+    g: f32,
     s: f32,
 ) {
     const SUBDIV: i32 = 64;
@@ -149,11 +154,11 @@ fn draw_measure_grid(
             mq::draw_line(x, lanes_top, x, lanes_bottom, th, col);
         }
         let x = plot_left + (measure_to_secs(m, bpms) - view) * pps;
-        if x >= plot_left - 40.0 * s && x <= plot_right {
+        if x >= plot_left - 40.0 * g && x <= plot_right {
             mq::draw_text(
                 &format!("{}", m as i32),
-                x + 3.0 * s,
-                rect.y + 15.0 * s,
+                x + 3.0 * g,
+                rect.y + 15.0 * g,
                 14.0 * s,
                 draw::c(140, 140, 140),
             );
@@ -169,6 +174,7 @@ fn draw_lanes(
     lanes_top: f32,
     lanes_bottom: f32,
     lane_h: f32,
+    g: f32,
     s: f32,
 ) {
     for lane in 0..=LANE_COUNT {
@@ -182,13 +188,13 @@ fn draw_lanes(
     }
     let _ = lanes_bottom;
     for lane in 0..LANE_COUNT {
-        let y = lanes_top + (lane as f32 + 0.5) * lane_h + 5.0 * s;
+        let y = lanes_top + (lane as f32 + 0.5) * lane_h + 5.0 * g;
         let (label, col) = if lane == LANE_COUNT - 1 {
             ("T".to_string(), draw::c(230, 149, 48))
         } else {
             ((lane + 1).to_string(), draw::c(180, 180, 180))
         };
-        mq::draw_text(&label, rect.x + 10.0 * s, y, 15.0 * s, col);
+        mq::draw_text(&label, rect.x + 10.0 * g, y, 15.0 * s, col);
     }
 }
 

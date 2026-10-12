@@ -9,27 +9,31 @@
 
 use std::collections::HashSet;
 
-use crate::app::types::{ChartDoc, Note, NoteType};
+use crate::app::types::{ChartDoc, Note, NoteType, SlideShape};
 
-/// The active editing tool, selected from the palette above the timeline.
+/// The active editing tool, selected from the palette beside the timeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     Select,
     Tap,
     Hold,
     Touch,
+    TouchHold,
     Slide,
+    Break,
     Eraser,
 }
 
 impl Tool {
-    /// Every tool in palette order.
-    pub const ALL: [Tool; 6] = [
+    /// Every tool in palette order (8 buttons, matching the design).
+    pub const ALL: [Tool; 8] = [
         Tool::Select,
         Tool::Tap,
         Tool::Hold,
         Tool::Touch,
+        Tool::TouchHold,
         Tool::Slide,
+        Tool::Break,
         Tool::Eraser,
     ];
 
@@ -40,7 +44,9 @@ impl Tool {
             Tool::Tap => "Tap",
             Tool::Hold => "Hold",
             Tool::Touch => "Touch",
+            Tool::TouchHold => "TouchHold",
             Tool::Slide => "Slide",
+            Tool::Break => "Break",
             Tool::Eraser => "Eraser",
         }
     }
@@ -65,6 +71,44 @@ impl EditorLayout {
             EditorLayout::Horizontal => EditorLayout::Vertical,
         }
     }
+}
+
+/// A file/exit action raised by the UI that must wait for the unsaved-changes
+/// prompt when [`EditorState::dirty`] is set. When nothing is unsaved the action
+/// runs immediately (see [`EditorState::defer_if_dirty`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingAction {
+    /// Reload the current chart folder.
+    Reload,
+    /// Open a native folder picker, then reload.
+    Open,
+    /// Close the editor.
+    Quit,
+}
+
+/// Which timing handle of a Hold / Slide note an in-progress drag is moving.
+///
+/// * `Delay` — the slide's motion-start point (changes `slide_start_delay`);
+/// * `Tail` — the note's end (changes `hold_duration` for a hold, the slide
+///   span `slide_duration` for a slide).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DragHandle {
+    Delay,
+    Tail,
+}
+
+/// Captured state for an in-progress timing-handle drag, so the duration is
+/// computed from the grab offset rather than jumping on the first frame.
+#[derive(Debug, Clone, Copy)]
+pub struct HandleGrab {
+    pub id: u64,
+    pub kind: DragHandle,
+    /// Note head time (measures) at grab.
+    pub note_time: f32,
+    /// `slide_start_delay` at grab (0 for holds).
+    pub start_delay: f32,
+    /// `hold_duration` / `slide_duration` at grab.
+    pub duration: f32,
 }
 
 /// Where a note was relative to the cursor when a drag began, so dragging keeps
@@ -103,6 +147,9 @@ pub struct EditorState {
     pub snap_division: u32,
     /// Whether placement/drag snaps to the grid (top-bar `Grid` toggle).
     pub snap_enabled: bool,
+    /// Invert the wheel scroll direction (top-bar `Wheel ↕` toggle), for users
+    /// whose OS "natural scrolling" setting feels backwards in the editor.
+    pub scroll_invert: bool,
     pub dirty: bool,
     pub undo: Vec<ChartDoc>,
     pub redo: Vec<ChartDoc>,
@@ -112,6 +159,11 @@ pub struct EditorState {
     pub drag_history_pushed: bool,
     /// Grab offset captured when a note drag starts (see [`DragGrab`]).
     pub drag_grab: Option<DragGrab>,
+    /// Originals of every note in the selection at drag start, as
+    /// `(id, time, lane)`. When the grabbed note is part of a multi-selection the
+    /// whole group moves together (matching the original editor); empty for a
+    /// pure marquee drag.
+    pub drag_multi_orig: Vec<(u64, f32, u8)>,
     /// Start corner (egui points) of an in-progress box (marquee) selection.
     pub marquee_start: Option<(f32, f32)>,
     /// Notes copied with Ctrl/Cmd+C, pasted with Ctrl/Cmd+V.
@@ -141,6 +193,24 @@ pub struct EditorState {
     /// 2 = autoplay with judgment. `mode_dirty` asks the runtime to apply it.
     pub autoplay_mode: u8,
     pub mode_dirty: bool,
+    /// Whether the `?` shortcut-help overlay is shown.
+    pub show_help: bool,
+    /// Id of the slide ("star") note currently in track-edit mode, or `None`.
+    /// Entered by middle-clicking a slide's trail (or trackpad three-finger
+    /// click); while active, pad / lane clicks append waypoints, shape keys
+    /// `Q/P/S/Z/V/W` (plus `⇧`, `,`, `.`, `;`, `-`) pick a shape that `1-8`
+    /// completes, and `⌫` undoes the last waypoint. `Esc` exits.
+    pub editing_slide: Option<u64>,
+    /// Shape picked with a shape key, waiting for an end lane (`1-8`) to apply.
+    pub pending_shape: Option<SlideShape>,
+    /// Which sub-slide ("star" part) of the editing slide new waypoints and
+    /// shapes target (index into `note.slide`).
+    pub editing_slide_idx: usize,
+    /// File/exit action deferred pending the unsaved-changes prompt, if any.
+    pub pending_action: Option<PendingAction>,
+    /// Set by the confirm dialog to tell the runtime to run `pending_action`
+    /// (after the user chose Save or Discard).
+    pub pending_confirmed: bool,
 }
 
 impl Default for EditorState {
@@ -154,12 +224,14 @@ impl Default for EditorState {
             pixels_per_second: 120.0,
             snap_division: 16,
             snap_enabled: true,
+            scroll_invert: false,
             dirty: false,
             undo: Vec::new(),
             redo: Vec::new(),
             dragging: None,
             drag_history_pushed: false,
             drag_grab: None,
+            drag_multi_orig: Vec::new(),
             marquee_start: None,
             clipboard: Vec::new(),
             status: None,
@@ -174,6 +246,12 @@ impl Default for EditorState {
             cursor: None,
             autoplay_mode: 1,
             mode_dirty: true,
+            show_help: false,
+            editing_slide: None,
+            pending_shape: None,
+            editing_slide_idx: 0,
+            pending_action: None,
+            pending_confirmed: false,
         }
     }
 }
@@ -184,6 +262,7 @@ impl EditorState {
         match self.tool {
             Tool::Hold => NoteType::Hold,
             Tool::Touch => NoteType::Touch,
+            Tool::TouchHold => NoteType::TouchHold,
             Tool::Slide => NoteType::Slide,
             _ => NoteType::Tap,
         }
@@ -193,6 +272,23 @@ impl EditorState {
     pub fn select_only(&mut self, id: u64) {
         self.selected.clear();
         self.selected.insert(id);
+    }
+
+    /// Whether slide ("star") track-edit mode is active.
+    pub fn is_slide_edit(&self) -> bool {
+        self.editing_slide.is_some()
+    }
+
+    /// Defer a file/exit action when there are unsaved changes, so the runtime
+    /// shows the confirm prompt instead of running it. Returns `true` when the
+    /// action was deferred (the caller should NOT run it now).
+    pub fn defer_if_dirty(&mut self, action: PendingAction) -> bool {
+        if self.dirty {
+            self.pending_action = Some(action);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -206,5 +302,17 @@ mod tests {
         assert_eq!(editor.layout, EditorLayout::Vertical);
         assert_eq!(editor.layout.toggled(), EditorLayout::Horizontal);
         assert_eq!(editor.layout.toggled().toggled(), EditorLayout::Vertical);
+    }
+
+    #[test]
+    fn defer_if_dirty_only_defers_when_unsaved() {
+        let mut editor = EditorState::default();
+        // Clean: the action runs now, nothing is deferred.
+        assert!(!editor.defer_if_dirty(PendingAction::Reload));
+        assert_eq!(editor.pending_action, None);
+        // Dirty: the action is held for the confirm prompt.
+        editor.dirty = true;
+        assert!(editor.defer_if_dirty(PendingAction::Quit));
+        assert_eq!(editor.pending_action, Some(PendingAction::Quit));
     }
 }

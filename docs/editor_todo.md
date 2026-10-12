@@ -45,9 +45,16 @@
 - [ ] **录音模式(整块)** — 开始/停止(R)、lane 键 1–8/T 录制、pad 触摸录制、
       zone 记录、音符分类、录音吸附、录音速度、RecordingDoc 保存。
       原版 `input.rs:585/656`,`state.rs:510/1034/1048`。
-- [ ] **Slide 轨迹编辑** — E 进入、点 pad 追加航点、中键进入、
-      形状键 Q/P/S/Z/V/W + 1–8、延时点/头尾拖拽、双击星头追加子 slide。
-      原版 `input.rs:243/680/1155/1381`。
+- [~] **Slide 轨迹编辑** — 中键/三指点 slide 轨迹进入(选中并定位到该子 slide);
+      进入后 pad 预览**只显示这条 slide**(`app.edit_solo_note = editing_slide`,其余 note 隐藏、
+      不做时间裁剪,整条轨迹可见);点 pad A 区或按 `1–8` 追加航点
+      (`editing_slide_idx` 指定子 slide);形状键 `Q/P/S/Z/V/W`(⇧=QQ/PP,
+      `,`/`.`/`;`=</>/^,`-`=line)+ `1–8` 追加一个新 segment
+      (含 V 过中心、`validate_slide_shape` 校验);`⌫` 撤最后一个航点(空段丢弃);
+      `Esc` 退出。延时点/头尾拖拽、双击星头追加子 slide 未做。
+      `editor/src/edit_ops.rs::{append_slide_waypoint,pop_slide_waypoint,apply_slide_shape}`、
+      `editor/src/timeline/input.rs::{handle_edit_shortcuts,slide_trail_at}`
+      (原版 `input.rs:243/291/680/1155/1381`)。
 - [ ] **形状自动匹配与生成** — Line/VShape 匹配、形状→航点、形状合法性校验。
       原版 `slide_match.rs:37`,`simai_io.rs:781`,`types.rs:204`。
 - [ ] **模板 / 场景隔离系统(整块)** — 建/删/改名/插入/移动实例、进入隔离与回写、

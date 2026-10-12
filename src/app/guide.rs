@@ -7,7 +7,8 @@
 //! * **pixel-aligned** with the note's own texture (1 guide texel == 1 note
 //!   texel): `size = base_px * guide.width() / note_tex.width()`;
 //! * size does **not** follow the note's spawn scale; it only grows with the
-//!   note's travel progress (`params::tap_guide_grow`);
+//!   note's travel progress (`params::tap_guide_grow`), and keeps growing past
+//!   the judgment point (progress > 1, TAP notes overshoot the ring);
 //! * anchored on the note by `params::tap_guide_anchor` (0 = top edge, 0.5 =
 //!   centre, 1 = bottom edge) so scaling keeps that point fixed;
 //! * oriented along the flight direction `ang` plus `params::tap_guide_rot`,
@@ -46,7 +47,9 @@ pub fn draw(
         _ => 1.0,
     };
     let base = base_px * px_ratio * params::tap_guide_size();
-    let size = base * (1.0 + params::tap_guide_grow() * progress.clamp(0.0, 1.0));
+    // Only the lower bound is clamped: past the judgment point `progress` keeps
+    // rising (TAP notes overshoot the ring), so the guide keeps enlarging.
+    let size = base * (1.0 + params::tap_guide_grow() * progress.max(0.0));
     let aspect = if guide.width() > 0.0 {
         guide.height() / guide.width()
     } else {

@@ -354,6 +354,7 @@ impl PlayerUiApp {
         self.pad.stop_audio_if_any();
         self.pad.mode = crate::app::types::Mode::Idle;
         self.pad.playback_pending = false;
+        self.pad.audio_start_pending = false;
         self.pad.mode_song_offset = 0.0;
         self.pad.timeline_view_time = 0.0;
         self.pad.mode_wall_anchor = get_time();
@@ -558,6 +559,7 @@ impl PlayerUiApp {
         self.pad.stop_audio_if_any();
         self.pad.mode = crate::app::types::Mode::Idle;
         self.pad.playback_pending = false;
+        self.pad.audio_start_pending = false;
         self.pad.mode_song_offset = 0.0;
         self.pad.mode_wall_anchor = get_time();
         self.go(Page::SongSelect);

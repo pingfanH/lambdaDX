@@ -190,7 +190,8 @@ pub struct Params {
     /// `1` = bottom edge. Scaling keeps this point fixed on the note centre.
     pub tap_guide_anchor: f32,
     /// Extra tap-guide scale proportional to travel progress: the further out,
-    /// the bigger the guide (`0` = constant size).
+    /// the bigger the guide (`0` = constant size). Growth continues past the
+    /// judgment point (progress > 1) instead of stopping at the ring.
     pub tap_guide_grow: f32,
     /// Tap-guide opacity (0..255).
     pub tap_guide_alpha: f32,

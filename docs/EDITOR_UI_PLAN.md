@@ -59,11 +59,11 @@
   - [ ] 21 个 detail 的组件映射表(需从 DOMDocument/`source/` 反查)。
 
 ### UI/Tools(工具栏)
-- [-] 设计为**左侧浮动面板 + 阴影**(`ui_toolbar` / `ui_panel` / `ui_shadow`)。
-      按需求已改为**时间轴上方横条**。
-- [~] `ui_button_00..07`(8 个工具按钮)— 当前 6 个(Select/Tap/Hold/Touch/Slide/
-      Eraser)。→ 需要确定第 7/8 个工具(候选:Star、Break、Grid…),并统一图标风格。
-- [ ] 工具按钮的按下/选中/悬停态与设计阴影对齐。
+- [x] 已按设计复刻为**左侧浮动面板 + 阴影**(`ui_tools::draw`:38×268 `#252529`,
+      阴影 dy3/blur4,圆角 4),浮在时间轴左上角(设计偏移 12/72)。
+- [x] `ui_button_00..07`(8 个工具按钮):Select/Tap/Hold/Touch/TouchHold/Slide/
+      Break/Eraser,30×30、圆角 3、选中 `#477DAD`、4/2/2 分组分隔线。
+- [x] 工具按钮的选中/悬停态与设计阴影对齐。
 
 ### 其他
 - [ ] `UI/page_editor` 整页裁切/留白与设计的 1570×856 栅格对齐(DESIGN_W/H 已在

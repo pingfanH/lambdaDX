@@ -14,6 +14,7 @@ use crate::app::types::{
 };
 use crate::audio::WaveformPyramid;
 use crate::state::EditorState;
+use crate::theme;
 use crate::player::state::PadPreviewState;
 
 use super::geometry::{lane_index_of, zone_lane_index, LANE_COUNT, LANE_GUTTER, RULER_H, JUDGE_MARGIN};
@@ -62,20 +63,26 @@ pub fn draw(
     waveform: &WaveformPyramid,
     scale: f32,
 ) {
-    let s = scale.max(0.1);
+    // Two scales: `g` converts egui points to macroquad logical units and MUST
+    // be used for anything positional (gutter, ruler, judge line, px/sec) so the
+    // drawing lines up with the egui-space input hit-testing. `s` is the content
+    // scale for glyph sizes / strokes / fonts, kept at 1.0 logical so notes do
+    // not shrink on a HiDPI display (`to_mq` would be 0.5 there).
+    let g = scale.max(0.1);
+    let s = 1.0_f32;
     let bpms = &chart.bpms;
-    let header_h = RULER_H * s;
-    let left_margin = LANE_GUTTER * s;
+    let header_h = RULER_H * g;
+    let left_margin = LANE_GUTTER * g;
     let plot_left = rect.x + left_margin;
     let plot_right = rect.x + rect.w;
     let plot_top = rect.y + header_h;
     let plot_bottom = rect.y + rect.h;
-    let judge_y = plot_bottom - JUDGE_MARGIN * s;
+    let judge_y = plot_bottom - JUDGE_MARGIN * g;
     let lane_w = (plot_right - plot_left).max(1.0) / LANE_COUNT as f32;
-    // The rect is in macroquad logical units (egui points × `s`), so the time
-    // axis must be scaled too — otherwise notes drift from where the egui input
-    // math (which works in egui points) expects them.
-    let pps = editor.pixels_per_second * s;
+    // The rect is in macroquad logical units (egui points × `g`), so the time
+    // axis must be scaled by the same `g` — otherwise notes drift from where the
+    // egui input math (which works in egui points) expects them.
+    let pps = editor.pixels_per_second * g;
     let now = current_time;
     let y_of = |t: f32| judge_y - (t - now) * pps;
     let lane_x = |i: usize| plot_left + (i as f32 + 0.5) * lane_w;
@@ -98,9 +105,10 @@ pub fn draw(
         t_bottom.max(t_top),
         bpms,
         y_of,
+        g,
         s,
     );
-    draw_lanes(plot_left, plot_top, plot_bottom, lane_w, rect.y + 16.0 * s, lane_x, s);
+    draw_lanes(plot_left, plot_top, plot_bottom, lane_w, rect.y + 16.0 * g, lane_x, s);
 
     let ctx = VNoteCtx {
         app,
@@ -124,29 +132,34 @@ pub fn draw(
         };
         let y_tail = ctx.y_of(tail);
         let (ya, yb) = (y.min(y_tail), y.max(y_tail));
-        if yb < plot_top - 80.0 * s || ya > plot_bottom + 80.0 * s {
+        if yb < plot_top - 80.0 * g || ya > plot_bottom + 80.0 * g {
             continue;
         }
         draw_note(&ctx, note, x, y, y_tail, editor.selected.contains(&note.id));
     }
 
-    // Judgment line doubles as the "now" playhead.
-    mq::draw_line(plot_left, judge_y, plot_right, judge_y, 2.0 * s, draw::c(200, 70, 70));
+    // Judgment line doubles as the "now" playhead (design: 1px `#FF3B50`).
+    mq::draw_line(plot_left, judge_y, plot_right, judge_y, 1.0 * s, theme::to_mq(theme::JUDGE_LINE));
 }
 
 fn draw_background(rect: MqRect, header_h: f32, plot_top: f32, plot_bottom: f32, left_margin: f32) {
-    mq::draw_rectangle(rect.x, rect.y, rect.w, rect.h, draw::c(24, 24, 27));
-    mq::draw_rectangle(rect.x, rect.y, rect.w, header_h, draw::c(42, 42, 45));
-    mq::draw_rectangle(
+    // Design: the whole timeline shares the workspace background (`#1D1D1E`),
+    // with a hairline under the ruler and a left edge line.
+    let bg = theme::to_mq(theme::BG_WINDOW);
+    mq::draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
+    mq::draw_rectangle(rect.x, plot_top, left_margin, (plot_bottom - plot_top).max(0.0), bg);
+    mq::draw_line(
         rect.x,
-        plot_top,
-        left_margin,
-        (plot_bottom - plot_top).max(0.0),
-        draw::c(42, 42, 45),
+        rect.y + header_h,
+        rect.x + rect.w,
+        rect.y + header_h,
+        1.0,
+        theme::to_mq(theme::BORDER_LIGHT),
     );
 }
 
-/// Measure grid: 64 subdivisions per measure (bar / beat / sub).
+/// Measure grid: 64 subdivisions per measure (bar / beat / sub). `g` is the
+/// geometry scale (label offsets), `s` the content scale (strokes / font).
 #[allow(clippy::too_many_arguments)]
 fn draw_measure_grid(
     rect: MqRect,
@@ -158,6 +171,7 @@ fn draw_measure_grid(
     t_hi: f32,
     bpms: &[BpmChange],
     y_of: impl Fn(f32) -> f32,
+    g: f32,
     s: f32,
 ) {
     const SUBDIV: i32 = 64;
@@ -171,22 +185,22 @@ fn draw_measure_grid(
                 continue;
             }
             let (col, th) = if i == 0 {
-                (draw::c(140, 50, 50), 2.0 * s)
+                (theme::to_mq(theme::GRID_BEAT), 1.2 * s)
             } else if i % 16 == 0 {
-                (draw::c(80, 80, 80), 1.5 * s)
+                (theme::to_mq(theme::GRID_LINE), 1.0 * s)
             } else {
-                (draw::c(40, 40, 40), 0.5 * s)
+                (theme::to_mq(theme::GRID_MINOR), 0.6 * s)
             };
             mq::draw_line(plot_left, y, plot_right, y, th, col);
         }
         let y = y_of(measure_to_secs(m, bpms));
-        if y >= plot_top && y <= plot_bottom + 40.0 * s {
+        if y >= plot_top && y <= plot_bottom + 40.0 * g {
             mq::draw_text(
                 &format!("{}", m as i32),
-                rect.x + 4.0 * s,
-                y + 4.0 * s,
+                rect.x + 4.0 * g,
+                y + 4.0 * g,
                 14.0 * s,
-                draw::c(140, 140, 140),
+                theme::to_mq(theme::TEXT_RULER),
             );
         }
         m += 1.0;
@@ -205,10 +219,10 @@ fn draw_lanes(
 ) {
     for lane in 0..=LANE_COUNT {
         let x = plot_left + lane as f32 * lane_w;
-        let (col, th) = if lane == 4 {
-            (draw::c(90, 90, 90), 2.0 * s)
+        let (col, th) = if lane == LANE_COUNT / 2 {
+            (theme::to_mq(theme::GRID_LANE_CENTER), 1.0 * s)
         } else {
-            (draw::c(55, 55, 55), 1.0 * s)
+            (theme::to_mq(theme::GRID_LANE), 1.0 * s)
         };
         mq::draw_line(x, plot_top, x, plot_bottom, th, col);
     }
@@ -216,7 +230,7 @@ fn draw_lanes(
         let (label, col) = if lane == LANE_COUNT - 1 {
             ("T".to_string(), draw::c(230, 149, 48))
         } else {
-            ((lane + 1).to_string(), draw::c(180, 180, 180))
+            ((lane + 1).to_string(), theme::to_mq(theme::TEXT_RULER))
         };
         let tw = mq::measure_text(&label, None, (15.0 * s) as u16, 1.0).width;
         mq::draw_text(&label, lane_x(lane) - tw * 0.5, label_y, 15.0 * s, col);

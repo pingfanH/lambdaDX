@@ -10,7 +10,7 @@ use crate::app::types::{hold_tail_time, note_secs, ChartDoc, NoteType};
 use crate::state::EditorState;
 
 use crate::theme::{
-    ACCENT_RED, BG_PANEL, BORDER_LIGHT, FONT_SMALL, TEXT, TEXT_DIM, TICK_HOLD, TICK_SLIDE,
+    ACCENT_RED, BG_OVERVIEW, BORDER_LIGHT, FONT_SMALL, TEXT, TEXT_DIM, TICK_HOLD, TICK_SLIDE,
     TICK_TAP, TICK_TOUCH,
 };
 
@@ -24,17 +24,25 @@ pub fn draw_in(
     plot_left: f32,
 ) {
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, BG_PANEL);
-    painter.line_segment(
-        [rect.left_top(), rect.right_top()],
-        egui::Stroke::new(1.0_f32, BORDER_LIGHT),
+    // Band background blends with the workspace; the design's 10px scrubber
+    // sits near the top of it (`#2B2B2D`) with a 1px red start tick.
+    painter.rect_filled(rect, 0.0, crate::theme::BG_WINDOW);
+    let bar = egui::Rect::from_min_size(
+        egui::pos2(rect.left(), rect.top() + 3.0),
+        egui::vec2(rect.width(), 10.0),
+    );
+    painter.rect_filled(bar, 0.0, BG_OVERVIEW);
+    painter.vline(
+        bar.left() + 0.5,
+        bar.y_range(),
+        egui::Stroke::new(1.0_f32, ACCENT_RED),
     );
 
-    let width = (rect.right() - plot_left).max(1.0);
+    let width = (bar.right() - plot_left).max(1.0);
     painter.line_segment(
         [
-            egui::pos2(plot_left, rect.top()),
-            egui::pos2(plot_left, rect.bottom()),
+            egui::pos2(plot_left, bar.top()),
+            egui::pos2(plot_left, bar.bottom()),
         ],
         egui::Stroke::new(1.0_f32, BORDER_LIGHT),
     );
@@ -50,34 +58,34 @@ pub fn draw_in(
         let x = x_of(note_secs(note, &chart.bpms));
         painter.line_segment(
             [
-                egui::pos2(x, rect.top() + 5.0),
-                egui::pos2(x, rect.bottom() - 5.0),
+                egui::pos2(x, bar.top() + 2.0),
+                egui::pos2(x, bar.bottom() - 2.0),
             ],
             egui::Stroke::new(1.0_f32, tick_color(note.note_type)),
         );
     }
 
     let play_x = x_of(current_time);
-    painter.vline(play_x, rect.y_range(), egui::Stroke::new(2.0_f32, ACCENT_RED));
+    painter.vline(play_x, bar.y_range(), egui::Stroke::new(2.0_f32, ACCENT_RED));
 
-    // Read-outs on the bar (design shows a time / zoom readout under the grid).
+    // Time read-out inside the bar (design shows "0.00" there).
     painter.text(
-        egui::pos2(plot_left + 6.0, rect.center().y),
+        egui::pos2(bar.left() + 6.0, bar.center().y),
         egui::Align2::LEFT_CENTER,
         &format!("{:.2}s / {:.2}s", current_time.max(0.0), duration),
         egui::FontId::proportional(FONT_SMALL),
         TEXT,
     );
     painter.text(
-        egui::pos2(rect.right() - 6.0, rect.center().y),
+        egui::pos2(bar.right() - 6.0, bar.center().y),
         egui::Align2::RIGHT_CENTER,
-        &format!("{:.0} px/s · {} notes", editor.pixels_per_second, chart.notes.len()),
+        &right_readout(editor, chart),
         egui::FontId::proportional(FONT_SMALL),
         TEXT_DIM,
     );
 
     let response = ui.interact(
-        rect,
+        bar,
         ui.id().with("editor_overview"),
         egui::Sense::click_and_drag(),
     );
@@ -101,4 +109,23 @@ fn tick_color(kind: NoteType) -> egui::Color32 {
         NoteType::Slide => TICK_SLIDE,
         NoteType::Tap => TICK_TAP,
     }
+}
+
+/// Right-hand read-out: details of the hovered note when there is one, else the
+/// zoom / note-count summary.
+fn right_readout(editor: &EditorState, chart: &ChartDoc) -> String {
+    if let Some(note) = editor
+        .hovered
+        .and_then(|id| chart.notes.iter().find(|n| n.id == id))
+    {
+        return format!(
+            "L{} · m{:.2} · {:?}",
+            note.lane, note.time, note.note_type
+        );
+    }
+    format!(
+        "{:.0} px/s · {} notes",
+        editor.pixels_per_second,
+        chart.notes.len()
+    )
 }
