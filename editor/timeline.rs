@@ -113,9 +113,10 @@ pub fn handle_edit_shortcuts(
     chart: &mut ChartDoc,
     current_time: f32,
 ) {
-    let (undo, redo, copy, cut, paste, save) = ui.input(|i| {
+    let (undo, redo, copy, cut, paste, save, break_key, ex_key, exbreak_key) = ui.input(|i| {
         let cmd = i.modifiers.command;
         let shift = i.modifiers.shift;
+        let plain = !cmd && !shift;
         (
             cmd && !shift && i.key_pressed(egui::Key::Z),
             (cmd && shift && i.key_pressed(egui::Key::Z)) || (cmd && i.key_pressed(egui::Key::Y)),
@@ -123,6 +124,9 @@ pub fn handle_edit_shortcuts(
             cmd && i.key_pressed(egui::Key::X),
             cmd && i.key_pressed(egui::Key::V),
             cmd && i.key_pressed(egui::Key::S),
+            plain && i.key_pressed(egui::Key::B),
+            plain && i.key_pressed(egui::Key::X),
+            plain && i.key_pressed(egui::Key::N),
         )
     });
     if undo {
@@ -144,6 +148,31 @@ pub fn handle_edit_shortcuts(
     }
     if save {
         save_chart(editor, chart);
+    }
+    if !editor.selected.is_empty() {
+        if break_key {
+            toggle_flags(editor, chart, |n| n.is_break = !n.is_break);
+        }
+        if ex_key {
+            toggle_flags(editor, chart, |n| n.is_ex = !n.is_ex);
+        }
+        if exbreak_key {
+            toggle_flags(editor, chart, |n| {
+                let on = !(n.is_break && n.is_ex);
+                n.is_break = on;
+                n.is_ex = on;
+            });
+        }
+    }
+}
+
+/// Apply `f` to every selected note as one undoable step.
+fn toggle_flags(editor: &mut EditorState, chart: &mut ChartDoc, f: impl Fn(&mut Note)) {
+    editor.push_history(chart);
+    for n in chart.notes.iter_mut() {
+        if editor.selected.contains(&n.id) {
+            f(n);
+        }
     }
 }
 

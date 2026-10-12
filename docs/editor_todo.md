@@ -24,9 +24,11 @@
 - [x] **复制 / 粘贴 / 剪贴板** — `⌘/Ctrl+C` 复制、`⌘/Ctrl+X` 剪切、`⌘/Ctrl+V`
       在播放头处粘贴(保留相对时间与 lane)。`editor/state.rs::copy_selection/paste_at`。
       (原版的「粘贴幽灵跟随光标」尚未做,当前是就地粘贴。)
-- [ ] **音符属性编辑** — Type/Time/Lane/Duration + Break/Ex/Each/Star/Tapless。
-      原版 `egui_ui/mod.rs:711`。现侧栏是绑死 `value=0.5` 的假滑块。
-- [ ] **Break / Ex / ExBreak 快捷键** — B / X / N。原版 `input.rs:453-545`。
+- [x] **音符属性编辑** — 侧栏 INSPECTOR → NOTE 显示/编辑选区首个音符的
+      TIME / LANE / DUR + Break / Ex / Each / Star / Tapless 复选框(每次编辑一步撤销)。
+      `editor/egui/mod.rs::note_properties_ui`。
+- [x] **Break / Ex / ExBreak 快捷键** — B / X / N(作用于整个选区,可撤销)。
+      `editor/timeline.rs::handle_edit_shortcuts`。
 - [ ] **原生打开文件 + 难度切换** — 文件对话框、音频自动识别、level 循环。
       原版 `simai_io.rs:1867/1863`,`egui_ui/mod.rs:270`。
 

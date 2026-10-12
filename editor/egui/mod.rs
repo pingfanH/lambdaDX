@@ -3,8 +3,8 @@
 use egui_macroquad::egui;
 use macroquad::prelude::Vec2;
 
-use crate::app::types::PadGeom;
-use crate::editor_state::EditorLayout;
+use crate::app::types::{NoteType, PadGeom};
+use crate::editor_state::{EditorLayout, EditorState};
 
 pub const DESIGN_W: f32 = 1570.0;
 pub const DESIGN_H: f32 = 856.0;
@@ -104,7 +104,7 @@ impl State {
                 .frame(sidebar_frame)
                 .show(ctx, |ui| {
                     self.layout.sidebar = ui.max_rect();
-                    self.sidebar_contents(ui, false);
+                    self.sidebar_contents(ui, false, editor, chart);
                 });
         } else {
             let sidebar_width = self.sidebar_width.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
@@ -116,7 +116,7 @@ impl State {
                 .frame(sidebar_frame)
                 .show(ctx, |ui| {
                     self.layout.sidebar = ui.max_rect();
-                    self.sidebar_contents(ui, true);
+                    self.sidebar_contents(ui, true, editor, chart);
                 });
         }
 
@@ -178,7 +178,13 @@ impl State {
     /// Pad preview + inspector contents, shared by the left/right side panels.
     /// `record_width` remembers the panel width for the (resizable) horizontal
     /// layout; the vertical layout is responsive and leaves it alone.
-    fn sidebar_contents(&mut self, ui: &mut egui::Ui, record_width: bool) {
+    fn sidebar_contents(
+        &mut self,
+        ui: &mut egui::Ui,
+        record_width: bool,
+        editor: &mut EditorState,
+        chart: &mut crate::app::types::ChartDoc,
+    ) {
         if record_width {
             self.sidebar_width = ui.available_width() + 24.0;
         }
@@ -195,6 +201,8 @@ impl State {
             &mut self.inspector_expanded,
             &mut self.pad_scale,
             &mut self.timeline_frac,
+            editor,
+            chart,
         );
     }
 
@@ -336,6 +344,8 @@ fn inspector_ui(
     expanded: &mut [bool; 5],
     pad_scale: &mut f32,
     timeline_frac: &mut f32,
+    editor: &mut EditorState,
+    chart: &mut crate::app::types::ChartDoc,
 ) {
     ui.label(
         egui::RichText::new("EDITOR")
@@ -364,19 +374,98 @@ fn inspector_ui(
     {
         ui.separator();
         let response = ui.collapsing(title, |ui| {
-            for label in ["PARAM", "SPEED", "OPACITY"] {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(label)
-                            .size(11.0)
-                            .color(rgb(141, 141, 148)),
-                    );
-                    let mut value = 0.5;
-                    ui.add(egui::Slider::new(&mut value, 0.0..=1.0).show_value(false));
-                });
+            if index == 0 {
+                note_properties_ui(ui, editor, chart);
+            } else {
+                ui.label(
+                    egui::RichText::new("—")
+                        .size(11.0)
+                        .color(rgb(110, 110, 116)),
+                );
             }
         });
         expanded[index] = response.fully_open();
+    }
+}
+
+/// Editable properties of the (first) selected note. Values are read out first
+/// so an edit can push a single undo snapshot before writing back.
+fn note_properties_ui(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    chart: &mut crate::app::types::ChartDoc,
+) {
+    let Some(&id) = editor.selected.iter().next() else {
+        ui.label(
+            egui::RichText::new("no selection")
+                .size(11.0)
+                .color(rgb(141, 141, 148)),
+        );
+        return;
+    };
+    let Some(idx) = chart.notes.iter().position(|n| n.id == id) else {
+        return;
+    };
+    ui.label(
+        egui::RichText::new(format!("{} selected · id {id}", editor.selected.len()))
+            .size(11.0)
+            .color(rgb(141, 141, 148)),
+    );
+
+    let note = &chart.notes[idx];
+    let mut time = note.time;
+    let mut lane = note.lane as i32;
+    let mut dur = note.hold_duration;
+    let note_type = note.note_type;
+    let mut break_on = note.is_break;
+    let mut ex_on = note.is_ex;
+    let mut each_on = note.is_each;
+    let mut star_on = note.is_star;
+    let mut tapless_on = note.is_tapless;
+
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("TIME").size(11.0).color(rgb(141, 141, 148)));
+        changed |= ui
+            .add(egui::DragValue::new(&mut time).speed(0.01))
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("LANE").size(11.0).color(rgb(141, 141, 148)));
+        changed |= ui
+            .add(egui::DragValue::new(&mut lane).range(1..=8))
+            .changed();
+    });
+    if matches!(note_type, NoteType::Hold | NoteType::TouchHold | NoteType::Slide) {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("DUR").size(11.0).color(rgb(141, 141, 148)));
+            changed |= ui
+                .add(egui::DragValue::new(&mut dur).speed(0.01))
+                .changed();
+        });
+    }
+
+    ui.horizontal_wrapped(|ui| {
+        changed |= ui.checkbox(&mut break_on, "Break").clicked();
+        changed |= ui.checkbox(&mut ex_on, "Ex").clicked();
+        changed |= ui.checkbox(&mut each_on, "Each").clicked();
+        if matches!(note_type, NoteType::Slide) {
+            changed |= ui.checkbox(&mut star_on, "Star").clicked();
+            changed |= ui.checkbox(&mut tapless_on, "Tapless").clicked();
+        }
+    });
+
+    if changed {
+        editor.push_history(chart);
+        let n = &mut chart.notes[idx];
+        n.time = time.max(0.0);
+        n.lane = lane.clamp(1, 8) as u8;
+        n.hold_duration = dur.max(0.0);
+        n.is_break = break_on;
+        n.is_ex = ex_on;
+        n.is_each = each_on;
+        n.is_star = star_on;
+        n.is_tapless = tapless_on;
     }
 }
 
