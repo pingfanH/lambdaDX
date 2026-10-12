@@ -2,7 +2,7 @@
 //! list so both `Skins/classic/<name>.png` and a flat `<name>.png` work. Any
 //! missing texture falls back to primitive shapes in the renderers.
 
-use macroquad::miniquad::FilterMode;
+use macroquad::miniquad::{FilterMode, MipmapFilterMode};
 use macroquad::prelude::load_texture;
 use macroquad::texture::Texture2D;
 
@@ -13,10 +13,27 @@ async fn first(paths: &[&str]) -> Option<Texture2D> {
     for path in paths {
         if let Ok(tex) = load_texture(path).await {
             tex.set_filter(FilterMode::Linear);
+            enable_mipmaps(&tex);
             return Some(tex);
         }
     }
     None
+}
+
+/// Give a freshly loaded texture mipmaps + trilinear minification.
+///
+/// macroquad's `set_filter` hardcodes `MipmapFilterMode::None`, but these skins
+/// are drawn **several-fold smaller** than their native resolution (the tap
+/// sprite is 122px shown at ~25px in the editor; the guide is 1080px shown at
+/// ~95px). Plain bilinear minification reads only 4 texels, so the extra detail
+/// aliases into a soft/糊 look — worst on the oversized guide textures. The GL
+/// and Metal backends both implement `texture_generate_mipmaps`.
+fn enable_mipmaps(tex: &Texture2D) {
+    let id = tex.raw_miniquad_id();
+    let mut gl = unsafe { macroquad::prelude::get_internal_gl() };
+    gl.quad_context.texture_generate_mipmaps(id);
+    gl.quad_context
+        .texture_set_filter(id, FilterMode::Linear, MipmapFilterMode::Linear);
 }
 
 /// Load every note texture into `app`.
