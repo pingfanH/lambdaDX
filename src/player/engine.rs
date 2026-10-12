@@ -574,9 +574,15 @@ fn play_hold_head_hits(app: &mut PadPreviewState, events: &[TimedInputEvent]) {
             hits.push((note.id, kind, note.is_break));
         }
     }
+    // The generic answer cue is timeline-driven in `tick_cues`; the per-kind
+    // **hit** sound must obey the 击打音 (`hit_sfx`) toggle, exactly like
+    // `play_audio_command`. Otherwise a hold head still beeps with hit SFX off.
+    let hit_sfx = crate::app::params::hit_sfx();
     for (id, kind, is_break) in hits {
-        let buf = sfx::select(app, kind, SkinVariant::of_flags(is_break, false), false);
-        app.play_sfx(buf);
+        if hit_sfx {
+            let buf = sfx::select(app, kind, SkinVariant::of_flags(is_break, false), false);
+            app.play_sfx(buf);
+        }
         app.hold_head_hits.insert(id);
     }
 }
