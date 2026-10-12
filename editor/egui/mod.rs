@@ -85,7 +85,7 @@ impl State {
                     .fill(rgb(32, 32, 32))
                     .inner_margin(egui::Margin::symmetric(12, 0)),
             )
-            .show(ctx, |ui| header_ui(ui, editor));
+            .show(ctx, |ui| header_ui(ui, editor, chart));
 
         let screen_w = ctx.screen_rect().width();
         let vertical = editor.layout == EditorLayout::Vertical;
@@ -171,6 +171,7 @@ impl State {
                         ui,
                     ),
                 }
+                crate::editor_timeline::handle_edit_shortcuts(ui, editor, chart, current_time);
             });
     }
 
@@ -262,7 +263,11 @@ pub fn vertical_sidebar_width(screen_w: f32) -> f32 {
     ((screen_w - TOOLBAR_W) / 3.0).max(SIDEBAR_MIN)
 }
 
-fn header_ui(ui: &mut egui::Ui, editor: &mut crate::editor_state::EditorState) {
+fn header_ui(
+    ui: &mut egui::Ui,
+    editor: &mut crate::editor_state::EditorState,
+    chart: &mut crate::app::types::ChartDoc,
+) {
     ui.horizontal_centered(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         ui.colored_label(rgb(255, 95, 87), "●");
@@ -271,6 +276,16 @@ fn header_ui(ui: &mut egui::Ui, editor: &mut crate::editor_state::EditorState) {
         ui.separator();
         for label in ["File", "Edit", "Slide", "View", "Anim"] {
             let _ = ui.add(egui::Button::new(egui::RichText::new(label).size(12.0)).frame(false));
+        }
+        ui.separator();
+        if ui
+            .add(egui::Button::new(egui::RichText::new("SAVE  ⌘S").size(12.0)).frame(false))
+            .clicked()
+        {
+            crate::editor_timeline::save_chart(editor, chart);
+        }
+        if let Some(status) = &editor.status {
+            ui.colored_label(rgb(140, 205, 140), status);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let label = match editor.autoplay_mode % 3 {

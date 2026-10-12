@@ -12,14 +12,18 @@
 
 ## P0 — 阻塞日常编辑
 
-- [ ] **保存 / 另存为** — JSON + `latest_chart.json`。原版 `chart.rs:207`。移植版无任何写路径。
+- [~] **保存** — `⌘/Ctrl+S` 或 header `SAVE` 按钮写出 `output/editor_chart.json`
+      (pretty JSON,format C)。**另存为/自定义路径**尚未做。
+      `editor/timeline.rs::save_chart`、`editor/egui/mod.rs` header。
 - [ ] **Simai 导出** — 含分数/休止符换算。原版 `simai_io.rs:1255`。
-      `beat_format::chart_to_json`、`platform::write_output_text` 管道已存在但未接线。
-- [ ] **撤销 / 重做入口** — 机制已存在(`editor/state.rs:71` `push_history/undo/redo`),
-      仅缺快捷键/按钮接线,低成本高收益。
-- [ ] **多选 + 框选(橡皮筋)** — `selected: HashSet<u64>` 已支持,现仅塞 1 个 id
-      (`editor/timeline.rs:142`)。原版 `input.rs:1990/2024`。
-- [ ] **复制 / 粘贴 / 副本** — 含粘贴幽灵预览。原版 `input.rs:200/2065`。
+      移植版 `app/` 目前**没有** Simai writer,需新写,工作量较大。
+- [x] **撤销 / 重做入口** — `⌘/Ctrl+Z` 撤销、`⌘/Ctrl+Shift+Z` 或 `⌘/Ctrl+Y` 重做。
+      `editor/timeline.rs::handle_edit_shortcuts`。
+- [x] **多选 + 框选(橡皮筋)** — Shift+点选切换、空白拖拽框选;`Shift` 保留旧选区。
+      `editor/timeline.rs`(两种布局)、`paint_marquee`。
+- [x] **复制 / 粘贴 / 剪贴板** — `⌘/Ctrl+C` 复制、`⌘/Ctrl+X` 剪切、`⌘/Ctrl+V`
+      在播放头处粘贴(保留相对时间与 lane)。`editor/state.rs::copy_selection/paste_at`。
+      (原版的「粘贴幽灵跟随光标」尚未做,当前是就地粘贴。)
 - [ ] **音符属性编辑** — Type/Time/Lane/Duration + Break/Ex/Each/Star/Tapless。
       原版 `egui_ui/mod.rs:711`。现侧栏是绑死 `value=0.5` 的假滑块。
 - [ ] **Break / Ex / ExBreak 快捷键** — B / X / N。原版 `input.rs:453-545`。

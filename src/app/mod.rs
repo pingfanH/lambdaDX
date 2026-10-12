@@ -1,5 +1,5 @@
 pub mod audio;
-mod beat_format;
+pub mod beat_format;
 pub mod anim;
 pub mod chart;
 pub mod cli;

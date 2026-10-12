@@ -63,6 +63,34 @@ fn zone_lane_index(zone_id: u8) -> usize {
     (zone_id.saturating_sub(1) as usize).min(LANE_COUNT - 2)
 }
 
+/// Select a single note, or toggle it in the set when `additive` (Shift).
+fn toggle_select(editor: &mut EditorState, id: u64, additive: bool) {
+    if additive {
+        if !editor.selected.remove(&id) {
+            editor.selected.insert(id);
+        }
+    } else {
+        editor.selected.clear();
+        editor.selected.insert(id);
+    }
+}
+
+/// Translucent box-select rectangle drawn over the timeline (egui overlay).
+fn paint_marquee(ui: &egui::Ui, rect: egui::Rect) {
+    let painter = ui.painter();
+    painter.rect_filled(
+        rect,
+        0.0,
+        egui::Color32::from_rgba_unmultiplied(56, 189, 248, 40),
+    );
+    painter.rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(56, 189, 248)),
+        egui::StrokeKind::Inside,
+    );
+}
+
 fn note_tick_color(kind: NoteType) -> egui::Color32 {
     match kind {
         NoteType::Hold => egui::Color32::from_rgb(255, 107, 138),
@@ -75,6 +103,60 @@ fn note_tick_color(kind: NoteType) -> egui::Color32 {
 // ─────────────────────────────────────────────────────────────────────────────
 // egui interaction (transparent overlay over the macroquad-drawn timeline)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Clipboard / undo / redo shortcuts, called once per frame with the central
+/// panel's `ui` (layout-independent). Uses `command` so Ctrl (Win/Linux) and
+/// Cmd (macOS) both work.
+pub fn handle_edit_shortcuts(
+    ui: &egui::Ui,
+    editor: &mut EditorState,
+    chart: &mut ChartDoc,
+    current_time: f32,
+) {
+    let (undo, redo, copy, cut, paste, save) = ui.input(|i| {
+        let cmd = i.modifiers.command;
+        let shift = i.modifiers.shift;
+        (
+            cmd && !shift && i.key_pressed(egui::Key::Z),
+            (cmd && shift && i.key_pressed(egui::Key::Z)) || (cmd && i.key_pressed(egui::Key::Y)),
+            cmd && i.key_pressed(egui::Key::C),
+            cmd && i.key_pressed(egui::Key::X),
+            cmd && i.key_pressed(egui::Key::V),
+            cmd && i.key_pressed(egui::Key::S),
+        )
+    });
+    if undo {
+        editor.undo(chart);
+    }
+    if redo {
+        editor.redo(chart);
+    }
+    if copy {
+        editor.copy_selection(chart);
+    }
+    if cut {
+        editor.copy_selection(chart);
+        editor.delete_selection(chart);
+    }
+    if paste {
+        let measure = snap_measure(secs_to_measure(current_time, &chart.bpms)).max(1.0);
+        editor.paste_at(chart, measure);
+    }
+    if save {
+        save_chart(editor, chart);
+    }
+}
+
+/// Save the current chart as pretty JSON under `output/editor_chart.json`.
+pub fn save_chart(editor: &mut EditorState, chart: &ChartDoc) {
+    let result = crate::app::beat_format::chart_to_json(chart).and_then(|json| {
+        crate::app::platform::write_output_text("editor_chart.json", &json)
+    });
+    editor.status = Some(match result {
+        Ok(path) => format!("Saved {}", path.display()),
+        Err(e) => format!("Save failed: {e}"),
+    });
+}
 
 pub fn handle_input(
     response: &egui::Response,
@@ -109,9 +191,16 @@ pub fn handle_input(
         editor.scrubbing = on_playhead;
         editor.dragging = if on_playhead { None } else { hit };
         editor.drag_history_pushed = false;
+        editor.marquee_start = None;
         if let Some(id) = editor.dragging {
             editor.selected.clear();
             editor.selected.insert(id);
+        } else if !on_playhead && editor.tool == Tool::Select {
+            // Drag on empty space box-selects (unless Shift keeps the old set).
+            editor.marquee_start = response.interact_pointer_pos().map(|p| (p.x, p.y));
+            if !ui.input(|i| i.modifiers.shift) {
+                editor.selected.clear();
+            }
         }
     }
     if response.dragged() && editor.scrubbing {
@@ -119,6 +208,22 @@ pub fn handle_input(
         return;
     }
     if response.dragged() {
+        if let Some((sx, sy)) = editor.marquee_start {
+            if let Some(p) = response.interact_pointer_pos() {
+                let sel_rect = egui::Rect::from_two_pos(egui::pos2(sx, sy), p);
+                paint_marquee(ui, sel_rect);
+                for n in &chart.notes {
+                    let nx = plot_left
+                        + (note_secs(n, &chart.bpms) - editor.view_start)
+                            * editor.pixels_per_second;
+                    let ny = lanes_top + (lane_index_of(n) as f32 + 0.5) * lane_h;
+                    if sel_rect.contains(egui::pos2(nx, ny)) {
+                        editor.selected.insert(n.id);
+                    }
+                }
+            }
+            return;
+        }
         if let Some(id) = editor.dragging {
             if !editor.drag_history_pushed {
                 editor.push_history(chart);
@@ -134,6 +239,7 @@ pub fn handle_input(
         editor.dragging = None;
         editor.drag_history_pushed = false;
         editor.scrubbing = false;
+        editor.marquee_start = None;
     }
 
     if response.clicked() {
@@ -142,8 +248,7 @@ pub fn handle_input(
             return;
         }
         if let Some(id) = hit {
-            editor.selected.clear();
-            editor.selected.insert(id);
+            toggle_select(editor, id, ui.input(|i| i.modifiers.shift));
             if editor.tool == Tool::Eraser {
                 editor.push_history(chart);
                 chart.notes.retain(|n| n.id != id);
@@ -232,9 +337,15 @@ pub fn handle_input_vertical(
         editor.scrubbing = on_playhead;
         editor.dragging = if on_playhead { None } else { hit };
         editor.drag_history_pushed = false;
+        editor.marquee_start = None;
         if let Some(id) = editor.dragging {
             editor.selected.clear();
             editor.selected.insert(id);
+        } else if !on_playhead && editor.tool == Tool::Select {
+            editor.marquee_start = response.interact_pointer_pos().map(|p| (p.x, p.y));
+            if !ui.input(|i| i.modifiers.shift) {
+                editor.selected.clear();
+            }
         }
     }
     if response.dragged() && editor.scrubbing {
@@ -242,6 +353,20 @@ pub fn handle_input_vertical(
         return;
     }
     if response.dragged() {
+        if let Some((sx, sy)) = editor.marquee_start {
+            if let Some(p) = response.interact_pointer_pos() {
+                let sel_rect = egui::Rect::from_two_pos(egui::pos2(sx, sy), p);
+                paint_marquee(ui, sel_rect);
+                for n in &chart.notes {
+                    let ny = judge_y - (note_secs(n, &chart.bpms) - now) * pps;
+                    let nx = plot_left + (lane_index_of(n) as f32 + 0.5) * lane_w;
+                    if sel_rect.contains(egui::pos2(nx, ny)) {
+                        editor.selected.insert(n.id);
+                    }
+                }
+            }
+            return;
+        }
         if let Some(id) = editor.dragging {
             if !editor.drag_history_pushed {
                 editor.push_history(chart);
@@ -257,6 +382,7 @@ pub fn handle_input_vertical(
         editor.dragging = None;
         editor.drag_history_pushed = false;
         editor.scrubbing = false;
+        editor.marquee_start = None;
     }
 
     if response.clicked() {
@@ -265,8 +391,7 @@ pub fn handle_input_vertical(
             return;
         }
         if let Some(id) = hit {
-            editor.selected.clear();
-            editor.selected.insert(id);
+            toggle_select(editor, id, ui.input(|i| i.modifiers.shift));
             if editor.tool == Tool::Eraser {
                 editor.push_history(chart);
                 chart.notes.retain(|n| n.id != id);
