@@ -39,6 +39,62 @@ fn main() {
     Window::from_config(editor_window_conf(), run());
 }
 
+/// (Re)load a chart folder/file into a live `PadPreviewState`, keeping the
+/// already-loaded textures/materials/SFX. `want_slot` selects a Simai
+/// `&inote_N` difficulty when present.
+fn load_chart_into(app: &mut PadPreviewState, dir: &std::path::Path, want_slot: Option<u32>) {
+    let simai = app::chart::read_simai_source(dir);
+    let slot = match &simai {
+        Some(text) => {
+            let keys = app::maidata::inote_keys(text);
+            want_slot
+                .filter(|s| keys.contains(s))
+                .or_else(|| keys.last().copied())
+        }
+        None => None,
+    };
+    let chart = match (&simai, slot) {
+        (Some(text), Some(s)) => app::maidata::from_maidata_level(text, s).unwrap_or_else(|e| {
+            eprintln!("editor: parse failed: {e}");
+            app::chart::fallback_chart()
+        }),
+        _ => app::chart::load_chart_from_path(dir, None).unwrap_or_else(|e| {
+            eprintln!("editor: load failed: {e}");
+            app::chart::fallback_chart()
+        }),
+    };
+    let (name, pcm) = app::chart::find_audio_in_dir(dir)
+        .map(|p| app::audio::load_audio_from_path(&p))
+        .unwrap_or((None, None));
+    app.load_chart(chart, name, pcm, simai, slot);
+}
+
+/// Native folder picker (macOS via `osascript`; no-op elsewhere).
+fn pick_chart_path() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                "POSIX path of (choose folder with prompt \"Select chart folder\")",
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
+        (!s.is_empty()).then_some(s)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 async fn run() {
     let t_timing = get_time();
     let timing = std::env::var("MAI2_EDITOR_TIMING").is_ok();
@@ -112,6 +168,11 @@ async fn run() {
     {
         editor.layout = editor_state::EditorLayout::Vertical;
     }
+    editor.chart_dir = chart_dir.to_string_lossy().to_string();
+    editor.level_slots = app::chart::read_simai_source(&chart_dir)
+        .map(|t| app::maidata::inote_keys(&t))
+        .unwrap_or_default();
+    editor.level_index = editor.level_slots.len().saturating_sub(1);
     let mut waveform = editor_audio::WaveformPyramid::default();
     let shot_path = std::env::var("MAI2_EDITOR_SHOT").ok();
     let shot_at = std::env::var("MAI2_EDITOR_SHOT_AT")
@@ -163,6 +224,36 @@ async fn run() {
             egui_screen_w = ctx.screen_rect().width();
         });
         let egui_wants_pointer = app::egui_bridge::wants_pointer();
+
+        // Editor chart I/O requests raised by the sidebar (native picker / reload
+        // / difficulty cycle). Applied before drawing so the new chart shows
+        // this frame.
+        if editor.open_dialog {
+            editor.open_dialog = false;
+            if let Some(path) = pick_chart_path() {
+                editor.chart_dir = path;
+                editor.reload_request = true;
+            }
+        }
+        if editor.reload_request {
+            editor.reload_request = false;
+            let dir = std::path::PathBuf::from(&editor.chart_dir);
+            let want = editor.level_slots.get(editor.level_index).copied();
+            load_chart_into(&mut app, &dir, want);
+            editor.level_slots = app::chart::read_simai_source(&dir)
+                .map(|t| app::maidata::inote_keys(&t))
+                .unwrap_or_default();
+            if editor.level_index >= editor.level_slots.len() {
+                editor.level_index = editor.level_slots.len().saturating_sub(1);
+            }
+            editor.selected.clear();
+            editor.view_start = 0.0;
+            editor.status = Some(format!("Loaded {}", editor.chart_dir));
+        }
+        let current_time = match app.mode {
+            app::types::Mode::Idle => app.timeline_view_time,
+            _ => app.song_time(),
+        };
 
         // egui points → macroquad's logical coordinate space. egui renders at
         // `framebuffer / egui_screen_width`, macroquad at

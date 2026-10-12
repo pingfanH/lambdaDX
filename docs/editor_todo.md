@@ -29,8 +29,12 @@
       `editor/egui/mod.rs::note_properties_ui`。
 - [x] **Break / Ex / ExBreak 快捷键** — B / X / N(作用于整个选区,可撤销)。
       `editor/timeline.rs::handle_edit_shortcuts`。
-- [ ] **原生打开文件 + 难度切换** — 文件对话框、音频自动识别、level 循环。
-      原版 `simai_io.rs:1867/1863`,`egui_ui/mod.rs:270`。
+- [x] **原生打开文件 + 难度切换** — 侧栏 `CHART`:路径输入框 + `OPEN…`
+      (macOS 经 `osascript` 选文件夹)+ `LOAD` + `◀/▶` 难度循环。
+      `PadPreviewState::load_chart` 原地换谱面(重建 chart/cue/音频/引擎/autoplay,
+      纹理材质复用),无需重启。见 `editor/egui/mod.rs`、`player/state.rs::load_chart`、
+      `src/editor_main.rs::load_chart_into` / `pick_chart_path`。
+      (原生对话框目前仅 macOS;其它平台可用路径输入或 `MAI2_EDITOR_CHART`。)
 
 ## P1 — 核心功能缺失
 

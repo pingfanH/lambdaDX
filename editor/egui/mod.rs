@@ -362,6 +362,38 @@ fn inspector_ui(
         ui.add(egui::Slider::new(timeline_frac, 0.25..=1.0).show_value(true));
     });
     ui.add_space(10.0);
+    ui.label(egui::RichText::new("CHART").size(13.0).color(rgb(208, 208, 212)));
+    ui.add_space(4.0);
+    ui.add(
+        egui::TextEdit::singleline(&mut editor.chart_dir)
+            .desired_width(ui.available_width())
+            .hint_text("chart folder or maidata.txt"),
+    );
+    ui.horizontal(|ui| {
+        if ui.button("OPEN…").clicked() {
+            editor.open_dialog = true;
+        }
+        if ui.button("LOAD").clicked() {
+            editor.reload_request = true;
+        }
+    });
+    ui.horizontal(|ui| {
+        let n = editor.level_slots.len();
+        if ui.add_enabled(n > 1, egui::Button::new("◀")).clicked() {
+            editor.level_index = (editor.level_index + n - 1) % n;
+            editor.reload_request = true;
+        }
+        let text = match editor.level_slots.get(editor.level_index).copied() {
+            Some(slot) if n > 0 => format!("slot {slot}  ({}/{})", editor.level_index + 1, n),
+            _ => "difficulty —".to_string(),
+        };
+        ui.label(egui::RichText::new(text).size(11.0).color(rgb(141, 141, 148)));
+        if ui.add_enabled(n > 1, egui::Button::new("▶")).clicked() {
+            editor.level_index = (editor.level_index + 1) % n;
+            editor.reload_request = true;
+        }
+    });
+    ui.add_space(10.0);
     ui.label(
         egui::RichText::new("INSPECTOR")
             .size(13.0)

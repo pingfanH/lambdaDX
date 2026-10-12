@@ -113,6 +113,10 @@ pub fn handle_edit_shortcuts(
     chart: &mut ChartDoc,
     current_time: f32,
 ) {
+    // Don't steal keys while a widget (e.g. the chart-path field) has focus.
+    if ui.ctx().wants_keyboard_input() {
+        return;
+    }
     let (undo, redo, copy, cut, paste, save, break_key, ex_key, exbreak_key) = ui.input(|i| {
         let cmd = i.modifiers.command;
         let shift = i.modifiers.shift;
@@ -310,6 +314,7 @@ pub fn handle_input(
 
     if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
         && !editor.selected.is_empty()
+        && !ui.ctx().wants_keyboard_input()
     {
         editor.push_history(chart);
         chart.notes.retain(|n| !editor.selected.contains(&n.id));
@@ -452,6 +457,7 @@ pub fn handle_input_vertical(
 
     if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
         && !editor.selected.is_empty()
+        && !ui.ctx().wants_keyboard_input()
     {
         editor.push_history(chart);
         chart.notes.retain(|n| !editor.selected.contains(&n.id));

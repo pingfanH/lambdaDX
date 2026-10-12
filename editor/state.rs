@@ -54,6 +54,16 @@ pub struct EditorState {
     pub clipboard: Vec<Note>,
     /// Last save/IO message shown in the header.
     pub status: Option<String>,
+    /// Editable chart path (folder or `maidata.txt`).
+    pub chart_dir: String,
+    /// Available Simai `&inote_N` difficulty slots for the current chart.
+    pub level_slots: Vec<u32>,
+    /// Index into [`Self::level_slots`].
+    pub level_index: usize,
+    /// Set by the UI to ask `editor_main` to (re)load [`Self::chart_dir`].
+    pub reload_request: bool,
+    /// Set by the UI to ask `editor_main` to open a native file picker.
+    pub open_dialog: bool,
     /// Set while dragging the playhead/overview; `editor_main` applies it to the
     /// player's time (`timeline_view_time` / `mode_song_offset`).
     pub pending_seek: Option<f32>,
@@ -83,6 +93,11 @@ impl Default for EditorState {
             marquee_start: None,
             clipboard: Vec::new(),
             status: None,
+            chart_dir: String::new(),
+            level_slots: Vec::new(),
+            level_index: 0,
+            reload_request: false,
+            open_dialog: false,
             pending_seek: None,
             scrubbing: false,
             autoplay_mode: 1,

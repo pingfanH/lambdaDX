@@ -812,6 +812,56 @@ impl PadPreviewState {
         self.judge_engine.is_some()
     }
 
+    /// Replace the chart (and audio) in place so the editor can open / switch
+    /// charts without a restart. Textures, materials and SFX are chart-independent
+    /// and stay loaded; only chart-derived runtime state is rebuilt.
+    pub fn load_chart(
+        &mut self,
+        mut chart: ChartDoc,
+        audio_source_name: Option<String>,
+        audio_wav_pcm: Option<WavPcm>,
+        simai_source: Option<String>,
+        simai_level: Option<u32>,
+    ) {
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
+        self.chart = chart;
+        self.cue_track = Some(CueTrack::from_chart(&self.chart));
+
+        self.audio_source_name = audio_source_name;
+        self.audio_wav_pcm = audio_wav_pcm;
+        self.audio_cache.clear();
+        self.audio_seek_offset = None;
+        self.pending_audio_start = false;
+        self.stop_audio_if_any();
+
+        self.mode = Mode::Idle;
+        self.mode_song_offset = 0.0;
+        self.timeline_view_time = 0.0;
+        self.mode_wall_anchor = get_time();
+        self.playback_pending = false;
+
+        self.hidden_notes.clear();
+        self.hold_head_hits.clear();
+        self.slide_progress.clear();
+        self.slide_judge.clear();
+        self.active_pointer_zones.clear();
+        self.prev_pointer_pos.clear();
+        self.pad_feedback.clear();
+        self.judge_feedback.clear();
+        self.hit_fx.clear();
+
+        self.unload_engine();
+        if let Some(text) = simai_source {
+            let level = simai_level
+                .or_else(|| crate::app::maidata::inote_key(&text, None))
+                .unwrap_or(0);
+            if let Err(e) = self.load_engine(&text, level) {
+                eprintln!("editor: engine load failed: {e}");
+            }
+        }
+        crate::player::autoplay::rebuild(self);
+    }
+
     /// Whether lnmai-core should actually drive judging / slide rendering. When
     /// the `no_core` option is on, the pad renders without core judging.
     pub fn use_core(&self) -> bool {
@@ -1131,4 +1181,5 @@ mod tests {
         assert_eq!(rgb(hit_fx_color("Perfect", true)), (255, 150, 60));
         assert_eq!(rgb(hit_fx_color("Miss", true)), (200, 90, 90));
     }
+
 }
