@@ -515,7 +515,10 @@ pub fn draw_macroquad(
     let lanes_bottom = rect.y + rect.h;
     let lanes_h = (lanes_bottom - lanes_top).max(1.0);
     let lane_h = lanes_h / LANE_COUNT as f32;
-    let pps = editor.pixels_per_second;
+    // The rect is in macroquad logical units (egui points × `s`), so the time
+    // axis must be scaled too — otherwise the rendered notes drift from where
+    // the egui input math (which works in egui points) expects them.
+    let pps = editor.pixels_per_second * s;
     let view = editor.view_start;
 
     // Backgrounds.
@@ -1080,7 +1083,8 @@ pub fn draw_macroquad_vertical(
     let plot_bottom = rect.y + rect.h;
     let judge_y = plot_bottom - JUDGE_MARGIN * s;
     let lane_w = (plot_right - plot_left).max(1.0) / LANE_COUNT as f32;
-    let pps = editor.pixels_per_second;
+    // Same DPI note as the horizontal renderer: scale the time axis by `s`.
+    let pps = editor.pixels_per_second * s;
     let now = current_time;
     let y_of = |t: f32| judge_y - (t - now) * pps;
     let lane_x = |i: usize| plot_left + (i as f32 + 0.5) * lane_w;

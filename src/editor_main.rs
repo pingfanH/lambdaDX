@@ -264,6 +264,7 @@ async fn run() {
         } else {
             1.0
         };
+
         // Frame-buffer pixels and the egui-point→frame-buffer-pixel scale.
         // macroquad's `scissor` is in raw frame-buffer pixels, while its draw
         // coordinates are logical (framebuffer / dpi_scale).
