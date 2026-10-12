@@ -309,6 +309,9 @@ async fn run() {
             player::input::handle_touch_controls(&mut app, pad, &pad_events);
         }
         // Same audio / cue / autoplay / judgment pipeline as the preview.
+        // While the editor is scrubbing the playhead, suppress cue sounds and
+        // feed autoplay straight to the backend (no sensor-zone mirroring).
+        app.scrubbing = editor.scrubbing;
         app::audio::service_audio(&mut app).await;
         app.tick_cues();
         player::autoplay::tick(&mut app);

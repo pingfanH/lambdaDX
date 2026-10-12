@@ -535,6 +535,10 @@ fn play_hold_head_hits(app: &mut PadPreviewState, events: &[TimedInputEvent]) {
     use crate::player::render::skin::SkinVariant;
     use crate::player::sfx::{self, SfxKind};
 
+    // Scrubbing the timeline must be silent.
+    if app.scrubbing {
+        return;
+    }
     const HEAD_WINDOW_SEC: f32 = 0.10;
     let mut hits: Vec<(u64, SfxKind, bool)> = Vec::new();
     for event in events {
@@ -1056,7 +1060,7 @@ pub fn chart_slide_position(
 }
 
 fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
-    if !app.audio_enabled {
+    if !app.audio_enabled || app.scrubbing {
         return;
     }
     use crate::player::render::skin::SkinVariant;

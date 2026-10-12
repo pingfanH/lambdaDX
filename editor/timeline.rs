@@ -18,7 +18,7 @@ use crate::app::types::{
     BpmChange, ChartDoc, Note, NoteType,
 };
 use crate::editor_audio::WaveformPyramid;
-use crate::editor_state::{EditorState, Tool};
+use crate::editor_state::{DragGrab, EditorState, Tool};
 use crate::player::state::PadPreviewState;
 
 pub const OVERVIEW_HEIGHT: f32 = 28.0;
@@ -61,6 +61,15 @@ fn lane_index_of(note: &Note) -> usize {
 
 fn zone_lane_index(zone_id: u8) -> usize {
     (zone_id.saturating_sub(1) as usize).min(LANE_COUNT - 2)
+}
+
+/// New (time, lane) for a dragged note, preserving the grab offset captured at
+/// drag start so the note never jumps a row/time on the first frame.
+fn dragged_position(g: &DragGrab, cur_measure: f32, cur_lane: i32) -> (f32, u8) {
+    (
+        snap_measure(g.note_time + (cur_measure - g.grab_measure)).max(1.0),
+        (g.note_lane as i32 + (cur_lane - g.grab_lane)).clamp(1, 8) as u8,
+    )
 }
 
 /// Select a single note, or toggle it in the set when `additive` (Shift).
@@ -225,9 +234,16 @@ pub fn handle_input(
         editor.dragging = if on_playhead { None } else { hit };
         editor.drag_history_pushed = false;
         editor.marquee_start = None;
+        editor.drag_grab = None;
         if let Some(id) = editor.dragging {
             editor.selected.clear();
             editor.selected.insert(id);
+            editor.drag_grab = chart.notes.iter().find(|n| n.id == id).map(|n| DragGrab {
+                note_time: n.time,
+                note_lane: n.lane,
+                grab_measure: secs_to_measure(time, &chart.bpms),
+                grab_lane: lane as i32,
+            });
         } else if !on_playhead && editor.tool == Tool::Select {
             // Drag on empty space box-selects (unless Shift keeps the old set).
             editor.marquee_start = response.interact_pointer_pos().map(|p| (p.x, p.y));
@@ -262,9 +278,19 @@ pub fn handle_input(
                 editor.push_history(chart);
                 editor.drag_history_pushed = true;
             }
+            let cur_measure = secs_to_measure(time, &chart.bpms);
             if let Some(note) = chart.notes.iter_mut().find(|n| n.id == id) {
-                note.time = measure;
-                note.lane = lane.clamp(1, 8);
+                match editor.drag_grab {
+                    Some(g) => {
+                        let (t, l) = dragged_position(&g, cur_measure, lane as i32);
+                        note.time = t;
+                        note.lane = l;
+                    }
+                    None => {
+                        note.time = measure;
+                        note.lane = lane.clamp(1, 8);
+                    }
+                }
             }
         }
     }
@@ -273,6 +299,7 @@ pub fn handle_input(
         editor.drag_history_pushed = false;
         editor.scrubbing = false;
         editor.marquee_start = None;
+        editor.drag_grab = None;
     }
 
     if response.clicked() {
@@ -321,15 +348,23 @@ pub fn handle_input(
         editor.selected.clear();
     }
 
+    // Cmd/Ctrl + wheel zooms (anchored at the cursor); plain wheel pans the
+    // time axis.
     let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+    let cmd = ui.input(|i| i.modifiers.command);
     if response.hovered() && scroll.abs() > 0.0 {
-        let old = editor.pixels_per_second;
-        let new = (old * (1.0 + scroll * 0.001)).clamp(30.0, 1600.0);
-        if let Some(pos) = response.hover_pos() {
-            let anchor = editor.view_start + (pos.x - plot_left) / old;
-            editor.view_start = anchor - (pos.x - plot_left) / new;
+        if cmd {
+            let old = editor.pixels_per_second;
+            let new = (old * (1.0 + scroll * 0.001)).clamp(30.0, 1600.0);
+            if let Some(pos) = response.hover_pos() {
+                let anchor = editor.view_start + (pos.x - plot_left) / old;
+                editor.view_start = anchor - (pos.x - plot_left) / new;
+            }
+            editor.pixels_per_second = new;
+        } else {
+            editor.view_start =
+                (editor.view_start - scroll / editor.pixels_per_second).max(0.0);
         }
-        editor.pixels_per_second = new;
     }
     let _ = plot_right;
 }
@@ -372,9 +407,16 @@ pub fn handle_input_vertical(
         editor.dragging = if on_playhead { None } else { hit };
         editor.drag_history_pushed = false;
         editor.marquee_start = None;
+        editor.drag_grab = None;
         if let Some(id) = editor.dragging {
             editor.selected.clear();
             editor.selected.insert(id);
+            editor.drag_grab = chart.notes.iter().find(|n| n.id == id).map(|n| DragGrab {
+                note_time: n.time,
+                note_lane: n.lane,
+                grab_measure: secs_to_measure(time, &chart.bpms),
+                grab_lane: lane as i32,
+            });
         } else if !on_playhead && editor.tool == Tool::Select {
             editor.marquee_start = response.interact_pointer_pos().map(|p| (p.x, p.y));
             if !ui.input(|i| i.modifiers.shift) {
@@ -406,9 +448,19 @@ pub fn handle_input_vertical(
                 editor.push_history(chart);
                 editor.drag_history_pushed = true;
             }
+            let cur_measure = secs_to_measure(time, &chart.bpms);
             if let Some(note) = chart.notes.iter_mut().find(|n| n.id == id) {
-                note.time = measure;
-                note.lane = lane.clamp(1, 8);
+                match editor.drag_grab {
+                    Some(g) => {
+                        let (t, l) = dragged_position(&g, cur_measure, lane as i32);
+                        note.time = t;
+                        note.lane = l;
+                    }
+                    None => {
+                        note.time = measure;
+                        note.lane = lane.clamp(1, 8);
+                    }
+                }
             }
         }
     }
@@ -417,6 +469,7 @@ pub fn handle_input_vertical(
         editor.drag_history_pushed = false;
         editor.scrubbing = false;
         editor.marquee_start = None;
+        editor.drag_grab = None;
     }
 
     if response.clicked() {
@@ -464,10 +517,16 @@ pub fn handle_input_vertical(
         editor.selected.clear();
     }
 
+    // Cmd/Ctrl + wheel zooms; plain wheel scrubs the (falling-note) timeline.
     let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+    let cmd = ui.input(|i| i.modifiers.command);
     if response.hovered() && scroll.abs() > 0.0 {
-        let old = editor.pixels_per_second;
-        editor.pixels_per_second = (old * (1.0 + scroll * 0.001)).clamp(30.0, 1600.0);
+        if cmd {
+            let old = editor.pixels_per_second;
+            editor.pixels_per_second = (old * (1.0 + scroll * 0.001)).clamp(30.0, 1600.0);
+        } else {
+            editor.pending_seek = Some((now - scroll / editor.pixels_per_second).max(0.0));
+        }
     }
 }
 
@@ -1616,5 +1675,31 @@ pub fn draw_overview(
     }
     if response.drag_stopped() {
         editor.scrubbing = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drag_preserves_grab_offset() {
+        // Grabbed lane 3 with the cursor between lanes 3 and 4 (cursor lane 3):
+        // the note stays in lane 3 until the cursor crosses a row.
+        let g = DragGrab {
+            note_time: 5.0,
+            note_lane: 3,
+            grab_measure: 5.25,
+            grab_lane: 3,
+        };
+        assert_eq!(dragged_position(&g, 5.25, 3).1, 3, "no jump on grab");
+        assert_eq!(dragged_position(&g, 5.25, 1).1, 1, "two rows up");
+        assert_eq!(dragged_position(&g, 5.25, 4).1, 4, "one row down");
+        // Time follows the cursor delta and snaps.
+        let (t, _) = dragged_position(&g, 5.75, 3);
+        assert!((t - 5.5).abs() < 1e-3, "delta +0.5 measure, snapped");
+        // Lanes never leave 1..=8.
+        assert_eq!(dragged_position(&g, 5.25, 99).1, 8);
+        assert_eq!(dragged_position(&g, 5.25, -99).1, 1);
     }
 }

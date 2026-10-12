@@ -34,6 +34,17 @@ impl EditorLayout {
     }
 }
 
+/// Where a note was relative to the cursor when a drag began, so dragging keeps
+/// that offset instead of snapping the note's lane/time onto the cursor (which
+/// made notes jump a row on grab).
+#[derive(Debug, Clone, Copy)]
+pub struct DragGrab {
+    pub note_time: f32,
+    pub note_lane: u8,
+    pub grab_measure: f32,
+    pub grab_lane: i32,
+}
+
 #[derive(Debug, Clone)]
 pub struct EditorState {
     pub tool: Tool,
@@ -48,6 +59,8 @@ pub struct EditorState {
     pub redo: Vec<ChartDoc>,
     pub dragging: Option<u64>,
     pub drag_history_pushed: bool,
+    /// Grab offset captured when a note drag starts (see [`DragGrab`]).
+    pub drag_grab: Option<DragGrab>,
     /// Start corner (egui points) of an in-progress box (marquee) selection.
     pub marquee_start: Option<(f32, f32)>,
     /// Notes copied with Ctrl/Cmd+C, pasted with Ctrl/Cmd+V.
@@ -90,6 +103,7 @@ impl Default for EditorState {
             redo: Vec::new(),
             dragging: None,
             drag_history_pushed: false,
+            drag_grab: None,
             marquee_start: None,
             clipboard: Vec::new(),
             status: None,

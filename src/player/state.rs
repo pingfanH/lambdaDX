@@ -596,6 +596,11 @@ impl PadPreviewState {
             .as_mut()
             .map(|track| track.take_due_cues(t))
             .unwrap_or_default();
+        // While scrubbing, advance the cursor (so cues stay in sync) but stay
+        // silent — no 正解音 (answer) or 击打音 (hit) sounds.
+        if self.scrubbing {
+            return;
+        }
         let core = self.use_core();
         for ev in due {
             // 正解音 (answer.wav): the generic cue on the note timeline for

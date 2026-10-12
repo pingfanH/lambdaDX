@@ -68,8 +68,7 @@ pub fn tick(pad: &mut PadPreviewState) {
     // event stream; replay them verbatim rather than re-synthesising holds.
     if pad.external_autoplay {
         for event in due {
-            mirror_visual(pad, &event);
-            pad.engine_events.push(event);
+            feed(pad, event);
         }
         return;
     }
@@ -83,20 +82,27 @@ pub fn tick(pad: &mut PadPreviewState) {
         eprintln!("[touchzone/prepared] now={now} events={prepared:?}");
     }
     for event in prepared {
-        mirror_visual(pad, &event);
-        pad.engine_events.push(event);
+        feed(pad, event);
     }
+}
+
+/// Send an autoplay event to the judgment backend. While scrubbing the timeline
+/// the pad "sensor zones" are skipped (no visuals/feedback) — the event is
+/// routed straight to the backend so the core stays in sync with the timestamp.
+fn feed(pad: &mut PadPreviewState, event: TimedInputEvent) {
+    if !pad.scrubbing {
+        mirror_visual(pad, &event);
+    }
+    pad.engine_events.push(event);
 }
 
 fn flush_holds(pad: &mut PadPreviewState) {
     let now = (pad.song_time().max(0.0) * 1e6) as i64;
     for event in release_click_holds(&mut pad.autoplay_click_held, now) {
-        mirror_visual(pad, &event);
-        pad.engine_events.push(event);
+        feed(pad, event);
     }
     for event in release_click_holds(&mut pad.autoplay_explicit_held, now) {
-        mirror_visual(pad, &event);
-        pad.engine_events.push(event);
+        feed(pad, event);
     }
 }
 
