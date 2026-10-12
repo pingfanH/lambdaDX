@@ -616,9 +616,9 @@ pub fn draw_slide(
     // Draw a star's guide texture (same rules as tap guides) if one is loaded.
     // `star_px` is the star's *current* on-screen size, so the guide scales
     // exactly with the note; `progress` adds the displacement scaling.
-    let star_guide = |x: f32, y: f32, rot: f32, progress: f32, star_px: f32| {
+    let star_guide = |x: f32, y: f32, rot: f32, progress: f32, _star_px: f32| {
         if let Some(g) = tex.guide {
-            super::guide::draw(g, tex.star, star_px, x, y, rot, progress, scale, 1.0);
+            super::guide::draw(g, tex.star, params::guide_base_px() * scale, x, y, rot, progress, scale);
         }
     };
 

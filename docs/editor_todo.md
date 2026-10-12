@@ -1,12 +1,15 @@
 # 编辑器 TODO — 相对原版 macroquad_sim 的缺口
 
 > 对比基准:原版 `Mai2Chart/demo/macroquad_sim/src/app`(~15.7k 行)
-> 移植版:`lambdaDX/editor/*` + `src/editor_main.rs`(~1.8k 行)
+> 移植版:`lambdaDX/editor/src/**`(自包含模块树;入口 `main.rs`)
 >
 > **现状**:单选框选、时间轴放置 Tap/Hold/Touch/星头 Slide、拖拽移动、删除、
 > 播放控制、缩放/擦洗、波形金字塔、自动播放 + lnmai-core 判定预览。
 
 图例:`[ ]` 未实现 · `[~]` 部分实现 · `[x]` 已完成
+
+> UI 专项计划另见 `docs/EDITOR_UI_PLAN.md` / `docs/EDITOR_UI_TODO.md`
+> (含与 `Editor.svg` 的元件级缺口对照)。本文件聚焦“相对原版 macroquad_sim 的功能缺口”。
 
 ---
 
@@ -14,26 +17,27 @@
 
 - [~] **保存** — `⌘/Ctrl+S` 或 header `SAVE` 按钮写出 `output/editor_chart.json`
       (pretty JSON,format C)。**另存为/自定义路径**尚未做。
-      `editor/timeline.rs::save_chart`、`editor/egui/mod.rs` header。
+      `editor/src/timeline/input.rs::save_chart`(经 `editor/src/io.rs`)、`editor/src/ui/toolbar.rs`。
 - [ ] **Simai 导出** — 含分数/休止符换算。原版 `simai_io.rs:1255`。
       移植版 `app/` 目前**没有** Simai writer,需新写,工作量较大。
 - [x] **撤销 / 重做入口** — `⌘/Ctrl+Z` 撤销、`⌘/Ctrl+Shift+Z` 或 `⌘/Ctrl+Y` 重做。
-      `editor/timeline.rs::handle_edit_shortcuts`。
+      `editor/src/timeline/input.rs::handle_edit_shortcuts`。
 - [x] **多选 + 框选(橡皮筋)** — Shift+点选切换、空白拖拽框选;`Shift` 保留旧选区。
-      `editor/timeline.rs`(两种布局)、`paint_marquee`。
+      `editor/src/timeline/input.rs`(两种布局)、`geometry.rs::paint_marquee`。
 - [x] **复制 / 粘贴 / 剪贴板** — `⌘/Ctrl+C` 复制、`⌘/Ctrl+X` 剪切、`⌘/Ctrl+V`
-      在播放头处粘贴(保留相对时间与 lane)。`editor/state.rs::copy_selection/paste_at`。
+      在播放头处粘贴(保留相对时间与 lane)。`editor/src/edit_ops.rs::copy_selection/paste_at`。
       (原版的「粘贴幽灵跟随光标」尚未做,当前是就地粘贴。)
 - [x] **音符属性编辑** — 侧栏 INSPECTOR → NOTE 显示/编辑选区首个音符的
       TIME / LANE / DUR + Break / Ex / Each / Star / Tapless 复选框(每次编辑一步撤销)。
-      `editor/egui/mod.rs::note_properties_ui`。
+      `editor/src/ui/inspector.rs::note_properties`。
 - [x] **Break / Ex / ExBreak 快捷键** — B / X / N(作用于整个选区,可撤销)。
-      `editor/timeline.rs::handle_edit_shortcuts`。
+      `editor/src/timeline/input.rs::handle_edit_shortcuts`。
 - [x] **原生打开文件 + 难度切换** — 侧栏 `CHART`:路径输入框 + `OPEN…`
       (macOS 经 `osascript` 选文件夹)+ `LOAD` + `◀/▶` 难度循环。
       `PadPreviewState::load_chart` 原地换谱面(重建 chart/cue/音频/引擎/autoplay,
-      纹理材质复用),无需重启。见 `editor/egui/mod.rs`、`player/state.rs::load_chart`、
-      `src/editor_main.rs::load_chart_into` / `pick_chart_path`。
+      纹理材质复用),无需重启。见 `editor/src/ui/toolbar.rs`(难度切换)、
+      `player/state.rs::load_chart`、`editor/src/runtime.rs::load_chart_into` /
+      `editor/src/io.rs::pick_chart_path`。
       (原生对话框目前仅 macOS;其它平台可用路径输入或 `MAI2_EDITOR_CHART`。)
 
 ## P1 — 核心功能缺失
@@ -86,18 +90,19 @@
 
 ## 布局改动
 
-- [x] **竖向时间轴布局选项** — 仿原版:左侧竖向 timeline(时间向上流向判定线,
-      lanes 为列),右侧 pad/inspector 信息面板;header 按钮运行时切换。
-      见 `editor/state.rs`(`EditorLayout`)、`editor/egui/mod.rs`(header 按钮 +
-      `SidePanel::right`)、`editor/timeline.rs`(`handle_input_vertical` /
-      `draw_macroquad_vertical`)、`src/editor_main.rs`(派发 + 侧栏背景)。
-      可用 `MAI2_EDITOR_LAYOUT=vertical` 直接以竖向启动。
-- [x] **竖向宽度比例 + 窗口默认宽度** — 竖向布局下右侧信息面板宽 = 可用宽度的 1/3,
-      时间轴 = 2× 信息面板(超出部分不受 SIDEBAR_MAX 限制以保持 2:1);
-      窗口默认 1600×900 且可缩放,缩放时比例自适应。见 `editor/egui/mod.rs`
-      `vertical_sidebar_width`、`src/editor_main.rs` `editor_window_conf`。
-
----
+- [x] **竖向时间轴为默认布局** — 仿设计 SVG:左侧竖向 timeline(时间向上流向
+      判定线,lanes 为列),右侧 pad/inspector 信息面板;顶栏按钮运行时切换布局。
+      见 `editor/src/state.rs`(`EditorLayout`,默认 `Vertical`)、
+      `editor/src/ui/`(`layout.rs` 面板分栏、`toolbar.rs` 切换按钮、
+      `sidebar.rs` 右侧面板)、`editor/src/timeline/{input,vertical}.rs`。
+      可用 `MAI2_EDITOR_LAYOUT=horizontal` 启动为横向布局。
+- [x] **工具面板移到时间轴上方** — 工具调色板不再单独占一列,而是横排在时间轴
+      上方(`editor/src/ui/tools.rs`、`main.rs`/`ui/mod.rs` 布局)。
+- [x] **顶栏软件工具条** — Save/Load/Open/Export/Grid/Audio + 难度/预览模式/布局,
+      不依赖 mac 原生菜单栏(`editor/src/ui/toolbar.rs`、`editor/src/io.rs`)。
+- [x] **右侧面板宽度比例** — 信息面板 ≈ 窗口宽度的 47%(与设计一致),时间轴保留
+      其余宽度;窗口默认 1600×900 且可缩放,比例自适应。
+      见 `editor/src/ui/layout.rs::sidebar_width`、`editor/src/main.rs`。
 
 ## 移植版已领先(无需回补)
 

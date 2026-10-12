@@ -1,0 +1,332 @@
+//! LambdaDX editor — binary entry point.
+//!
+//! The editor is the standalone pad preview in a resizable window, with an egui
+//! chrome (toolbar, tools, inspector, progress) layered over a macroquad-rendered
+//! pad and timeline. All editing logic lives in the sibling modules:
+//!
+//! * [`state`] / [`edit_ops`] — document + selection state and mutations.
+//! * [`runtime`] — loading charts and driving the shared player.
+//! * [`ui`] — the egui chrome (one submodule per region).
+//! * [`timeline`] — timeline geometry, input and macroquad renderers.
+//! * [`io`] — saving and choosing charts.
+
+// The editor re-includes the crate's shared `app` / `player` / `core` trees, so
+// (like the sibling bins in `src/`) dead code and unused items from those
+// modules are expected per-binary.
+#![allow(dead_code, unused_variables, unused_imports)]
+
+// The gameplay/player modules live in the crate's `src/` tree and are included
+// here by path so the editor is a self-contained binary under `editor/src/`.
+#[path = "../../src/app/mod.rs"]
+mod app;
+#[path = "../../src/core/mod.rs"]
+mod core;
+#[path = "../../src/player/mod.rs"]
+mod player;
+
+mod audio;
+mod edit_ops;
+mod io;
+mod runtime;
+mod state;
+mod theme;
+mod timeline;
+mod ui;
+
+use egui_macroquad::egui;
+use macroquad::Window;
+use macroquad::prelude::*;
+
+use app::pad_svg;
+use player::state::PadPreviewState;
+use state::EditorState;
+use ui::EditorUi;
+
+fn editor_window_conf() -> Conf {
+    let mut conf = app::window_conf();
+    conf.window_title = "LambdaDX Editor".to_string();
+    // Wide default so the design's ~1:1 timeline/panel split has room. The
+    // layout is fully responsive, so any window size stays usable.
+    conf.window_width = 1600;
+    conf.window_height = 900;
+    conf.window_resizable = true;
+    conf
+}
+
+fn main() {
+    Window::from_config(editor_window_conf(), run());
+}
+
+async fn run() {
+    let t_timing = get_time();
+    let timing = std::env::var("MAI2_EDITOR_TIMING").is_ok();
+    let mark = |label: &str| {
+        if timing {
+            eprintln!("[timing] {label}: {:.2}s", get_time() - t_timing);
+        }
+    };
+
+    set_pc_assets_folder(&app::platform::asset_dir().to_string_lossy());
+    mark("assets folder");
+
+    // Load a chart *folder* (Simai source + track) so the judgment engine and
+    // autoplay modes work. Override with `MAI2_EDITOR_CHART`.
+    let chart_dir = std::env::var("MAI2_EDITOR_CHART")
+        .ok()
+        .filter(|p| !p.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| app::platform::asset_dir().join("charts/jack_ripper"));
+
+    let bundle = runtime::load_chart_bundle(&chart_dir, None);
+    mark("chart load");
+    let mut app = PadPreviewState::new(bundle.chart, bundle.audio_name, bundle.audio_pcm);
+    let audio_ms = get_time();
+    app.params = app::params::load();
+    app::params::set(app.params.clone());
+    app.note_speed = app.params.note_speed_default;
+    app.touch_speed = app.params.touch_speed_default;
+    app.slide_fade_in = app.params.slide_fade_in;
+    app.set_play_speed(app.params.play_speed_default);
+    mark("state new + params");
+    let _ = audio_ms;
+
+    player::autoplay::rebuild(&mut app);
+    if let Ok(def) = pad_svg::PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")) {
+        app.pad_svg = Some(def);
+    }
+    mark("pad svg");
+    player::render::load_note_textures(&mut app).await;
+    mark("note textures");
+    if let Ok(m) = app::ui::load_mask_material() {
+        app.mask_material = Some(m);
+    }
+    if let Ok(m) = app::ui::load_break_shine_material() {
+        app.break_shine_material = Some(m);
+    }
+    mark("materials");
+    player::sfx::load_pad_sfx(&mut app).await;
+    mark("sfx");
+    if timing {
+        std::process::exit(0);
+    }
+
+    let mut ui = EditorUi::new();
+    let mut editor = EditorState::default();
+    if std::env::var("MAI2_EDITOR_LAYOUT")
+        .map(|v| v.eq_ignore_ascii_case("horizontal"))
+        .unwrap_or(false)
+    {
+        editor.layout = state::EditorLayout::Horizontal;
+    }
+    editor.chart_dir = chart_dir.to_string_lossy().to_string();
+    editor.level_slots = app::chart::read_simai_source(&chart_dir)
+        .map(|t| app::maidata::inote_keys(&t))
+        .unwrap_or_default();
+    editor.level_index = editor.level_slots.len().saturating_sub(1);
+
+    let mut waveform = audio::WaveformPyramid::default();
+    let shot_path = std::env::var("MAI2_EDITOR_SHOT").ok();
+    let shot_at = std::env::var("MAI2_EDITOR_SHOT_AT")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.6);
+    let start_time = get_time();
+
+    loop {
+        app::anim::tick();
+        player::input::handle_global_hotkeys(&mut app);
+        player::input::handle_lane_input(&mut app);
+
+        // `P` cycles the preview mode; the toolbar shows a clickable label too.
+        if is_key_pressed(KeyCode::P) {
+            editor.autoplay_mode = (editor.autoplay_mode + 1) % 3;
+            editor.mode_dirty = true;
+        }
+        if editor.mode_dirty {
+            editor.mode_dirty = false;
+            runtime::apply_preview_mode(&mut app, editor.autoplay_mode);
+        }
+
+        let current_time = player_time(&app);
+        if matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) {
+            runtime::follow_playhead(&mut editor, current_time);
+        }
+
+        let events = player::input::collect_pointer_events();
+        let pointer = player::input::pointer::ui_pointer(&events);
+        app::egui_bridge::pointer(pointer.pos, pointer.down, pointer.pressed, pointer.released);
+
+        let mut egui_screen_w = 1.0;
+        app::egui_bridge::ui(|ctx| {
+            if waveform.levels.is_empty() && app.audio_wav_pcm.is_some() {
+                waveform = audio::WaveformPyramid::build(&app);
+            }
+            ui.draw(ctx, &mut editor, &mut app, current_time, &waveform);
+            player::params_panel::draw_embedded(ctx, &mut app);
+            ctx.request_repaint();
+            egui_screen_w = ctx.screen_rect().width();
+        });
+        let egui_wants_pointer = app::egui_bridge::wants_pointer();
+        ui.finish_layout();
+
+        apply_io_requests(&mut editor, &mut app);
+        let current_time = player_time(&app);
+
+        // egui points → macroquad logical units (normally 1.0; kept explicit for
+        // HiDPI displays where the two DPI scales can differ).
+        let to_mq = if egui_screen_w > 1.0 {
+            screen_width() / egui_screen_w
+        } else {
+            1.0
+        };
+        let (fb_w, _fb_h) = macroquad::miniquad::window::screen_size();
+        let s_phys = if egui_screen_w > 1.0 {
+            fb_w / egui_screen_w
+        } else {
+            1.0
+        };
+
+        // A timeline / overview scrub seeks the shared player clock.
+        if let Some(t) = editor.pending_seek.take() {
+            let t = t.max(0.0);
+            app.timeline_view_time = t;
+            app.mode_song_offset = t;
+            app.mode_wall_anchor = get_time();
+        }
+
+        app::viewport::set(0.0, 0.0, 1.0);
+        let mut pad = ui.layout.pad;
+        pad.cx *= to_mq;
+        pad.cy *= to_mq;
+        pad.outer_r *= to_mq;
+        pad.outer_r /= app::params::pad_circle_scale().max(1.0);
+        let pad_events: Vec<_> = events
+            .into_iter()
+            .filter(|e| {
+                let p = e.position;
+                (p.x - pad.cx).hypot(p.y - pad.cy) <= pad.outer_r
+                    || app.active_pointer_zones.contains_key(&e.id)
+            })
+            .collect();
+        let scale = (pad.outer_r / (ui::layout::DESIGN_PAD_REFERENCE)).max(0.1);
+        app.ui_scale_override = Some(scale);
+        app::params::set_pad_scale(scale * app::params::pad_zoom());
+        if !egui_wants_pointer {
+            player::input::handle_touch_controls(&mut app, pad, &pad_events);
+        }
+
+        // Same audio / cue / autoplay / judgment pipeline as the preview.
+        app.scrubbing = editor.scrubbing;
+        runtime::tick_player(&mut app).await;
+
+        clear_background(theme::to_mq(theme::BG_WINDOW));
+
+        // Sidebar background (the egui sidebar frame is transparent so the pad
+        // macroquad layer can show through).
+        let sidebar = ui.layout.sidebar;
+        if sidebar.width() > 1.0 && sidebar.height() > 1.0 {
+            draw_rectangle(
+                sidebar.left() * to_mq,
+                sidebar.top() * to_mq,
+                sidebar.width() * to_mq,
+                sidebar.height() * to_mq,
+                theme::to_mq(theme::BG_PANEL),
+            );
+        }
+
+        // Pad preview, scissored to its region.
+        let preview = ui.layout.preview;
+        if preview.width() > 1.0 && preview.height() > 1.0 {
+            let scissor = to_scissor(preview, s_phys, fb_w);
+            unsafe { get_internal_gl() }.quad_gl.scissor(Some(scissor));
+            player::render::pad::draw_pad_sim(&app, pad.cx, pad.cy, pad.outer_r, scale);
+            unsafe { get_internal_gl() }.quad_gl.scissor(None);
+        }
+
+        // Timeline (macroquad, behind the transparent central egui panel).
+        let timeline = ui.layout.timeline;
+        if timeline.width() > 1.0 && timeline.height() > 1.0 {
+            let scissor = to_scissor(timeline, s_phys, fb_w);
+            unsafe { get_internal_gl() }.quad_gl.scissor(Some(scissor));
+            let rect = Rect::new(
+                timeline.left() * to_mq,
+                timeline.top() * to_mq,
+                timeline.width() * to_mq,
+                timeline.height() * to_mq,
+            );
+            timeline::draw(
+                editor.layout,
+                &app,
+                &editor,
+                &app.chart,
+                rect,
+                current_time,
+                &waveform,
+                to_mq,
+            );
+            unsafe { get_internal_gl() }.quad_gl.scissor(None);
+        }
+
+        app.tick_feedback();
+        app::egui_bridge::draw();
+        app.finalize_playback_start();
+
+        if let Some(path) = &shot_path {
+            if get_time() - start_time > shot_at {
+                get_screen_data().export_png(path);
+                println!("editor: wrote {path}");
+                std::process::exit(0);
+            }
+        }
+        next_frame().await;
+    }
+}
+
+/// The player clock shown on the timeline: the scrub time when idle, else the
+/// song time.
+fn player_time(app: &PadPreviewState) -> f32 {
+    match app.mode {
+        app::types::Mode::Idle => app.timeline_view_time,
+        _ => app.song_time(),
+    }
+}
+
+/// Convert an egui-points rect to a macroquad scissor (raw framebuffer pixels).
+fn to_scissor(rect: egui::Rect, s_phys: f32, fb_w: f32) -> (i32, i32, i32, i32) {
+    let left = (rect.left() * s_phys).floor().clamp(0.0, fb_w) as i32;
+    let top = (rect.top() * s_phys).floor().clamp(0.0, fb_w) as i32;
+    let right = (rect.right() * s_phys).ceil().clamp(0.0, fb_w) as i32;
+    let bottom = (rect.bottom() * s_phys).ceil().clamp(0.0, fb_w) as i32;
+    (left, top, (right - left).max(0), (bottom - top).max(0))
+}
+
+/// Apply editor-raised IO requests (native picker / reload / export) before the
+/// next frame draws.
+fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
+    if editor.open_dialog {
+        editor.open_dialog = false;
+        if let Some(path) = io::pick_chart_path() {
+            editor.chart_dir = path;
+            editor.reload_request = true;
+        }
+    }
+    if editor.export_request {
+        editor.export_request = false;
+        editor.status = Some("Simai export not implemented yet".into());
+    }
+    if editor.reload_request {
+        editor.reload_request = false;
+        let dir = std::path::PathBuf::from(&editor.chart_dir);
+        let want = editor.level_slots.get(editor.level_index).copied();
+        runtime::load_chart_into(app, &dir, want);
+        editor.level_slots = app::chart::read_simai_source(&dir)
+            .map(|t| app::maidata::inote_keys(&t))
+            .unwrap_or_default();
+        if editor.level_index >= editor.level_slots.len() {
+            editor.level_index = editor.level_slots.len().saturating_sub(1);
+        }
+        editor.selected.clear();
+        editor.view_start = 0.0;
+        editor.status = Some(format!("Loaded {}", editor.chart_dir));
+    }
+}

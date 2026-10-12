@@ -32,11 +32,11 @@ path = "src/main.rs"
 name = "lambda_dx_player_ui"
 path = "src/player_ui_main.rs"
 
-# Chart editor. For now it is just the pad preview player in a resizable window
-# with uniform (whole-player) scaling.
+# Chart editor: standalone pad preview with the egui/macroquad editing chrome.
+# Source lives under editor/src/ (self-contained module tree).
 [[bin]]
 name = "lambda_dx_editor"
-path = "src/editor_main.rs"
+path = "editor/src/main.rs"
 
 [[bin]]
 name = "macroanimate_test"

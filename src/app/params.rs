@@ -68,6 +68,10 @@ pub struct Params {
     /// Radius added to `outer_r` where tap/slide land and the A-ring dots sit.
     pub tap_target_offset: f32,
     pub tap_ring_offset: f32,
+    /// Editor timeline note-size multiplier applied to every note glyph drawn on
+    /// the timeline (tap/hold/star/touch/slide). `1.0` = design size. Tuned live
+    /// from the F1 params panel.
+    pub editor_note_scale: f32,
 
     // ── Slide trail ──────────────────────────────────────────────────
     pub slide_tile_spacing: f32,
@@ -174,6 +178,10 @@ pub struct Params {
     pub tap_guide: bool,
     /// Tap-guide base size as a multiple of the tap size (aspect preserved).
     pub tap_guide_size: f32,
+    /// Fixed base size (design px) the guide textures are scaled from,
+    /// independent of the live note size. `tap_guide_size`/`hold_guide_size`
+    /// multiply it; travel progress grows it via `tap_guide_grow`.
+    pub guide_base_px: f32,
     /// Tap-guide offset perpendicular to the flight direction (design px).
     pub tap_guide_off_x: f32,
     /// Tap-guide offset along the flight direction, + = outward (design px).
@@ -218,6 +226,9 @@ pub struct Params {
     /// Extra hold-**tail** guide offset along the flight direction (design px,
     /// + = outward), on top of `judge_off_hold_end`.
     pub hold_end_guide_off: f32,
+    /// Hold guide size multiplier (independent of `hold_width`; the hold guide
+    /// is sized from the stable design-default width, not the live one).
+    pub hold_guide_size: f32,
     /// Play the per-kind **hit** SFX (tap/slide/hold/touch/break) on a hit.
     pub hit_sfx: bool,
     /// Play the **answer** cue (`Sfx/answer.wav`) on tap / star / hold / touch
@@ -304,6 +315,7 @@ impl Default for Params {
             star_size: t::STAR_SIZE,
             tap_target_offset: t::TAP_TARGET_OFFSET,
             tap_ring_offset: t::TAP_RING_OFFSET,
+            editor_note_scale: 1.0,
 
             slide_tile_spacing: t::SLIDE_TILE_SPACING,
             slide_tile_scale: t::SLIDE_TILE_SCALE,
@@ -358,6 +370,7 @@ impl Default for Params {
             note_accel: 0.0,
             tap_guide: true,
             tap_guide_size: 1.0,
+            guide_base_px: 74.0,
             tap_guide_off_x: 0.0,
             tap_guide_off_y: 0.0,
             tap_guide_anchor: 0.5,
@@ -376,6 +389,7 @@ impl Default for Params {
             judge_off_hold_end: 0.0,
             hold_guide_off: 0.0,
             hold_end_guide_off: 0.0,
+            hold_guide_size: 1.0,
             hit_sfx: true,
             answer_sfx: true,
             hide_notes: false,
@@ -536,6 +550,7 @@ param_accessors!(
     tap_spawn_time,
     note_accel,
     tap_guide_size,
+    guide_base_px,
     tap_guide_off_x,
     tap_guide_off_y,
     tap_guide_anchor,
@@ -553,6 +568,7 @@ param_accessors!(
     judge_off_hold_end,
     hold_guide_off,
     hold_end_guide_off,
+    hold_guide_size,
     hit_fx_size,
     hit_fx_duration,
     hit_fx_alpha,
@@ -627,6 +643,7 @@ pub fn sensor_range_radius() -> f32 {
 pub fn tap_guide() -> bool {
     PARAMS.with(|p| p.borrow().tap_guide)
 }
+
 
 /// Whether the judgment-point black dot is enabled.
 pub fn judge_dot() -> bool {

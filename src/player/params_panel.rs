@@ -107,6 +107,8 @@ fn draw_impl(ctx: &egui::Context, app: &mut PadPreviewState, pixels_per_point: O
                     param(ui, &mut p.star_size, 2.0, 8.0..=200.0, "star_size");
                     param(ui, &mut p.tap_target_offset, 1.0, -40.0..=80.0, "tap_target_offset");
                     param(ui, &mut p.tap_ring_offset, 1.0, -20.0..=80.0, "tap_ring_offset");
+                    // 编辑器时间轴 note 大小倍率：统一放大/缩小时间轴上的所有 note。
+                    param(ui, &mut p.editor_note_scale, 0.02, 0.2..=3.0, "editor_note_scale 时间轴note大小");
 
                     ui.separator();
                     ui.heading("Slide");
@@ -195,7 +197,9 @@ fn draw_impl(ctx: &egui::Context, app: &mut PadPreviewState, pixels_per_point: O
                     param(ui, &mut p.note_accel, 0.02, 0.0..=1.0, "note_accel note逐渐加快");
                     // tap 辅助线：贴图放 assets/Skins/classic/tap_guide.png。
                     ui.checkbox(&mut p.tap_guide, "tap_guide tap辅助线(贴图 tap_guide.png)");
-                    param(ui, &mut p.tap_guide_size, 0.05, 0.1..=4.0, "tap_guide_size 大小");
+                    param(ui, &mut p.guide_base_px, 1.0, 8.0..=240.0, "guide_base_px 辅助线基准(固定)");
+                    param(ui, &mut p.tap_guide_size, 0.05, 0.1..=4.0, "tap_guide_size 辅助线大小");
+                    param(ui, &mut p.hold_guide_size, 0.02, 0.1..=4.0, "hold_guide_size hold辅助线大小");
                     param(ui, &mut p.tap_guide_off_x, 1.0, -200.0..=200.0, "tap_guide_off_x 偏移(侧向)");
                     param(ui, &mut p.tap_guide_off_y, 1.0, -200.0..=200.0, "tap_guide_off_y 偏移(沿飞行,+=外)");
                     param(ui, &mut p.tap_guide_anchor, 0.05, 0.0..=1.0, "tap_guide_anchor 锚点(0顶/0.5中/1底)");

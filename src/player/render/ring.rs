@@ -218,13 +218,12 @@ pub fn draw_guides(
                 crate::app::guide::draw(
                     g,
                     hold_tex,
-                    params::hold_width() * scale,
+                    params::guide_base_px() * params::hold_guide_size() * scale,
                     hx + dir.x * off,
                     hy + dir.y * off,
                     ang,
                     head_motion.progress,
                     scale,
-                    1.0,
                 );
             }
             let tail_guide = match variant {
@@ -243,13 +242,12 @@ pub fn draw_guides(
                 crate::app::guide::draw(
                     g,
                     hold_tex,
-                    params::hold_width() * scale,
+                    params::guide_base_px() * params::hold_guide_size() * scale,
                     tx + dir.x * off,
                     ty + dir.y * off,
                     ang,
                     tail_motion.map(|m| m.progress).unwrap_or(0.0),
                     scale,
-                    1.0,
                 );
             }
         }
@@ -282,13 +280,12 @@ pub fn draw_guides(
                 crate::app::guide::draw(
                     g,
                     tap_tex,
-                    params::tap_size() * scale,
+                    params::guide_base_px() * scale,
                     px + dir.x * off,
                     py + dir.y * off,
                     ang,
                     m.progress,
                     scale,
-                    1.0,
                 );
             }
         }
