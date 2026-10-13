@@ -6,7 +6,7 @@
 
 use egui_macroquad::egui;
 
-use crate::app::types::{hold_tail_time, note_secs, ChartDoc, NoteType};
+use crate::app::types::{ChartDoc, NoteType, note_secs};
 use crate::state::EditorState;
 
 use crate::theme::{
@@ -21,7 +21,7 @@ pub fn draw_in(
     editor: &mut EditorState,
     chart: &ChartDoc,
     current_time: f32,
-    plot_left: f32,
+    duration: f32,
 ) {
     let painter = ui.painter();
     // Band background blends with the workspace; the design's 10px scrubber
@@ -38,7 +38,8 @@ pub fn draw_in(
         egui::Stroke::new(1.0_f32, ACCENT_RED),
     );
 
-    let width = (bar.right() - plot_left).max(1.0);
+    let plot_left = bar.left();
+    let width = bar.width().max(1.0);
     painter.line_segment(
         [
             egui::pos2(plot_left, bar.top()),
@@ -47,11 +48,7 @@ pub fn draw_in(
         egui::Stroke::new(1.0_f32, BORDER_LIGHT),
     );
 
-    let duration = chart
-        .notes
-        .iter()
-        .map(|n| hold_tail_time(n, &chart.bpms).max(note_secs(n, &chart.bpms)))
-        .fold(8.0_f32, f32::max);
+    let duration = duration.max(1.0);
     let x_of = |t: f32| plot_left + t.clamp(0.0, duration) / duration * width;
 
     for note in &chart.notes {
@@ -66,7 +63,11 @@ pub fn draw_in(
     }
 
     let play_x = x_of(current_time);
-    painter.vline(play_x, bar.y_range(), egui::Stroke::new(2.0_f32, ACCENT_RED));
+    painter.vline(
+        play_x,
+        bar.y_range(),
+        egui::Stroke::new(2.0_f32, ACCENT_RED),
+    );
 
     // Time read-out inside the bar (design shows "0.00" there).
     painter.text(
@@ -93,7 +94,8 @@ pub fn draw_in(
         if let Some(pos) = response.interact_pointer_pos() {
             let frac = ((pos.x - plot_left) / width).clamp(0.0, 1.0);
             editor.pending_seek = Some(frac * duration);
-            editor.scrubbing = true;
+            // A click seeks on release; only an ongoing drag pauses the clock.
+            editor.scrubbing = response.dragged();
         }
     }
     if response.drag_stopped() {
@@ -118,14 +120,106 @@ fn right_readout(editor: &EditorState, chart: &ChartDoc) -> String {
         .hovered
         .and_then(|id| chart.notes.iter().find(|n| n.id == id))
     {
-        return format!(
-            "L{} · m{:.2} · {:?}",
-            note.lane, note.time, note.note_type
-        );
+        return format!("L{} · m{:.2} · {:?}", note.lane, note.time, note.note_type);
     }
     format!(
         "{:.0} px/s · {} notes",
         editor.pixels_per_second,
         chart.notes.len()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(ctx: &egui::Context, editor: &mut EditorState, events: Vec<egui::Event>) {
+        let chart = ChartDoc {
+            version: String::new(),
+            title: String::new(),
+            artist: String::new(),
+            simai_level: 0,
+            bpm: 120.0,
+            bpms: Vec::new(),
+            audio_offset: 0.0,
+            notes: Vec::new(),
+            templates: Vec::new(),
+            template_instances: Vec::new(),
+        };
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                draw_in(
+                    ui,
+                    egui::Rect::from_min_size(egui::pos2(100.0, 100.0), egui::vec2(400.0, 30.0)),
+                    editor,
+                    &chart,
+                    0.0,
+                    8.0,
+                );
+            });
+        });
+    }
+
+    #[test]
+    fn overview_visual_midpoint_matches_seek_midpoint() {
+        let ctx = egui::Context::default();
+        let mut editor = EditorState::default();
+        let pos = egui::pos2(300.0, 108.0);
+        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(pos)]);
+        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(pos), button(pos, true)]);
+        frame(&ctx, &mut editor, vec![button(pos, false)]);
+        assert_eq!(editor.pending_seek, Some(4.0));
+    }
+
+    fn button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    #[test]
+    fn overview_click_seeks_without_leaving_playback_scrubbing() {
+        let ctx = egui::Context::default();
+        let mut editor = EditorState::default();
+        let pos = egui::pos2(300.0, 108.0);
+        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(pos)]);
+        frame(&ctx, &mut editor, vec![button(pos, true)]);
+        frame(&ctx, &mut editor, vec![button(pos, false)]);
+        assert_eq!(editor.pending_seek.take(), Some(4.0));
+        assert!(!editor.scrubbing, "click release must not freeze playback");
+        frame(&ctx, &mut editor, vec![]);
+        assert!(!editor.scrubbing);
+        assert_eq!(editor.pending_seek, None);
+    }
+
+    #[test]
+    fn overview_drag_scrubs_until_release_outside_the_bar() {
+        let ctx = egui::Context::default();
+        let mut editor = EditorState::default();
+        let start = egui::pos2(300.0, 108.0);
+        let end = egui::pos2(400.0, 108.0);
+        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(start)]);
+        frame(&ctx, &mut editor, vec![button(start, true)]);
+        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(end)]);
+        assert!(editor.scrubbing);
+        assert_eq!(editor.pending_seek.take(), Some(6.0));
+        let outside = egui::pos2(600.0, 160.0);
+        frame(
+            &ctx,
+            &mut editor,
+            vec![egui::Event::PointerMoved(outside), button(outside, false)],
+        );
+        assert!(!editor.scrubbing, "release outside must resume playback");
+    }
 }

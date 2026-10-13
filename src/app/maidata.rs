@@ -180,6 +180,24 @@ mod lean {
         let bpm = bpms.first().map(|b| b.bpm).unwrap_or(120.0);
 
         let mut notes = build_notes(&parsed.inspection.tokens, &bpms);
+        // Grouped slide arcs consume several core IDs but only one render note.
+        // Preserve simple-note IDs before sorting so judgments cannot hide a
+        // later touch through a newly assigned, compacted render ID.
+        let normalized = &parsed.semantic.normalized;
+        let mut taps = normalized.taps.iter();
+        let mut holds = normalized.holds.iter();
+        let mut touches = normalized.touches.iter();
+        let mut touch_holds = normalized.touch_holds.iter();
+        for note in &mut notes {
+            note.id = match note.note_type {
+                NoteType::Tap => taps.next().map(|note| note.note_index),
+                NoteType::Hold => holds.next().map(|note| note.note_index),
+                NoteType::Touch => touches.next().map(|note| note.note_index),
+                NoteType::TouchHold => touch_holds.next().map(|note| note.note_index),
+                NoteType::Slide => None,
+            }
+            .unwrap_or(0);
+        }
         drop_slide_star_taps(&mut notes);
         notes.sort_by(|a, b| a.time.total_cmp(&b.time));
         mark_double_stars(&mut notes);

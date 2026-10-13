@@ -12,6 +12,16 @@ pub fn rebuild(pad: &mut PadPreviewState) {
     pad.autoplay_tactic_cursor = 0;
     pad.autoplay_click_held.clear();
     pad.autoplay_explicit_held.clear();
+    pad.autoplay_direct_held.clear();
+}
+
+pub fn set_direct_core(pad: &mut PadPreviewState, direct: bool) {
+    if pad.autoplay_direct_core == direct {
+        return;
+    }
+    flush_holds(pad);
+    release_touches(pad);
+    pad.autoplay_direct_core = direct;
 }
 
 pub fn set_on(pad: &mut PadPreviewState, on: bool) {
@@ -55,6 +65,13 @@ pub fn tick(pad: &mut PadPreviewState) {
     if debug_touchzone() && !due.is_empty() {
         eprintln!("[touchzone/autoplay] now={now} due={due:?}");
     }
+    if pad.autoplay_direct_core {
+        for event in due {
+            track_direct_hold(&mut pad.autoplay_direct_held, &event);
+            pad.engine_events.push(event);
+        }
+        return;
+    }
     // External tactics (from `autoplay_gen`) are already a complete sensor
     // event stream; replay them verbatim rather than re-synthesising holds.
     if pad.external_autoplay {
@@ -88,12 +105,37 @@ fn feed(pad: &mut PadPreviewState, event: TimedInputEvent) {
 
 fn flush_holds(pad: &mut PadPreviewState) {
     let now = (pad.song_time().max(0.0) * 1e6) as i64;
+    for event in pad.autoplay_direct_held.drain(..) {
+        let release = match event {
+            TimedInputEvent::ButtonHold { zone, .. } =>
+                TimedInputEvent::ButtonHold { tp: now, zone, is_down: false },
+            TimedInputEvent::SensorHold { area, .. } =>
+                TimedInputEvent::SensorHold { tp: now, area, is_down: false },
+            _ => continue,
+        };
+        pad.engine_events.push(release);
+    }
     for event in release_click_holds(&mut pad.autoplay_click_held, now) {
         feed(pad, event);
     }
     for event in release_click_holds(&mut pad.autoplay_explicit_held, now) {
         feed(pad, event);
     }
+}
+
+fn track_direct_hold(held: &mut Vec<TimedInputEvent>, event: &TimedInputEvent) {
+    let down = match event {
+        TimedInputEvent::ButtonHold { zone, is_down, .. } => {
+            held.retain(|e| !matches!(e, TimedInputEvent::ButtonHold { zone: z, .. } if z == zone));
+            *is_down
+        }
+        TimedInputEvent::SensorHold { area, is_down, .. } => {
+            held.retain(|e| !matches!(e, TimedInputEvent::SensorHold { area: a, .. } if a == area));
+            *is_down
+        }
+        _ => false,
+    };
+    if down { held.push(event.clone()); }
 }
 
 fn release_click_holds(held: &mut Vec<SensorArea>, now: i64) -> Vec<TimedInputEvent> {
@@ -253,6 +295,31 @@ fn release_touches(pad: &mut PadPreviewState) {
 mod tests {
     use super::*;
     use crate::core::types::ButtonZone;
+
+    #[cfg(feature = "backend-lean")]
+    #[test]
+    fn direct_core_replays_original_events_without_touch_simulation() {
+        let text = "&inote_1=(120){4}1h[4:1],2,E";
+        let chart = crate::app::maidata::from_maidata(text, None).unwrap();
+        let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        pad.load_engine(text, 1).unwrap();
+        pad.forced_time = Some(0.0);
+        pad.mode = Mode::Playing;
+        set_on(&mut pad, true);
+        set_direct_core(&mut pad, true);
+        let expected: Vec<_> = pad.autoplay_tactic.iter().filter(|e|
+            crate::player::engine::timed_input_tp(e) <= 0).cloned().collect();
+        assert!(!expected.is_empty());
+        tick(&mut pad);
+        assert_eq!(pad.engine_events, expected);
+        assert!(pad.active_pointer_zones.is_empty());
+        assert!(pad.pad_feedback.is_empty());
+        assert!(pad.autoplay_click_held.is_empty());
+        pad.engine_events.clear();
+        set_on(&mut pad, false);
+        assert!(!pad.engine_events.is_empty(), "held inputs must be released");
+        assert!(pad.autoplay_direct_held.is_empty());
+    }
 
     #[test]
     fn button_click_holds_a_sensor_for_one_frame() {

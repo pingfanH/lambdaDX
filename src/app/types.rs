@@ -720,7 +720,7 @@ pub struct UiButton {
 pub struct WavPcm {
     pub sample_rate: u32,
     pub channels: u16,
-    pub samples: Vec<i16>,
+    pub samples: std::sync::Arc<Vec<i16>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

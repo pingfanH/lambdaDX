@@ -125,9 +125,10 @@ impl EditorUi {
             self.layout.preview = egui::Rect::NOTHING;
         }
 
+        let duration = app.song_duration();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show(ctx, |ui| self.central(ui, editor, &mut app.chart, current_time, waveform));
+            .show(ctx, |ui| self.central(ui, editor, &mut app.chart, current_time, waveform, duration));
 
         if editor.show_help {
             self.draw_help(ctx, editor);
@@ -218,6 +219,7 @@ impl EditorUi {
         chart: &mut crate::app::types::ChartDoc,
         current_time: f32,
         waveform: &WaveformPyramid,
+        duration: f32,
     ) {
         let workspace = ui.max_rect();
 
@@ -279,9 +281,7 @@ impl EditorUi {
             tools::handle_shortcuts(ui, editor);
         }
 
-        // Progress / overview minimap, aligned with the timeline's plot area.
-        let plot_left = overview_rect.left() + crate::timeline::LANE_GUTTER;
-        crate::timeline::draw_overview(ui, overview_rect, editor, chart, current_time, plot_left);
+        crate::timeline::draw_overview(ui, overview_rect, editor, chart, current_time, duration);
         let _ = waveform;
     }
 

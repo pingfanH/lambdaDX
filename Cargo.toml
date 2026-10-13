@@ -69,6 +69,11 @@ egui-miniquad = "0.16"
 lnmai-core = { path = "lnmai-core", optional = true }
 lnmai-core-rust = { path = "lnmai-rust", optional = true }
 
+# Macroquad parses every glyph outline at load time; CJK fonts benefit from
+# fontdue's existing parallel parser. Keep web builds on the serial path.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+fontdue = { version = "0.9", features = ["parallel"] }
+
 # Desktop Linux multi-touch touchscreen input (kernel Type-B evdev).
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13"

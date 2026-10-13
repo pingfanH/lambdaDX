@@ -82,7 +82,7 @@ pub fn draw(
     mq::draw_rectangle(rect.x, lanes_top, gutter, lanes_h, draw::c(42, 42, 45));
 
     let view_end = view + (plot_right - plot_left) / pps;
-    waveform::draw_horizontal(waveform, plot_left, plot_right, lanes_top, lanes_h, view, pps, s);
+    waveform::draw_horizontal(waveform, plot_left, plot_right, lanes_top, lanes_h, view, pps, s, chart.audio_offset);
 
     draw_measure_grid(rect, plot_left, plot_right, lanes_top, lanes_bottom, view, view_end, bpms, pps, g, s);
     draw_lanes(rect, plot_left, plot_right, lanes_top, lanes_bottom, lane_h, g, s);

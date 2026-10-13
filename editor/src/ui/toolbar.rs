@@ -103,7 +103,7 @@ pub fn draw(
                 .size(FONT_BODY)
                 .color(ACCENT_YELLOW);
             if ui.add(egui::Button::new(mode).frame(false)).clicked() {
-                editor.autoplay_mode = (editor.autoplay_mode + 1) % 3;
+                editor.autoplay_mode = (editor.autoplay_mode + 1) % 4;
                 editor.mode_dirty = true;
             }
             ui.separator();

@@ -90,6 +90,7 @@ pub fn draw(
     draw_background(rect, header_h, plot_top, plot_bottom, left_margin);
     waveform::draw_vertical(
         waveform, plot_left, plot_right, plot_top, plot_bottom, judge_y, now, pps, s,
+        chart.audio_offset,
     );
     // Time at the plot's top/bottom edges: time flows up, so the bottom edge is
     // earlier. `draw_measure_grid` needs these in *seconds* (not pixels).

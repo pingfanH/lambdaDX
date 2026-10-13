@@ -231,6 +231,9 @@ pub struct PadPreviewState {
     // ── Autoplay ─────────────────────────────────────────────────────
     /// When on, the pad presses itself at each note's hit time.
     pub autoplay: bool,
+    /// Submit the original tactic to core without synthetic sensor touches.
+    pub autoplay_direct_core: bool,
+    pub autoplay_direct_held: Vec<crate::core::types::TimedInputEvent>,
     /// Sensor areas held open by a button-click tactic event, released on the
     /// next tactic frame so the core sees a hold for the click.
     pub autoplay_click_held: Vec<crate::core::types::SensorArea>,
@@ -294,9 +297,25 @@ pub struct PadPreviewState {
 
 impl PadPreviewState {
     pub fn new(
+        chart: ChartDoc,
+        audio_source_name: Option<String>,
+        audio_wav_pcm: Option<WavPcm>,
+    ) -> Self {
+        Self::new_at(
+            chart,
+            audio_source_name,
+            audio_wav_pcm,
+            get_time(),
+            BgmPlayer::new().ok(),
+        )
+    }
+
+    pub(crate) fn new_at(
         mut chart: ChartDoc,
         audio_source_name: Option<String>,
         audio_wav_pcm: Option<WavPcm>,
+        wall_anchor: f64,
+        bgm_player: Option<BgmPlayer>,
     ) -> Self {
         // Give every note a unique id. Simai-converted notes all default to
         // `id == 0`; autoplay hides judged notes by id, so without this a single
@@ -315,7 +334,7 @@ impl PadPreviewState {
 
         Self {
             mode: Mode::Idle,
-            mode_wall_anchor: get_time(),
+            mode_wall_anchor: wall_anchor,
             mode_song_offset: 0.0,
             playback_pending: false,
             audio_start_pending: false,
@@ -343,7 +362,7 @@ impl PadPreviewState {
             audio_seek_offset: None,
             pending_audio_start: false,
             audio_enabled: true,
-            bgm_player: BgmPlayer::new().ok(),
+            bgm_player,
             answer_sfx: None,
             sfx_tap: None,
             sfx_touch: None,
@@ -393,6 +412,8 @@ impl PadPreviewState {
             hold_end_each_guide_tex: None,
             hold_end_break_guide_tex: None,
             autoplay: false,
+            autoplay_direct_core: false,
+            autoplay_direct_held: Vec::new(),
             autoplay_click_held: Vec::new(),
             autoplay_explicit_held: Vec::new(),
             autoplay_tactic_path: None,
@@ -536,7 +557,8 @@ impl PadPreviewState {
         self.audio_wav_pcm
             .as_ref()
             .map(|pcm| {
-                pcm.samples.len() as f32 / f32::from(pcm.channels.max(1)) / pcm.sample_rate as f32
+                pcm.samples.len() as f32 / f32::from(pcm.channels.max(1))
+                    / pcm.sample_rate.max(1) as f32 - self.chart.audio_offset
             })
             .unwrap_or_else(|| {
                 self.chart
@@ -621,6 +643,7 @@ impl PadPreviewState {
         self.engine_events.clear();
         self.autoplay_click_held.clear();
         self.autoplay_explicit_held.clear();
+        self.autoplay_direct_held.clear();
         self.active_pointer_zones.clear();
         self.prev_pointer_pos.clear();
         self.pad_feedback.clear();

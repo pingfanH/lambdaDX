@@ -271,6 +271,10 @@ fn draw_impl(ctx: &egui::Context, app: &mut PadPreviewState, pixels_per_point: O
             if ui.checkbox(&mut ap, "AUTO (快捷键 O)").changed() {
                 crate::player::autoplay::set_on(app, ap);
             }
+            let mut direct = app.autoplay_direct_core;
+            if ui.checkbox(&mut direct, "直传核心").changed() {
+                crate::player::autoplay::set_direct_core(app, direct);
+            }
             // 不使用 lnmai-core：旧版 autoplay（星星自己滑，左下角显示 None）。
             ui.checkbox(&mut p.no_core, "no_core 旧版autoplay(星星自己滑,不判定)");
 

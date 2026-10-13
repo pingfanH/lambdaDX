@@ -107,6 +107,7 @@ pub fn compute(
     let disappear_time = match note.note_type {
         NoteType::Touch => crate::app::types::TOUCH_DISAPPEAR_TIME,
         NoteType::Hold | NoteType::TouchHold | NoteType::Slide => 0.0,
+        NoteType::Tap if !app.use_core() => 0.0,
         NoteType::Tap => 0.18,
     };
 
@@ -161,4 +162,23 @@ impl NoteTiming {
 
     /// Outer travel distance constant, re-exported for hold drain math.
     pub const OUTER_DISTANCE: f32 = NOTE_OUTER_DISTANCE;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_core_tap_disappears_at_its_head_without_lingering() {
+        let chart = crate::app::maidata::from_maidata("&inote_1=(120){4}1,2,E", None).unwrap();
+        let pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        let note = &pad.chart.notes[1];
+        let head = note_secs(note, &pad.chart.bpms);
+        assert!(compute(note, &pad, &pad.chart.bpms, head - 0.01, 1.0).visible());
+        for speed in [0.5, 1.0, 2.0] {
+            assert!(!compute(note, &pad, &pad.chart.bpms, head + 0.001, speed).visible());
+        }
+        assert!(compute(note, &pad, &pad.chart.bpms, head - 0.01, 1.0).visible(),
+            "seeking back restores the tap");
+    }
 }

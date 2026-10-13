@@ -856,22 +856,22 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
     for fx in collect_slide_judge_fx(&app.chart, app.judge_engine.as_ref(), &result) {
         app.record_slide_judge(fx.note_id, fx.slide_idx, fx.grade);
     }
-    // A touch note vanishes the instant it is judged (hit or miss), matching
-    // MajdataPlay's `TouchDrop.End`, instead of lingering for a fixed time.
-    let judged_touch: Vec<u64> = result
-        .events
-        .iter()
-        .filter(|event| event.kind == JudgeEventKind::Touch)
-        .filter_map(|event| chart_note(&app.chart, event.note_index))
-        .filter(|note| matches!(note.note_type, NoteType::Touch))
-        .map(|note| note.id)
-        .collect();
-    for id in judged_touch {
-        app.hidden_notes.insert(id);
-    }
+    // Completed single-hit notes disappear on judgment, not after a timer.
+    app.hidden_notes.extend(judged_single_hit_notes(&app.chart, &result));
     for command in &result.audio_commands {
         play_audio_command(app, command);
     }
+}
+
+fn judged_single_hit_notes(chart: &ChartDoc, result: &RuntimeStepLightResult) -> Vec<u64> {
+    result
+        .events
+        .iter()
+        .filter(|event| matches!(event.kind, JudgeEventKind::Touch | JudgeEventKind::Tap | JudgeEventKind::Break))
+        .filter_map(|event| chart_note(chart, event.note_index))
+        .filter(|note| matches!(note.note_type, NoteType::Touch | NoteType::Tap))
+        .map(|note| note.id)
+        .collect()
 }
 
 /// A slide judgment mapped onto a chart sub-slide, for the `slideok` overlay.
@@ -1091,8 +1091,11 @@ fn chart_note_head_zone(chart: &ChartDoc, note_index: u64) -> Option<PadZone> {
 }
 
 /// Resolve the chart note for a lnmai `noteIndex` (the runtime index is the
-/// chart note id, or a 1-based position when ids are absent).
+/// chart note id, or a 1-based position only when that note has no id).
 fn chart_note<'a>(chart: &'a ChartDoc, note_index: u64) -> Option<&'a crate::app::types::Note> {
+    if note_index == 0 {
+        return None;
+    }
     chart
         .notes
         .iter()
@@ -1100,7 +1103,8 @@ fn chart_note<'a>(chart: &'a ChartDoc, note_index: u64) -> Option<&'a crate::app
         .or_else(|| {
             usize::try_from(note_index)
                 .ok()
-                .and_then(|index| chart.notes.get(index.saturating_sub(1)))
+                .and_then(|index| chart.notes.get(index - 1))
+                .filter(|note| note.id == 0)
         })
 }
 
@@ -1198,6 +1202,121 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn judged_taps_and_breaks_hide_only_the_completed_note() {
+        let text = "&inote_1=(120){4}1,2b,3h[4:1],4-6[4:1],E";
+        let chart = crate::app::maidata::from_maidata(text, None).unwrap();
+        for autoplay in [false, true] {
+            let mut engine = JudgeEngine::load(text, 1).unwrap();
+            let tactic = if autoplay { engine.default_tactic().unwrap() } else { Vec::new() };
+            let mut cursor = 0;
+            let mut hidden = HashSet::new();
+            for frame in 0..360 {
+                let now = frame as f32 / 120.0;
+                let mut due = Vec::new();
+                while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= (now * 1e6) as i64 {
+                    due.push(tactic[cursor].clone());
+                    cursor += 1;
+                }
+                for result in step_engine_events(&mut engine, now, due) {
+                    hidden.extend(judged_single_hit_notes(&chart, &result.unwrap()));
+                }
+            }
+            let expected: HashSet<_> = chart.notes.iter()
+                .filter(|note| note.note_type == NoteType::Tap).map(|note| note.id).collect();
+            assert_eq!(hidden, expected, "tap hide on hit and miss; slide trails must survive");
+        }
+    }
+
+    #[test]
+    fn touch_after_grouped_slide_keeps_its_runtime_id() {
+        assert_touch_judgments_match_chart(
+            "&inote_1=(120){4}1v4>3[4:1],,,,B7,B6,E\n",
+        );
+    }
+
+    #[test]
+    fn unknown_runtime_id_does_not_resolve_to_an_assigned_chart_note() {
+        let mut chart = crate::app::maidata::from_maidata("&inote_1=(120){4}B7,E\n", None)
+            .unwrap();
+        chart.notes = vec![crate::app::types::Note {
+            id: 9,
+            ..Default::default()
+        }];
+        assert!(chart_note(&chart, 1).is_none());
+        assert!(chart_note(&chart, 0).is_none());
+        assert_eq!(chart_note(&chart, 9).unwrap().id, 9);
+        chart.notes[0].id = 0;
+        assert_eq!(chart_note(&chart, 1).unwrap().id, 0);
+        assert!(chart_note(&chart, 0).is_none());
+    }
+
+    #[test]
+    fn consecutive_touches_hide_only_the_judged_note() {
+        let text = "&title=Touch regression\n&inote_1=(120){4}7,7,7/8,,\nB7,B6,B5,,\nB2,B3,B4,,\nB7,B6,B5,B4,\nB3,B2,C,,\nB1,B2,B3/B4,,\nB8,B7,B5/B6,,\nB2,B3,B4,B5,\n{1}Cf,E\n";
+        assert_touch_judgments_match_chart(text);
+        let with_chain = text.replace("(120){4}", "(120){4}1v4>3>2[4:1],,,,");
+        assert_touch_judgments_match_chart(&with_chain);
+    }
+
+    fn assert_touch_judgments_match_chart(text: &str) {
+        let chart = crate::app::maidata::from_maidata(text, None).unwrap();
+        let app = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        let mut engine = JudgeEngine::load(text, 1).unwrap();
+        let tactic = engine.default_tactic().unwrap();
+        let mut cursor = 0;
+        let mut hidden = HashSet::new();
+        let end = app
+            .chart
+            .notes
+            .iter()
+            .map(|note| crate::app::types::note_secs(note, &app.chart.bpms))
+            .fold(0.0_f32, f32::max)
+            + 1.0;
+        for frame in 0..=(end * 120.0).ceil() as usize {
+            let now = frame as f32 / 120.0;
+            let mut due = Vec::new();
+            while cursor < tactic.len()
+                && timed_input_tp(&tactic[cursor]) <= (now * 1e6) as i64
+            {
+                due.push(tactic[cursor].clone());
+                cursor += 1;
+            }
+            for result in step_engine_events(&mut engine, now, due) {
+                for event in result.unwrap().events {
+                    if event.kind != JudgeEventKind::Touch {
+                        continue;
+                    }
+                    let note = chart_note(&app.chart, event.note_index)
+                        .expect("judged touch maps to chart");
+                    assert_eq!(note.note_type, NoteType::Touch);
+                    let head = crate::app::types::note_secs(note, &app.chart.bpms);
+                    assert!(
+                        (head - now).abs() < 0.1,
+                        "touch {} at {head}s incorrectly hidden at {now}s by runtime {}",
+                        note.id, event.note_index
+                    );
+                    assert_eq!(
+                        event.position.sensor.map(zone_for_sensor),
+                        Some(PadZone::from(note.lane))
+                    );
+                    assert!(hidden.insert(note.id), "touch {} hidden twice", note.id);
+                }
+            }
+        }
+        let expected: HashSet<_> = app
+            .chart
+            .notes
+            .iter()
+            .filter(|note| note.note_type == NoteType::Touch)
+            .map(|note| note.id)
+            .collect();
+        assert_eq!(
+            hidden, expected,
+            "all touches must remain independently visible until judged"
+        );
+    }
 
     fn bundled_maidata() -> String {
         std::fs::read_to_string(concat!(

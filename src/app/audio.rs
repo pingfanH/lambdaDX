@@ -1,6 +1,8 @@
 use minimp3::{Decoder as Mp3Decoder, Frame as Mp3Frame};
 use rodio::buffer::SamplesBuffer;
-use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::dynamic_mixer::{self, DynamicMixer, DynamicMixerController};
+use rodio::{OutputStream, Sink, Source};
+use std::collections::VecDeque;
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -45,7 +47,7 @@ fn load_wav_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
     Ok(WavPcm {
         sample_rate: spec.sample_rate,
         channels: 2,
-        samples,
+        samples: Arc::new(samples),
     })
 }
 
@@ -101,18 +103,14 @@ fn load_mp3_pcm_from_bytes(bytes: &[u8]) -> Result<WavPcm, String> {
     Ok(WavPcm {
         sample_rate: sample_rate.unwrap_or(44100),
         channels: 2,
-        samples: all_samples,
+        samples: Arc::new(all_samples),
     })
 }
 
 /// Load the first supported BGM from assets. The bundled default song's track
 /// wins, then the generic demo tracks.
 pub async fn load_audio_pcm_from_assets() -> (Option<String>, Option<WavPcm>) {
-    let candidates = [
-        "charts/jack_ripper/track.mp3",
-        "demo.wav",
-        "demo.mp3",
-    ];
+    let candidates = ["charts/jack_ripper/track.mp3", "demo.wav", "demo.mp3"];
     for name in candidates {
         if let Ok(bytes) = platform::load_asset_bytes(name).await {
             let parsed = if name.ends_with(".wav") {
@@ -166,7 +164,7 @@ fn normalize_to_44100(src: WavPcm) -> WavPcm {
         return WavPcm {
             sample_rate: 44_100,
             channels: src.channels.max(1),
-            samples: vec![0; ch],
+            samples: Arc::new(vec![0; ch]),
         };
     }
     let ratio = 44_100.0_f32 / src.sample_rate.max(1) as f32;
@@ -188,7 +186,7 @@ fn normalize_to_44100(src: WavPcm) -> WavPcm {
     WavPcm {
         sample_rate: 44_100,
         channels: src.channels.max(1),
-        samples: out,
+        samples: Arc::new(out),
     }
 }
 
@@ -196,12 +194,42 @@ fn normalize_to_44100(src: WavPcm) -> WavPcm {
 // BGM playback (rodio)
 // ---------------------------------------------------------------------------
 
-/// Pre-decoded f32 BGM samples ready for instant playback.
+/// Shared PCM cursor; seeking never copies or converts the remaining track.
 #[derive(Clone)]
 pub struct BgmPcm {
-    pub samples: Vec<f32>,
+    pub samples: Arc<Vec<i16>>,
     pub channels: u16,
     pub sample_rate: u32,
+    cursor: usize,
+    silence: usize,
+}
+
+impl Iterator for BgmPcm {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        if self.silence > 0 {
+            self.silence -= 1;
+            return Some(0.0);
+        }
+        let sample = *self.samples.get(self.cursor)?;
+        self.cursor += 1;
+        Some(sample as f32 / 32768.0)
+    }
+}
+
+impl Source for BgmPcm {
+    fn current_frame_len(&self) -> Option<usize> {
+        Some(self.silence + self.samples.len().saturating_sub(self.cursor))
+    }
+    fn channels(&self) -> u16 { self.channels }
+    fn sample_rate(&self) -> u32 { self.sample_rate }
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs_f64(
+            self.current_frame_len().unwrap_or(0) as f64
+                / f64::from(self.channels) / f64::from(self.sample_rate),
+        ))
+    }
 }
 
 /// Pre-decoded one-shot sound effect (e.g. `Sfx/answer.wav`).
@@ -245,10 +273,90 @@ pub async fn load_sfx(candidates: &[&str]) -> Option<SfxBuffer> {
     None
 }
 
+const OUTPUT_RATE: u32 = 44_100;
+const OUTPUT_CEILING: f32 = 0.95;
+const LOOKAHEAD_FRAMES: usize = OUTPUT_RATE as usize * 3 / 1000;
+
+/// Peak limiting happens after all sources are summed. A shared stereo gain
+/// preserves balance, with a 3 ms lookahead attack and a 50 ms release.
+struct LimitedOutput {
+    mixer: DynamicMixer<f32>,
+    frames: VecDeque<[f32; 2]>,
+    ended: bool,
+    right: Option<f32>,
+    gain: f32,
+    release: f32,
+}
+
+impl Iterator for LimitedOutput {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        if let Some(right) = self.right.take() {
+            return Some(right);
+        }
+        if !self.ended {
+            if let Some(left) = self.mixer.next() {
+                let right = self.mixer.next().unwrap_or(0.0);
+                self.frames.push_back([left, right]);
+            } else {
+                self.ended = true;
+            }
+        }
+
+        let mut gain = self.gain + (1.0 - self.gain) * self.release;
+        // Every future peak sets a deadline: ramp down over the frames still
+        // available instead of abruptly ducking the background at the hit.
+        for (ahead, frame) in self.frames.iter().enumerate() {
+            let peak = frame[0].abs().max(frame[1].abs());
+            if peak > OUTPUT_CEILING {
+                let target = OUTPUT_CEILING / peak;
+                gain = gain.min(self.gain + (target - self.gain) / (ahead + 1) as f32);
+            }
+        }
+        let [left, right] = self.frames.pop_front()?;
+        self.gain = gain;
+        self.right = Some(right * gain);
+        Some(left * gain)
+    }
+}
+
+impl Source for LimitedOutput {
+    fn current_frame_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> u16 {
+        2
+    }
+    fn sample_rate(&self) -> u32 {
+        OUTPUT_RATE
+    }
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
+fn output_mixer() -> (Arc<DynamicMixerController<f32>>, LimitedOutput) {
+    let (controller, mixer) = dynamic_mixer::mixer(2, OUTPUT_RATE);
+    let mut frames = VecDeque::with_capacity(LOOKAHEAD_FRAMES + 1);
+    frames.resize(LOOKAHEAD_FRAMES, [0.0, 0.0]);
+    (
+        controller,
+        LimitedOutput {
+            mixer,
+            frames,
+            ended: false,
+            right: None,
+            gain: 1.0,
+            release: 1.0 - (-1.0 / (0.05 * OUTPUT_RATE as f32)).exp(),
+        },
+    )
+}
+
 /// Minimal rodio-backed BGM player. One stoppable sink at a time.
 pub struct BgmPlayer {
     _stream: OutputStream,
-    handle: OutputStreamHandle,
+    mixer: Arc<DynamicMixerController<f32>>,
     sink: Option<Sink>,
 }
 
@@ -256,30 +364,35 @@ impl BgmPlayer {
     pub fn new() -> Result<Self, String> {
         let (stream, handle) =
             OutputStream::try_default().map_err(|e| format!("rodio output: {e}"))?;
+        let (mixer, output) = output_mixer();
+        // Keep the bus alive between sounds, including before the first BGM.
+        mixer.add(rodio::source::Zero::<f32>::new(2, OUTPUT_RATE));
+        handle
+            .play_raw(output)
+            .map_err(|e| format!("rodio mixer: {e}"))?;
         Ok(Self {
             _stream: stream,
-            handle,
+            mixer,
             sink: None,
         })
     }
 
-    pub fn play(&mut self, samples: &[f32], channels: u16, sample_rate: u32, speed: f32) {
+    pub fn play(&mut self, pcm: BgmPcm, speed: f32) {
         self.stop();
-        let source = SamplesBuffer::new(channels, sample_rate, samples.to_vec()).speed(speed);
-        if let Ok(sink) = Sink::try_new(&self.handle) {
-            sink.set_volume(1.0);
-            sink.append(source);
-            self.sink = Some(sink);
-        }
+        let source = pcm.speed(speed);
+        let (sink, output) = Sink::new_idle();
+        sink.append(source);
+        self.mixer.add(output);
+        self.sink = Some(sink);
     }
 
     /// Fire a one-shot effect on the shared output without touching the BGM.
-    /// `play_raw` mixes it independently of the BGM sink, so it can overlap.
+    /// The bus mixes it independently of the BGM sink, so it can overlap.
     pub fn play_once(&self, buf: &SfxBuffer, volume: f32) {
         let source =
             SamplesBuffer::new(buf.channels, buf.sample_rate, buf.samples.as_ref().clone())
                 .amplify(volume);
-        let _ = self.handle.play_raw(source.convert_samples());
+        self.mixer.add(source);
     }
 
     pub fn stop(&mut self) {
@@ -327,7 +440,7 @@ pub async fn service_audio(app: &mut PadPreviewState) {
             Ok(bgm) => {
                 if let Some(player) = &mut app.bgm_player {
                     app.mode_wall_anchor = macroquad::prelude::get_time();
-                    player.play(&bgm.samples, bgm.channels, bgm.sample_rate, speed);
+                    player.play(bgm, speed);
                 }
                 app.audio_seek_offset = None;
                 app.set_status(format!("Audio speed applied: {:.1}x", speed));
@@ -353,7 +466,8 @@ pub async fn service_audio(app: &mut PadPreviewState) {
 fn load_audio_for_speed(app: &mut PadPreviewState) -> Result<BgmPcm, String> {
     let chart_seek = app.audio_seek_offset.unwrap_or(0.0);
     let audio_offset = app.chart.audio_offset;
-    let effective_seek = (chart_seek + audio_offset).max(0.0);
+    let audio_time = chart_seek + audio_offset;
+    let effective_seek = audio_time.max(0.0);
     let wav = app
         .audio_wav_pcm
         .as_ref()
@@ -362,14 +476,193 @@ fn load_audio_for_speed(app: &mut PadPreviewState) -> Result<BgmPcm, String> {
     let ch = channels as usize;
     let skip_frames = (effective_seek * wav.sample_rate as f32) as usize;
     let start = (skip_frames * ch).min(wav.samples.len());
-    let samples_f32: Vec<f32> = wav.samples[start..]
-        .iter()
-        .map(|&s| s as f32 / 32768.0)
-        .collect();
     let bgm = BgmPcm {
-        samples: samples_f32,
+        samples: Arc::clone(&wav.samples),
         channels,
-        sample_rate: wav.sample_rate,
+        sample_rate: wav.sample_rate.max(1),
+        cursor: start,
+        silence: ((-audio_time).max(0.0) * wav.sample_rate as f32) as usize * ch,
     };
     Ok(bgm)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seeking_before_audio_start_preserves_chart_alignment() {
+        let mut chart = crate::app::chart::fallback_chart();
+        chart.audio_offset = -0.5;
+        let mut pad = PadPreviewState::new_at(
+            chart, None, Some(WavPcm {
+                channels: 2, sample_rate: 4, samples: Arc::new(vec![16384; 8]),
+            }), 0.0, None,
+        );
+        pad.audio_seek_offset = Some(0.0);
+        let from_start = load_audio_for_speed(&mut pad).unwrap();
+        assert_eq!(from_start.take(4).collect::<Vec<_>>(), vec![0.0; 4]);
+        pad.audio_seek_offset = Some(0.5);
+        let from_audio_start = load_audio_for_speed(&mut pad).unwrap();
+        assert_eq!(from_audio_start.collect::<Vec<_>>(), vec![0.5; 8]);
+    }
+
+    #[test]
+    fn repeated_seek_uses_shared_pcm_and_frame_aligned_cursors() {
+        let mut pad = PadPreviewState::new_at(
+            crate::app::chart::fallback_chart(), None, Some(WavPcm {
+                channels: 2, sample_rate: 4,
+                samples: Arc::new(vec![0, 1, 2, 3, 4, 5, 6, 7]),
+            }), 0.0, None,
+        );
+        for offset in [-0.5, 0.0, 0.5] {
+            pad.chart.audio_offset = offset;
+            for t in [0.0, 0.25, 0.75, 1.0, 0.0] {
+                pad.audio_seek_offset = Some(t);
+                let mut source = load_audio_for_speed(&mut pad).unwrap();
+                assert!(Arc::ptr_eq(&source.samples, &pad.audio_wav_pcm.as_ref().unwrap().samples));
+                assert_eq!(source.cursor % 2, 0);
+                let expected = (t + offset).max(0.0) * 4.0;
+                if t + offset < 0.0 {
+                    assert_eq!(source.next(), Some(0.0));
+                } else if expected >= 4.0 {
+                    assert_eq!(source.next(), None);
+                } else {
+                    assert_eq!(source.next(), Some((expected as usize * 2) as f32 / 32768.0));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn simultaneous_answer_and_hit_sounds_stay_below_full_scale() {
+        let answer = SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/answer.wav")).unwrap();
+        let hit =
+            SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/tap_perfect.wav")).unwrap();
+        let (mixer, output) = output_mixer();
+        for buf in [&answer, &hit] {
+            mixer.add(SamplesBuffer::new(
+                buf.channels,
+                buf.sample_rate,
+                buf.samples.as_ref().clone(),
+            ));
+        }
+        let peak = output
+            .take(44_100 * 2)
+            .map(f32::abs)
+            .fold(0.0_f32, f32::max);
+        assert!(peak > 0.01, "effects must remain audible");
+        assert!(
+            peak <= 1.0,
+            "overlapping effects overload the output: peak={peak}"
+        );
+    }
+
+    #[test]
+    fn limiter_preserves_quiet_audio_and_links_stereo_gain() {
+        let (mixer, output) = output_mixer();
+        let quiet = vec![0.1, -0.2, 0.4, -0.3];
+        mixer.add(SamplesBuffer::new(2, OUTPUT_RATE, quiet.clone()));
+        assert_eq!(output.skip(LOOKAHEAD_FRAMES * 2).collect::<Vec<_>>(), quiet);
+
+        let (mixer, mut output) = output_mixer();
+        mixer.add(SamplesBuffer::new(
+            2,
+            OUTPUT_RATE,
+            vec![1.2, -2.4, 0.2, -0.4],
+        ));
+        for _ in 0..LOOKAHEAD_FRAMES * 2 {
+            assert_eq!(output.next(), Some(0.0));
+        }
+        let left = output.next().unwrap();
+        let right = output.next().unwrap();
+        assert!((left / right + 0.5).abs() < 1e-6);
+        assert!((right + OUTPUT_CEILING).abs() < 1e-6);
+        let next_left = output.next().unwrap();
+        let next_right = output.next().unwrap();
+        assert!(next_left > 0.2 * (OUTPUT_CEILING / 2.4));
+        assert!(
+            next_left < 0.2,
+            "gain must recover smoothly rather than jump"
+        );
+        assert!((next_left / next_right + 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn dense_chords_with_bgm_remain_bounded_and_mixer_survives_silence() {
+        let (mixer, mut output) = output_mixer();
+        mixer.add(rodio::source::Zero::<f32>::new(2, OUTPUT_RATE));
+        assert_eq!(
+            output.by_ref().take(100).collect::<Vec<_>>(),
+            vec![0.0; 100]
+        );
+        mixer.add(SamplesBuffer::new(2, OUTPUT_RATE, vec![0.8; 2000]));
+        let answer = SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/answer.wav")).unwrap();
+        let hit =
+            SfxBuffer::from_bytes(include_bytes!("../../assets/Sfx/tap_perfect.wav")).unwrap();
+        for _ in 0..8 {
+            for buf in [&answer, &hit] {
+                mixer.add(SamplesBuffer::new(
+                    buf.channels,
+                    buf.sample_rate,
+                    buf.samples.as_ref().clone(),
+                ));
+            }
+        }
+        let peak = output
+            .take(OUTPUT_RATE as usize * 2)
+            .map(f32::abs)
+            .fold(0.0_f32, f32::max);
+        assert!(peak > 0.8);
+        assert!(peak <= OUTPUT_CEILING + 1e-6, "peak={peak}");
+    }
+
+    #[test]
+    fn overlapping_transient_does_not_click_the_background_channel() {
+        let (mixer, output) = output_mixer();
+        let background: Vec<f32> = (0..2000).flat_map(|_| [0.4, 0.0]).collect();
+        let hit: Vec<f32> = (0..2000)
+            .flat_map(|frame| [0.0, if frame == 1000 { 8.0 } else { 0.0 }])
+            .collect();
+        mixer.add(SamplesBuffer::new(2, OUTPUT_RATE, background));
+        mixer.add(SamplesBuffer::new(2, OUTPUT_RATE, hit));
+        let left: Vec<f32> = output.step_by(2).collect();
+        let jump = left[500..1500]
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            jump < 0.01,
+            "a hit makes the background click: sample jump={jump}"
+        );
+    }
+
+    #[test]
+    fn staggered_signed_peaks_remain_bounded_and_flush_the_tail() {
+        let (mixer, output) = output_mixer();
+        let samples: Vec<f32> = (0..2000)
+            .flat_map(|frame| {
+                let peak = match frame {
+                    500 => 32.0,
+                    550 => -64.0,
+                    1999 => 8.0,
+                    _ => 0.0,
+                };
+                [0.4, peak]
+            })
+            .collect();
+        mixer.add(SamplesBuffer::new(2, OUTPUT_RATE, samples));
+        let samples: Vec<f32> = output.collect();
+        assert_eq!(samples.len(), (2000 + LOOKAHEAD_FRAMES) * 2);
+        assert!(
+            samples
+                .iter()
+                .all(|s| s.is_finite() && s.abs() <= OUTPUT_CEILING + 1e-6)
+        );
+        assert!(samples[2 * (LOOKAHEAD_FRAMES + 550) + 1] < 0.0);
+        assert!(
+            samples.last().unwrap() > &0.0,
+            "the last hit must not be lost"
+        );
+    }
 }

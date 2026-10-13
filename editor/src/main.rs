@@ -80,7 +80,11 @@ async fn run() {
 
     let bundle = runtime::load_chart_bundle(&chart_dir, None);
     mark("chart load");
-    let mut app = PadPreviewState::new(bundle.chart, bundle.audio_name, bundle.audio_pcm);
+    let mut app = runtime::initialize_player(
+        PadPreviewState::new(bundle.chart, bundle.audio_name, bundle.audio_pcm),
+        bundle.simai,
+        bundle.level,
+    );
     let audio_ms = get_time();
     app.params = app::params::load();
     app::params::set(app.params.clone());
@@ -160,7 +164,7 @@ async fn run() {
 
         // `P` cycles the preview mode; the toolbar shows a clickable label too.
         if is_key_pressed(KeyCode::P) {
-            editor.autoplay_mode = (editor.autoplay_mode + 1) % 3;
+            editor.autoplay_mode = (editor.autoplay_mode + 1) % 4;
             editor.mode_dirty = true;
         }
         if editor.mode_dirty {
@@ -281,6 +285,7 @@ async fn run() {
         // whole trail (no time culling); everything else is hidden.
         app.edit_solo_note = editor.editing_slide;
         runtime::tick_player(&mut app).await;
+        let current_time = player_time(&app);
 
         clear_background(theme::to_mq(theme::BG_WINDOW));
 

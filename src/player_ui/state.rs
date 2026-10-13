@@ -88,6 +88,7 @@ pub struct PlayerUiApp {
     audio_for: Option<usize>,
     /// Song index whose audio is already installed in `pad`.
     audio_ready_for: Option<usize>,
+    audio_output_initialized: bool,
     /// Waiting for the audio decode before starting playback.
     pub preparing: bool,
     /// True while the player is dragging the gameplay progress bar.
@@ -120,8 +121,10 @@ impl PlayerUiApp {
         audio_source_name: Option<String>,
         audio_wav_pcm: Option<WavPcm>,
     ) -> Self {
-        let pad = PadPreviewState::new(chart, audio_source_name, audio_wav_pcm);
         let now = get_time();
+        // Menus do not play audio. Opening the system output device can take
+        // over a second, so leave it closed until the first gameplay request.
+        let pad = PadPreviewState::new_at(chart, audio_source_name, audio_wav_pcm, now, None);
         Self {
             pad,
             page: Page::Start,
@@ -142,6 +145,7 @@ impl PlayerUiApp {
             audio_rx: None,
             audio_for: None,
             audio_ready_for: None,
+            audio_output_initialized: false,
             preparing: false,
             scrubbing: false,
             chart_rx: None,
@@ -431,6 +435,12 @@ impl PlayerUiApp {
         }
         if self.pad.judge_engine.is_none() {
             self.load_core_engine();
+        }
+        if !self.audio_output_initialized {
+            self.audio_output_initialized = true;
+            self.pad.bgm_player = crate::player_ui::perf::time("gameplay.audio_output", || {
+                audio::BgmPlayer::new().ok()
+            });
         }
         // Audio already installed (or there is no track): start straight away.
         if self.pad.audio_wav_pcm.is_some() || self.audio_path.is_none() {

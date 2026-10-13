@@ -18,6 +18,7 @@ pub fn draw_horizontal(
     view: f32,
     pps: f32,
     scale: f32,
+    audio_offset: f32,
 ) {
     let Some(level) = waveform.level_for(pps) else {
         return;
@@ -28,11 +29,11 @@ pub fn draw_horizontal(
         return;
     }
     let center = lanes_top + lanes_h * 0.5;
-    let first = ((view / bin_duration).floor() as isize - 1).max(0) as usize;
+    let first = (((view + audio_offset) / bin_duration).floor() as isize - 1).max(0) as usize;
     let last =
-        (((view + (plot_right - plot_left) / pps) / bin_duration).ceil() as usize + 1).min(bins);
+        (((view + audio_offset + (plot_right - plot_left) / pps) / bin_duration).max(0.0).ceil() as usize + 1).min(bins);
     for index in first..last {
-        let x = plot_left + (index as f32 * bin_duration - view) * pps;
+        let x = plot_left + (index as f32 * bin_duration - audio_offset - view) * pps;
         if x < plot_left - 1.0 || x > plot_right + 1.0 {
             continue;
         }
@@ -61,6 +62,7 @@ pub fn draw_vertical(
     now: f32,
     pps: f32,
     scale: f32,
+    audio_offset: f32,
 ) {
     let Some(level) = waveform.level_for(pps) else {
         return;
@@ -72,12 +74,12 @@ pub fn draw_vertical(
     }
     let center = (plot_left + plot_right) * 0.5;
     let half = (plot_right - plot_left) * 0.5 * 0.45;
-    let t_top = now + (judge_y - plot_top) / pps;
-    let t_bottom = now + (judge_y - plot_bottom) / pps;
+    let t_top = now + audio_offset + (judge_y - plot_top) / pps;
+    let t_bottom = now + audio_offset + (judge_y - plot_bottom) / pps;
     let first = ((t_bottom.min(t_top) / bin_duration).floor() as isize - 1).max(0) as usize;
-    let last = ((t_bottom.max(t_top) / bin_duration).ceil() as usize + 1).min(bins);
+    let last = ((t_bottom.max(t_top) / bin_duration).max(0.0).ceil() as usize + 1).min(bins);
     for index in first..last {
-        let y = judge_y - (index as f32 * bin_duration - now) * pps;
+        let y = judge_y - (index as f32 * bin_duration - audio_offset - now) * pps;
         if y < plot_top - 1.0 || y > plot_bottom + 1.0 {
             continue;
         }

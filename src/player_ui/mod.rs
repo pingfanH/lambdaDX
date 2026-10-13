@@ -478,7 +478,26 @@ fn apply_flash_action(app: &mut PlayerUiApp, action: flash::Action, page_idx: &m
     }
 }
 
+fn needs_gameplay_textures(page: Page, flash_page: Option<usize>, loaded: bool) -> bool {
+    !loaded
+        && (matches!(page, Page::Gameplay | Page::Pause)
+            || flash_page.is_some_and(|page| page >= 3))
+}
+
+async fn ensure_gameplay_textures(
+    app: &mut PlayerUiApp,
+    loaded: &mut bool,
+    flash_page: Option<usize>,
+) {
+    if needs_gameplay_textures(app.page, flash_page, *loaded) {
+        let _s = perf::Scope::new("gameplay.note_textures");
+        player::render::load_note_textures(&mut app.pad).await;
+        *loaded = true;
+    }
+}
+
 pub async fn run() {
+    let boot = perf::Scope::new("boot.ready");
     set_pc_assets_folder(&platform::asset_dir().to_string_lossy());
 
     // Paint a lightweight frame first so the window appears immediately instead
@@ -532,7 +551,10 @@ pub async fn run() {
     };
 
     // ── State + assets ─────────────────────────────────────────────────
-    let mut app = PlayerUiApp::new(chart, audio_source_name, audio_wav_pcm);
+    let mut app = perf::time("boot.state", || {
+        PlayerUiApp::new(chart, audio_source_name, audio_wav_pcm)
+    });
+    let mut note_assets_loaded = false;
 
     app.pad.params = perf::time("boot.params", params::load);
     params::set(app.pad.params.clone());
@@ -549,10 +571,6 @@ pub async fn run() {
         Err(e) => app.error = Some(format!("pad.svg: {e}")),
     }
 
-    {
-        let _s = perf::Scope::new("boot.note_textures");
-        player::render::load_note_textures(&mut app.pad).await;
-    }
     match perf::time("boot.shader", app::ui::load_mask_material) {
         Ok(m) => app.pad.mask_material = Some(m),
         Err(e) => {
@@ -623,8 +641,8 @@ pub async fn run() {
     egui_macroquad::draw();
 
     // Load the Animate projects (movies referenced by name, e.g. `ui.get(..)`).
-    crate::app::anim::init();
-    crate::app::anim::init_player_ui();
+    perf::time("boot.effects", crate::app::anim::init);
+    perf::time("boot.flash_ui", crate::app::anim::init_player_ui);
 
     // Flash mode: render the `player_ui` XFL pages instead of the self-drawn UI.
     // `MAI2_UI_FLASH=1` (or `select`/`settings`/`game`/`pause`) starts on a page;
@@ -668,7 +686,12 @@ pub async fn run() {
     let mut click_done = false;
     let mut dump_done = false;
 
+    ensure_gameplay_textures(&mut app, &mut note_assets_loaded, flash_page).await;
+    drop(boot);
     loop {
+        // Playback remains gated until its first frame is presented, including
+        // the frame that needs to upload the skin for the first time.
+        ensure_gameplay_textures(&mut app, &mut note_assets_loaded, flash_page).await;
         let now = get_time();
         let dt = ((now - last) as f32).clamp(0.0, 0.1);
         last = now;
@@ -794,6 +817,7 @@ pub async fn run() {
                 flash_page = Some(page_idx);
                 // Gameplay/pause render the pad behind the HUD.
                 if page_idx >= 3 {
+                    ensure_gameplay_textures(&mut app, &mut note_assets_loaded, Some(page_idx)).await;
                     pages::gameplay::draw_view(&mut app, &ctx);
                     // The Flash UI is not driven through `Input`, so the pad
                     // takes the pointer here.
@@ -858,6 +882,32 @@ pub fn unused(_: Window) {}
 #[cfg(test)]
 mod flash_timing_tests {
     use super::*;
+
+    #[test]
+    fn menus_do_not_load_gameplay_textures() {
+        for page in [Page::Start, Page::SongSelect, Page::Settings] {
+            assert!(!needs_gameplay_textures(page, None, false));
+        }
+    }
+
+    #[test]
+    fn gameplay_and_pause_load_textures_once() {
+        for page in [Page::Gameplay, Page::Pause] {
+            assert!(needs_gameplay_textures(page, None, false));
+            assert!(!needs_gameplay_textures(page, None, true));
+        }
+    }
+
+    #[test]
+    fn flash_pad_views_also_load_textures_once() {
+        for page in 0..3 {
+            assert!(!needs_gameplay_textures(Page::Start, Some(page), false));
+        }
+        for page in [3, 4] {
+            assert!(needs_gameplay_textures(Page::Start, Some(page), false));
+            assert!(!needs_gameplay_textures(Page::Start, Some(page), true));
+        }
+    }
 
     #[test]
     fn once_plays_and_holds_last_frame() {
