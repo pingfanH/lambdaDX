@@ -20,7 +20,17 @@ impl JudgeEngine {
     pub fn default_tactic(&self) -> Result<Vec<TimedInputEvent>, String> {
         Ok(Vec::new())
     }
-    pub fn step(&mut self, _current_secs: f32, _events: Vec<TimedInputEvent>) -> Result<(), String> {
+    pub fn autoplay_plan(&self) -> Result<crate::core::types::AutoplayPlan, String> {
+        Err("backend disabled".into())
+    }
+    pub fn seek(&mut self, _seconds: f32) -> Result<crate::core::types::SeekResult, String> {
+        Err("backend disabled".into())
+    }
+    pub fn step(
+        &mut self,
+        _current_secs: f32,
+        _events: Vec<TimedInputEvent>,
+    ) -> Result<(), String> {
         Ok(())
     }
     pub fn runtime_slide_index(&self, _note_index: u64) -> Option<usize> {
@@ -146,7 +156,8 @@ pub fn zone_for_sensor(area: SensorArea) -> PadZone {
 
 /// Map a runtime slide index onto the chart's `(note_id, slide_idx)`.
 pub fn chart_slide_key(chart: &ChartDoc, runtime_slide_index: usize) -> Option<(u64, usize)> {
-    chart_slide_position(chart, runtime_slide_index).map(|(note_id, slide_idx, _, _)| (note_id, slide_idx))
+    chart_slide_position(chart, runtime_slide_index)
+        .map(|(note_id, slide_idx, _, _)| (note_id, slide_idx))
 }
 
 /// Like [`chart_slide_key`] but also resolves the segment within the sub-slide.

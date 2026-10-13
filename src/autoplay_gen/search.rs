@@ -68,11 +68,13 @@ fn effective_bad(result: &VerifyResult, timings: &[ArcTiming]) -> usize {
     result.bad() + skipped_unjudged(result, timings).len()
 }
 
-fn arcs_of<'a>(plans: &[SlidePlan], indices: impl Iterator<Item = &'a usize>, n_arcs: usize) -> Vec<usize> {
+fn arcs_of<'a>(
+    plans: &[SlidePlan],
+    indices: impl Iterator<Item = &'a usize>,
+    n_arcs: usize,
+) -> Vec<usize> {
     indices
-        .flat_map(|&pi| {
-            plans[pi].runtime_start..plans[pi].runtime_start + plans[pi].runtime_parts
-        })
+        .flat_map(|&pi| plans[pi].runtime_start..plans[pi].runtime_start + plans[pi].runtime_parts)
         .filter(|rt| *rt < n_arcs)
         .collect()
 }
@@ -90,8 +92,12 @@ pub fn search(
     let n_arcs = spec.slides.len();
     let mut timings = vec![ArcTiming::default(); n_arcs];
     let mut tries = 0usize;
+    let template = crate::player::engine::JudgeEngine::load(text, level)
+        .expect("engine")
+        .autoplay_plan()
+        .expect("grouped autoplay");
 
-    let mut result = run(text, level, spec, &timings, song_end_s);
+    let mut result = run(text, level, spec, &timings, &template, song_end_s);
     tries += 1;
     let mut conflict_arcs = verify::zone_conflicts_by_arc(spec, &timings, windows);
     let mut conflicts: usize = conflict_arcs.iter().sum();
@@ -156,8 +162,14 @@ pub fn search(
             }
             let baseline_score = (effective_bad(&result, &timings), conflicts);
             // (arc, branch, timing, result, arc conflicts, score)
-            let mut best: Option<(usize, Option<usize>, ArcTiming, VerifyResult, usize, (usize, usize))> =
-                None;
+            let mut best: Option<(
+                usize,
+                Option<usize>,
+                ArcTiming,
+                VerifyResult,
+                usize,
+                (usize, usize),
+            )> = None;
             'scan: for &rt in &work_arcs {
                 let tracks = spec
                     .slides
@@ -171,12 +183,6 @@ pub fn search(
                 // recover from a whole-arc skip and combine a partial branch set.
                 if tracks > 1 {
                     for ti in 0..tracks.min(verify::MAX_TRACKS) {
-                        {
-                            let mut arc = timings[rt];
-                            arc.skip = false;
-                            arc.track_skip[ti] = !arc.track_skip[ti];
-                            variants.push((Some(ti), arc));
-                        }
                         for k in -OFFSET_STEPS..=OFFSET_STEPS {
                             if k == 0 {
                                 continue;
@@ -203,19 +209,15 @@ pub fn search(
                         }
                     }
                 }
-                // Whole-arc: toggle "完全不滑".
-                {
-                    let mut arc = timings[rt];
-                    arc.skip = !arc.skip;
-                    variants.push((None, arc));
-                }
+                // Cross-note skip shortcuts are disabled until their ownership
+                // dependencies can be proved; grouped seek must remain safe.
                 for (ti, arc) in variants {
                     if tries >= max_tries {
                         break 'scan;
                     }
                     let mut trial = timings.clone();
                     trial[rt] = arc;
-                    let r = run(text, level, spec, &trial, song_end_s);
+                    let r = run(text, level, spec, &trial, &template, song_end_s);
                     tries += 1;
                     // Only this arc's conflicts can change.
                     let c_rt = verify::zone_conflict_for_arc(spec, arc, rt, windows);
@@ -228,11 +230,11 @@ pub fn search(
                     }
                     if tries % PROGRESS_EVERY == 0 {
                         println!(
-                                "  [enum] unit {ui}: ...tries {tries}/{max_tries}  (best so far bad {}, conflicts {})",
-                                baseline_score.0, baseline_score.1
-                            );
-                            flush();
-                        }
+                            "  [enum] unit {ui}: ...tries {tries}/{max_tries}  (best so far bad {}, conflicts {})",
+                            baseline_score.0, baseline_score.1
+                        );
+                        flush();
+                    }
                 }
             }
 
@@ -319,7 +321,14 @@ pub fn search(
     }
 }
 
-fn run(text: &str, level: u32, spec: &ChartSpec, timings: &[ArcTiming], end_s: f32) -> VerifyResult {
-    let events = verify::build_events_with_offsets(spec, timings);
-    verify::verify(text, level, &events, end_s)
+fn run(
+    text: &str,
+    level: u32,
+    spec: &ChartSpec,
+    timings: &[ArcTiming],
+    template: &crate::core::types::AutoplayPlan,
+    end_s: f32,
+) -> VerifyResult {
+    let plan = verify::build_plan_with_offsets(spec, timings, template);
+    verify::verify_plan(text, level, plan, end_s)
 }

@@ -113,6 +113,7 @@ fn main() {
 
     let engine = player::engine::JudgeEngine::load(&text, level).expect("engine");
     let spec = engine.chart_spec().expect("lowered chart");
+    let template = engine.autoplay_plan().expect("grouped autoplay");
 
     if std::env::var("MAI2_DUMP_SPEC").is_ok() {
         for (i, s) in spec.slides.iter().enumerate() {
@@ -153,11 +154,21 @@ fn main() {
 
     // ── Sanity: verify the core's own default tactic ───────────────────
     if default_tactic {
-        let events = engine.default_tactic().unwrap_or_default();
+        let mut grouped = template.clone();
+        for group in &mut grouped.groups {
+            for part in &mut group.parts {
+                part.events = part
+                    .events
+                    .drain(..)
+                    .map(player::engine::normalize_tactic_event)
+                    .collect();
+            }
+        }
+        let events = grouped.events();
         let units = plan(&mut plans, block_s);
         print_report(&chart_doc, &plans, &units, block_s);
         println!("\nevents: {} (core default tactic)", events.len());
-        let result = verify::verify(&text, level, &events, song_end);
+        let result = verify::verify_plan(&text, level, grouped, song_end);
         print_verify(&result, &windows);
         finish(preview, &path, &chart_doc.title, level, &result);
         return;
@@ -165,7 +176,8 @@ fn main() {
 
     // ── Spec-derived events (full zone sequence per runtime arc) ───────
     if spec_events {
-        let events = verify::build_events_from_spec(&spec);
+        let grouped = verify::build_plan_with_offsets(&spec, &[], &template);
+        let events = grouped.events();
         let units = plan(&mut plans, block_s);
         print_report(&chart_doc, &plans, &units, block_s);
         println!(
@@ -173,7 +185,7 @@ fn main() {
             events.len(),
             spec.slides.len()
         );
-        let result = verify::verify(&text, level, &events, song_end);
+        let result = verify::verify_plan(&text, level, grouped, song_end);
         print_verify(&result, &windows);
         finish(preview, &path, &chart_doc.title, level, &result);
         return;
@@ -186,17 +198,19 @@ fn main() {
     let outcome = search::search(
         &text, level, &plans, &units, &spec, &windows, song_end, max_tries,
     );
-    let moved = outcome
-        .timings
-        .iter()
-        .filter(|t| !t.is_default())
-        .count();
+    let moved = outcome.timings.iter().filter(|t| !t.is_default()).count();
     println!(
         "\n== enumeration ==\nbaseline_perfect: {}   ap: {}   arcs re-timed: {}   work slides: {:?}",
         outcome.baseline_perfect, outcome.ap, moved, outcome.work_slides
     );
     print_verify(&outcome.final_verify, &windows);
-    finish(preview, &path, &chart_doc.title, level, &outcome.final_verify);
+    finish(
+        preview,
+        &path,
+        &chart_doc.title,
+        level,
+        &outcome.final_verify,
+    );
 }
 
 /// Non-ex tap/hold windows (µs) used by the A-zone conflict check.
@@ -262,7 +276,11 @@ fn print_verify(result: &VerifyResult, windows: &[verify::ConflictWindow]) {
 /// only launched when the tactic is all-Perfect.
 fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyResult) {
     let ap = result.all_perfect();
-    let cached = match cache_tactic(chart, title, level, &result.events) {
+    let Some(plan) = result.plan.as_ref() else {
+        eprintln!("cache failed: missing event ownership plan");
+        return;
+    };
+    let cached = match cache_tactic(chart, title, level, plan) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("cache failed: {e}");
@@ -271,7 +289,11 @@ fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyR
     };
     println!(
         "\n== cached {} ==",
-        if ap { "(all-Perfect)" } else { "(closest, NOT all-Perfect)" }
+        if ap {
+            "(all-Perfect)"
+        } else {
+            "(closest, NOT all-Perfect)"
+        }
     );
     println!("tactic file : {}", cached.display());
     println!("run preview :");
@@ -280,10 +302,7 @@ fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyR
         chart.display(),
         cached.display()
     );
-    println!(
-        "  (or export MAI2_AUTOPLAY_TACTIC={})",
-        cached.display()
-    );
+    println!("  (or export MAI2_AUTOPLAY_TACTIC={})", cached.display());
     if preview {
         if !ap {
             println!("not all-Perfect — preview skipped (tactic still cached)");
@@ -296,7 +315,7 @@ fn finish(preview: bool, chart: &Path, title: &str, level: u32, result: &VerifyR
     }
 }
 
-/// Write the event list to `out/autoplay_gen/<title>_lv<level>_<hash>.json`.
+/// Write the ownership plan to `out/autoplay_gen/<title>_lv<level>_<hash>.json`.
 ///
 /// The hash is of the chart path: two charts can share title+level (e.g.
 /// `サイエンス1/` and `サイエンス2/`), and their tactics must not overwrite
@@ -305,7 +324,7 @@ fn cache_tactic(
     chart: &Path,
     title: &str,
     level: u32,
-    events: &[TimedInputEvent],
+    plan: &crate::core::types::AutoplayPlan,
 ) -> Result<PathBuf, String> {
     use std::hash::{Hash, Hasher};
 
@@ -322,7 +341,7 @@ fn cache_tactic(
     key.to_string_lossy().hash(&mut hasher);
     let tag = hasher.finish() & 0xffff_ffff;
     let path = dir.join(format!("{slug}_lv{level}_{tag:08x}.json"));
-    let json = serde_json::to_string(events).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(plan).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
     Ok(path)
 }
@@ -331,7 +350,10 @@ fn cache_tactic(
 fn launch_preview(chart: &Path, tactic: &Path) -> Result<u32, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let dir = exe.parent().ok_or("current exe has no parent dir")?;
-    let preview = dir.join(format!("lambda_dx_pad_preview{}", std::env::consts::EXE_SUFFIX));
+    let preview = dir.join(format!(
+        "lambda_dx_pad_preview{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     if !preview.is_file() {
         return Err(format!(
             "{} not found — build it first: cargo build --bin lambda_dx_pad_preview",

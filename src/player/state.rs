@@ -244,10 +244,13 @@ pub struct PadPreviewState {
     /// True when `autoplay_tactic` is an external list: it is replayed verbatim
     /// (no click-hold synthesis / dedup preprocessing).
     pub external_autoplay: bool,
+    pub legacy_autoplay: bool,
 
     // ── Progress / seeking ───────────────────────────────────────────
     /// True while the progress bar is being dragged.
     pub scrubbing: bool,
+    /// Committed clock before a preview drag; retained for failure rollback.
+    scrub_origin: Option<f32>,
     /// Editor-only: when set, the pad preview renders *only* this note (the
     /// slide being edited) with no time culling, hiding everything else.
     pub edit_solo_note: Option<u64>,
@@ -276,6 +279,8 @@ pub struct PadPreviewState {
     pub engine_events: Vec<crate::core::types::TimedInputEvent>,
     /// Autoplay: lnmai-core's default replay tactic, consumed by timestamp.
     pub autoplay_tactic: Vec<crate::core::types::TimedInputEvent>,
+    /// Complete ownership plan; seek compiles whole retained groups from this.
+    pub autoplay_plan: Option<crate::core::types::AutoplayPlan>,
     pub autoplay_tactic_cursor: usize,
     /// Latest lnmai-core score snapshot (combo, DX score, judge counts).
     pub core_score: Option<crate::core::types::ScoreState>,
@@ -392,7 +397,9 @@ impl PadPreviewState {
             autoplay_explicit_held: Vec::new(),
             autoplay_tactic_path: None,
             external_autoplay: false,
+            legacy_autoplay: false,
             scrubbing: false,
+            scrub_origin: None,
             edit_solo_note: None,
             scrub_pointer: None,
             video_bg: VideoBg::new(),
@@ -404,6 +411,7 @@ impl PadPreviewState {
             judge_engine: None,
             engine_events: Vec::new(),
             autoplay_tactic: Vec::new(),
+            autoplay_plan: None,
             autoplay_tactic_cursor: 0,
             core_score: None,
             simai_fragments: Vec::new(),
@@ -426,6 +434,9 @@ impl PadPreviewState {
 
     /// Current song position in seconds, derived from a wall-clock anchor.
     pub fn song_time(&self) -> f32 {
+        if self.scrubbing {
+            return self.timeline_view_time;
+        }
         if let Some(t) = self.forced_time {
             return t;
         }
@@ -453,6 +464,7 @@ impl PadPreviewState {
             self.mode_wall_anchor = get_time();
             self.playback_pending = false;
             self.audio_start_pending = false;
+            self.pending_audio_start = false;
             self.stop_audio_if_any();
             self.timeline_view_time = self.mode_song_offset;
             self.active_pointer_zones.clear();
@@ -476,24 +488,15 @@ impl PadPreviewState {
     /// Restart playback from `time` (seconds), freezing the clock until the
     /// first frame is presented.
     pub fn start_playback_at(&mut self, time: f32) {
+        if let Err(error) = self.try_seek_to(time) {
+            self.set_status(format!("seek: {error}"));
+            return;
+        }
         self.mode = Mode::Playing;
-        self.timeline_view_time = time.max(0.0);
-        self.mode_song_offset = time.max(0.0);
         self.mode_wall_anchor = get_time();
         self.playback_pending = true;
         self.audio_start_pending = true;
-        self.audio_seek_offset = Some(time.max(0.0));
-        self.active_pointer_zones.clear();
-        self.prev_pointer_pos.clear();
-        self.slide_progress.clear();
-        self.slide_judge.clear();
-        self.hidden_notes.clear();
-        self.hold_head_hits.clear();
-        // Restarting from the top rebuilds the core session so combo/DX reset.
-        if time <= 1e-4 {
-            self.reset_engine();
-        }
-        self.reconcile_slide_progress_for(self.mode_song_offset);
+        self.audio_seek_offset = Some(self.mode_song_offset);
         self.reset_cues(self.mode_song_offset);
     }
 
@@ -512,6 +515,9 @@ impl PadPreviewState {
         self.audio_seek_offset = Some(time);
         self.reset_cues(time);
         if self.mode == Mode::Playing {
+            // Freeze until service_audio establishes the new wall anchor.
+            // A slow audio load must not rewind an already advanced core.
+            self.audio_start_pending = true;
             self.pending_audio_start = true;
         } else {
             self.stop_audio_if_any();
@@ -525,36 +531,125 @@ impl PadPreviewState {
         }
     }
 
-    /// Song length in seconds (from the decoded PCM; falls back to 1s).
+    /// Song length from PCM, with a chart-duration fallback for silent preview.
     pub fn song_duration(&self) -> f32 {
         self.audio_wav_pcm
             .as_ref()
             .map(|pcm| {
                 pcm.samples.len() as f32 / f32::from(pcm.channels.max(1)) / pcm.sample_rate as f32
             })
-            .unwrap_or(1.0)
+            .unwrap_or_else(|| {
+                self.chart
+                    .notes
+                    .iter()
+                    .map(|n| {
+                        use crate::app::types::{
+                            NoteType, hold_tail_time, note_secs, slide_end_time,
+                        };
+                        (match n.note_type {
+                            NoteType::Hold | NoteType::TouchHold => {
+                                hold_tail_time(n, &self.chart.bpms)
+                            }
+                            NoteType::Slide => slide_end_time(n, &self.chart.bpms),
+                            _ => note_secs(n, &self.chart.bpms),
+                        }) + 1.0
+                    })
+                    .fold(1.0, f32::max)
+            })
             .max(1.0)
     }
 
     /// Update the visible position while dragging the progress bar (no audio
     /// restart).
     pub fn scrub_to(&mut self, t: f32) {
+        if !t.is_finite() {
+            return;
+        }
+        if self.scrub_origin.is_none() {
+            let origin = if self.mode == Mode::Playing
+                && !self.playback_pending
+                && !self.audio_start_pending
+            {
+                self.mode_song_offset
+                    + (get_time() - self.mode_wall_anchor) as f32 * self.current_speed()
+            } else {
+                self.mode_song_offset
+            };
+            self.scrub_origin = Some(origin);
+            self.pending_audio_start = false;
+            self.stop_audio_if_any();
+        }
         let t = t.clamp(0.0, self.song_duration());
-        self.mode_song_offset = t;
         self.timeline_view_time = t;
-        self.mode_wall_anchor = get_time();
-        self.reset_cues(t);
         self.reconcile_slide_progress_for(t);
     }
 
     /// Commit a seek: reposition the clock and restart audio if playing.
     pub fn seek_to(&mut self, t: f32) {
+        if let Err(error) = self.try_seek_to(t) {
+            if let Some(origin) = self.scrub_origin.take() {
+                self.mode_song_offset = origin;
+                self.mode_wall_anchor = get_time();
+                self.seek_audio_to(origin);
+                self.reconcile_slide_progress_for(origin);
+            }
+            self.timeline_view_time = self.mode_song_offset;
+            self.set_status(format!("seek: {error}"));
+        }
+    }
+
+    /// Core commits first. A failed reset never moves the player/audio clock.
+    pub fn try_seek_to(&mut self, t: f32) -> Result<(), String> {
+        if !t.is_finite() {
+            return Err("invalid seek time".into());
+        }
         let t = t.clamp(0.0, self.song_duration());
+        if let Some(engine) = self.judge_engine.as_mut() {
+            let result = engine.seek(t)?;
+            if let Some(plan) = &self.autoplay_plan {
+                // Bare legacy streams remain usable until a nonzero seek.
+                if !self.legacy_autoplay || t > 0.0 {
+                    self.autoplay_tactic = plan.retained(&result.retained_note_indices).events();
+                    if self.legacy_autoplay {
+                        self.external_autoplay = false;
+                        self.legacy_autoplay = false;
+                    }
+                }
+            }
+            self.core_score = Some(result.score);
+        }
+        self.engine_events.clear();
+        self.autoplay_click_held.clear();
+        self.autoplay_explicit_held.clear();
+        self.active_pointer_zones.clear();
+        self.prev_pointer_pos.clear();
+        self.pad_feedback.clear();
+        self.judge_feedback.clear();
+        self.hit_fx.clear();
+        self.slide_progress.clear();
+        self.slide_judge.clear();
+        self.hidden_notes.clear();
+        self.hold_head_hits.clear();
+        let target_us = (t * 1e6) as i64;
+        self.autoplay_tactic_cursor = self
+            .autoplay_tactic
+            .partition_point(|event| crate::player::engine::timed_input_tp(event) < target_us);
         self.seek_audio_to(t);
         self.mode_song_offset = t;
         self.timeline_view_time = t;
         self.mode_wall_anchor = get_time();
+        self.scrub_origin = None;
         self.reconcile_slide_progress_for(t);
+        if self.use_core() {
+            self.hidden_notes.extend(
+                self.chart
+                    .notes
+                    .iter()
+                    .filter(|note| crate::app::types::note_secs(note, &self.chart.bpms) < t)
+                    .map(|note| note.id),
+            );
+        }
+        Ok(())
     }
 
     /// Fire the one-shot cue sound (`Sfx/answer.wav`).
@@ -578,9 +673,9 @@ impl PadPreviewState {
         is_ex: bool,
         is_touch: bool,
     ) -> Option<&SfxBuffer> {
+        use crate::player::cues::Cue;
         use crate::player::render::skin::SkinVariant;
         use crate::player::sfx::{self, SfxKind};
-        use crate::player::cues::Cue;
         let kind = match cue {
             Cue::Tap => SfxKind::Tap,
             Cue::Touch => SfxKind::Touch,
@@ -601,7 +696,11 @@ impl PadPreviewState {
 
     /// Play a cue for every tap/hold head/hold tail crossed this frame.
     pub fn tick_cues(&mut self) {
-        if self.mode != Mode::Playing || self.playback_pending {
+        if self.mode != Mode::Playing
+            || self.playback_pending
+            || self.audio_start_pending
+            || self.scrubbing
+        {
             return;
         }
         let t = self.song_time();
@@ -610,11 +709,6 @@ impl PadPreviewState {
             .as_mut()
             .map(|track| track.take_due_cues(t))
             .unwrap_or_default();
-        // While scrubbing, advance the cursor (so cues stay in sync) but stay
-        // silent — no 正解音 (answer) or 击打音 (hit) sounds.
-        if self.scrubbing {
-            return;
-        }
         let core = self.use_core();
         for ev in due {
             // 正解音 (answer.wav): the generic cue on the note timeline for
@@ -641,11 +735,19 @@ impl PadPreviewState {
     }
 
     pub fn set_play_speed(&mut self, new_speed: f32) {
+        if !new_speed.is_finite() {
+            return;
+        }
+        let position = self.song_time();
         self.play_speed = new_speed.clamp(SPEED_MIN, SPEED_MAX);
+        if self.scrubbing {
+            return;
+        }
         if self.mode == Mode::Playing {
-            self.mode_song_offset = self.song_time();
+            self.mode_song_offset = position;
             self.mode_wall_anchor = get_time();
             self.audio_seek_offset = Some(self.mode_song_offset);
+            self.audio_start_pending = true;
             self.request_audio_start();
         }
     }
@@ -782,10 +884,40 @@ impl PadPreviewState {
             .autoplay_tactic_path
             .clone()
             .or_else(env_autoplay_tactic_path);
-        let loaded = external.and_then(|p| read_tactic_file(&p));
-        self.external_autoplay = loaded.is_some();
-        self.autoplay_tactic =
-            loaded.unwrap_or_else(|| engine.default_tactic().unwrap_or_default());
+        let default_plan = engine.autoplay_plan().ok();
+        let mut selected_plan = default_plan.clone();
+        let mut legacy = None;
+        self.external_autoplay = false;
+        self.legacy_autoplay = false;
+        if let Some(path) = external {
+            let text =
+                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            if let Ok(plan) = serde_json::from_str::<crate::core::types::AutoplayPlan>(&text) {
+                plan.validate_for(
+                    default_plan
+                        .as_ref()
+                        .ok_or("backend has no grouped autoplay")?,
+                )?;
+                selected_plan = Some(plan);
+            } else {
+                self.legacy_autoplay = true;
+                legacy = Some(
+                    serde_json::from_str::<Vec<crate::core::types::TimedInputEvent>>(&text)
+                        .map_err(|e| format!("invalid autoplay file: {e}"))?,
+                );
+                eprintln!(
+                    "autoplay: legacy event list; seeking uses the core ownership plan instead"
+                );
+            }
+            self.external_autoplay = true;
+        }
+        self.autoplay_tactic = legacy.unwrap_or_else(|| {
+            selected_plan
+                .as_ref()
+                .map(|p| p.events())
+                .unwrap_or_else(|| engine.default_tactic().unwrap_or_default())
+        });
+        self.autoplay_plan = selected_plan;
         self.autoplay_tactic_cursor = 0;
         self.judge_engine = Some(engine);
         self.engine_events.clear();
@@ -804,17 +936,16 @@ impl PadPreviewState {
     /// Rebuild the engine (resetting core score/slide state) from the stored
     /// Simai source, if any. Used on restart.
     pub fn reset_engine(&mut self) {
-        if let Some(text) = self.simai_source.clone() {
-            let level = self.simai_level;
-            let _ = self.load_engine(&text, level);
-        }
+        self.seek_to(0.0);
     }
 
     /// Drop the loaded lnmai-core session (e.g. when switching to a chart with
     /// no Simai source). After this [`Self::use_core`] is false again.
     pub fn unload_engine(&mut self) {
+        self.scrub_origin = None;
         self.judge_engine = None;
         self.autoplay_tactic.clear();
+        self.autoplay_plan = None;
         self.autoplay_tactic_cursor = 0;
         self.engine_events.clear();
         self.core_score = None;
@@ -855,6 +986,7 @@ impl PadPreviewState {
 
         self.mode = Mode::Idle;
         self.mode_song_offset = 0.0;
+        self.scrub_origin = None;
         self.timeline_view_time = 0.0;
         self.mode_wall_anchor = get_time();
         self.playback_pending = false;
@@ -941,7 +1073,10 @@ impl PadPreviewState {
     }
 
     pub fn max_dx_score(&self) -> u64 {
-        self.core_score.as_ref().map(|s| s.max_dx_score).unwrap_or(0)
+        self.core_score
+            .as_ref()
+            .map(|s| s.max_dx_score)
+            .unwrap_or(0)
     }
 
     /// Achievement percentage (lnmai-core's `dxAccMinus101`):
@@ -1000,14 +1135,14 @@ impl PadPreviewState {
         }
     }
 
-    /// Mark slides whose local tail is already past `t` as hidden and un-hide
+    /// Mark slides whose head is before the seek target as hidden and un-hide
     /// the rest. Used after a seek/scrub so the core-driven slides do not pile
     /// up: lnmai-core does not backfill slides skipped by a timeline jump.
     pub fn reconcile_slide_progress_for(&mut self, t: f32) {
         if !self.use_core() {
             return;
         }
-        use crate::app::types::{NoteType, mdur_to_secs, note_secs};
+        use crate::app::types::{NoteType, note_secs};
         let bpms = self.chart.bpms.clone();
         let mut past: Vec<((u64, usize), usize)> = Vec::new();
         let mut future: Vec<(u64, usize)> = Vec::new();
@@ -1017,8 +1152,7 @@ impl PadPreviewState {
             }
             let ns = note_secs(note, &bpms);
             for (si, sl) in note.slide.iter().enumerate() {
-                let end = ns + mdur_to_secs(sl.slide_duration, note.time, &bpms);
-                if end < t {
+                if ns < t {
                     past.push(((note.id, si), sl.runtime_parts));
                 } else {
                     future.push((note.id, si));
@@ -1052,7 +1186,10 @@ impl PadPreviewState {
     ) {
         for update in updates {
             let Some((note_id, slide_idx, seg_idx, seg_count)) =
-                crate::player::engine::chart_slide_position(&self.chart, update.runtime_slide_index)
+                crate::player::engine::chart_slide_position(
+                    &self.chart,
+                    update.runtime_slide_index,
+                )
             else {
                 continue;
             };
@@ -1151,14 +1288,6 @@ fn env_autoplay_tactic_path() -> Option<std::path::PathBuf> {
     std::env::var_os("MAI2_AUTOPLAY_TACTIC").map(std::path::PathBuf::from)
 }
 
-/// Read a JSON `TimedInputEvent` list produced by the `autoplay_gen` bin.
-fn read_tactic_file(
-    path: &std::path::Path,
-) -> Option<Vec<crate::core::types::TimedInputEvent>> {
-    let text = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
 /// Judge-label → hit-effect tint.
 fn hit_fx_color(label: &str, is_break: bool) -> Color {
     let l = label.to_ascii_lowercase();
@@ -1201,5 +1330,4 @@ mod tests {
         assert_eq!(rgb(hit_fx_color("Perfect", true)), (255, 150, 60));
         assert_eq!(rgb(hit_fx_color("Miss", true)), (200, 90, 90));
     }
-
 }

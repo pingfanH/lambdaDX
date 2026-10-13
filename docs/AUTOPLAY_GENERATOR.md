@@ -1,5 +1,10 @@
 # 想法：按游戏机制生成「理论上必然 Perfect」的 autoplay
 
+> 新接口说明：[Native FFI、seek 与所有权分组](CORE_NATIVE_SEEK.md)。
+> 当前缓存输出为 version 1 的 AutoplayPlan，而非裸事件数组；运行时使用
+> native ABI 3。为保证 seek 后组的独立性，目前禁用下文历史方案中的
+> 整 arc skip / track_skip 搜索，仍保留时间偏移及 fast 搜索。
+
 > 状态：**部分实现 / 持续迭代**。`src/autoplay_gen/` 已可用；事件模型已确认，
 > 正在做重定时枚举（见文末「实现状态」与「接下来的任务」）。
 

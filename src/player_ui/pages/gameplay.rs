@@ -6,12 +6,12 @@ use crate::app::params;
 use crate::app::types::{Mode, RectF};
 use crate::player::render::{self, PadSurface};
 use crate::player::{input as pinput, layout as playout};
+use crate::player_ui::UiCtx;
 use crate::player_ui::draw;
 use crate::player_ui::input::{self, Input};
 use crate::player_ui::pages::{self, Btn};
 use crate::player_ui::state::{Page, PlayerUiApp};
 use crate::player_ui::theme;
-use crate::player_ui::UiCtx;
 
 /// Draw the pad view (visual only). Pad input is routed separately by
 /// [`handle_pad_input`] *after* the UI, so overlapping UI widgets win.
@@ -191,6 +191,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     if resp.held && !app.preparing {
         if !app.scrubbing {
             app.scrubbing = true;
+            app.pad.scrubbing = true;
             app.pad.stop_audio_if_any();
         }
         let t = ((input.pos.x - bar.x) / bar.w).clamp(0.0, 1.0) * dur;
@@ -201,6 +202,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         let t = ((input.pos.x - bar.x) / bar.w).clamp(0.0, 1.0) * dur;
         app.seek_to(t);
         app.scrubbing = false;
+        app.pad.scrubbing = false;
     }
 
     let shown_frac = if app.scrubbing {

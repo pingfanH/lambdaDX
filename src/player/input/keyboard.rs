@@ -53,11 +53,7 @@ pub fn handle_global_hotkeys(app: &mut PadPreviewState) {
         app.start_playback_at(0.0);
     }
     if is_key_pressed(KeyCode::Home) {
-        app.seek_audio_to(0.0);
-        app.mode_song_offset = 0.0;
-        app.timeline_view_time = 0.0;
-        app.mode_wall_anchor = get_time();
-        app.reconcile_slide_progress_for(0.0);
+        app.seek_to(0.0);
     }
     if is_key_pressed(KeyCode::Left) {
         seek_relative(app, -1.0);
@@ -89,9 +85,5 @@ pub fn handle_global_hotkeys(app: &mut PadPreviewState) {
 /// Seek by `delta` seconds from the current song time.
 fn seek_relative(app: &mut PadPreviewState, delta: f32) {
     let t = (app.song_time() + delta).max(0.0);
-    app.seek_audio_to(t);
-    app.mode_song_offset = t;
-    app.timeline_view_time = t;
-    app.mode_wall_anchor = get_time();
-    app.reconcile_slide_progress_for(t);
+    app.seek_to(t);
 }

@@ -402,7 +402,10 @@ impl PlayerUiApp {
                 self.status = format!(
                     "lnmai-core ready · {} tactic events · {} slides",
                     self.pad.autoplay_tactic.len(),
-                    self.pad.judge_engine.as_ref().map_or(0, |engine| engine.slide_count())
+                    self.pad
+                        .judge_engine
+                        .as_ref()
+                        .map_or(0, |engine| engine.slide_count())
                 );
             }
             Err(error) => {
@@ -504,22 +507,12 @@ impl PlayerUiApp {
 
     /// Update the visible position while dragging (no audio restart).
     pub fn scrub_to(&mut self, t: f32) {
-        let t = t.clamp(0.0, self.song_duration());
-        self.pad.mode_song_offset = t;
-        self.pad.timeline_view_time = t;
-        self.pad.mode_wall_anchor = get_time();
-        if let Some(track) = self.pad.cue_track.as_mut() {
-            track.reset(t);
-        }
+        self.pad.scrub_to(t);
     }
 
     /// Commit a seek: reposition the clock and restart audio if playing.
     pub fn seek_to(&mut self, t: f32) {
-        let t = t.clamp(0.0, self.song_duration());
-        self.pad.seek_audio_to(t);
-        self.pad.mode_song_offset = t;
-        self.pad.timeline_view_time = t;
-        self.pad.mode_wall_anchor = get_time();
+        self.pad.seek_to(t);
     }
 
     pub fn seek_relative(&mut self, delta: f32) {
@@ -560,19 +553,16 @@ impl PlayerUiApp {
         self.pad.mode = crate::app::types::Mode::Idle;
         self.pad.playback_pending = false;
         self.pad.audio_start_pending = false;
-        self.pad.mode_song_offset = 0.0;
-        self.pad.mode_wall_anchor = get_time();
+        self.pad.pending_audio_start = false;
+        self.scrubbing = false;
+        self.pad.scrubbing = false;
+        // The core also ticks on non-gameplay pages at the paused clock.
+        // Reset through the same transaction instead of rewinding only the UI.
+        self.pad.seek_to(0.0);
         self.go(Page::SongSelect);
     }
 
     pub fn song_duration(&self) -> f32 {
-        self.pad
-            .audio_wav_pcm
-            .as_ref()
-            .map(|pcm| {
-                pcm.samples.len() as f32 / f32::from(pcm.channels.max(1)) / pcm.sample_rate as f32
-            })
-            .unwrap_or(1.0)
-            .max(1.0)
+        self.pad.song_duration()
     }
 }

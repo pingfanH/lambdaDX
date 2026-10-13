@@ -9,8 +9,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::app::types::zone::PadZone;
 use crate::core::types::{
-    ChartSpec, JudgeEventKind, JudgeGrade, OuterSlot, SensorArea, SlideChartNote,
-    SlideHeadChartNote, TimedInputEvent,
+    AutoplayPart, AutoplayPlan, ChartSpec, JudgeEventKind, JudgeGrade, OuterSlot, SensorArea,
+    SlideChartNote, SlideHeadChartNote, TimedInputEvent,
 };
 use crate::model::SlidePlan;
 use crate::player::engine::{
@@ -33,6 +33,7 @@ pub struct VerifyResult {
     /// Final grade per judged runtime arc.
     pub grades: BTreeMap<usize, JudgeGrade>,
     pub events: Vec<TimedInputEvent>,
+    pub plan: Option<AutoplayPlan>,
 }
 
 impl VerifyResult {
@@ -151,7 +152,11 @@ fn logical_timings(spec: &ChartSpec, timings: &[ArcTiming]) -> HashMap<u64, ArcT
 }
 
 /// Click + hold events for one slide head, shifted by `timing`.
-fn push_head_events(events: &mut Vec<TimedInputEvent>, head: &SlideHeadChartNote, timing: ArcTiming) {
+fn push_head_events(
+    events: &mut Vec<TimedInputEvent>,
+    head: &SlideHeadChartNote,
+    timing: ArcTiming,
+) {
     let area = slot_area(head.slot);
     let tp = head.timing + timing.offset_us;
     let hold = if timing.fast { FAST_STEP_US } else { 15_000 };
@@ -172,6 +177,15 @@ fn push_head_events(events: &mut Vec<TimedInputEvent>, head: &SlideHeadChartNote
 /// track is a separate branch (wifi slides have three); `track_offset_us`
 /// shifts a branch independently of the arc.
 fn push_body_events(events: &mut Vec<TimedInputEvent>, slide: &SlideChartNote, timing: ArcTiming) {
+    push_body_track_events(events, slide, timing, None);
+}
+
+fn push_body_track_events(
+    events: &mut Vec<TimedInputEvent>,
+    slide: &SlideChartNote,
+    timing: ArcTiming,
+    only_track: Option<usize>,
+) {
     let len = slide.length.max(1);
     let base = slide.start_timing + timing.offset_us;
     let judge = slide
@@ -179,6 +193,9 @@ fn push_body_events(events: &mut Vec<TimedInputEvent>, slide: &SlideChartNote, t
         .map(|j| j + timing.offset_us)
         .unwrap_or(base + len);
     for (ti, track) in slide.judge_queues.iter().enumerate() {
+        if only_track.is_some_and(|index| index != ti) {
+            continue;
+        }
         if timing.track_skip.get(ti).copied().unwrap_or(false) {
             continue;
         }
@@ -264,6 +281,102 @@ pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec
 /// [`build_events_with_offsets`] with every arc at its chart time.
 pub fn build_events_from_spec(spec: &ChartSpec) -> Vec<TimedInputEvent> {
     build_events_with_offsets(spec, &[])
+}
+
+/// Generate directly into owning parts; never infer provenance from event times.
+pub fn build_plan_with_offsets(
+    spec: &ChartSpec,
+    timings: &[ArcTiming],
+    template: &AutoplayPlan,
+) -> AutoplayPlan {
+    assert!(
+        timings
+            .iter()
+            .all(|t| !t.skip && !t.track_skip.iter().any(|s| *s)),
+        "cross-note skips require explicit dependencies and are not seek-safe"
+    );
+    let by_logical = logical_timings(spec, timings);
+    let mut plan = template.clone();
+    for group in &mut plan.groups {
+        let mut parts = Vec::new();
+        for part in &group.parts {
+            if part.role == 1 {
+                let head = spec
+                    .slide_heads
+                    .iter()
+                    .find(|h| h.note_index == part.runtime_note_index)
+                    .expect("head ownership");
+                let mut events = Vec::new();
+                push_head_events(
+                    &mut events,
+                    head,
+                    by_logical
+                        .get(&head.logical_slide_id)
+                        .copied()
+                        .unwrap_or_default(),
+                );
+                parts.push(AutoplayPart {
+                    events,
+                    ..part.clone()
+                });
+            } else if part.role == 2 {
+                let index = spec
+                    .slides
+                    .iter()
+                    .position(|s| s.note_index == part.runtime_note_index)
+                    .expect("body ownership");
+                let slide = &spec.slides[index];
+                for track in 0..slide.judge_queues.len().max(1) {
+                    let mut events = Vec::new();
+                    push_body_track_events(
+                        &mut events,
+                        slide,
+                        timings.get(index).copied().unwrap_or_default(),
+                        Some(track),
+                    );
+                    parts.push(AutoplayPart {
+                        events,
+                        track_index: Some(track as u64),
+                        ..part.clone()
+                    });
+                }
+            } else {
+                let mut events: Vec<_> = part
+                    .events
+                    .iter()
+                    .cloned()
+                    .map(engine::normalize_tactic_event)
+                    .collect();
+                // Ordinary taps/touches need an explicit short hold in a verbatim replay.
+                if events.len() == 1 {
+                    if let TimedInputEvent::SensorClick { tp, area } = events[0] {
+                        events.push(TimedInputEvent::SensorHold {
+                            tp,
+                            area,
+                            is_down: true,
+                        });
+                        events.push(TimedInputEvent::SensorHold {
+                            tp: tp + 15_000,
+                            area,
+                            is_down: false,
+                        });
+                    }
+                }
+                parts.push(AutoplayPart {
+                    events,
+                    ..part.clone()
+                });
+            }
+        }
+        group.parts = parts;
+    }
+    plan
+}
+
+pub fn verify_plan(text: &str, level: u32, plan: AutoplayPlan, end_s: f32) -> VerifyResult {
+    let mut result = verify(text, level, &plan.events(), end_s);
+    result.plan = Some(plan);
+    result
 }
 
 /// A time window (µs) occupied by a **non-ex** tap/hold. A slide A-ring press
@@ -433,6 +546,7 @@ pub fn verify(text: &str, level: u32, events: &[TimedInputEvent], end_s: f32) ->
         unjudged,
         grades,
         events: events.to_vec(),
+        plan: None,
     }
 }
 
@@ -440,4 +554,53 @@ pub fn verify(text: &str, level: u32, events: &[TimedInputEvent], end_s: f32) ->
 /// miss/too-fast.
 fn is_perfect_grade(g: JudgeGrade) -> bool {
     !g.is_miss_or_too_fast() && !g.is_great_grade() && !g.is_good_grade()
+}
+
+#[cfg(all(test, feature = "backend-lean", not(feature = "backend-rust")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_groups_cover_notes_tracks_and_roundtrip_cache() {
+        let source = "&title=Ownership\n&lv_6=1\n&inote_6=(120){4}1,2h[4:2],A1,C1h[4:2],1-3[4:1]-5[4:1],1w5[4:1],E\n";
+        let engine = JudgeEngine::load(source, 6).unwrap();
+        let spec = engine.chart_spec().unwrap();
+        let template = engine.autoplay_plan().unwrap();
+        let timings = vec![ArcTiming::default(); spec.slides.len()];
+        let plan = build_plan_with_offsets(&spec, &timings, &template);
+        plan.validate_for(&template).unwrap();
+        let cached: AutoplayPlan =
+            serde_json::from_str(&serde_json::to_string(&plan).unwrap()).unwrap();
+        assert_eq!(plan, cached);
+        assert_eq!(plan.events(), cached.events());
+        for slide in &spec.slides {
+            let group = plan.group_for_note(slide.note_index).unwrap();
+            let parts: Vec<_> = group
+                .parts
+                .iter()
+                .filter(|part| part.runtime_note_index == slide.note_index && part.role == 2)
+                .collect();
+            assert_eq!(parts.len(), slide.judge_queues.len().max(1));
+            for (track, part) in parts.iter().enumerate() {
+                assert_eq!(part.track_index, Some(track as u64));
+                assert!(!part.events.is_empty());
+                assert!(matches!(
+                    part.events.last(),
+                    Some(TimedInputEvent::SensorHold { is_down: false, .. })
+                ));
+            }
+            if let Some(parent) = slide.parent_note_index {
+                assert_eq!(group.id, plan.group_for_note(parent).unwrap().id);
+            }
+        }
+        for group in plan.groups.iter().filter(|group| group.kind < 4) {
+            assert!(group.parts.iter().any(|part| !part.events.is_empty()));
+        }
+        let mut wrong_chart = cached.clone();
+        wrong_chart.chart_fingerprint.push('x');
+        assert!(wrong_chart.validate_for(&template).is_err());
+        let mut missing = cached.clone();
+        missing.groups.pop();
+        assert!(missing.validate_for(&template).is_err());
+    }
 }

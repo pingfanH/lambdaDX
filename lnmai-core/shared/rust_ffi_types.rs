@@ -835,6 +835,165 @@ pub struct ManualTacticSequence {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AutoplayPart {
+    pub runtime_note_index: u64,
+    /// 0 = ordinary note, 1 = slide head, 2 = slide body.
+    pub role: u64,
+    pub track_index: Option<u64>,
+    pub events: Vec<TimedInputEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoplayGroup {
+    pub id: u64,
+    /// tap=0, hold=1, touch=2, touch-hold=3, slide chain=4.
+    pub kind: u64,
+    pub runtime_note_indices: Vec<u64>,
+    pub parts: Vec<AutoplayPart>,
+    #[serde(default)]
+    pub depends_on_group_ids: Vec<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoplayPlan {
+    pub version: u32,
+    #[serde(default)]
+    pub chart_fingerprint: String,
+    pub groups: Vec<AutoplayGroup>,
+}
+
+impl AutoplayPlan {
+    /// Stable cache identity, independent of Rust hash implementations.
+    pub fn fingerprint(source: &str, level: u32) -> String {
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in source.bytes().chain(level.to_le_bytes()) {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+        format!("fnv1a64:{hash:016x}")
+    }
+
+    pub fn validate_for(&self, original: &Self) -> Result<(), String> {
+        if self.version != 1 || self.chart_fingerprint != original.chart_fingerprint {
+            return Err("autoplay plan version/chart fingerprint mismatch".into());
+        }
+        let mut ids = std::collections::HashSet::new();
+        for group in &self.groups {
+            if !ids.insert(group.id) {
+                return Err("duplicate autoplay group ID".into());
+            }
+            let expected = original
+                .groups
+                .iter()
+                .find(|g| g.id == group.id)
+                .ok_or("unknown autoplay group ID")?;
+            let notes: std::collections::HashSet<_> = group.runtime_note_indices.iter().collect();
+            let expected_notes: std::collections::HashSet<_> =
+                expected.runtime_note_indices.iter().collect();
+            if group.kind != expected.kind || notes != expected_notes || group.parts.is_empty() {
+                return Err("autoplay group ownership mismatch".into());
+            }
+            for part in &group.parts {
+                if !expected
+                    .parts
+                    .iter()
+                    .any(|p| p.runtime_note_index == part.runtime_note_index && p.role == part.role)
+                {
+                    return Err("autoplay part ownership mismatch".into());
+                }
+            }
+            if expected
+                .runtime_note_indices
+                .iter()
+                .any(|id| !group.parts.iter().any(|p| p.runtime_note_index == *id))
+            {
+                return Err("incomplete autoplay group".into());
+            }
+        }
+        if self.groups.len() != original.groups.len()
+            || self
+                .groups
+                .iter()
+                .any(|g| g.depends_on_group_ids.iter().any(|id| !ids.contains(id)))
+        {
+            return Err("incomplete autoplay plan/dependency".into());
+        }
+        Ok(())
+    }
+    /// Stable chronological compilation: ties preserve group/part/event order.
+    pub fn events(&self) -> Vec<TimedInputEvent> {
+        let mut events: Vec<_> = self
+            .groups
+            .iter()
+            .flat_map(|g| &g.parts)
+            .flat_map(|p| p.events.iter().cloned())
+            .collect();
+        events.sort_by_key(|event| match event {
+            TimedInputEvent::ButtonClick { tp, .. }
+            | TimedInputEvent::ButtonHold { tp, .. }
+            | TimedInputEvent::SensorClick { tp, .. }
+            | TimedInputEvent::SensorHold { tp, .. } => *tp,
+        });
+        events
+    }
+
+    pub fn group_for_note(&self, note_index: u64) -> Option<&AutoplayGroup> {
+        self.groups
+            .iter()
+            .find(|g| g.id == note_index || g.runtime_note_indices.contains(&note_index))
+    }
+
+    pub fn retained(&self, note_indices: &[u64]) -> Self {
+        // Never trim a logical note partially or keep dangling release events.
+        let groups: Vec<_> = self
+            .groups
+            .iter()
+            .filter(|group| {
+                group
+                    .runtime_note_indices
+                    .iter()
+                    .all(|id| note_indices.contains(id))
+            })
+            .cloned()
+            .collect();
+        let mut plan = Self {
+            groups,
+            ..self.clone()
+        };
+        loop {
+            let ids: Vec<_> = plan.groups.iter().map(|g| g.id).collect();
+            let old_len = plan.groups.len();
+            plan.groups
+                .retain(|g| g.depends_on_group_ids.iter().all(|id| ids.contains(id)));
+            if old_len == plan.groups.len() {
+                break;
+            }
+        }
+        plan
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeekResult {
+    pub score: ScoreState,
+    pub current_time: TimePoint,
+    pub terminated: bool,
+    pub retained_note_indices: Vec<u64>,
+    pub skipped_note_indices: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeSlideBinding {
+    pub note_index: u64,
+    pub head_timing: TimePoint,
+    pub total_judge_queue_len: u64,
+    pub track_count: u64,
+    pub initial_queue_remaining: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FrameInput {
     pub button_clicked: Vec<bool>,
     pub button_held: Vec<bool>,
@@ -1242,18 +1401,36 @@ fn default_break_fast_late_display() -> JudgeDisplayOption {
 #[serde(rename_all = "camelCase")]
 pub struct JudgeEvent {
     pub kind: JudgeEventKind,
+    #[serde(default)]
+    pub phase: JudgePhase,
     pub grade: JudgeGrade,
     pub diff: Duration,
     pub position: RuntimePos,
     pub note_index: u64,
     #[serde(default)]
     pub is_break: bool,
+    #[serde(rename = "isEX", default)]
+    pub is_ex: bool,
     #[serde(default = "default_one_u64")]
     pub multiple: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum JudgePhase {
+    #[default]
+    Head,
+    Tail,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AudioCommand {
+    PlayTouchHoldBody {
+        #[serde(rename = "noteIndex")]
+        note_index: u64,
+        #[serde(rename = "atTime")]
+        at_time: TimePoint,
+    },
     #[serde(rename = "PlayJudgeSfx")]
     PlayJudgeSfx {
         kind: JudgeEventKind,
@@ -1344,6 +1521,8 @@ pub struct RuntimeStepLightResult {
     pub render_commands: Vec<RenderCommand>,
     pub score: ScoreState,
     pub current_time: TimePoint,
+    #[serde(default)]
+    pub terminated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -15,8 +15,7 @@ pub fn build() {
         .filter(|value| !value.is_empty())
     {
         Some(artifacts) => {
-            let lake_rsp_path =
-                PathBuf::from(artifacts).join("share/lnmai-core/ffi-link.rsp");
+            let lake_rsp_path = PathBuf::from(artifacts).join("share/lnmai-core/ffi-link.rsp");
             if !lake_rsp_path.exists() {
                 panic!(
                     "missing sanitized Nix-built Lean response file at {}; build lnmai-core .#ffi-artifacts first",
@@ -34,11 +33,12 @@ pub fn build() {
             run_lake_build(&lean_project);
             let lake_rsp_path = lean_project.join(".lake/build/bin/lnmai-core.rsp");
             println!("cargo:rerun-if-changed={}", lake_rsp_path.display());
-            let lake_rsp = fs::read_to_string(&lake_rsp_path)
-                .unwrap_or_else(|error| panic!(
+            let lake_rsp = fs::read_to_string(&lake_rsp_path).unwrap_or_else(|error| {
+                panic!(
                     "failed to read Lake link response file at {}: {error}",
                     lake_rsp_path.display()
-                ));
+                )
+            });
             parse_rsp(&lake_rsp)
         }
     };
@@ -47,7 +47,34 @@ pub fn build() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("missing OUT_DIR"));
     let linker_rsp_path = out_dir.join("lnmai-link.rsp");
-    let linker_rsp = build_link_rsp(&lake_args, &resolved);
+    let mut linker_rsp = build_link_rsp(&lake_args, &resolved);
+    let native_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("native");
+    let native_obj = out_dir.join("lnmai-native.o");
+    let lean_include = resolved
+        .lean_toolchain_lib_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("include");
+    for file in ["lnmai_native.c", "lnmai_native.h"] {
+        println!("cargo:rerun-if-changed={}", native_dir.join(file).display());
+    }
+    let status = Command::new("cc")
+        .arg("-std=c11")
+        .arg("-O2")
+        .arg("-fPIC")
+        .arg("-I")
+        .arg(lean_include)
+        .arg("-c")
+        .arg(native_dir.join("lnmai_native.c"))
+        .arg("-o")
+        .arg(&native_obj)
+        .status()
+        .expect("failed to compile native FFI bridge");
+    assert!(status.success(), "native FFI bridge compilation failed");
+    linker_rsp.push_str(&quote_arg(&native_obj.display().to_string()));
+    linker_rsp.push('\n');
     fs::write(&linker_rsp_path, linker_rsp.as_bytes()).expect("failed to write linker rsp");
 
     // Cargo does not forward `cargo:rustc-link-arg` emitted by a dependency's
@@ -55,7 +82,10 @@ pub fn build() {
     // has to re-emit it. Publish the response file at a stable path the root
     // build script can locate (see `build.rs` at the workspace root).
     if let Some(profile_dir) = out_dir.ancestors().nth(3) {
-        let _ = fs::write(profile_dir.join("lnmai-core-link.rsp"), linker_rsp.as_bytes());
+        let _ = fs::write(
+            profile_dir.join("lnmai-core-link.rsp"),
+            linker_rsp.as_bytes(),
+        );
     }
 
     if let Some(parent) = resolved.lean_toolchain_lib_dir.parent() {
@@ -131,6 +161,16 @@ fn workspace_root() -> PathBuf {
 }
 
 fn run_lake_build(lean_project: &Path) {
+    for file in [
+        "LnmaiCore/FFI.lean",
+        "LnmaiCore/RuntimeSeek.lean",
+        "LnmaiCore/AutoplayPlan.lean",
+    ] {
+        println!(
+            "cargo:rerun-if-changed={}",
+            lean_project.join(file).display()
+        );
+    }
     println!(
         "cargo:rerun-if-changed={}",
         lean_project.join("lakefile.toml").display()
@@ -158,8 +198,33 @@ fn run_lake_build(lean_project: &Path) {
         }
     }
 
+    // Lake's executable linker does not add Lean headers when a C source is
+    // supplied through moreLinkArgs. Resolve the project's selected toolchain.
+    let prefix = Command::new("lake")
+        .args(["env", "lean", "--print-prefix"])
+        .current_dir(lean_project)
+        .output()
+        .expect("failed to resolve Lean include directory");
+    assert!(prefix.status.success(), "Lean toolchain lookup failed");
+    let include = PathBuf::from(String::from_utf8(prefix.stdout).unwrap().trim()).join("include");
+    let mut includes = vec![include];
+    if cfg!(target_os = "macos") {
+        let resource = Command::new("xcrun")
+            .args(["clang", "-print-resource-dir"])
+            .output()
+            .expect("failed to resolve C standard headers");
+        assert!(resource.status.success(), "C header lookup failed");
+        includes.push(
+            PathBuf::from(String::from_utf8(resource.stdout).unwrap().trim()).join("include"),
+        );
+        includes.push(PathBuf::from(sdk_path()).join("usr/include"));
+    }
+    if let Some(existing) = env::var_os("CPATH") {
+        includes.extend(env::split_paths(&existing));
+    }
     let status = Command::new("lake")
         .args(["build", "lnmai-core", "+LnmaiCore.FFI:c.o"])
+        .env("CPATH", env::join_paths(includes).unwrap())
         .current_dir(lean_project)
         .status()
         .expect("failed to invoke `lake build`; install elan/lake or run through `nix develop`");
@@ -192,6 +257,12 @@ fn build_link_rsp(lake_args: &[String], resolved: &ResolvedLibraries) -> String 
     let mut saw_uv = false;
     while index < lake_args.len() {
         let arg = &lake_args[index];
+        // The standalone Lean executable compiles its copy of the C bridge.
+        // Rust links the object compiled above, never a duplicate C source.
+        if arg.ends_with("lnmai_native.c") {
+            index += 1;
+            continue;
+        }
 
         if arg == "-fuse-ld=lld" {
             index += 1;

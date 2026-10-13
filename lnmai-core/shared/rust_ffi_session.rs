@@ -57,7 +57,8 @@ pub struct Session<State> {
 
 impl<State> Session<State> {
     pub fn handle(&self) -> u64 {
-        self.handle.expect("session handle has already been consumed")
+        self.handle
+            .expect("session handle has already been consumed")
     }
 
     fn new(handle: u64) -> Self {
@@ -74,8 +75,18 @@ impl<State> Session<State> {
     }
 }
 
+impl<State> Drop for Session<State> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            let _ = crate::native::free(handle);
+        }
+    }
+}
+
 fn ffi_error(message: impl Into<String>) -> LnmaiError {
-    LnmaiError { json: message.into() }
+    LnmaiError {
+        json: message.into(),
+    }
 }
 
 fn into_string(result: *mut lean_sys::lean_object) -> Result<String> {
@@ -90,7 +101,9 @@ fn into_string(result: *mut lean_sys::lean_object) -> Result<String> {
         }
         let value_obj = lean_io_result_take_value(result);
         let ptr = lean_string_cstr(value_obj);
-        let value = CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned();
+        let value = CStr::from_ptr(ptr as *const i8)
+            .to_string_lossy()
+            .into_owned();
         lean_sys::lean_dec_ref(value_obj);
         Ok(value)
     }
@@ -144,6 +157,21 @@ pub unsafe fn initialize_runtime() -> std::result::Result<(), ()> {
 }
 
 impl Session<Empty> {
+    /// Create a session using ABI 3, without JSON transport.
+    pub fn create_native() -> Result<Self> {
+        ensure_runtime().map_err(|_| ffi_error("failed to initialize Lean runtime"))?;
+        Ok(Self::new(crate::native::create()?))
+    }
+
+    pub fn load_chart_text_native(
+        mut self,
+        content: &str,
+        level_index: u32,
+    ) -> Result<Session<Loaded>> {
+        crate::native::load(self.handle(), content, level_index)?;
+        let handle = self.take_handle();
+        Ok(Session::new(handle))
+    }
     pub fn create() -> Result<Self> {
         let json = unsafe { into_string(raw::lnmai_create_empty_session_handle())? };
         let envelope: types::FfiEnvelope<Value> =
@@ -159,18 +187,27 @@ impl Session<Empty> {
         Ok(Self::new(handle))
     }
 
-    pub fn load_chart_text(mut self, content: &str, level_index: u32) -> Result<(Session<Loaded>, FfiEnvelope)> {
+    pub fn load_chart_text(
+        mut self,
+        content: &str,
+        level_index: u32,
+    ) -> Result<(Session<Loaded>, FfiEnvelope)> {
         let handle = self.handle();
         let content_obj = mk_lean_string(content)?;
         // Exported Lean functions consume owned Lean object arguments.
-        let result = unsafe { raw::lnmai_load_chart_into_session_from_text(handle, content_obj, level_index) };
+        let result = unsafe {
+            raw::lnmai_load_chart_into_session_from_text(handle, content_obj, level_index)
+        };
         let json = into_string(result)?;
         let envelope = ok_or_error(json)?;
         let handle = self.take_handle();
         Ok((Session::new(handle), envelope))
     }
 
-    pub fn load_chart_json(mut self, chart_spec_json: &str) -> Result<(Session<Loaded>, FfiEnvelope)> {
+    pub fn load_chart_json(
+        mut self,
+        chart_spec_json: &str,
+    ) -> Result<(Session<Loaded>, FfiEnvelope)> {
         let handle = self.handle();
         let chart_obj = mk_lean_string(chart_spec_json)?;
         // Exported Lean functions consume owned Lean object arguments.
@@ -189,8 +226,31 @@ impl Session<Empty> {
 }
 
 impl Session<Loaded> {
+    pub fn step_native(
+        &mut self,
+        batch: &types::TimedInputBatch,
+    ) -> Result<types::RuntimeStepLightResult> {
+        crate::native::step(self.handle(), batch)
+    }
+
+    pub fn seek(&mut self, target_us: i64) -> Result<types::SeekResult> {
+        crate::native::seek(self.handle(), target_us)
+    }
+
+    pub fn autoplay_plan(&self) -> Result<types::AutoplayPlan> {
+        crate::native::plan(self.handle())
+    }
+
+    pub fn chart_spec_native(&self) -> Result<types::ChartSpec> {
+        crate::native::chart(self.handle())
+    }
+
+    pub fn slide_bindings_native(&self) -> Result<Vec<types::RuntimeSlideBinding>> {
+        crate::native::bindings(self.handle())
+    }
     pub fn get_lowered_chart_json(&self) -> Result<FfiEnvelope> {
-        let json = unsafe { into_string(raw::lnmai_get_lowered_chart_json_by_handle(self.handle()))? };
+        let json =
+            unsafe { into_string(raw::lnmai_get_lowered_chart_json_by_handle(self.handle()))? };
         ok_or_error(json)
     }
 

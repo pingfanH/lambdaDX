@@ -33,26 +33,17 @@ pub fn set_on(pad: &mut PadPreviewState, on: bool) {
 }
 
 pub fn tick(pad: &mut PadPreviewState) {
-    if !pad.autoplay || pad.playback_pending || !pad.has_engine() {
+    if !pad.autoplay
+        || pad.playback_pending
+        || pad.audio_start_pending
+        || pad.scrubbing
+        || !pad.has_engine()
+        || (pad.mode != Mode::Playing && pad.forced_time.is_none())
+    {
         return;
     }
 
     let now = (pad.song_time().max(0.0) * 1e6) as i64;
-    if pad.autoplay_tactic_cursor > 0
-        && pad
-            .autoplay_tactic
-            .get(pad.autoplay_tactic_cursor - 1)
-            .is_some_and(|event| crate::player::engine::timed_input_tp(event) > now + 20_000)
-    {
-        pad.autoplay_tactic_cursor = pad
-            .autoplay_tactic
-            .iter()
-            .position(|event| crate::player::engine::timed_input_tp(event) >= now)
-            .unwrap_or(pad.autoplay_tactic.len());
-        flush_holds(pad);
-        release_touches(pad);
-    }
-
     let mut due = Vec::new();
     while let Some(event) = pad.autoplay_tactic.get(pad.autoplay_tactic_cursor).cloned() {
         if crate::player::engine::timed_input_tp(&event) > now {
@@ -86,13 +77,12 @@ pub fn tick(pad: &mut PadPreviewState) {
     }
 }
 
-/// Send an autoplay event to the judgment backend. While scrubbing the timeline
-/// the pad "sensor zones" are skipped (no visuals/feedback) — the event is
-/// routed straight to the backend so the core stays in sync with the timestamp.
+/// Send an autoplay event to the backend, never during preview scrubs.
 fn feed(pad: &mut PadPreviewState, event: TimedInputEvent) {
-    if !pad.scrubbing {
-        mirror_visual(pad, &event);
+    if pad.scrubbing {
+        return;
     }
+    mirror_visual(pad, &event);
     pad.engine_events.push(event);
 }
 
@@ -386,13 +376,10 @@ mod tests {
         assert_eq!(first.len(), 2);
         assert!(click_held.is_empty());
         assert_eq!(explicit_held, vec![SensorArea::A1]);
-        assert!(preprocess_tactic_frame_with_holds(
-            &mut click_held,
-            &mut explicit_held,
-            120,
-            [],
-        )
-        .is_empty());
+        assert!(
+            preprocess_tactic_frame_with_holds(&mut click_held, &mut explicit_held, 120, [],)
+                .is_empty()
+        );
     }
 
     #[test]

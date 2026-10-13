@@ -169,7 +169,10 @@ async fn run() {
         }
 
         let current_time = player_time(&app);
-        if matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) {
+        if matches!(
+            app.mode,
+            app::types::Mode::Playing | app::types::Mode::Recording
+        ) {
             runtime::follow_playhead(&mut editor, current_time);
         }
 
@@ -208,11 +211,17 @@ async fn run() {
         };
 
         // A timeline / overview scrub seeks the shared player clock.
-        if let Some(t) = editor.pending_seek.take() {
+        let pending_seek = editor.pending_seek.take();
+        if let Some(t) = pending_seek {
             let t = t.max(0.0);
-            app.timeline_view_time = t;
-            app.mode_song_offset = t;
-            app.mode_wall_anchor = get_time();
+            if editor.scrubbing {
+                app.scrub_to(t);
+            } else {
+                app.seek_to(t);
+            }
+        }
+        if app.scrubbing && !editor.scrubbing && pending_seek.is_none() {
+            app.seek_to(app.timeline_view_time);
         }
 
         app::viewport::set(0.0, 0.0, 1.0);
@@ -249,8 +258,9 @@ async fn run() {
                     .filter(|e| e.phase == macroquad::prelude::TouchPhase::Started)
                     .find_map(|e| {
                         svg.and_then(|s| {
-                            s.hit_test(e.position, &pad)
-                                .or_else(|| s.hit_test_range(e.position, &pad, 0.0).into_iter().next())
+                            s.hit_test(e.position, &pad).or_else(|| {
+                                s.hit_test_range(e.position, &pad, 0.0).into_iter().next()
+                            })
                         })
                     })
             };
