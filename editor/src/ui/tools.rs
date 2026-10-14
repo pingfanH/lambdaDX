@@ -7,9 +7,7 @@
 use egui_macroquad::egui;
 
 use crate::state::{EditorState, Tool};
-use crate::theme::{
-    BG_ACTIVE, BG_TOOLS_PANEL, BG_WIDGET, SEPARATOR, TEXT, TEXT_ON_ACTIVE,
-};
+use crate::theme::{BG_ACTIVE, BG_TOOLS_PANEL, BG_WIDGET, SEPARATOR, TEXT, TEXT_ON_ACTIVE};
 
 /// Panel width (design 38).
 pub const PANEL_W: f32 = 38.0;
@@ -50,18 +48,19 @@ fn shortcut(tool: Tool) -> (egui::Key, &'static str) {
 }
 
 /// Plain-key tool shortcuts. Skipped while a text field has focus and whenever
-/// Ctrl/Cmd is held (those are the cmd shortcuts).
+/// any modifier is held (modified keys belong to other commands).
 pub fn handle_shortcuts(ui: &egui::Ui, editor: &mut EditorState) {
     if ui.ctx().wants_keyboard_input() {
         return;
     }
-    if ui.input(|i| i.modifiers.command) {
+    if ui.input(|i| i.modifiers.any()) {
         return;
     }
     for tool in Tool::ALL {
         let (key, _) = shortcut(tool);
         if ui.input(|i| i.key_pressed(key)) {
             editor.tool = tool;
+            editor.star_placement = None;
         }
     }
 }
@@ -69,7 +68,12 @@ pub fn handle_shortcuts(ui: &egui::Ui, editor: &mut EditorState) {
 /// Draw the floating palette into `rect` (computed by the layout from the
 /// design offsets). Returns `true` if the pointer is over the panel, so the
 /// caller can suppress timeline interaction under it.
-pub fn draw(ui: &mut egui::Ui, rect: egui::Rect, editor: &mut EditorState) -> bool {
+pub fn draw(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    editor: &mut EditorState,
+    textures: &[Option<egui::TextureHandle>],
+) -> bool {
     let radius = egui::CornerRadius::same(4);
     {
         let painter = ui.painter();
@@ -85,13 +89,16 @@ pub fn draw(ui: &mut egui::Ui, rect: egui::Rect, editor: &mut EditorState) -> bo
     }
 
     let mut y = rect.top() + INSET;
-    let mut hovered = false;
+    let hovered = ui.input(|i| i.pointer.hover_pos().is_some_and(|p| rect.contains(p)));
     for (i, tool) in Tool::ALL.iter().enumerate() {
         let btn = egui::Rect::from_min_size(
             egui::pos2(rect.left() + INSET, y),
             egui::vec2(BUTTON, BUTTON),
         );
-        hovered |= tool_button(ui, btn, *tool, editor.tool == *tool);
+        if tool_button(ui, btn, *tool, editor.tool == *tool, textures) {
+            editor.tool = *tool;
+            editor.star_placement = None;
+        }
         y += STEP;
         if SEPARATORS.contains(&i) && i + 1 < Tool::ALL.len() {
             y += SEP_EXTRA;
@@ -109,8 +116,18 @@ pub fn draw(ui: &mut egui::Ui, rect: egui::Rect, editor: &mut EditorState) -> bo
 }
 
 /// A square tool button with a vector icon. Returns whether it was clicked.
-fn tool_button(ui: &mut egui::Ui, rect: egui::Rect, tool: Tool, active: bool) -> bool {
-    let response = ui.interact(rect, ui.id().with(("tool", tool as u8)), egui::Sense::click());
+fn tool_button(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    tool: Tool,
+    active: bool,
+    textures: &[Option<egui::TextureHandle>],
+) -> bool {
+    let response = ui.interact(
+        rect,
+        ui.id().with(("tool", tool as u8)),
+        egui::Sense::click(),
+    );
     let radius = egui::CornerRadius::same(3);
     let fill = if active { BG_ACTIVE } else { BG_WIDGET };
     ui.painter().rect_filled(rect, radius, fill);
@@ -121,7 +138,25 @@ fn tool_button(ui: &mut egui::Ui, rect: egui::Rect, tool: Tool, active: bool) ->
             egui::Color32::from_rgba_premultiplied(255, 255, 255, 14),
         );
     }
-    draw_icon(ui.painter(), rect.center(), tool, active);
+    let texture = match tool {
+        Tool::Tap => textures[0].as_ref(),
+        Tool::Hold => textures[1].as_ref(),
+        Tool::Slide => textures[2].as_ref(),
+        _ => None,
+    };
+    if let Some(texture) = texture {
+        let natural = texture.size_vec2();
+        let factor = (22.0 / natural.x).min(22.0 / natural.y);
+        let image_rect = egui::Rect::from_center_size(rect.center(), natural * factor);
+        ui.painter().image(
+            texture.id(),
+            image_rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        draw_icon(ui.painter(), rect.center(), tool, active);
+    }
     let (_, key) = shortcut(tool);
     response
         .on_hover_text(format!("{} ({key})", tool.label()))
@@ -215,6 +250,61 @@ fn draw_icon(painter: &egui::Painter, c: egui::Pos2, tool: Tool, active: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clicking_each_palette_button_selects_tool_and_preserves_selection() {
+        let ctx = egui::Context::default();
+        let mut editor = EditorState::default();
+        editor.selected.insert(42);
+        let panel = egui::Rect::from_min_size(
+            egui::pos2(20.0, 40.0),
+            egui::vec2(PANEL_W, panel_height(Tool::ALL.len())),
+        );
+        let mut time = 0.0;
+        let mut y = panel.top() + INSET + BUTTON * 0.5;
+        for (i, tool) in Tool::ALL.iter().enumerate() {
+            let position = egui::pos2(panel.center().x, y);
+            for pressed in [None, Some(true), Some(false)] {
+                time += 0.1;
+                let mut events = vec![egui::Event::PointerMoved(position)];
+                if let Some(pressed) = pressed {
+                    events.push(egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+                let _ = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(800.0, 600.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui.interact(
+                                ui.max_rect(),
+                                ui.id().with("timeline"),
+                                egui::Sense::click_and_drag(),
+                            );
+                            assert!(draw(ui, panel, &mut editor, &[None, None, None]));
+                        });
+                    },
+                );
+            }
+            assert_eq!(editor.tool, *tool);
+            assert_eq!(editor.selected, [42].into_iter().collect());
+            y += STEP;
+            if SEPARATORS.contains(&i) {
+                y += SEP_EXTRA;
+            }
+        }
+    }
 
     #[test]
     fn panel_height_matches_the_design() {

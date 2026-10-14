@@ -41,14 +41,11 @@ pub fn draw(
     };
 
     // Sub-slide order within the note (multi-slide / chained slides).
-    let subs: Box<dyn Iterator<Item = (usize, &crate::app::types::Slide)>> =
-        if params::slide_sub_reverse() {
-            Box::new(note.slide.iter().enumerate().rev())
-        } else {
-            Box::new(note.slide.iter().enumerate())
-        };
+    let subs = preview_subslides(note, app.edit_solo_slide, params::slide_sub_reverse());
 
     for (si, sl) in subs {
+        let rendered = slide_render::render_slide_legs(sl);
+        let sl = rendered.as_ref();
         let slide_dur_s =
             mdur_to_secs(sl.slide_duration, note.time, bpms).max(SLIDE_MIN_DURATION_S);
         let fade_in_s = mdur_to_secs(sl.slide_start_delay, note.time, bpms)
@@ -93,7 +90,7 @@ pub fn draw(
         // Trail consumption is driven by lnmai-core's render commands, mapped
         // per runtime arc into the sub-slide's segment ranges and stored in
         // `slide_progress`. Without an engine the trail is fully drawn.
-        let core_driven = app.use_core();
+        let core_driven = app.use_core() && app.edit_solo_slide.is_none();
         let progress = if core_driven {
             app.slide_progress.get(&(note.id, si))
         } else {
@@ -143,7 +140,7 @@ pub fn draw(
             continue;
         }
 
-        // A continuous `>`/`<` chain is one sub-slide with several segments. Draw
+        // A continuous chain is one sub-slide with several drawable legs. Draw
         // its trail **per arc** so the arcs are separated by the head/tail gap
         // (one seamless ribbon otherwise). The star layer is untouched: it still
         // draws a single star over the whole chain.
@@ -186,7 +183,7 @@ pub fn draw(
                         spawn_cx,
                         outer_r,
                         &seg_tex,
-                        app.edit_solo_note.is_some(),
+                        app.edit_solo_slide.is_some(),
                         t.speed_scale,
                         app.note_speed,
                         params::slide_fade_in(),
@@ -223,7 +220,7 @@ pub fn draw(
                 spawn_cx,
                 outer_r,
                 &tex,
-                app.edit_solo_note.is_some(),
+                app.edit_solo_slide.is_some(),
                 t.speed_scale,
                 app.note_speed,
                 params::slide_fade_in(),
@@ -239,6 +236,22 @@ pub fn draw(
         } else {
             draw_slide();
         }
+    }
+}
+
+fn preview_subslides(
+    note: &Note,
+    solo: Option<(u64, usize)>,
+    reverse: bool,
+) -> Box<dyn Iterator<Item = (usize, &Slide)> + '_> {
+    let selected = solo.map(|(id, index)| (id, index.min(note.slide.len().saturating_sub(1))));
+    let subs = note.slide.iter().enumerate().filter(move |(index, _)| {
+        selected.is_none_or(|(id, selected_index)| id == note.id && *index == selected_index)
+    });
+    if reverse {
+        Box::new(subs.rev())
+    } else {
+        Box::new(subs)
     }
 }
 
@@ -277,7 +290,7 @@ fn hidden_bars_for_star(seg: &SlideSegmentation, star_dist: f32) -> usize {
 /// Drawn as its own pass (not inside [`draw`]) so an overlay still shows after
 /// lnmai-core has already hidden the trail/star it belongs to.
 pub fn draw_just_overlays(app: &PadPreviewState, pad: &PadGeom, scale: f32, spawn_cx: Vec2) {
-    if app.slide_judge.is_empty() || params::hide_slide_just() {
+    if app.edit_solo_slide.is_some() || app.slide_judge.is_empty() || params::hide_slide_just() {
         return;
     }
     let Some(ref svg) = app.pad_svg else {
@@ -425,6 +438,77 @@ mod tests {
     use crate::app::slide::segmentation::{SlideBar, SlideJudgeSegment, SlideSegmentation};
     use crate::app::types::zone::PadZone;
     use macroquad::math::vec2;
+
+    #[test]
+    fn editor_freeform_trail_uses_same_bars_as_standalone_first_leg() {
+        use crate::app::{pad_svg::PadSvgDef, slide_render};
+        use crate::app::types::{Note, PadGeom, Slide, SlidePoint, SlideSegment, SlideShape};
+        let note = Note { lane: 1, ..Default::default() };
+        let single = Slide {
+            segments: vec![SlideSegment { shape: SlideShape::Line, points: vec![SlidePoint::from(PadZone::A5)] }],
+            slide_duration: 1.0, slide_start_delay: 0.25, slide_is_break: false, runtime_parts: 1,
+        };
+        let mut chain = single.clone();
+        chain.segments[0].points.push(SlidePoint::from(PadZone::A8));
+        let rendered = slide_render::render_slide_legs(&chain);
+        assert_eq!(rendered.segments.len(), 2, "draw must enter the per-leg trail branch");
+        let first = Slide { segments: vec![rendered.segments[0].clone()], ..single.clone() };
+        let svg = PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg")).unwrap();
+        for radius in [100.0, 300.0, 480.0] {
+            let pad = PadGeom { cx: 400.0, cy: 400.0, outer_r: radius };
+            let path = |slide| slide_render::build_slide_path(&note, slide, &pad, &svg, 1.0, vec2(pad.cx, pad.cy), radius);
+            let bars = |slide| crate::app::slide::segmentation::build(&path(slide), 16.0, 12.0, 12.0, &svg, &pad);
+            let a = bars(&single);
+            let b = bars(&first);
+            assert_eq!(a.bars.len(), b.bars.len());
+            assert_eq!(a.judge_segments, b.judge_segments);
+            for (a, b) in a.bars.iter().zip(&b.bars) {
+                assert_eq!(a.position, b.position);
+                assert_eq!(a.rotation, b.rotation);
+                assert_eq!(a.distance_along, b.distance_along);
+            }
+        }
+        assert_eq!(chain.segments.len(), 1);
+        assert_eq!(chain.segments[0].points.len(), 2);
+    }
+
+    #[test]
+    fn editor_preview_isolates_the_selected_same_head_slide() {
+        use super::preview_subslides;
+        use crate::app::types::{Note, NoteType, Slide};
+
+        let slide = Slide {
+            segments: Vec::new(),
+            slide_duration: 1.0,
+            slide_start_delay: 0.25,
+            slide_is_break: false,
+            runtime_parts: 1,
+        };
+        let mut note = Note {
+            id: 42,
+            note_type: NoteType::Slide,
+            slide: vec![slide.clone(), slide.clone(), slide],
+            ..Default::default()
+        };
+        let indices = |note: &Note, solo, reverse| {
+            preview_subslides(note, solo, reverse)
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>()
+        };
+        for reverse in [false, true] {
+            for index in 0..3 {
+                assert_eq!(indices(&note, Some((42, index)), reverse), vec![index]);
+            }
+            assert!(indices(&note, Some((99, 1)), reverse).is_empty());
+        }
+        assert_eq!(indices(&note, None, false), vec![0, 1, 2]);
+        assert_eq!(indices(&note, None, true), vec![2, 1, 0]);
+        // Deleting a sibling clamps the selection just like the editor's edits.
+        note.slide.pop();
+        assert_eq!(indices(&note, Some((42, 2)), false), vec![1]);
+        note.slide.clear();
+        assert!(indices(&note, Some((42, 2)), false).is_empty());
+    }
 
     fn sample_segmentation() -> SlideSegmentation {
         let bars = (0..10)

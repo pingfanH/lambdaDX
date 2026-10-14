@@ -22,7 +22,9 @@
       移植版 `app/` 目前**没有** Simai writer,需新写,工作量较大。
 - [x] **撤销 / 重做入口** — `⌘/Ctrl+Z` 撤销、`⌘/Ctrl+Shift+Z` 或 `⌘/Ctrl+Y` 重做。
       `editor/src/timeline/input.rs::handle_edit_shortcuts`。
-- [x] **多选 + 框选(橡皮筋)** — Shift+点选切换、空白拖拽框选;`Shift` 保留旧选区。
+- [x] **多选 + 框选(橡皮筋)** — Shift+点选/框选追加,Cmd/Ctrl+点选切换/框选减选;
+      Cmd/Ctrl+A 全选,Shift+Cmd/Ctrl+A 清空,Esc 清选区并切回选择工具。
+      框选缩小会更新选区,起点锚定谱面时间;拖动已选音符保留整组选区与相对间距。
       `editor/src/timeline/input.rs`(两种布局)、`geometry.rs::paint_marquee`。
 - [x] **复制 / 粘贴 / 剪贴板** — `⌘/Ctrl+C` 复制、`⌘/Ctrl+X` 剪切、`⌘/Ctrl+V`
       在播放头处粘贴(保留相对时间与 lane)。`editor/src/edit_ops.rs::copy_selection/paste_at`。
@@ -51,9 +53,10 @@
       (`editing_slide_idx` 指定子 slide);形状键 `Q/P/S/Z/V/W`(⇧=QQ/PP,
       `,`/`.`/`;`=</>/^,`-`=line)+ `1–8` 追加一个新 segment
       (含 V 过中心、`validate_slide_shape` 校验);`⌫` 撤最后一个航点(空段丢弃);
-      `Esc` 退出。延时点/头尾拖拽、双击星头追加子 slide 未做。
+      `Esc` 退出。已有头部移动、延时点/尾端拖拽;星头点击仅选择,E 进入轨迹编辑;
+      Inspector 可切换/新增/删除子 slide,延时/时长仅作用于当前轨迹,支持撤销重做。
       `editor/src/edit_ops.rs::{append_slide_waypoint,pop_slide_waypoint,apply_slide_shape}`、
-      `editor/src/timeline/input.rs::{handle_edit_shortcuts,slide_trail_at}`
+      `editor/src/timeline/input.rs::{handle_edit_shortcuts,slide_trail_at_pointer}`
       (原版 `input.rs:243/291/680/1155/1381`)。
 - [ ] **形状自动匹配与生成** — Line/VShape 匹配、形状→航点、形状合法性校验。
       原版 `slide_match.rs:37`,`simai_io.rs:781`,`types.rs:204`。
@@ -61,10 +64,20 @@
       版本传播、面包屑、场景抽屉、模板音符保护。原版 `template.rs` 全文件,
       `egui_ui/mod.rs:1203`。
 - [ ] **隐藏 / 取消隐藏** — H / Shift+H,隐藏音符 30% 透明。原版 `input.rs:66`。
-- [ ] **Hold / Slide 时长拖拽** — 头/身/尾分段拖拽改时长。原版 `input.rs:1697`。
-- [ ] **Grab(G)/ Scale(S)模式** — 整体抓取/缩放 + 方向键微调。
+- [~] **Hold / Slide 时长拖拽** — 已有头部移动、Hold/TouchHold 尾端、Slide 延时/尾端
+      手柄(吸附、单步撤销、子滑条独立编辑,`timeline/handles.rs`);身体分段拖拽待做。
+      原版 `input.rs:1697`。
+- [x] **Grab(G)/ Scale(S)/ Rotate(R)模式** — G 跟随鼠标整体移动,S 仅缩放时间,R 旋转轨道及路径;
+      三种模式均支持滚轮,以原始选区计算避免累计误差;
+      Enter/时间轴点击确认,Esc 恢复原状,确认一次仅产生一条撤销记录。
+      普通方向键沿布局的时间/轨道轴微调;Slide 保留各自轨迹,Touch 保持感应区环。
+      单选 Slide 的 E 切换轨迹编辑,D/Delete 删除;无对应选区时保留 G/S/E 工具键。
       原版 `input.rs:1525/1550/1650`。
-- [ ] **右键删除** — 时间轴最近音符。原版 `input.rs:1119`。
+- [x] **星星分阶段放置** — 点击头部后预览延时虚线,第二次确认启动拍后显示 slide 部分,
+      第三次确认尾端才写入谱面,一次撤销可恢复;Esc 或切换工具取消待放置状态。
+- [x] **选择与网格一致性** — 工具栏选择实际生效,Tap/Hold/Star 使用贴图,放置工具仍可框选;
+      音符尺寸命中及蓝框,重叠择最近中心;细分选择器同时驱动网格、放置与拖动吸附。
+- [x] **右键删除** — 时间轴最近音符。原版 `input.rs:1119`。
 
 ## P2 — 体验完善
 
@@ -72,7 +85,8 @@
       原版 `input.rs:979`,`draw_timeline.rs:1784`。现仅 overview 擦洗。
 - [ ] **播放到底自动循环** — 原版 `state.rs:731`。
 - [ ] **中键拖动平移时间轴** — 原版 `input.rs:913`。
-- [ ] **框选到边缘自动滚动** — 原版 `input.rs:922`;选择锚定时间随滚动保持 `state.rs:57`。
+- [x] **框选到边缘自动滚动** — 横向平移/纵向 seek,选择起点锚定谱面时间。
+      原版 `input.rs:922`;`state.rs:57`。
 - [ ] **频谱 / 节拍可视化** — 原版 FFT 低频节拍条 `draw_timeline.rs:152`;
       移植版仅波形金字塔。
 - [ ] **波形阈值 `[`/`]` 调整** — 原版 `input.rs:553`。

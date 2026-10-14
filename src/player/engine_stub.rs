@@ -14,6 +14,16 @@ use crate::player::state::PadPreviewState;
 pub struct JudgeEngine;
 
 impl JudgeEngine {
+    pub fn bind_editor_chart(
+        &mut self,
+        _note_ids: std::collections::HashMap<u64, u64>,
+        _slides: std::collections::HashMap<u64, (u64, usize, usize, usize)>,
+    ) -> Result<(), String> {
+        Err("backend disabled".into())
+    }
+    pub fn slide_position(&self, chart: &ChartDoc, runtime: usize) -> Option<(u64, usize, usize, usize)> {
+        chart_slide_position(chart, runtime)
+    }
     pub fn load(_simai_text: &str, _level_index: u32) -> Result<Self, String> {
         Err("lnmai-core backend disabled (backend-none)".to_string())
     }

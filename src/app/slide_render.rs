@@ -363,6 +363,30 @@ pub fn segment_key(seg: &crate::app::types::SlideSegment, start: u8) -> Option<s
     slide_svg::prefab_key(seg.shape, start, end, turn)
 }
 
+/// Expand editor free-form ring lines into drawable legs without changing
+/// chart data. Each leg must sample tiles independently of later waypoints.
+pub fn render_slide_legs(slide: &Slide) -> std::borrow::Cow<'_, Slide> {
+    let split = |seg: &crate::app::types::SlideSegment| {
+        seg.shape == SlideShape::Line && seg.points.len() > 1
+            && seg.points.iter().all(|p| (1..=8).contains(&p.zone.to_id()))
+    };
+    if !slide.segments.iter().any(split) {
+        return std::borrow::Cow::Borrowed(slide);
+    }
+    let mut rendered = slide.clone();
+    rendered.segments.clear();
+    for segment in &slide.segments {
+        if split(segment) {
+            rendered.segments.extend(segment.points.iter().map(|point| crate::app::types::SlideSegment {
+                shape: SlideShape::Line, points: vec![point.clone()],
+            }));
+        } else {
+            rendered.segments.push(segment.clone());
+        }
+    }
+    std::borrow::Cow::Owned(rendered)
+}
+
 /// Build the slide curve from the baked prefab polylines (one per segment).
 ///
 /// Returns `None` when any segment has no prefab (wifi, off-ring zones, or an
@@ -384,6 +408,8 @@ pub fn prefab_slide_path_bounded(
     spawn_cx: Vec2,
     outer_r: f32,
 ) -> Option<(Vec<Vec2>, Vec<usize>)> {
+    let rendered = render_slide_legs(slide);
+    let slide = rendered.as_ref();
     // Wifi keeps its dedicated three-track renderer.
     if slide
         .segments
@@ -395,9 +421,11 @@ pub fn prefab_slide_path_bounded(
     // Chains: the prefab type is derived per arc, but the reference's
     // upper/lower-half mirror rule mis-maps arcs that cross the half (e.g.
     // `3>4` → a 304° mirrored `circle8`). The procedural builder already joins
-    // chained arcs smoothly, so only single-segment slides use the prefab
-    // geometry here.
-    if slide.segments.len() > 1 {
+    // chained arcs smoothly. Straight chains have no mirror ambiguity and
+    // must reuse exactly the same samples as their standalone segments.
+    if slide.segments.len() > 1
+        && slide.segments.iter().any(|s| s.shape != SlideShape::Line)
+    {
         return None;
     }
     // The prefab only encodes a start/end (plus one turn vertex for `v`), so a
@@ -405,7 +433,9 @@ pub fn prefab_slide_path_bounded(
     // builds) must use the procedural builder instead — otherwise the middle
     // points are silently dropped and the path collapses to start→new-end.
     if slide.segments.iter().any(|s| match s.shape {
-        SlideShape::VShape => s.points.len() > 2,
+        SlideShape::VShape => {
+            s.points.len() != 2 || s.points.first().map(|p| p.zone.to_id()) != Some(17)
+        }
         _ => s.points.len() > 1,
     }) {
         return None;
@@ -440,7 +470,22 @@ pub fn prefab_slide_path_bounded(
         }
         bounds.push(out.len());
         let placed = slide_svg::place(def, start, key.mirror, spawn_cx, unit);
+        // Rounded prefab coordinates can bend a nominally straight path.
+        // Keep its samples collinear with the same exact endpoints as chains.
+        let line = if seg.shape == SlideShape::Line {
+            ring_point(start, spawn_cx, outer_r).zip(
+                seg.points.last().and_then(|p| ring_point(p.zone.to_id(), spawn_cx, outer_r)),
+            ).filter(|(a, b)| a.distance_squared(*b) > 1e-6)
+        } else {
+            None
+        };
         for p in placed.points {
+            let p = if let Some((a, b)) = line {
+                let delta = b - a;
+                a + delta * ((p - a).dot(delta) / delta.length_squared()).clamp(0.0, 1.0)
+            } else {
+                p
+            };
             push(&mut out, p);
         }
         if let Some(end) = seg.points.last().and_then(|p| ring_point(p.zone.to_id(), spawn_cx, outer_r)) {
@@ -460,6 +505,22 @@ fn ring_point(lane: u8, spawn_cx: Vec2, outer_r: f32) -> Option<Vec2> {
     let ang = -std::f32::consts::FRAC_PI_2 + PAD_ROTATION_RAD + idx * std::f32::consts::TAU / 8.0;
     let r = outer_r + params::tap_target_offset();
     Some(spawn_cx + vec2(ang.cos(), ang.sin()) * r)
+}
+
+fn render_prefab_path(
+    note: &Note,
+    slide: &Slide,
+    spawn_cx: Vec2,
+    outer_r: f32,
+    chain_arc: bool,
+) -> Option<(Vec<Vec2>, Vec<usize>)> {
+    // Curved chain arcs retain their procedural mirror handling. A straight
+    // arc must not change its geometry just because it belongs to a chain.
+    if chain_arc && slide.segments.iter().any(|s| s.shape != SlideShape::Line) {
+        None
+    } else {
+        prefab_slide_path_bounded(note, slide, spawn_cx, outer_r)
+    }
 }
 
 /// Screen-space start point of a slide path: the outer tap ring for A zones,
@@ -649,14 +710,12 @@ pub fn draw_slide(
         .segments
         .iter()
         .any(|s| matches!(s.shape, SlideShape::Wifi));
-    // A chained slide's per-arc trail is rendered from 1-segment dummy slides;
-    // keep those on the procedural path so the per-arc core hiding (which is
-    // keyed to the original geometry) stays correct. Only whole sub-slides use
-    // the baked prefab curve.
-    let prefab_built = if is_wifi || chain_arc {
+    // Use the same straight-segment geometry for standalone and chained
+    // trails; curved chain arcs retain their procedural mirror handling.
+    let prefab_built = if is_wifi {
         None
     } else {
-        prefab_slide_path_bounded(note, slide, spawn_cx, outer_r)
+        render_prefab_path(note, slide, spawn_cx, outer_r, chain_arc)
     };
     let (path, seg_boundaries): (Vec<Vec2>, Vec<usize>) = if let Some(built) = prefab_built {
         built
@@ -1065,22 +1124,7 @@ pub fn draw_slide(
     };
 
     // ── point_at helper ──
-    let point_at = |d: f32| -> (Vec2, f32) {
-        let mut acc = 0.0;
-        for (i, w) in path.windows(2).enumerate() {
-            let len = seg_lens[i];
-            if d <= acc + len {
-                let local = (d - acc) / len;
-                let p = w[0] + (w[1] - w[0]) * local;
-                let dir = (w[1] - w[0]).normalize_or_zero();
-                return (p, dir.y.atan2(dir.x));
-            }
-            acc += len;
-        }
-        let last = path.windows(2).last().unwrap();
-        let dir = (last[1] - last[0]).normalize_or_zero();
-        (*path.last().unwrap(), dir.y.atan2(dir.x))
-    };
+    let point_at = |d: f32| point_at_distance(&path, &seg_lens, d);
 
     // ── Path tiles ──
     let (tw, th) = if let Some(t) = tex.trail {
@@ -1481,6 +1525,23 @@ fn area_bar_boundary(bars: usize, areas: usize, passed: usize) -> usize {
     acc.min(bars)
 }
 
+fn point_at_distance(path: &[Vec2], seg_lens: &[f32], d: f32) -> (Vec2, f32) {
+    let mut acc = 0.0;
+    for (i, w) in path.windows(2).enumerate() {
+        let len = seg_lens[i];
+        if d <= acc + len {
+            let local = (d - acc) / len;
+            let p = w[0] + (w[1] - w[0]) * local;
+            let dir = (w[1] - w[0]).normalize_or_zero();
+            return (p, dir.y.atan2(dir.x));
+        }
+        acc += len;
+    }
+    let last = path.windows(2).last().unwrap();
+    let dir = (last[1] - last[0]).normalize_or_zero();
+    (*path.last().unwrap(), dir.y.atan2(dir.x))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1508,6 +1569,115 @@ mod tests {
         (note, slide)
     }
 
+    #[test]
+    fn conslide_shared_line_keeps_star_position_and_heading() {
+        assert_shared_line(1, 5, 8, 300.0);
+    }
+
+    #[test]
+    fn conslide_shared_line_uses_identical_render_samples_and_bars() {
+        let svg = PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")).unwrap();
+        let pad = PadGeom { cx: 400.0, cy: 400.0, outer_r: 300.0 };
+        let spawn = vec2(pad.cx, pad.cy);
+        let (note, single) = line_slide(1, 5);
+        let (standalone, _) = render_prefab_path(&note, &single, spawn, pad.outer_r, false).unwrap();
+        let (chain_arc, _) = render_prefab_path(&note, &single, spawn, pad.outer_r, true)
+            .expect("the shared 1-5 trail must use the same prefab in a chain");
+        assert_eq!(standalone, chain_arc);
+        let a = segmentation::build(&standalone, 16.0, 12.0, 12.0, &svg, &pad);
+        let b = segmentation::build(&chain_arc, 16.0, 12.0, 12.0, &svg, &pad);
+        assert_eq!(a.bars.len(), b.bars.len());
+        assert_eq!(a.judge_segments, b.judge_segments);
+        for (a, b) in a.bars.iter().zip(&b.bars) {
+            assert_eq!(a.position, b.position);
+            assert_eq!(a.rotation, b.rotation);
+            assert_eq!(a.distance_along, b.distance_along);
+        }
+    }
+
+    #[test]
+    fn conslide_shared_line_keeps_exact_prefab_prefix() {
+        let spawn = vec2(400.0, 400.0);
+        let (note, single) = line_slide(1, 5);
+        let mut chain = single.clone();
+        chain.segments.push(line_slide(5, 8).1.segments.remove(0));
+        let standalone = prefab_slide_path(&note, &single, spawn, 300.0).unwrap();
+        let (chain, bounds) = prefab_slide_path_bounded(&note, &chain, spawn, 300.0)
+            .expect("a straight chain must keep the standalone segment geometry");
+        assert_eq!(&chain[..bounds[1]], standalone.as_slice());
+    }
+
+    #[test]
+    fn editor_waypoint_chain_keeps_exact_standalone_prefix() {
+        let spawn = vec2(400.0, 400.0);
+        let (note, single) = line_slide(1, 5);
+        let mut chain = single.clone();
+        chain.segments[0].points.push(line_slide(5, 8).1.segments.remove(0).points.remove(0));
+        let standalone = prefab_slide_path(&note, &single, spawn, 300.0).unwrap();
+        let (path, bounds) = prefab_slide_path_bounded(&note, &chain, spawn, 300.0)
+            .expect("editor multi-waypoint lines must use standalone leg geometry");
+        assert_eq!(bounds.len(), 3);
+        assert_eq!(&path[..bounds[1]], standalone.as_slice());
+    }
+
+    #[test]
+    fn curved_chain_render_keeps_procedural_mirror_handling() {
+        let (note, mut arc) = line_slide(3, 4);
+        arc.segments[0].shape = SlideShape::Left;
+        let spawn = vec2(400.0, 400.0);
+        assert!(render_prefab_path(&note, &arc, spawn, 300.0, false).is_some());
+        assert!(render_prefab_path(&note, &arc, spawn, 300.0, true).is_none());
+        let mut chain = arc;
+        chain.segments.push(line_slide(4, 8).1.segments.remove(0));
+        assert!(prefab_slide_path_bounded(&note, &chain, spawn, 300.0).is_none());
+    }
+
+    #[test]
+    fn conslide_shared_lines_match_at_every_lane_and_pad_size() {
+        for radius in [100.0, 300.0, 480.0] {
+            for start in 1..=8 {
+                for end in 1..=8 {
+                    if start != end {
+                        assert_shared_line(start, end, end % 8 + 1, radius);
+                    }
+                }
+            }
+        }
+    }
+
+    fn assert_shared_line(start: u8, end: u8, tail: u8, radius: f32) {
+        let svg = PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")).unwrap();
+        let pad = PadGeom { cx: 400.0, cy: 400.0, outer_r: radius };
+        let spawn = vec2(pad.cx, pad.cy);
+        let (note, single) = line_slide(start, end);
+        let mut chain = single.clone();
+        chain.segments.push(line_slide(end, tail).1.segments.remove(0));
+        let mut free_form = single.clone();
+        free_form.segments[0].points.push(SlidePoint::from(PadZone::from(tail)));
+        let paths: Vec<_> = [&single, &chain, &free_form].into_iter().map(|slide| {
+            build_slide_path(&note, slide, &pad, &svg, 1.0, spawn, pad.outer_r)
+        }).collect();
+        let lengths: Vec<Vec<f32>> = paths.iter().map(|path| {
+            path.windows(2).map(|w| w[0].distance(w[1]).max(0.001)).collect()
+        }).collect();
+        let shared_len = ring_point(start, spawn, pad.outer_r).unwrap()
+            .distance(ring_point(end, spawn, pad.outer_r).unwrap());
+        for index in 1..paths.len() {
+            let mut max_drift = 0.0_f32;
+            let mut max_turn = 0.0_f32;
+            for step in 0..100 {
+                let distance = shared_len * step as f32 / 100.0;
+                let (a, angle_a) = point_at_distance(&paths[0], &lengths[0], distance);
+                let (b, angle_b) = point_at_distance(&paths[index], &lengths[index], distance);
+                max_drift = max_drift.max(a.distance(b));
+                let turn = angle_a - angle_b;
+                max_turn = max_turn.max(turn.sin().atan2(turn.cos()).abs());
+            }
+            assert!(max_drift < 0.01 && max_turn < 0.001,
+                "{start}-{end}-{tail} radius {radius}, path {index}: position drift {max_drift}px, heading drift {max_turn}rad");
+        }
+    }
+
     /// `line3` (start 3 → end 5) resolves to the baked prefab polyline, rotated
     /// onto the start button, with bar centres on the A-ring.
     #[test]
@@ -1525,16 +1695,15 @@ mod tests {
         assert!(inner < slide_svg::PREFAB_UNIT, "first tile radius {inner}");
     }
 
-    /// A free-form segment (extra waypoints) must not use the start→end prefab,
-    /// which would drop the middle points the trajectory editor added.
+    /// Each free-form waypoint is retained by joining one prefab per leg.
     #[test]
-    fn free_form_waypoints_bypass_the_prefab() {
+    fn free_form_waypoints_keep_intermediate_vertex() {
         let (note, mut slide) = line_slide(1, 5);
         assert!(
             prefab_slide_path(&note, &slide, vec2(0.0, 0.0), 480.0).is_some(),
             "a single-waypoint Line segment still uses the prefab"
         );
-        // Add a middle waypoint (1 → 3 → 5); now the prefab can't represent it.
+        // Add a middle waypoint (1 → 3 → 5), not a single chord 1 → 5.
         slide.segments[0].points.insert(
             0,
             SlidePoint {
@@ -1542,9 +1711,28 @@ mod tests {
                 beat_offset: 0.0,
             },
         );
+        let path = prefab_slide_path(&note, &slide, vec2(0.0, 0.0), 480.0).unwrap();
+        let vertex = ring_point(3, vec2(0.0, 0.0), 480.0).unwrap();
+        assert!(path.iter().any(|p| p.distance(vertex) < 0.01));
+        assert_eq!(slide.segments.len(), 1, "chart representation stays unchanged");
+    }
+
+    #[test]
+    fn off_center_folded_path_does_not_use_center_v_prefab() {
+        let (note, mut slide) = line_slide(3, 8);
+        slide.segments[0].shape = SlideShape::VShape;
+        slide.segments[0].points.insert(0, SlidePoint {
+            zone: PadZone::from(5u8),
+            beat_offset: 0.0,
+        });
         assert!(
             prefab_slide_path(&note, &slide, vec2(0.0, 0.0), 480.0).is_none(),
-            "a multi-waypoint segment must fall back to the procedural builder"
+            "a folded path via lane 5 cannot use a prefab via C"
+        );
+        slide.segments[0].points[0].zone = PadZone::from(17u8);
+        assert!(
+            prefab_slide_path(&note, &slide, vec2(0.0, 0.0), 480.0).is_some(),
+            "a canonical v through C keeps its prefab"
         );
     }
 

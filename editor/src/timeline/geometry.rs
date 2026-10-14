@@ -18,6 +18,11 @@ pub const RULER_H: f32 = 22.0;
 /// Gap between the judgment line and the near edge (vertical layout only).
 pub const JUDGE_MARGIN: f32 = 38.0;
 
+/// Map a row/column offset to its one-based timeline lane (including Touch).
+pub fn lane_at(offset: f32, size: f32) -> u8 {
+    ((offset / size.max(f32::EPSILON)).floor() + 1.0).clamp(1.0, LANE_COUNT as f32) as u8
+}
+
 /// Lane row/column a note renders in. Touch notes share the trailing lane.
 pub fn lane_index_of(note: &Note) -> usize {
     if note.is_touch || matches!(note.note_type, NoteType::Touch | NoteType::TouchHold) {
@@ -40,6 +45,34 @@ pub fn snap(measure: f32, snap_enabled: bool, division: u32) -> f32 {
     }
     let d = division as f32;
     (measure * d).round() / d
+}
+
+/// Rotate within a sensor ring; the centre never moves to a numbered sensor.
+pub fn rotated_zone(zone: u8, delta: i32) -> u8 {
+    let base = match zone {
+        1..=8 => 1,
+        9..=16 => 9,
+        18..=25 => 18,
+        26..=33 => 26,
+        _ => return zone,
+    };
+    ((zone as i32 - base + delta).rem_euclid(8) + base) as u8
+}
+
+/// Move a head and its trajectory together, preserving all other properties.
+pub fn move_note(note: &mut Note, time: f32, lane_delta: i32) {
+    note.time = time;
+    note.lane = rotated_zone(note.lane, lane_delta);
+    for slide in &mut note.slide {
+        for segment in &mut slide.segments {
+            for point in &mut segment.points {
+                point.zone = crate::app::types::zone::PadZone::from(rotated_zone(
+                    point.zone.to_id(),
+                    lane_delta,
+                ));
+            }
+        }
+    }
 }
 
 /// New (time, lane) for a dragged note, preserving the grab offset captured at
@@ -85,6 +118,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pointer_lanes_match_rendered_centers_and_edges() {
+        for lane in 1..=9 {
+            assert_eq!(lane_at((lane as f32 - 0.5) * 40.0, 40.0), lane);
+            assert_eq!(lane_at((lane as f32 - 1.0) * 40.0, 40.0), lane);
+        }
+        assert_eq!(lane_at(-40.0, 40.0), 1);
+        assert_eq!(lane_at(400.0, 40.0), 9);
+    }
+
+    #[test]
+    fn zone_rotation_wraps_every_ring_and_keeps_center() {
+        for (start, end) in [(1, 8), (9, 16), (18, 25), (26, 33)] {
+            assert_eq!(rotated_zone(end, 1), start);
+            assert_eq!(rotated_zone(start, -1), end);
+            assert_eq!(rotated_zone(start, 16), start);
+        }
+        assert_eq!(rotated_zone(17, 3), 17);
+    }
+
+    #[test]
     fn select_note_replaces_or_appends() {
         let mut editor = EditorState::default();
         select_note(&mut editor, 1, false);
@@ -96,7 +149,11 @@ mod tests {
         assert_eq!(editor.selected.len(), 2, "Shift adds to the selection");
         assert!(editor.selected.contains(&2) && editor.selected.contains(&3));
         select_note(&mut editor, 3, true);
-        assert_eq!(editor.selected.len(), 2, "re-adding is a no-op, not a toggle");
+        assert_eq!(
+            editor.selected.len(),
+            2,
+            "re-adding is a no-op, not a toggle"
+        );
     }
 
     #[test]

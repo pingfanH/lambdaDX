@@ -1,10 +1,12 @@
 use minimp3::{Decoder as Mp3Decoder, Frame as Mp3Frame};
+#[cfg(test)]
 use rodio::buffer::SamplesBuffer;
 use rodio::dynamic_mixer::{self, DynamicMixer, DynamicMixerController};
 use rodio::{OutputStream, Sink, Source};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use super::platform;
 use super::types::WavPcm;
@@ -353,11 +355,76 @@ fn output_mixer() -> (Arc<DynamicMixerController<f32>>, LimitedOutput) {
     )
 }
 
+struct SfxVoice {
+    buffer: SfxBuffer,
+    cursor: usize,
+    volume: f32,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Iterator for SfxVoice {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        if self.stopped.load(Ordering::Relaxed) {
+            return None;
+        }
+        let sample = *self.buffer.samples.get(self.cursor)?;
+        self.cursor += 1;
+        Some(sample * self.volume)
+    }
+}
+
+impl Source for SfxVoice {
+    fn current_frame_len(&self) -> Option<usize> {
+        Some(self.buffer.samples.len().saturating_sub(self.cursor))
+    }
+
+    fn channels(&self) -> u16 {
+        self.buffer.channels
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.buffer.sample_rate
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs_f64(
+            self.buffer.samples.len() as f64
+                / f64::from(self.channels())
+                / f64::from(self.sample_rate()),
+        ))
+    }
+}
+
+#[derive(Default)]
+struct SfxPlayback {
+    voices: Mutex<HashMap<usize, Arc<AtomicBool>>>,
+}
+
+impl SfxPlayback {
+    fn play(&self, mixer: &DynamicMixerController<f32>, buf: &SfxBuffer, volume: f32) {
+        // Cloned buffers share a channel; different loaded effects remain independent.
+        let key = Arc::as_ptr(&buf.samples) as usize;
+        let stopped = Arc::new(AtomicBool::new(false));
+        if let Some(previous) = self.voices.lock().unwrap().insert(key, Arc::clone(&stopped)) {
+            previous.store(true, Ordering::Relaxed);
+        }
+        mixer.add(SfxVoice {
+            buffer: buf.clone(),
+            cursor: 0,
+            volume,
+            stopped,
+        });
+    }
+}
+
 /// Minimal rodio-backed BGM player. One stoppable sink at a time.
 pub struct BgmPlayer {
     _stream: OutputStream,
     mixer: Arc<DynamicMixerController<f32>>,
     sink: Option<Sink>,
+    sfx: SfxPlayback,
 }
 
 impl BgmPlayer {
@@ -374,6 +441,7 @@ impl BgmPlayer {
             _stream: stream,
             mixer,
             sink: None,
+            sfx: SfxPlayback::default(),
         })
     }
 
@@ -386,13 +454,10 @@ impl BgmPlayer {
         self.sink = Some(sink);
     }
 
-    /// Fire a one-shot effect on the shared output without touching the BGM.
-    /// The bus mixes it independently of the BGM sink, so it can overlap.
+    /// Restart this effect, replacing its previous voice without touching BGM
+    /// or other effects. All voices still share the limited output bus.
     pub fn play_once(&self, buf: &SfxBuffer, volume: f32) {
-        let source =
-            SamplesBuffer::new(buf.channels, buf.sample_rate, buf.samples.as_ref().clone())
-                .amplify(volume);
-        self.mixer.add(source);
+        self.sfx.play(&self.mixer, buf, volume);
     }
 
     pub fn stop(&mut self) {
@@ -489,6 +554,68 @@ fn load_audio_for_speed(app: &mut PadPreviewState) -> Result<BgmPcm, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn constant_sfx(value: f32) -> SfxBuffer {
+        SfxBuffer {
+            samples: Arc::new(vec![value; 8192]),
+            channels: 2,
+            sample_rate: OUTPUT_RATE,
+        }
+    }
+
+    #[test]
+    fn retriggering_the_same_effect_replaces_its_previous_voice() {
+        let (controller, mut mixer) = dynamic_mixer::mixer(2, OUTPUT_RATE);
+        let playback = SfxPlayback::default();
+        let effect = constant_sfx(0.2);
+        playback.play(&controller, &effect, 1.0);
+        assert!((mixer.next().unwrap() - 0.2).abs() < 1e-6);
+        assert!((mixer.next().unwrap() - 0.2).abs() < 1e-6);
+        playback.play(&controller, &effect.clone(), 2.0);
+        for _ in 0..1024 {
+            assert!((mixer.next().unwrap() - 0.4).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn replacing_one_effect_does_not_interrupt_other_effects() {
+        let (controller, mut mixer) = dynamic_mixer::mixer(2, OUTPUT_RATE);
+        let playback = SfxPlayback::default();
+        let tap = constant_sfx(0.1);
+        let touch = constant_sfx(0.2);
+        playback.play(&controller, &tap, 1.0);
+        playback.play(&controller, &touch, 1.0);
+        for _ in 0..2 {
+            assert!((mixer.next().unwrap() - 0.3).abs() < 1e-6);
+        }
+        playback.play(&controller, &tap, 3.0);
+        for _ in 0..1024 {
+            assert!((mixer.next().unwrap() - 0.5).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn retrigger_starts_from_the_beginning_and_last_queued_trigger_wins() {
+        let (controller, mut mixer) = dynamic_mixer::mixer(2, OUTPUT_RATE);
+        controller.add(rodio::source::Zero::<f32>::new(2, OUTPUT_RATE));
+        let playback = SfxPlayback::default();
+        let effect = SfxBuffer {
+            samples: Arc::new(vec![0.1, 0.1, 0.2, 0.2, 0.3, 0.3]),
+            channels: 2,
+            sample_rate: OUTPUT_RATE,
+        };
+        playback.play(&controller, &effect, 1.0);
+        assert!((mixer.next().unwrap() - 0.1).abs() < 1e-6);
+        assert!((mixer.next().unwrap() - 0.1).abs() < 1e-6);
+        for volume in [1.0, 2.0, 3.0] {
+            playback.play(&controller, &effect, volume);
+        }
+        for expected in [0.3, 0.3, 0.6, 0.6, 0.9, 0.9, 0.0, 0.0] {
+            assert!((mixer.next().unwrap() - expected).abs() < 1e-6);
+        }
+        playback.play(&controller, &effect, 1.0);
+        assert!((mixer.next().unwrap() - 0.1).abs() < 1e-6);
+    }
 
     #[test]
     fn seeking_before_audio_start_preserves_chart_alignment() {

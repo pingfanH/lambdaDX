@@ -16,6 +16,12 @@ use crate::player::state::PadPreviewState;
 
 /// Keyboard lane bindings: 1-8 for the A ring, T for the centre zone.
 pub fn handle_lane_input(app: &mut PadPreviewState) {
+    handle_lane_input_when(app, true);
+}
+
+/// Scope synthetic key presses to the preview without leaving held zones
+/// behind when a text field or editor gesture takes keyboard ownership.
+pub fn handle_lane_input_when(app: &mut PadPreviewState, enabled: bool) {
     let bindings = [
         (KeyCode::Key1, 1_u8),
         (KeyCode::Key2, 2_u8),
@@ -32,10 +38,10 @@ pub fn handle_lane_input(app: &mut PadPreviewState) {
         // Synthetic pointer ids well below any real pointer id.
         let pointer_id = u64::MAX - 100 - lane as u64;
         let zone = PadZone::from(lane);
-        if is_key_pressed(key) {
+        if enabled && is_key_pressed(key) {
             update_pointer_zones(app, pointer_id, &[zone]);
         }
-        if is_key_released(key) {
+        if !enabled || is_key_released(key) {
             update_pointer_zones(app, pointer_id, &[]);
         }
     }

@@ -84,7 +84,7 @@ pub fn draw(
     let view_end = view + (plot_right - plot_left) / pps;
     waveform::draw_horizontal(waveform, plot_left, plot_right, lanes_top, lanes_h, view, pps, s, chart.audio_offset);
 
-    draw_measure_grid(rect, plot_left, plot_right, lanes_top, lanes_bottom, view, view_end, bpms, pps, g, s);
+    draw_measure_grid(rect, plot_left, plot_right, lanes_top, lanes_bottom, view, view_end, bpms, pps, g, s, editor.snap_division);
     draw_lanes(rect, plot_left, plot_right, lanes_top, lanes_bottom, lane_h, g, s);
 
     let ctx = NoteCtx {
@@ -98,7 +98,7 @@ pub fn draw(
         scale: s,
         note_scale: note_scale(),
     };
-    for note in &chart.notes {
+    for note in super::notes::draw_order(&chart.notes) {
         let head = note_secs(note, bpms);
         let x = ctx.x_of(head);
         let y = ctx.lane_y(lane_index_of(note));
@@ -133,20 +133,21 @@ fn draw_measure_grid(
     pps: f32,
     g: f32,
     s: f32,
+    division: u32,
 ) {
-    const SUBDIV: i32 = 64;
+    let subdiv = division.max(1);
     let start_m = secs_to_measure(view, bpms).floor();
     let end_m = secs_to_measure(view_end, bpms) + 1.0;
     let mut m = start_m;
     while m <= end_m {
-        for i in 0..SUBDIV {
-            let x = plot_left + (measure_to_secs(m + i as f32 / SUBDIV as f32, bpms) - view) * pps;
+        for i in 0..subdiv {
+            let x = plot_left + (measure_to_secs(m + i as f32 / subdiv as f32, bpms) - view) * pps;
             if x < plot_left - 1.0 || x > plot_right + 1.0 {
                 continue;
             }
             let (col, th) = if i == 0 {
                 (draw::c(140, 50, 50), 2.0 * s)
-            } else if i % 16 == 0 {
+            } else if i * 4 % subdiv == 0 {
                 (draw::c(80, 80, 80), 1.5 * s)
             } else {
                 (draw::c(40, 40, 40), 0.5 * s)
@@ -204,7 +205,7 @@ fn draw_note(ctx: &NoteCtx, note: &Note, x: f32, x_tail: f32, y: f32, selected: 
     let tap = draw::TAP_SIZE * s;
     let hold_w = draw::HOLD_WIDTH * s;
     if selected {
-        mq::draw_circle(x, y, tap * 0.8, draw::ca(56, 189, 248, 100));
+        draw::selection_outline(note, x, y, s);
     }
     match note.note_type {
         NoteType::Tap => {

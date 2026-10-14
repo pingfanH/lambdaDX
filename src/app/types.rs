@@ -441,7 +441,7 @@ pub fn validate_slide_shape(shape: SlideShape, start_lane: u8, end_lane: u8) -> 
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 pub struct SlidePoint {
     pub zone: PadZone,
     pub beat_offset: f32,
@@ -454,7 +454,7 @@ impl From<PadZone> for SlidePoint {
         }
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Slide {
     pub segments: Vec<SlideSegment>,
     /// Total slide span in measures (head → tail) for this individual slide.
@@ -477,7 +477,7 @@ fn default_runtime_parts() -> usize {
     1
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SlideSegment {
     pub points: Vec<SlidePoint>,
     pub shape: SlideShape,
@@ -495,7 +495,7 @@ fn default_hi_speed() -> f32 {
 /// Note times and durations are stored in **measures** (where measure 1.0 =
 /// the first beat of the song).  Use `measure_to_secs` / `mdur_to_secs` to
 /// convert to wall-clock seconds for playback and rendering.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Note {
     /// 唯一 ID，插入删除后不变
     #[serde(default)]
@@ -510,7 +510,7 @@ pub struct Note {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_each: bool,
     /// "Each" for a slide **head star**, following the tap rule (any note at the
-    /// same hit time). Slides' trails use `is_each` (slide-only) instead.
+    /// same hit time). Trails use `is_each` for same-head or paired-star slides.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_each_head: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -537,7 +537,17 @@ pub struct Note {
 
 // ─── BPM change list ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Painter order, independent of chart storage/insertion order.
+pub fn note_draw_order(a: &Note, b: &Note, earlier_on_top: bool) -> std::cmp::Ordering {
+    let order = a.time.total_cmp(&b.time).then_with(|| a.id.cmp(&b.id));
+    if earlier_on_top {
+        order.reverse()
+    } else {
+        order
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BpmChange {
     pub measure: f32,
     pub bpm: f32,
@@ -1053,7 +1063,7 @@ mod note_motion_tests {
 }
 
 /// Metadata attached to expanded notes linking them back to their source instance.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct NoteTemplateSource {
     pub instance_id: String,
     pub template_id: String,

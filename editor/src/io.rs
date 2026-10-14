@@ -7,7 +7,9 @@ use super::state::EditorState;
 /// Save the current chart as pretty JSON under `output/editor_chart.json` and
 /// record the outcome on [`EditorState::status`].
 pub fn save_chart(editor: &mut EditorState, chart: &ChartDoc) {
-    let result = crate::app::beat_format::chart_to_json(chart)
+    let mut chart = chart.clone();
+    crate::app::maichart::recompute_each(&mut chart.notes);
+    let result = crate::app::beat_format::chart_to_json(&chart)
         .and_then(|json| crate::app::platform::write_output_text("editor_chart.json", &json));
     if result.is_ok() {
         editor.dirty = false;

@@ -254,9 +254,9 @@ pub struct PadPreviewState {
     pub scrubbing: bool,
     /// Committed clock before a preview drag; retained for failure rollback.
     scrub_origin: Option<f32>,
-    /// Editor-only: when set, the pad preview renders *only* this note (the
-    /// slide being edited) with no time culling, hiding everything else.
-    pub edit_solo_note: Option<u64>,
+    /// Editor-only: render only this (note ID, sub-slide index) without time
+    /// culling or judgment-based hiding.
+    pub edit_solo_slide: Option<(u64, usize)>,
     /// Which pointer id is dragging the progress bar (touch or mouse).
     pub scrub_pointer: Option<u64>,
 
@@ -421,7 +421,7 @@ impl PadPreviewState {
             legacy_autoplay: false,
             scrubbing: false,
             scrub_origin: None,
-            edit_solo_note: None,
+            edit_solo_slide: None,
             scrub_pointer: None,
             video_bg: VideoBg::new(),
             mobile_ui,
@@ -962,6 +962,54 @@ impl PadPreviewState {
         self.seek_to(0.0);
     }
 
+    /// Install an edited chart's core and schedules without restarting audio
+    /// or moving the clock. Prepare/seek the new session before replacing it.
+    pub fn replace_edited_engine(
+        &mut self,
+        mut engine: crate::player::engine::JudgeEngine,
+        source: String,
+        level: u32,
+    ) -> Result<(), String> {
+        let time = self.timeline_time().max(0.0);
+        let plan = engine.autoplay_plan()?;
+        let reset = engine.seek(time)?;
+        self.autoplay_tactic = plan.retained(&reset.retained_note_indices).events();
+        self.autoplay_plan = Some(plan);
+        self.external_autoplay = false;
+        self.legacy_autoplay = false;
+        self.autoplay_tactic_cursor = self.autoplay_tactic.partition_point(|event| {
+            crate::player::engine::timed_input_tp(event) < (time * 1e6) as i64
+        });
+        self.judge_engine = Some(engine);
+        self.core_score = Some(reset.score);
+        self.engine_events.clear();
+        self.autoplay_click_held.clear();
+        self.autoplay_explicit_held.clear();
+        self.autoplay_direct_held.clear();
+        self.active_pointer_zones.clear();
+        self.prev_pointer_pos.clear();
+        self.pad_feedback.clear();
+        self.judge_feedback.clear();
+        self.hit_fx.clear();
+        self.slide_progress.clear();
+        self.slide_judge.clear();
+        self.hidden_notes.clear();
+        self.hold_head_hits.clear();
+        if self.use_core() {
+            self.hidden_notes.extend(self.chart.notes.iter()
+                .filter(|note| crate::app::types::note_secs(note, &self.chart.bpms) < time)
+                .map(|note| note.id));
+        }
+        let mut cues = CueTrack::from_chart(&self.chart);
+        cues.reset(time);
+        self.cue_track = Some(cues);
+        self.simai_fragments =
+            crate::app::maidata::simai_timeline(&source, level).unwrap_or_default();
+        self.simai_source = Some(source);
+        self.simai_level = level;
+        Ok(())
+    }
+
     /// Drop the loaded lnmai-core session (e.g. when switching to a chart with
     /// no Simai source). After this [`Self::use_core`] is false again.
     pub fn unload_engine(&mut self) {
@@ -1209,10 +1257,15 @@ impl PadPreviewState {
     ) {
         for update in updates {
             let Some((note_id, slide_idx, seg_idx, seg_count)) =
-                crate::player::engine::chart_slide_position(
-                    &self.chart,
-                    update.runtime_slide_index,
-                )
+                self.judge_engine.as_ref().and_then(|engine| {
+                    engine.slide_position(&self.chart, update.runtime_slide_index)
+                }).or_else(|| {
+                    if self.judge_engine.is_none() {
+                        crate::player::engine::chart_slide_position(&self.chart, update.runtime_slide_index)
+                    } else {
+                        None
+                    }
+                })
             else {
                 continue;
             };

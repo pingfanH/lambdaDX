@@ -61,6 +61,54 @@ fn note_properties(ui: &mut egui::Ui, editor: &mut EditorState, chart: &mut Char
             .color(TEXT_DIM),
     );
 
+    let is_slide = chart.notes[idx].note_type == NoteType::Slide;
+    let mut sub = if editor.editing_slide == Some(id) {
+        editor.editing_slide_idx
+            .min(chart.notes[idx].slide.len().saturating_sub(1))
+    } else {
+        0
+    };
+    if is_slide {
+        let count = chart.notes[idx].slide.len();
+        let mut add = false;
+        let mut remove = false;
+        let previous_sub = sub;
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Slide").color(TEXT_DIM));
+            egui::ComboBox::from_id_salt(("sub_slide", id))
+                .selected_text(if count == 0 {
+                    "-".to_string()
+                } else {
+                    format!("{} / {count}", sub + 1)
+                })
+                .show_ui(ui, |ui| {
+                    for i in 0..count {
+                        ui.selectable_value(&mut sub, i, format!("{} / {count}", i + 1));
+                    }
+                });
+            add = ui.small_button("+").on_hover_text("Add trajectory").clicked();
+            remove = ui
+                .add_enabled(count > 0, egui::Button::new("-").small())
+                .on_hover_text("Delete trajectory")
+                .clicked();
+        });
+        if sub != previous_sub {
+            editor.editing_slide = Some(id);
+            editor.editing_slide_idx = sub;
+            editor.pending_shape = None;
+        }
+        if add {
+            editor.add_sub_slide(chart, id);
+            return;
+        }
+        if remove {
+            editor.editing_slide = Some(id);
+            editor.editing_slide_idx = sub;
+            editor.remove_sub_slide(chart);
+            return;
+        }
+    }
+
     // Read the note out first so a single edit batches into one undo snapshot.
     let note = &chart.notes[idx];
     let note_type = note.note_type;
@@ -69,14 +117,18 @@ fn note_properties(ui: &mut egui::Ui, editor: &mut EditorState, chart: &mut Char
     let mut dur = note.hold_duration;
     let mut break_on = note.is_break;
     let mut ex_on = note.is_ex;
-    let mut each_on = note.is_each;
     let mut star_on = note.is_star;
     let mut tapless_on = note.is_tapless;
-    let is_slide = matches!(note_type, NoteType::Slide);
-    let (mut slide_delay, mut slide_dur) = slide_timing(note).unwrap_or((0.0, 0.0));
+    let timing = slide_timing(note, sub);
+    let (mut slide_delay, mut slide_dur) = timing.unwrap_or((0.0, 0.0));
+    let mut timing_changed = false;
 
     let mut changed = false;
     value_row(ui, "Type", &format!("{note_type:?}"));
+    value_row(ui, "Each", if note.is_each { "On" } else { "Off" });
+    if is_slide {
+        value_row(ui, "Head Each", if note.is_each_head { "On" } else { "Off" });
+    }
     changed |= drag_row(ui, "Time", &mut time, 0.01, 0.0..=1.0e6);
     let mut lane_f = lane as f32;
     if drag_row(ui, "Lane", &mut lane_f, 1.0, 1.0..=8.0) {
@@ -86,15 +138,15 @@ fn note_properties(ui: &mut egui::Ui, editor: &mut EditorState, chart: &mut Char
     if matches!(note_type, NoteType::Hold | NoteType::TouchHold) {
         changed |= drag_row(ui, "Duration", &mut dur, 0.01, 0.0..=1.0e6);
     }
-    if is_slide {
-        changed |= drag_row(ui, "Delay", &mut slide_delay, 0.01, 0.0..=1.0e6);
-        changed |= drag_row(ui, "Slide Dur", &mut slide_dur, 0.01, 0.0..=1.0e6);
+    if timing.is_some() {
+        timing_changed |= drag_row(ui, "Delay", &mut slide_delay, 0.01, 0.0..=1.0e6);
+        timing_changed |= drag_row(ui, "Slide Dur", &mut slide_dur, 0.01, 0.0001..=1.0e6);
+        changed |= timing_changed;
     }
 
     ui.horizontal_wrapped(|ui| {
         changed |= toggle_chip(ui, "Break", &mut break_on);
         changed |= toggle_chip(ui, "Ex", &mut ex_on);
-        changed |= toggle_chip(ui, "Each", &mut each_on);
         if is_slide {
             changed |= toggle_chip(ui, "Star", &mut star_on);
             changed |= toggle_chip(ui, "Tapless", &mut tapless_on);
@@ -109,11 +161,10 @@ fn note_properties(ui: &mut egui::Ui, editor: &mut EditorState, chart: &mut Char
         n.hold_duration = dur.max(0.0);
         n.is_break = break_on;
         n.is_ex = ex_on;
-        n.is_each = each_on;
         n.is_star = star_on;
         n.is_tapless = tapless_on;
-        if is_slide {
-            set_slide_timing(n, slide_delay, slide_dur);
+        if timing_changed {
+            set_slide_timing(n, sub, slide_delay, slide_dur);
         }
     }
 }
@@ -163,20 +214,18 @@ fn tri_state(vals: impl Iterator<Item = bool>) -> String {
     }
 }
 
-/// The first sub-slide's `(start delay, duration)` in measures, if the note has
-/// any sub-slides (slides only).
-fn slide_timing(note: &Note) -> Option<(f32, f32)> {
+/// The active sub-slide's `(start delay, duration)` in measures.
+fn slide_timing(note: &Note, sub: usize) -> Option<(f32, f32)> {
     note.slide
-        .first()
+        .get(sub)
         .map(|s| (s.slide_start_delay, s.slide_duration))
 }
 
-/// Write `(start delay, duration)` in measures to every sub-slide of `note`
-/// (negative values clamp to zero).
-fn set_slide_timing(note: &mut Note, delay: f32, dur: f32) {
-    for s in &mut note.slide {
-        s.slide_start_delay = delay.max(0.0);
-        s.slide_duration = dur.max(0.0);
+/// Keep a positive motion span without changing any sibling trajectories.
+fn set_slide_timing(note: &mut Note, sub: usize, delay: f32, dur: f32) {
+    if let Some(s) = note.slide.get_mut(sub) {
+        s.slide_duration = dur.max(0.0001);
+        s.slide_start_delay = delay.clamp(0.0, (s.slide_duration - 0.0001).max(0.0));
     }
 }
 
@@ -258,18 +307,24 @@ mod tests {
     }
 
     #[test]
-    fn slide_timing_reads_the_first_sub_slide() {
+    fn slide_timing_reads_the_active_sub_slide() {
         let n = slide_note(&[(0.5, 2.0), (1.0, 3.0)]);
-        assert_eq!(slide_timing(&n), Some((0.5, 2.0)));
-        assert_eq!(slide_timing(&Note::default()), None, "a tap has no sub-slides");
+        assert_eq!(slide_timing(&n, 0), Some((0.5, 2.0)));
+        assert_eq!(slide_timing(&n, 1), Some((1.0, 3.0)));
+        assert_eq!(slide_timing(&n, 2), None);
+        assert_eq!(slide_timing(&Note::default(), 0), None, "a tap has no sub-slides");
     }
 
     #[test]
-    fn set_slide_timing_writes_every_sub_slide_and_clamps() {
-        let mut n = slide_note(&[(0.0, 0.0), (0.0, 0.0)]);
-        set_slide_timing(&mut n, -1.0, 4.0);
-        assert!(n.slide.iter().all(|s| s.slide_start_delay == 0.0));
-        assert!(n.slide.iter().all(|s| s.slide_duration == 4.0));
+    fn set_slide_timing_preserves_siblings_and_clamps_motion_span() {
+        let mut n = slide_note(&[(0.5, 2.0), (1.0, 3.0)]);
+        set_slide_timing(&mut n, 1, -1.0, 4.0);
+        assert_eq!(slide_timing(&n, 0), Some((0.5, 2.0)));
+        assert_eq!(slide_timing(&n, 1), Some((0.0, 4.0)));
+        set_slide_timing(&mut n, 1, 8.0, 2.0);
+        assert!(n.slide[1].slide_start_delay < 2.0);
+        set_slide_timing(&mut n, 1, 0.0, -1.0);
+        assert_eq!(slide_timing(&n, 1), Some((0.0, 0.0001)));
     }
 
     #[test]

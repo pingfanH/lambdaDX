@@ -103,6 +103,10 @@ pub enum DragHandle {
 pub struct HandleGrab {
     pub id: u64,
     pub kind: DragHandle,
+    /// Target sub-slide; holds do not have one.
+    pub slide_idx: Option<usize>,
+    /// Pointer measure at press, preserving the grab offset.
+    pub grab_measure: f32,
     /// Note head time (measures) at grab.
     pub note_time: f32,
     /// `slide_start_delay` at grab (0 for holds).
@@ -120,6 +124,52 @@ pub struct DragGrab {
     pub note_lane: u8,
     pub grab_measure: f32,
     pub grab_lane: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionTransformKind {
+    Grab,
+    Scale,
+    Rotate,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectionTransform {
+    pub kind: SelectionTransformKind,
+    pub before: ChartDoc,
+    pub was_dirty: bool,
+    pub anchor: (f32, f32),
+    pub wheel: f32,
+    pub keyboard_time: f32,
+    pub keyboard_lane: i32,
+    pub duplicate_before: Option<ChartDoc>,
+    pub operation: RepeatEdit,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RepeatEdit {
+    pub kind: SelectionTransformKind,
+    pub duplicate: bool,
+    pub time: f32,
+    pub lanes: i32,
+    pub factor: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct StarPlacement {
+    pub note_id: Option<u64>,
+    pub head: f32,
+    pub lane: u8,
+    pub delay_end: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TimelinePress {
+    pub note: Option<u64>,
+    pub position: (f32, f32),
+    pub measure: f32,
+    pub lane: i32,
+    pub on_playhead: bool,
 }
 
 /// Where the pointer is, resolved to timeline coordinates (for the read-out).
@@ -145,7 +195,7 @@ pub struct EditorState {
     pub pixels_per_second: f32,
     /// Snap grid as subdivisions per measure (e.g. 16 = 16th notes).
     pub snap_division: u32,
-    /// Whether placement/drag snaps to the grid (top-bar `Grid` toggle).
+    /// Whether placement/drag snaps to the grid (top-bar snap checkbox).
     pub snap_enabled: bool,
     /// Invert the wheel scroll direction (top-bar `Wheel ↕` toggle), for users
     /// whose OS "natural scrolling" setting feels backwards in the editor.
@@ -159,13 +209,28 @@ pub struct EditorState {
     pub drag_history_pushed: bool,
     /// Grab offset captured when a note drag starts (see [`DragGrab`]).
     pub drag_grab: Option<DragGrab>,
+    pub pointer_press: Option<TimelinePress>,
+    pub selection_transform: Option<SelectionTransform>,
+    pub last_edit: Option<RepeatEdit>,
+    pub placement_sequence: Vec<Note>,
+    /// Consume the whole pointer gesture used to confirm/cancel a transform.
+    pub transform_pointer_down: bool,
+    pub star_placement: Option<StarPlacement>,
+    /// Rendered logical pixels converted to egui points for head hit boxes.
+    pub glyph_to_points: f32,
+    /// Timing-handle gesture, separate from moving the note head.
+    pub handle_grab: Option<HandleGrab>,
     /// Originals of every note in the selection at drag start, as
     /// `(id, time, lane)`. When the grabbed note is part of a multi-selection the
     /// whole group moves together (matching the original editor); empty for a
     /// pure marquee drag.
     pub drag_multi_orig: Vec<(u64, f32, u8)>,
+    /// Full original notes keep each slide's own path during group rotation.
+    pub drag_orig_notes: Vec<Note>,
     /// Start corner (egui points) of an in-progress box (marquee) selection.
     pub marquee_start: Option<(f32, f32)>,
+    pub marquee_base: HashSet<u64>,
+    pub marquee_subtract: bool,
     /// Notes copied with Ctrl/Cmd+C, pasted with Ctrl/Cmd+V.
     pub clipboard: Vec<Note>,
     /// Last save/IO message shown in the toolbar.
@@ -190,14 +255,15 @@ pub struct EditorState {
     /// Pointer position on the timeline this frame (`None` when outside it).
     pub cursor: Option<CursorInfo>,
     /// Preview mode: 0 = autoplay without judgment, 1 = manual with judgment,
-    /// 2 = autoplay with judgment. `mode_dirty` asks the runtime to apply it.
+    /// 2 = simulated autoplay, 3 = direct-core autoplay, both with judgment.
+    /// `mode_dirty` asks the runtime to apply it.
     pub autoplay_mode: u8,
     pub mode_dirty: bool,
     /// Whether the `?` shortcut-help overlay is shown.
     pub show_help: bool,
     /// Id of the slide ("star") note currently in track-edit mode, or `None`.
-    /// Entered by middle-clicking a slide's trail (or trackpad three-finger
-    /// click); while active, pad / lane clicks append waypoints, shape keys
+    /// Entered by middle/double-clicking a slide's trail or adding a trajectory
+    /// via the star head / inspector; pad / lane clicks append waypoints, shape keys
     /// `Q/P/S/Z/V/W` (plus `⇧`, `,`, `.`, `;`, `-`) pick a shape that `1-8`
     /// completes, and `⌫` undoes the last waypoint. `Esc` exits.
     pub editing_slide: Option<u64>,
@@ -231,8 +297,19 @@ impl Default for EditorState {
             dragging: None,
             drag_history_pushed: false,
             drag_grab: None,
+            pointer_press: None,
+            selection_transform: None,
+            last_edit: None,
+            placement_sequence: Vec::new(),
+            transform_pointer_down: false,
+            star_placement: None,
+            glyph_to_points: 1.0,
+            handle_grab: None,
             drag_multi_orig: Vec::new(),
+            drag_orig_notes: Vec::new(),
             marquee_start: None,
+            marquee_base: HashSet::new(),
+            marquee_subtract: false,
             clipboard: Vec::new(),
             status: None,
             chart_dir: String::new(),

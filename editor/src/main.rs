@@ -25,6 +25,7 @@ mod core;
 mod player;
 
 mod audio;
+mod core_chart;
 mod edit_ops;
 mod gesture;
 mod io;
@@ -138,6 +139,7 @@ async fn run() {
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.6);
     let start_time = get_time();
+    let mut chart_sync = runtime::ChartSync::new(&mut app.chart);
 
     // `MAI2_EDITOR_FPS=1` prints a once-per-second frame-time summary to stderr
     // (a lightweight perf read-out; no-op otherwise).
@@ -155,18 +157,14 @@ async fn run() {
             macroquad::input::prevent_quit();
         }
         if macroquad::input::is_quit_requested() {
+            timeline::transform::finish(&mut editor, &mut app.chart, false);
             editor.pending_action = Some(PendingAction::Quit);
         }
 
         app::anim::tick();
-        player::input::handle_global_hotkeys(&mut app);
-        player::input::handle_lane_input(&mut app);
 
-        // `P` cycles the preview mode; the toolbar shows a clickable label too.
-        if is_key_pressed(KeyCode::P) {
-            editor.autoplay_mode = (editor.autoplay_mode + 1) % 4;
-            editor.mode_dirty = true;
-        }
+        // Preview-mode shortcuts are routed through egui so text fields and
+        // slide shape keys keep ownership of their keyboard input.
         if editor.mode_dirty {
             editor.mode_dirty = false;
             runtime::apply_preview_mode(&mut app, editor.autoplay_mode);
@@ -190,6 +188,10 @@ async fn run() {
                 waveform = audio::WaveformPyramid::build(&app);
             }
             ui.draw(ctx, &mut editor, &mut app, current_time, &waveform);
+            let preview_keys_enabled = !ctx.wants_keyboard_input() && !ctx.input(|i| i.modifiers.any())
+                && !editor.is_slide_edit() && editor.selection_transform.is_none()
+                && ctx.input(|i| i.pointer.hover_pos().is_some_and(|p| ui.layout.preview.contains(p)));
+            player::input::keyboard::handle_lane_input_when(&mut app, preview_keys_enabled);
             player::params_panel::draw_embedded(ctx, &mut app);
             ctx.request_repaint();
             egui_screen_w = ctx.screen_rect().width();
@@ -283,8 +285,16 @@ async fn run() {
         app.scrubbing = editor.scrubbing;
         // Star (slide) edit mode shows only the slide being edited, with its
         // whole trail (no time culling); everything else is hidden.
-        app.edit_solo_note = editor.editing_slide;
-        runtime::tick_player(&mut app).await;
+        app.edit_solo_slide = editor.editing_slide.map(|id| (id, editor.editing_slide_idx));
+        let chart_current = match chart_sync.update(&mut app,
+            editor.dragging.is_some() || editor.selection_transform.is_some() || editor.handle_grab.is_some()) {
+            Ok(current) => current,
+            Err(error) => {
+                editor.status = Some(format!("core update: {error}"));
+                false
+            }
+        };
+        runtime::tick_player(&mut app, chart_current).await;
         let current_time = player_time(&app);
 
         clear_background(theme::to_mq(theme::BG_WINDOW));
@@ -450,6 +460,17 @@ fn reload_chart(editor: &mut EditorState, app: &mut PadPreviewState) {
         editor.level_index = editor.level_slots.len().saturating_sub(1);
     }
     editor.selected.clear();
+    editor.selection_transform = None;
+    editor.last_edit = None;
+    editor.placement_sequence.clear();
+    editor.transform_pointer_down = false;
+    editor.star_placement = None;
+    editor.pointer_press = None;
+    editor.dragging = None;
+    editor.handle_grab = None;
+    editor.marquee_start = None;
+    editor.editing_slide = None;
+    editor.pending_shape = None;
     editor.view_start = 0.0;
     editor.dirty = false;
     editor.status = Some(format!("Loaded {}", editor.chart_dir));

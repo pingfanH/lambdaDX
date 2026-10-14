@@ -49,6 +49,9 @@ fn draw_guide_pass(
     current_t: f32,
     speed_scale: f32,
 ) {
+    if app.edit_solo_slide.is_some() {
+        return;
+    }
     let bpms = &app.chart.bpms;
     for note in app.chart.notes.iter() {
         if matches!(note.note_type, NoteType::Slide) || note_is_touch(note) {
@@ -113,22 +116,14 @@ fn draw_pass(
     slides: bool,
 ) {
     let bpms = &app.chart.bpms;
-    // Forward: later notes on top. Reverse: earlier notes on top. Applied
-    // within the pass only.
-    let notes: Box<dyn Iterator<Item = &Note>> = if params::note_earlier_on_top() {
-        Box::new(app.chart.notes.iter().rev())
-    } else {
-        Box::new(app.chart.notes.iter())
-    };
-
     // Resolve visibility once, then draw per layer.
     let mut visible: Vec<(&Note, NoteTiming)> = Vec::new();
-    for note in notes {
+    for note in &app.chart.notes {
         let is_slide = matches!(note.note_type, NoteType::Slide);
         if is_slide != slides {
             continue;
         }
-        if app.hidden_notes.contains(&note.id) {
+        if app.edit_solo_slide.is_none() && app.hidden_notes.contains(&note.id) {
             continue;
         }
         let t: NoteTiming = timing::compute(note, app, bpms, current_t, speed_scale);
@@ -139,7 +134,7 @@ fn draw_pass(
         // grace after the slide's end. Without an engine, use the local cull.
         // Editor solo view: render only the slide being edited (no time culling,
         // so its whole trail stays visible).
-        let is_visible = if let Some(solo) = app.edit_solo_note {
+        let is_visible = if let Some((solo, _)) = app.edit_solo_slide {
             note.id == solo
         } else if is_slide && app.use_core() {
             t.dt_scaled <= t.lead_time && t.slide_tail_dt >= -CORE_SLIDE_FALLBACK_GRACE
@@ -151,6 +146,8 @@ fn draw_pass(
         }
         visible.push((note, t));
     }
+    let earlier_on_top = params::note_earlier_on_top();
+    visible.sort_by(|(a, _), (b, _)| crate::app::types::note_draw_order(a, b, earlier_on_top));
 
     if slides {
         // Trails (plus each slide's on-hit ring) first...

@@ -11,9 +11,12 @@
 //! * [`overview`] — the bottom progress minimap (egui).
 
 pub mod geometry;
+pub mod handles;
 pub mod horizontal;
 pub mod input;
 pub mod notes;
+pub mod placement;
+pub mod transform;
 pub mod overview;
 pub mod vertical;
 pub mod waveform;

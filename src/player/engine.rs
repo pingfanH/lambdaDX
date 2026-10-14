@@ -182,6 +182,8 @@ pub struct JudgeEngine {
     /// initial_queue_remaining)`, indexed by runtime slide index.
     slide_totals: Vec<(u64, u64, u64)>,
     fingerprint: String,
+    chart_note_ids: Option<HashMap<u64, u64>>,
+    chart_slide_positions: Option<HashMap<usize, (u64, usize, usize, usize)>>,
 }
 
 fn ensure_runtime() {
@@ -240,7 +242,64 @@ impl JudgeEngine {
             slide_head_timings,
             slide_totals,
             fingerprint: AutoplayPlan::fingerprint(simai_text, level_index),
+            chart_note_ids: None,
+            chart_slide_positions: None,
         })
+    }
+
+    /// Bind a recompiled editor chart without changing its stable note IDs.
+    pub fn bind_editor_chart(
+        &mut self,
+        mut note_ids: HashMap<u64, u64>,
+        slides: HashMap<u64, (u64, usize, usize, usize)>,
+    ) -> Result<(), String> {
+        let spec = self.chart_spec()?;
+        // Normalization can merge identical trails, but must not drop any
+        // emitted source object or introduce IDs the editor cannot resolve.
+        let source_count = spec.taps.len() + spec.holds.len() + spec.touches.len()
+            + spec.touch_holds.len()
+            + spec.slides.iter().map(|slide| slide.multiple.max(1) as usize).sum::<usize>();
+        if source_count != note_ids.len() {
+            return Err(format!("edited chart object count mismatch: expected {}, parsed {source_count}", note_ids.len()));
+        }
+        for index in spec.taps.iter().map(|n| n.note_index)
+            .chain(spec.holds.iter().map(|n| n.note_index))
+            .chain(spec.touches.iter().map(|n| n.note_index))
+            .chain(spec.touch_holds.iter().map(|n| n.note_index))
+            .chain(spec.slides.iter().map(|n| n.note_index))
+        {
+            if !note_ids.contains_key(&index) {
+                return Err(format!("unmapped edited note {index}"));
+            }
+        }
+        for head in &spec.slide_heads {
+            if let Some(id) = note_ids.get(&head.logical_slide_id).copied() {
+                note_ids.insert(head.note_index, id);
+            }
+        }
+        let mut positions = HashMap::new();
+        for (note_index, runtime) in &self.slide_bindings {
+            let position = slides.get(note_index).copied()
+                .ok_or_else(|| format!("unmapped edited slide {note_index}"))?;
+            positions.insert(*runtime, position);
+        }
+        self.chart_note_ids = Some(note_ids);
+        self.chart_slide_positions = Some(positions);
+        Ok(())
+    }
+
+    fn chart_note_id(&self, note_index: u64) -> Option<u64> {
+        match &self.chart_note_ids {
+            Some(ids) => ids.get(&note_index).copied(),
+            None => Some(note_index),
+        }
+    }
+
+    pub fn slide_position(&self, chart: &ChartDoc, runtime: usize) -> Option<(u64, usize, usize, usize)> {
+        match &self.chart_slide_positions {
+            Some(positions) => positions.get(&runtime).copied(),
+            None => chart_slide_position(chart, runtime),
+        }
     }
 
     /// `(total_judge_queue_len, track_count, initial_queue_remaining)` for a
@@ -857,18 +916,24 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
         app.record_slide_judge(fx.note_id, fx.slide_idx, fx.grade);
     }
     // Completed single-hit notes disappear on judgment, not after a timer.
-    app.hidden_notes.extend(judged_single_hit_notes(&app.chart, &result));
+    app.hidden_notes.extend(judged_single_hit_notes(&app.chart, app.judge_engine.as_ref(), &result));
     for command in &result.audio_commands {
         play_audio_command(app, command);
     }
 }
 
-fn judged_single_hit_notes(chart: &ChartDoc, result: &RuntimeStepLightResult) -> Vec<u64> {
+fn judged_single_hit_notes(chart: &ChartDoc, engine: Option<&JudgeEngine>, result: &RuntimeStepLightResult) -> Vec<u64> {
     result
         .events
         .iter()
         .filter(|event| matches!(event.kind, JudgeEventKind::Touch | JudgeEventKind::Tap | JudgeEventKind::Break))
-        .filter_map(|event| chart_note(chart, event.note_index))
+        .filter_map(|event| {
+            let index = match engine {
+                Some(engine) => engine.chart_note_id(event.note_index)?,
+                None => event.note_index,
+            };
+            chart_note(chart, index)
+        })
         .filter(|note| matches!(note.note_type, NoteType::Touch | NoteType::Tap))
         .map(|note| note.id)
         .collect()
@@ -897,7 +962,7 @@ fn collect_slide_judge_fx(
         let Some(runtime_slide_index) = engine.runtime_slide_index(note_index) else {
             return;
         };
-        let Some((note_id, slide_idx)) = chart_slide_key(chart, runtime_slide_index) else {
+        let Some((note_id, slide_idx, _, _)) = engine.slide_position(chart, runtime_slide_index) else {
             return;
         };
         if seen.insert((note_id, slide_idx)) {
@@ -1029,7 +1094,13 @@ fn judge_result_zone(
             .or_else(|| event_position_zone(events, note_index, kind))
     } else {
         event_position_zone(events, note_index, kind)
-            .or_else(|| chart_note_head_zone(chart, note_index))
+            .or_else(|| {
+                let index = match engine {
+                    Some(engine) => engine.chart_note_id(note_index)?,
+                    None => note_index,
+                };
+                chart_note_head_zone(chart, index)
+            })
     }
 }
 
@@ -1069,8 +1140,14 @@ fn slide_tail_zone_for_runtime_note(
     engine: Option<&JudgeEngine>,
     note_index: u64,
 ) -> Option<PadZone> {
-    let runtime_slide_index = engine.and_then(|engine| engine.runtime_slide_index(note_index))?;
-    chart_slide_tail_zone(chart, runtime_slide_index)
+    let engine = engine?;
+    let runtime_slide_index = engine.runtime_slide_index(note_index)?;
+    let (note_id, slide_idx, _, _) = engine.slide_position(chart, runtime_slide_index)?;
+    chart.notes.iter().find(|note| note.id == note_id)
+        .and_then(|note| note.slide.get(slide_idx))
+        .and_then(|slide| slide.segments.last())
+        .and_then(|segment| segment.points.last())
+        .map(|point| point.zone)
 }
 
 fn chart_slide_tail_zone(chart: &ChartDoc, runtime_slide_index: usize) -> Option<PadZone> {
@@ -1169,7 +1246,11 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
                     // lnmai reports touch-holds as `Hold`; they use the touch
                     // sound, regular holds the tap sound.
                     JudgeEventKind::Hold => {
-                        if chart_note(&app.chart, *note_index).is_some_and(|n| n.is_touch) {
+                        let id = match app.judge_engine.as_ref() {
+                            Some(engine) => engine.chart_note_id(*note_index),
+                            None => Some(*note_index),
+                        };
+                        if id.and_then(|id| chart_note(&app.chart, id)).is_some_and(|n| n.is_touch) {
                             SfxKind::Touch
                         } else {
                             SfxKind::Tap
@@ -1204,6 +1285,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn edited_note_ids_hide_the_judged_tap_and_touch_not_their_neighbors() {
+        let source = "&inote_1=(120){4}1/B2,3,E";
+        let mut chart = crate::app::maidata::from_maidata(source, None).unwrap();
+        let mut ids = HashMap::new();
+        for note in &mut chart.notes {
+            let old_id = note.id;
+            note.id += 1000;
+            ids.insert(old_id, note.id);
+        }
+        let mut engine = JudgeEngine::load(source, 1).unwrap();
+        engine.bind_editor_chart(ids, HashMap::new()).unwrap();
+        let tactic = engine.default_tactic().unwrap();
+        let mut cursor = 0;
+        let mut hidden = HashSet::new();
+        for frame in 0..240 {
+            let now = frame as f32 / 120.0;
+            let mut due = Vec::new();
+            while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= (now * 1e6) as i64 {
+                due.push(tactic[cursor].clone());
+                cursor += 1;
+            }
+            for result in step_engine_events(&mut engine, now, due) {
+                hidden.extend(judged_single_hit_notes(&chart, Some(&engine), &result.unwrap()));
+            }
+            if frame == 30 {
+                assert_eq!(hidden, chart.notes[..2].iter().map(|note| note.id).collect());
+            }
+        }
+        assert_eq!(hidden, chart.notes.iter().map(|note| note.id).collect());
+    }
+
+    #[test]
     fn judged_taps_and_breaks_hide_only_the_completed_note() {
         let text = "&inote_1=(120){4}1,2b,3h[4:1],4-6[4:1],E";
         let chart = crate::app::maidata::from_maidata(text, None).unwrap();
@@ -1220,7 +1333,7 @@ mod tests {
                     cursor += 1;
                 }
                 for result in step_engine_events(&mut engine, now, due) {
-                    hidden.extend(judged_single_hit_notes(&chart, &result.unwrap()));
+                    hidden.extend(judged_single_hit_notes(&chart, Some(&engine), &result.unwrap()));
                 }
             }
             let expected: HashSet<_> = chart.notes.iter()

@@ -13,6 +13,59 @@ use crate::player::state::PadPreviewState;
 
 use super::state::EditorState;
 
+/// The last compiled content, independent of the editor's saved/dirty flag.
+pub struct ChartSync {
+    notes: Vec<app::types::Note>,
+    bpms: Vec<app::types::BpmChange>,
+    current: bool,
+}
+
+impl ChartSync {
+    pub fn new(chart: &mut ChartDoc) -> Self {
+        app::maichart::recompute_each(&mut chart.notes);
+        Self {
+            notes: chart.notes.clone(),
+            bpms: chart.bpms.clone(),
+            current: true,
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        app: &mut PadPreviewState,
+        gesture_active: bool,
+    ) -> Result<bool, String> {
+        app::maichart::recompute_each(&mut app.chart.notes);
+        if self.notes == app.chart.notes && self.bpms == app.chart.bpms {
+            return Ok(self.current);
+        }
+        if gesture_active {
+            return Ok(false);
+        }
+        let result = (|| {
+            #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+            {
+                let level = app.chart.simai_level.max(1);
+                let compiled = super::core_chart::compile(&app.chart, level)?;
+                let mut engine = crate::player::engine::JudgeEngine::load(&compiled.text, level)?;
+                engine.bind_editor_chart(compiled.note_ids, compiled.slide_positions)?;
+                app.replace_edited_engine(engine, compiled.text, level)
+            }
+            #[cfg(not(any(feature = "backend-lean", feature = "backend-rust")))]
+            {
+                let mut cues = crate::player::cues::CueTrack::from_chart(&app.chart);
+                cues.reset(app.timeline_time().max(0.0));
+                app.cue_track = Some(cues);
+                Ok(())
+            }
+        })();
+        self.current = result.is_ok();
+        self.notes = app.chart.notes.clone();
+        self.bpms = app.chart.bpms.clone();
+        result.map(|()| true)
+    }
+}
+
 /// A fully-loaded chart: parsed document plus its decoded track.
 pub struct ChartBundle {
     pub chart: ChartDoc,
@@ -101,11 +154,13 @@ pub fn load_chart_into(app: &mut PadPreviewState, dir: &Path, want_slot: Option<
 /// While the editor is scrubbing the playhead it suppresses cue sounds and feeds
 /// autoplay straight to the judgment backend (no sensor-zone mirroring) — both
 /// handled by the player modules reading [`PadPreviewState::scrubbing`].
-pub async fn tick_player(app: &mut PadPreviewState) {
+pub async fn tick_player(app: &mut PadPreviewState, chart_current: bool) {
     app::audio::service_audio(app).await;
-    app.tick_cues();
-    autoplay::tick(app);
-    crate::player::engine::step_judge_engine(app);
+    if chart_current {
+        app.tick_cues();
+        autoplay::tick(app);
+        crate::player::engine::step_judge_engine(app);
+    }
 }
 
 /// Map the editor's preview modes onto the shared player state.
@@ -150,6 +205,96 @@ mod tests {
     use super::*;
 
     #[test]
+    fn editing_reloads_native_core_without_changing_player_clock_or_ids() {
+        let source = "&inote_6=(120){4}1,2,E\n";
+        let chart = app::maidata::from_maidata_level(source, 6).unwrap();
+        let mut pad = initialize_player(
+            PadPreviewState::new_at(chart, None, None, 0.0, None),
+            Some(source.into()),
+            Some(6),
+        );
+        pad.forced_time = Some(0.25);
+        pad.mode = app::types::Mode::Playing;
+        let mut sync = ChartSync::new(&mut pad.chart);
+        let id = pad.chart.notes[0].id;
+        pad.chart.notes[0].time = 2.0;
+        pad.chart.notes[0].lane = 7;
+        assert!(sync.update(&mut pad, false).unwrap());
+        let spec = pad.judge_engine.as_ref().unwrap().chart_spec().unwrap();
+        assert!(
+            spec.taps
+                .iter()
+                .any(|n| n.slot == crate::core::types::OuterSlot::S7 && n.timing == 2_000_000)
+        );
+        assert_eq!(pad.chart.notes[0].id, id);
+        assert_eq!(pad.song_time(), 0.25);
+        assert_eq!(pad.mode, app::types::Mode::Playing);
+    }
+
+    #[test]
+    fn gestures_defer_core_reload_and_delete_undo_refresh_each() {
+        let source = "&inote_6=(120){4}1/2,E\n";
+        let chart = app::maidata::from_maidata_level(source, 6).unwrap();
+        let mut pad = initialize_player(
+            PadPreviewState::new_at(chart, None, None, 0.0, None),
+            Some(source.into()),
+            Some(6),
+        );
+        pad.forced_time = Some(0.0);
+        let mut sync = ChartSync::new(&mut pad.chart);
+        let original = pad.chart.notes.clone();
+        pad.chart.notes[0].lane = 7;
+        assert!(!sync.update(&mut pad, true).unwrap());
+        assert_eq!(
+            pad.judge_engine
+                .as_ref()
+                .unwrap()
+                .chart_spec()
+                .unwrap()
+                .taps[0]
+                .slot,
+            crate::core::types::OuterSlot::S1
+        );
+        assert!(sync.update(&mut pad, false).unwrap());
+        assert_eq!(
+            pad.judge_engine
+                .as_ref()
+                .unwrap()
+                .chart_spec()
+                .unwrap()
+                .taps[0]
+                .slot,
+            crate::core::types::OuterSlot::S7
+        );
+        pad.chart.notes.pop();
+        assert!(sync.update(&mut pad, false).unwrap());
+        assert!(!pad.chart.notes[0].is_each);
+        assert_eq!(
+            pad.judge_engine
+                .as_ref()
+                .unwrap()
+                .chart_spec()
+                .unwrap()
+                .taps
+                .len(),
+            1
+        );
+        pad.chart.notes = original;
+        assert!(sync.update(&mut pad, false).unwrap());
+        assert!(pad.chart.notes.iter().all(|note| note.is_each));
+        assert_eq!(
+            pad.judge_engine
+                .as_ref()
+                .unwrap()
+                .chart_spec()
+                .unwrap()
+                .taps
+                .len(),
+            2
+        );
+    }
+
+    #[test]
     fn initial_chart_supports_autoplay_and_judged_preview_modes() {
         let source = "&title=Preview\n&lv_6=1\n&inote_6=(120){4}1,2,E\n";
         let chart = app::maidata::from_maidata_level(source, 6).unwrap();
@@ -161,7 +306,12 @@ mod tests {
             "initial editor chart must load its judgment core"
         );
         assert!(!pad.autoplay_tactic.is_empty());
-        for (mode, autoplay_on, core_on) in [(0, true, false), (1, false, true), (2, true, true), (3, true, true)] {
+        for (mode, autoplay_on, core_on) in [
+            (0, true, false),
+            (1, false, true),
+            (2, true, true),
+            (3, true, true),
+        ] {
             apply_preview_mode(&mut pad, mode);
             assert_eq!(pad.autoplay, autoplay_on);
             assert_eq!(pad.use_core(), core_on, "preview mode {mode}");

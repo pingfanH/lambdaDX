@@ -332,7 +332,7 @@ pub(crate) fn mark_double_stars(notes: &mut [Note]) {
     let key = |n: &Note| ((n.time * 100_000.0).round() as i64, n.lane);
     let mut counts: HashMap<(i64, u8), usize> = HashMap::new();
     for n in notes.iter().filter(|n| matches!(n.note_type, NoteType::Slide)) {
-        *counts.entry(key(n)).or_insert(0) += 1;
+        *counts.entry(key(n)).or_insert(0) += n.slide.len().max(1);
     }
     for n in notes.iter_mut().filter(|n| matches!(n.note_type, NoteType::Slide)) {
         n.is_star = counts.get(&key(n)).copied().unwrap_or(0) > 1;
@@ -356,31 +356,40 @@ pub(crate) fn assign_note_ids(notes: &mut [Note]) {
 /// Mark notes that share a hit time with another note (simai "each"). The
 /// `is_each` flag selects the `*_each` skins, so a lone note stays `false`.
 ///
-/// A slide's **trail** (`is_each`) only pairs with other slides, but its **head
-/// star** (`is_each_head`) and every non-slide note use the tap rule: any note
-/// at the same hit time.
+/// Heads pair only at equal measure positions. Trails pair under the same
+/// head, or under simultaneous each star heads; a tapless trail is not a head.
 pub(crate) fn recompute_each(notes: &mut [Note]) {
-    let is_slide: Vec<bool> = notes
-        .iter()
-        .map(|n| matches!(n.note_type, NoteType::Slide))
-        .collect();
-    let times: Vec<f32> = notes.iter().map(|n| n.time).collect();
-    for i in 0..notes.len() {
-        let m = times[i];
-        let any = times
-            .iter()
-            .enumerate()
-            .any(|(j, t)| j != i && (t - m).abs() < 0.002);
-        if is_slide[i] {
-            // Trail: slides only; head star: any note (tap rule).
-            notes[i].is_each = times.iter().enumerate().any(|(j, t)| {
-                j != i && (t - m).abs() < 0.002 && is_slide[j]
-            });
-            notes[i].is_each_head = any;
-        } else {
-            notes[i].is_each = any;
-            notes[i].is_each_head = any;
+    use std::collections::HashMap;
+
+    let key = |time: f32| if time == 0.0 { 0 } else { time.to_bits() };
+    let mut heads = HashMap::<u32, usize>::new();
+    let mut stars = HashMap::<u32, usize>::new();
+    let mut trails = HashMap::<(u32, u8), usize>::new();
+    for n in notes.iter().filter(|n| n.time.is_finite()) {
+        let time = key(n.time);
+        let slide = n.note_type == NoteType::Slide;
+        if !slide || !n.is_tapless {
+            *heads.entry(time).or_default() += 1;
+            if slide {
+                *stars.entry(time).or_default() += 1;
+            }
         }
+        if slide {
+            *trails.entry((time, n.lane)).or_default() += n.slide.len().max(1);
+        }
+    }
+    for n in notes {
+        let time = key(n.time);
+        let slide = n.note_type == NoteType::Slide;
+        let has_head = !slide || !n.is_tapless;
+        n.is_each_head = n.time.is_finite() && has_head
+            && heads.get(&time).copied().unwrap_or(0) > 1;
+        n.is_each = if slide {
+            n.time.is_finite() && (trails.get(&(time, n.lane)).copied().unwrap_or(0) > 1
+                || (n.is_each_head && stars.get(&time).copied().unwrap_or(0) > 1))
+        } else {
+            n.is_each_head
+        };
     }
 }
 
@@ -699,6 +708,56 @@ mod tests {
         assert!(notes[0].is_each, "tap shares its time");
         assert!(!notes[1].is_each, "slide trail only pairs with slides");
         assert!(notes[1].is_each_head, "slide head follows the tap each rule");
+    }
+
+    #[test]
+    fn each_requires_equal_times_and_clears_after_edits() {
+        let mut notes = vec![note(NoteType::Tap, 5.0), note(NoteType::Hold, 5.001)];
+        recompute_each(&mut notes);
+        assert!(notes.iter().all(|n| !n.is_each));
+        notes[1].time = 5.0;
+        recompute_each(&mut notes);
+        assert!(notes.iter().all(|n| n.is_each));
+        notes[1].time = 6.0;
+        recompute_each(&mut notes);
+        assert!(notes.iter().all(|n| !n.is_each && !n.is_each_head));
+        notes[1].time = 5.0;
+        recompute_each(&mut notes);
+        notes.pop();
+        recompute_each(&mut notes);
+        assert!(!notes[0].is_each);
+    }
+
+    #[test]
+    fn each_trails_include_multiple_slides_under_one_head() {
+        let mut head = note(NoteType::Slide, 5.0);
+        let slide = crate::app::types::Slide {
+            segments: vec![],
+            slide_duration: 1.0,
+            slide_start_delay: 0.25,
+            slide_is_break: false,
+            runtime_parts: 1,
+        };
+        head.slide = vec![slide.clone(), slide];
+        let mut notes = vec![head];
+        recompute_each(&mut notes);
+        assert!(notes[0].is_each, "same-head trajectories are each");
+        assert!(!notes[0].is_each_head, "a multi-star is still one head");
+        notes[0].slide.pop();
+        recompute_each(&mut notes);
+        assert!(!notes[0].is_each);
+    }
+
+    #[test]
+    fn tapless_slide_does_not_make_other_heads_each() {
+        let mut trail = note(NoteType::Slide, 5.0);
+        trail.is_tapless = true;
+        trail.lane = 2;
+        let mut notes = vec![note(NoteType::Tap, 5.0), note(NoteType::Slide, 5.0), trail];
+        recompute_each(&mut notes);
+        assert!(notes[0].is_each && notes[1].is_each_head);
+        assert!(!notes[1].is_each && !notes[2].is_each);
+        assert!(!notes[2].is_each_head);
     }
 
     #[test]

@@ -9,7 +9,7 @@ use macroquad::prelude as mq;
 use macroquad::prelude::{Color, Rect as MqRect, Texture2D};
 use macroquad::texture::DrawTextureParams;
 
-use crate::app::types::{Note, Slide};
+use crate::app::types::{Note, NoteType, Slide};
 use crate::player::state::PadPreviewState;
 
 // Reference note metrics (macroquad_sim, desktop profile, `scale = 1.0`).
@@ -20,6 +20,37 @@ pub const TOUCH_POINT: f32 = 12.0;
 pub const STAR_SIZE: f32 = 45.0;
 pub const SLIDE_TILE_SPACING: f32 = 20.0;
 pub const SLIDE_TILE_SCALE: f32 = 0.4;
+
+pub fn draw_order(notes: &[Note]) -> Vec<&Note> {
+    let mut ordered: Vec<_> = notes.iter().collect();
+    ordered.sort_by(|a, b| crate::app::types::note_draw_order(a, b, true));
+    ordered
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+
+    #[test]
+    fn earlier_notes_draw_last_independent_of_insertion_order() {
+        let notes = [3.0, 1.0, 4.0, 2.0].map(|time| Note { time, ..Default::default() });
+        let times: Vec<_> = draw_order(&notes).iter().map(|n| n.time).collect();
+        assert_eq!(times, [4.0, 3.0, 2.0, 1.0]);
+    }
+}
+
+pub fn head_size(note: &Note) -> f32 {
+    match note.note_type {
+        NoteType::Slide => STAR_SIZE,
+        NoteType::Touch => TOUCH_TRI * 1.6,
+        _ => TAP_SIZE,
+    }
+}
+
+pub fn selection_outline(note: &Note, x: f32, y: f32, scale: f32) {
+    let size = head_size(note) * scale;
+    mq::draw_rectangle_lines(x - size * 0.5, y - size * 0.5, size, size, 2.0, ca(56, 189, 248, 220));
+}
 
 pub fn c(r: u8, g: u8, b: u8) -> Color {
     Color::from_rgba(r, g, b, 255)

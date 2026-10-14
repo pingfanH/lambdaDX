@@ -108,6 +108,7 @@ pub fn draw(
         y_of,
         g,
         s,
+        editor.snap_division,
     );
     draw_lanes(plot_left, plot_top, plot_bottom, lane_w, rect.y + 16.0 * g, lane_x, s);
 
@@ -122,7 +123,7 @@ pub fn draw(
         scale: s,
         note_scale: note_scale(),
     };
-    for note in &chart.notes {
+    for note in super::notes::draw_order(&chart.notes) {
         let head = note_secs(note, bpms);
         let y = ctx.y_of(head);
         let x = ctx.lane_x(lane_index_of(note));
@@ -159,7 +160,7 @@ fn draw_background(rect: MqRect, header_h: f32, plot_top: f32, plot_bottom: f32,
     );
 }
 
-/// Measure grid: 64 subdivisions per measure (bar / beat / sub). `g` is the
+/// Measure grid uses the placement/drag subdivision (bar / beat / sub). `g` is the
 /// geometry scale (label offsets), `s` the content scale (strokes / font).
 #[allow(clippy::too_many_arguments)]
 fn draw_measure_grid(
@@ -174,20 +175,21 @@ fn draw_measure_grid(
     y_of: impl Fn(f32) -> f32,
     g: f32,
     s: f32,
+    division: u32,
 ) {
-    const SUBDIV: i32 = 64;
+    let subdiv = division.max(1);
     let start_m = secs_to_measure(t_lo, bpms).floor();
     let end_m = secs_to_measure(t_hi, bpms) + 1.0;
     let mut m = start_m;
     while m <= end_m {
-        for i in 0..SUBDIV {
-            let y = y_of(measure_to_secs(m + i as f32 / SUBDIV as f32, bpms));
+        for i in 0..subdiv {
+            let y = y_of(measure_to_secs(m + i as f32 / subdiv as f32, bpms));
             if y < plot_top - 1.0 || y > plot_bottom + 1.0 {
                 continue;
             }
             let (col, th) = if i == 0 {
                 (theme::to_mq(theme::GRID_BEAT), 1.2 * s)
-            } else if i % 16 == 0 {
+            } else if i * 4 % subdiv == 0 {
                 (theme::to_mq(theme::GRID_LINE), 1.0 * s)
             } else {
                 (theme::to_mq(theme::GRID_MINOR), 0.6 * s)
@@ -244,7 +246,7 @@ fn draw_note(ctx: &VNoteCtx, note: &Note, x: f32, y: f32, y_tail: f32, selected:
     let tap = draw::TAP_SIZE * s;
     let hold_w = draw::HOLD_WIDTH * s;
     if selected {
-        mq::draw_circle(x, y, tap * 0.8, draw::ca(56, 189, 248, 100));
+        draw::selection_outline(note, x, y, s);
     }
     match note.note_type {
         NoteType::Tap => {

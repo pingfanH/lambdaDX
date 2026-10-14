@@ -8,10 +8,12 @@
 use egui_macroquad::egui;
 
 use crate::app::types::ChartDoc;
-use crate::state::{EditorLayout, EditorState};
 use crate::io::save_chart;
 use crate::runtime::preview_mode_label;
-use crate::theme::{ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, FONT_BODY, FONT_HEADER, TEXT, TEXT_DIM};
+use crate::state::{EditorLayout, EditorState};
+use crate::theme::{
+    ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, FONT_BODY, FONT_HEADER, TEXT, TEXT_DIM,
+};
 
 use super::widgets::{toolbar_button, toolbar_button_enabled, toolbar_separator};
 
@@ -64,9 +66,7 @@ pub fn draw(
         }
 
         toolbar_separator(ui);
-        if toolbar_button(ui, "Grid", editor.snap_enabled, "Snap placement / drag to the grid") {
-            editor.snap_enabled = !editor.snap_enabled;
-        }
+        draw_subdivision(ui, editor);
         if toolbar_button(
             ui,
             "Wheel ↕",
@@ -120,6 +120,27 @@ pub fn draw(
         });
     });
     audio_turned_off
+}
+
+fn draw_subdivision(ui: &mut egui::Ui, editor: &mut EditorState) {
+    ui.checkbox(&mut editor.snap_enabled, "吸附");
+    egui::ComboBox::from_id_salt("grid_division")
+        .width(96.0)
+        .selected_text(format!("细分 1/{}", editor.snap_division))
+        .show_ui(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("自定义 1/");
+                ui.add(
+                    egui::DragValue::new(&mut editor.snap_division)
+                        .range(1..=256)
+                        .speed(1),
+                );
+            });
+            ui.separator();
+            for division in [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256] {
+                ui.selectable_value(&mut editor.snap_division, division, format!("1/{division}"));
+            }
+        });
 }
 
 /// `◀ slot N (i/n) ▶` difficulty stepper for the active chart.

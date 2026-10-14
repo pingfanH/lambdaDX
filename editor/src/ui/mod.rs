@@ -15,15 +15,15 @@ pub mod inspector;
 pub mod layout;
 pub mod sidebar;
 pub mod style;
-pub mod tools;
 pub mod toolbar;
+pub mod tools;
 pub mod widgets;
 
 use egui_macroquad::egui;
 
 use crate::audio::WaveformPyramid;
-use crate::state::EditorState;
 use crate::player::state::PadPreviewState;
+use crate::state::EditorState;
 use crate::theme::{BG_TOOLBAR, OVERVIEW_H, PADDING, TEXT, TEXT_DIM, TOOLBAR_H};
 
 use layout::Layout;
@@ -35,17 +35,38 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("Cmd+Z / ⇧Cmd+Z", "Undo · Redo"),
     ("Cmd+C / Cmd+X", "Copy · Cut selection"),
     ("Cmd+V", "Paste at playhead"),
-    ("← →", "Nudge selection in time (±1 grid)"),
-    ("↑ ↓", "Nudge selection one lane"),
-    ("Del / Backspace", "Delete selection"),
+    ("Shift+D", "Duplicate selection and move"),
+    ("Shift+R", "Repeat last move / rotate / scale / duplicate"),
+    ("Arrows", "Nudge selection along the visible time/lane axes"),
+    ("Shift+click/drag", "Add to selection"),
+    ("Cmd+click/drag", "Toggle note / subtract from selection"),
+    ("Cmd+A / ⇧Cmd+A", "Select all / clear selection"),
+    (
+        "G / S / R",
+        "Move / time scale / rotate with pointer and wheel",
+    ),
+    (
+        "Enter / click / Esc",
+        "Confirm / confirm / cancel transform",
+    ),
+    ("E (slide selected)", "Toggle slide trajectory editing"),
+    ("D / Del / Backspace", "Delete selection"),
     ("Right-click", "Delete nearest note"),
     ("B / X / N", "Toggle Break · Ex · both"),
-    ("Double/Middle-click a slide", "Slide edit: click pad/lane zones to add a waypoint"),
-    ("Q/P/S/Z/V/W + 1-8", "Slide edit: set shape to an end lane (⇧=QQ/PP, ,/./;=</>/^, -=line)"),
+    ("Star placement", "Head / motion-start beat / tail"),
+    (
+        "Double/Middle-click trail",
+        "Slide edit: click pad/lane zones to add a waypoint",
+    ),
+    (
+        "Q/P/S/Z/V/W + 1-8",
+        "Slide edit: set shape to an end lane (⇧=QQ/PP, ,/./;=</>/^, -=line)",
+    ),
     ("⌫ / Esc", "Slide edit: undo waypoint · exit"),
     ("Cmd+wheel", "Zoom timeline"),
     ("Wheel", "Scroll / scrub view"),
-    ("P", "Cycle preview mode"),
+    ("P / O", "Cycle preview mode / toggle autoplay"),
+    ("Space / R / Home", "Play-pause / restart / seek to start"),
     ("?", "Toggle this help"),
 ];
 
@@ -60,6 +81,7 @@ pub struct EditorUi {
     /// Collapse state for the inspector sections (Note Properties, Chart Info).
     pub inspector_open: [bool; 2],
     style_applied: bool,
+    tool_textures: [Option<egui::TextureHandle>; 6],
 }
 
 impl Default for EditorUi {
@@ -76,6 +98,7 @@ impl EditorUi {
             sidebar_open: true,
             inspector_open: [true, true],
             style_applied: false,
+            tool_textures: [None, None, None, None, None, None],
         }
     }
 
@@ -88,6 +111,31 @@ impl EditorUi {
         current_time: f32,
         waveform: &WaveformPyramid,
     ) {
+        editor.glyph_to_points =
+            ctx.screen_rect().width() / macroquad::prelude::screen_width().max(1.0);
+        for (slot, texture) in self.tool_textures.iter_mut().zip([
+            app.tap_texture.as_ref(),
+            app.hold_texture.as_ref(),
+            app.star_tex.as_ref(),
+            app.touch_tri_tex.as_ref(),
+            app.touch_point_tex.as_ref(),
+            app.tap_break_tex.as_ref(),
+        ]) {
+            if slot.is_none() {
+                if let Some(texture) = texture {
+                    let data = texture.get_texture_data();
+                    let image = egui::ColorImage::from_rgba_unmultiplied(
+                        [data.width as usize, data.height as usize],
+                        &data.bytes,
+                    );
+                    *slot = Some(ctx.load_texture(
+                        format!("tool-{:?}", texture.raw_miniquad_id()),
+                        image,
+                        egui::TextureOptions::LINEAR,
+                    ));
+                }
+            }
+        }
         if !self.style_applied {
             style::apply(ctx);
             self.style_applied = true;
@@ -103,7 +151,11 @@ impl EditorUi {
             )
             .show(ctx, |ui| {
                 self.layout.toolbar = ui.max_rect();
-                stop_audio = toolbar::draw(ui, editor, &mut app.chart, &mut app.audio_enabled);
+                stop_audio = ui
+                    .add_enabled_ui(editor.selection_transform.is_none(), |ui| {
+                        toolbar::draw(ui, editor, &mut app.chart, &mut app.audio_enabled)
+                    })
+                    .inner;
             });
         if stop_audio {
             app.stop_audio_if_any();
@@ -116,7 +168,15 @@ impl EditorUi {
                 .exact_width(layout::sidebar_width(screen_w))
                 .frame(egui::Frame::NONE.inner_margin(egui::Margin::same(PADDING as i8)))
                 .show(ctx, |ui| {
-                    sidebar::draw(ui, &mut self.layout, editor, &mut app.chart, &mut self.inspector_open);
+                    ui.add_enabled_ui(editor.selection_transform.is_none(), |ui| {
+                        sidebar::draw(
+                            ui,
+                            &mut self.layout,
+                            editor,
+                            &mut app.chart,
+                            &mut self.inspector_open,
+                        );
+                    });
                 });
         } else {
             // Collapsed: hide the panel and the pad preview so the timeline (and
@@ -128,7 +188,53 @@ impl EditorUi {
         let duration = app.song_duration();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show(ctx, |ui| self.central(ui, editor, &mut app.chart, current_time, waveform, duration));
+            .show(ctx, |ui| {
+                self.central(ui, editor, &mut app.chart, current_time, waveform, duration)
+            });
+        if !ctx.wants_keyboard_input()
+            && !ctx.input(|i| i.modifiers.any())
+            && !editor.is_slide_edit()
+            && editor.selection_transform.is_none()
+            && editor.dragging.is_none()
+            && editor.handle_grab.is_none()
+            && editor.marquee_start.is_none()
+            && !editor.scrubbing
+        {
+            let pressed = |key| ctx.input(|i| i.key_pressed(key));
+            if pressed(egui::Key::Space) {
+                app.toggle_play();
+            }
+            if pressed(egui::Key::R) && editor.selected.is_empty() {
+                app.start_playback_at(0.0);
+            }
+            if pressed(egui::Key::Home) {
+                app.seek_to(0.0);
+            }
+            if pressed(egui::Key::A) {
+                app.audio_enabled = !app.audio_enabled;
+                if app.audio_enabled {
+                    if app.mode == crate::app::types::Mode::Playing {
+                        app.request_audio_start();
+                    }
+                } else {
+                    app.stop_audio_if_any();
+                }
+            }
+            if editor.selected.is_empty() {
+                if pressed(egui::Key::ArrowLeft) {
+                    app.seek_to((app.song_time() - 1.0).max(0.0));
+                }
+                if pressed(egui::Key::ArrowRight) {
+                    app.seek_to(app.song_time() + 1.0);
+                }
+                if pressed(egui::Key::ArrowUp) {
+                    app.nudge_play_speed(0.1);
+                }
+                if pressed(egui::Key::ArrowDown) {
+                    app.nudge_play_speed(-0.1);
+                }
+            }
+        }
 
         if editor.show_help {
             self.draw_help(ctx, editor);
@@ -196,9 +302,7 @@ impl EditorUi {
                     ui.horizontal(|ui| {
                         ui.add_sized(
                             [140.0, 16.0],
-                            egui::Label::new(
-                                egui::RichText::new(*keys).monospace().color(TEXT),
-                            ),
+                            egui::Label::new(egui::RichText::new(*keys).monospace().color(TEXT)),
                         );
                         ui.label(egui::RichText::new(*what).color(TEXT_DIM));
                     });
@@ -250,7 +354,10 @@ impl EditorUi {
                 timeline_rect.left() + tools::PANEL_X,
                 timeline_rect.top() + tools::PANEL_Y,
             ),
-            egui::vec2(tools::PANEL_W, tools::panel_height(crate::state::Tool::ALL.len())),
+            egui::vec2(
+                tools::PANEL_W,
+                tools::panel_height(crate::state::Tool::ALL.len()),
+            ),
         );
         self.layout.tools = tools_rect;
 
@@ -261,9 +368,39 @@ impl EditorUi {
             ui.id().with("editor_timeline"),
             egui::Sense::click_and_drag(),
         );
-        let tools_hovered = tools::draw(ui, tools_rect, editor);
+        let was_transforming = editor.selection_transform.is_some();
+        let shortcuts_owned =
+            crate::timeline::handle_edit_shortcuts(ui, editor, chart, current_time);
+        let transform_owned = crate::timeline::transform::handle_pointer(
+            ui,
+            timeline_rect,
+            editor,
+            chart,
+            current_time,
+            macroquad::input::mouse_wheel().1 / 40.0,
+        ) || was_transforming;
+        let over_tools = ui.input(|i| i.pointer.hover_pos().is_some_and(|p| tools_rect.contains(p)));
+        if !transform_owned && !over_tools {
+            crate::timeline::placement::draw(
+                ui, timeline_rect, editor, chart, current_time, &self.tool_textures,
+            );
+        }
+        let tools_hovered = ui
+            .add_enabled_ui(!transform_owned, |ui| {
+                tools::draw(ui, tools_rect, editor, &self.tool_textures)
+            })
+            .inner;
+        let handle_active = !transform_owned
+            && crate::timeline::handles::draw(
+                ui,
+                timeline_rect,
+                tools_rect,
+                editor,
+                chart,
+                current_time,
+            );
 
-        if !tools_hovered {
+        if !tools_hovered && !handle_active && !transform_owned {
             crate::timeline::handle_input(
                 editor.layout,
                 &response,
@@ -274,21 +411,33 @@ impl EditorUi {
                 ui,
             );
         }
-        crate::timeline::handle_edit_shortcuts(ui, editor, chart, current_time);
         // Slide-edit mode reuses the letter keys (`Q/P/S/Z/V/W`) for shapes, so
         // suppress the single-key tool shortcuts while it is active.
-        if !editor.is_slide_edit() {
+        if !editor.is_slide_edit() && !shortcuts_owned && !transform_owned {
             tools::handle_shortcuts(ui, editor);
         }
 
-        crate::timeline::draw_overview(ui, overview_rect, editor, chart, current_time, duration);
+        ui.add_enabled_ui(!transform_owned, |ui| {
+            crate::timeline::draw_overview(
+                ui,
+                overview_rect,
+                editor,
+                chart,
+                current_time,
+                duration,
+            );
+        });
         let _ = waveform;
     }
 
     /// The small chevron tab that collapses / expands the right panel (design
     /// shows a 12×28 tab at the panel's mid-height; the whole seam is clickable).
     fn draw_panel_handle(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        let response = ui.interact(rect, ui.id().with("editor_panel_handle"), egui::Sense::click());
+        let response = ui.interact(
+            rect,
+            ui.id().with("editor_panel_handle"),
+            egui::Sense::click(),
+        );
         let tab = egui::Rect::from_center_size(
             egui::pos2(rect.right() - 6.0, rect.center().y),
             egui::vec2(12.0, 28.0),
