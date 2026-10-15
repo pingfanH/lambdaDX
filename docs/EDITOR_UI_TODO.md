@@ -25,7 +25,8 @@
 - [x] 顶栏 Undo/Redo 按钮(含灰化)。
 - [x] `dirty` 未保存指示(顶栏红点 + 保存清空)+ 载入/打开/退出前确认(Save/Discard/Cancel);
       载入成功清空 `dirty`(顺带修复之前切图后红点不消的 bug)。
-- [x] `?` 快捷键帮助浮层(顶栏 `?` 按钮 / 按 `?` / `F1` 切换)。
+- [x] 快捷键帮助浮层(顶栏“帮助 → 快捷键”);`F1` 打开分类设置窗口。
+- [x] 顶栏文件/编辑/视图/播放/设置/帮助下拉操作;分类设置及 Timeline/Pad 判定区间显示(见 `EDITOR_SETTINGS.md`)。
 - [x] Inspector 多选聚合显示(相同/混合)。
 - [x] 框选贴边自动滚动(横向平移 / 纵向 seek);hover 音符信息(进度条右读数)。
 - [x] 右键删除最近音符。
@@ -53,9 +54,13 @@
 
 - [ ] Toast 通知系统(替换 status 单点)。
 - [ ] Chart Info 可编辑(Title/Artist/BPM/Offset)。
-- [ ] Save As / 最近文件 / 自动保存 / 拖放导入。
-- [ ] Simai 导出(见 `docs/editor_todo.md` P0)。
-- [ ] 模板 / 场景系统(见 `docs/editor_todo.md` P1)。
+- [x] 保存写回实际源文件 / Save As (`.txt` / `.json`),失败不清除 dirty。
+- [x] Simai 导出及重导入验证(见 `docs/EDITOR_FILES.md`)。
+- [ ] 最近文件 / 自动保存 / 拖放导入。
+- [x] 模板 / 场景系统:模板库、实例操作、隔离编辑、版本传播和保存/导出;
+      见 `docs/EDITOR_TEMPLATES.md` / `docs/editor_todo.md` P1。
+- [x] Autoplay 工作区:Pad 预览、事件属性与下方多层时间轴,按音符/滑条归属编辑;
+      支持拖拽、吸附、增删/恢复默认、撤销重做与 JSON 保存,见 `docs/EDITOR_AUTOPLAY.md`。
 
 ## P3 — 打磨
 

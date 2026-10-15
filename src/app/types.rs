@@ -520,6 +520,10 @@ pub struct Note {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_star: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_fake_rotate: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_hanabi: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_tapless: bool,
     /// True for sensor/touch notes (`Touch` / touch-hold), independent of the
     /// zone number. A-zone touch notes share zone `1..=8` with ring notes, so
@@ -654,6 +658,9 @@ pub struct ChartDoc {
     /// Template instances placed in this chart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub template_instances: Vec<TemplateInstance>,
+    /// Authored input events, relative to their owning note head in microseconds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub autoplay_overrides: Vec<crate::app::autoplay_edit::AutoplayOverride>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -919,7 +926,7 @@ pub enum SceneRef {
 }
 
 /// A reusable chart fragment (like an Adobe Animate symbol).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TemplateDef {
     pub id: String,
     pub name: String,
@@ -931,7 +938,7 @@ pub struct TemplateDef {
 }
 
 /// An instance of a template placed in the chart.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TemplateInstance {
     pub instance_id: String,
     pub template_id: String,

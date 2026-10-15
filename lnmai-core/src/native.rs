@@ -160,6 +160,7 @@ fn error(message: impl Into<String>) -> LnmaiError {
     }
 }
 fn call(handle: u64, op: u32, request: Request) -> Result<OwnedOutput> {
+    crate::session::ensure_runtime().map_err(|_| error("failed to initialize Lean runtime"))?;
     let mut p = ptr::null_mut();
     let status = unsafe { lnmai_v3_call(handle, op, &request, &mut p) };
     let out = OwnedOutput(p);
@@ -501,12 +502,21 @@ pub(crate) fn step(handle: u64, batch: &TimedInputBatch) -> Result<RuntimeStepLi
     )?;
     decode_step(out.records())
 }
-pub(crate) fn seek(handle: u64, target: i64) -> Result<SeekResult> {
+pub(crate) fn seek(
+    handle: u64,
+    target: i64,
+    events: &[TimedInputEvent],
+    keep_held: bool,
+) -> Result<SeekResult> {
+    let events: Vec<_> = events.iter().map(encode).collect();
     let out = call(
         handle,
         3,
         Request {
             time_us: target,
+            level_index: u32::from(keep_held),
+            events: events.as_ptr(),
+            event_count: events.len() as u64,
             ..Default::default()
         },
     )?;
@@ -515,6 +525,7 @@ pub(crate) fn seek(handle: u64, target: i64) -> Result<SeekResult> {
         score: step.score,
         current_time: step.current_time,
         terminated: step.terminated,
+        render_commands: step.render_commands,
         retained_note_indices: out
             .records()
             .iter()

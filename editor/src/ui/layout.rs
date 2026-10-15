@@ -7,9 +7,11 @@ use egui_macroquad::egui;
 
 use crate::app::types::PadGeom;
 
-/// Reference radius used to derive the pad's render scale from the preview size
-/// (matches the design stage's `DESIGN_H * 0.42`).
-pub const DESIGN_PAD_REFERENCE: f32 = 856.0 * 0.42;
+/// Content scale for notes in the embedded pad, separate from host UI sizing.
+pub fn preview_note_scale(pad_radius: f32, ui_scale: f32) -> f32 {
+    let reference_radius = 856.0 * 0.42;
+    (pad_radius / reference_radius).max(0.1) * ui_scale
+}
 
 /// All regions of one editor frame, in egui points.
 #[derive(Clone, Copy, Debug)]
@@ -78,6 +80,32 @@ pub fn sidebar_width(screen_w: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_notes_keep_player_proportions_on_small_pads() {
+        let reference_radius = 856.0 * 0.42;
+        for radius in [100.0, 180.0, reference_radius] {
+            let scale = preview_note_scale(radius, 1.0);
+            assert!(
+                (scale / radius - 1.0 / reference_radius).abs() < 0.00001,
+                "preview radius {radius} used full-player note scale {scale}"
+            );
+            assert!((preview_note_scale(radius, 1.5) - scale * 1.5).abs() < 0.00001);
+        }
+    }
+
+    #[test]
+    fn preview_zoom_scales_notes_once() {
+        let mut layout = Layout {
+            preview: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0)),
+            ..Default::default()
+        };
+        let ui_scale = 1.0;
+        layout.update_pad(1.0);
+        let base = preview_note_scale(layout.pad.outer_r, ui_scale);
+        layout.update_pad(1.5);
+        assert!((preview_note_scale(layout.pad.outer_r, ui_scale) - base * 1.5).abs() < 0.00001);
+    }
 
     #[test]
     fn sidebar_matches_timeline_width() {

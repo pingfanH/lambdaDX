@@ -33,6 +33,7 @@ struct VNoteCtx<'a> {
     scale: f32,
     /// Extra multiplier on note glyph sizes (F1 `editor_note_scale`).
     note_scale: f32,
+    tint: mq::Color,
 }
 
 impl VNoteCtx<'_> {
@@ -47,6 +48,7 @@ impl VNoteCtx<'_> {
     fn note_s(&self) -> f32 {
         self.scale * self.note_scale
     }
+    fn color(&self, color: mq::Color) -> mq::Color { draw::tint(color, self.tint) }
 }
 
 /// Timeline note-size multiplier from the F1 params (clamped to a sane range).
@@ -83,7 +85,7 @@ pub fn draw(
     // axis must be scaled by the same `g` — otherwise notes drift from where the
     // egui input math (which works in egui points) expects them.
     let pps = editor.pixels_per_second * g;
-    let now = current_time;
+    let now = crate::keyboard::navigation::reference_time(editor, current_time);
     let y_of = |t: f32| judge_y - (t - now) * pps;
     let lane_x = |i: usize| plot_left + (i as f32 + 0.5) * lane_w;
 
@@ -111,8 +113,12 @@ pub fn draw(
         editor.snap_division,
     );
     draw_lanes(plot_left, plot_top, plot_bottom, lane_w, rect.y + 16.0 * g, lane_x, s);
+    super::judgment::draw(app, chart, super::judgment::Axis {
+        plot: MqRect::new(plot_left, plot_top, plot_right - plot_left, plot_bottom - plot_top),
+        vertical: true, origin: judge_y, reference: now, pps, lane_size: lane_w,
+    });
 
-    let ctx = VNoteCtx {
+    let mut ctx = VNoteCtx {
         app,
         bpms,
         judge_y,
@@ -122,8 +128,12 @@ pub fn draw(
         lane_w,
         scale: s,
         note_scale: note_scale(),
+        tint: mq::WHITE,
     };
-    for note in super::notes::draw_order(&chart.notes) {
+    let backdrop = editor.template_session.as_ref().map(|session| session.backdrop.notes.as_slice()).unwrap_or(&[]);
+    for (notes, is_backdrop) in [(backdrop, true), (chart.notes.as_slice(), false)] {
+    for note in super::notes::draw_order(notes) {
+        ctx.tint = draw::note_tint(note, is_backdrop);
         let head = note_secs(note, bpms);
         let y = ctx.y_of(head);
         let x = ctx.lane_x(lane_index_of(note));
@@ -137,7 +147,8 @@ pub fn draw(
         if yb < plot_top - 80.0 * g || ya > plot_bottom + 80.0 * g {
             continue;
         }
-        draw_note(&ctx, note, x, y, y_tail, editor.selected.contains(&note.id));
+        draw_note(&ctx, note, x, y, y_tail, !is_backdrop && editor.selected.contains(&note.id));
+    }
     }
 
     // Judgment line doubles as the "now" playhead (design: 1px `#FF3B50`).
@@ -252,22 +263,22 @@ fn draw_note(ctx: &VNoteCtx, note: &Note, x: f32, y: f32, y_tail: f32, selected:
         NoteType::Tap => {
             let tex = draw::tap_tex(app, note);
             if let Some(t) = tex {
-                draw::draw_tex(t, x, y, tap, tap, mq::WHITE);
+                draw::draw_tex(t, x, y, tap, tap, ctx.tint);
             } else {
-                draw::fallback_tap(x, y, tap);
+                draw::fallback_tap_tinted(x, y, tap, ctx.tint);
             }
             if note.is_ex {
                 if let Some(ex) = app.tap_ex_tex.as_ref() {
-                    draw::draw_tex(ex, x, y, tap, tap, mq::WHITE);
+                    draw::draw_tex(ex, x, y, tap, tap, ctx.tint);
                 }
             }
-            mq::draw_circle(x, y, 2.5 * s, draw::ca(255, 255, 255, 200));
+            mq::draw_circle(x, y, 2.5 * s, ctx.color(draw::ca(255, 255, 255, 200)));
         }
         NoteType::Hold | NoteType::TouchHold => {
             draw_hold(ctx, note, x, y, y_tail, hold_w);
         }
         NoteType::Touch => {
-            draw::draw_touch(app, s, note, x, y);
+            draw::draw_touch_tinted(app, s, note, x, y, ctx.tint);
         }
         NoteType::Slide => {
             draw_slide(ctx, note, x, y);
@@ -280,29 +291,29 @@ fn draw_hold(ctx: &VNoteCtx, note: &Note, x: f32, y0: f32, y1: f32, hold_w: f32)
     let s = ctx.note_s();
     match draw::hold_tex(app, note) {
         Some(t) => {
-            draw::draw_hold_9slice_vertical(t, x, y0, y1, hold_w, mq::WHITE);
+            draw::draw_hold_9slice_vertical(t, x, y0, y1, hold_w, ctx.tint);
             if note.is_ex {
                 if let Some(ex) = app.hold_ex_tex.as_ref() {
-                    draw::draw_hold_9slice_vertical(ex, x, y0, y1, hold_w, mq::WHITE);
+                    draw::draw_hold_9slice_vertical(ex, x, y0, y1, hold_w, ctx.tint);
                 }
             }
         }
         None => {
             let top = y0.min(y1);
             let len = (y0 - y1).abs().max(hold_w * 0.133);
-            mq::draw_rectangle(x - hold_w * 0.2, top, hold_w * 0.4, len, draw::ca(190, 24, 93, 130));
+            mq::draw_rectangle(x - hold_w * 0.2, top, hold_w * 0.4, len, ctx.color(draw::ca(190, 24, 93, 130)));
             mq::draw_rectangle_lines(
                 x - hold_w * 0.2,
                 top,
                 hold_w * 0.4,
                 len,
                 1.0 * s,
-                draw::ca(244, 114, 182, 200),
+                ctx.color(draw::ca(244, 114, 182, 200)),
             );
         }
     }
-    mq::draw_circle(x, y0, 2.5 * s, draw::ca(255, 255, 255, 200));
-    mq::draw_circle(x, y1, 2.5 * s, draw::ca(255, 255, 255, 180));
+    mq::draw_circle(x, y0, 2.5 * s, ctx.color(draw::ca(255, 255, 255, 200)));
+    mq::draw_circle(x, y1, 2.5 * s, ctx.color(draw::ca(255, 255, 255, 180)));
 }
 
 /// Draw one slide: dashed delay segment, tiled trail through the A-zone
@@ -320,42 +331,44 @@ fn draw_slide(ctx: &VNoteCtx, note: &Note, x: f32, y: f32) {
         let delay_y = ctx.y_of(head + delay_s);
         let tail_y = ctx.y_of(head + dur_s);
 
-        draw_delay_dash(x, y, delay_y, delay_s, s);
+        draw_delay_dash(x, y, delay_y, delay_s, s, ctx.tint);
 
         let travel = (tail_y - delay_y).abs();
         if travel > 0.5 {
             let waypoints = slide_waypoints(ctx, sl, head, delay_s, dur_s, x, delay_y, tail_y);
             let texture = draw::slide_tex(app, note, sl);
             for seg in waypoints.windows(2) {
-                draw_trail_segment(texture, seg[0], seg[1], s);
+                draw_trail_segment(texture, seg[0], seg[1], s, ctx.tint);
             }
             for wp in &waypoints[1..] {
-                mq::draw_circle(wp.0, wp.1, 3.0 * s, draw::ca(253, 224, 71, 200));
+                mq::draw_circle(wp.0, wp.1, 3.0 * s, ctx.color(draw::ca(253, 224, 71, 200)));
             }
         }
 
         if delay_s > 0.0 || dur_s > 0.0 {
-            mq::draw_circle(x, delay_y, 4.5 * s, draw::ca(56, 189, 248, 230));
-            mq::draw_circle_lines(x, delay_y, 4.5 * s, 1.5 * s, draw::ca(255, 255, 255, 220));
+            mq::draw_circle(x, delay_y, 4.5 * s, ctx.color(draw::ca(56, 189, 248, 230)));
+            mq::draw_circle_lines(x, delay_y, 4.5 * s, 1.5 * s, ctx.color(draw::ca(255, 255, 255, 220)));
         }
         if dur_s > 0.0 {
-            mq::draw_circle(x, tail_y, 5.5 * s, draw::ca(250, 204, 21, 230));
-            mq::draw_circle_lines(x, tail_y, 5.5 * s, 1.5 * s, draw::ca(255, 255, 255, 220));
+            let end_x = sl.segments.iter().flat_map(|s| &s.points).last()
+                .map(|p| ctx.lane_x(zone_lane_index(p.zone.to_id()))).unwrap_or(x);
+            mq::draw_circle(end_x, tail_y, 5.5 * s, ctx.color(draw::ca(250, 204, 21, 230)));
+            mq::draw_circle_lines(end_x, tail_y, 5.5 * s, 1.5 * s, ctx.color(draw::ca(255, 255, 255, 220)));
         }
     }
 
     if !note.is_tapless {
         if let Some(tex) = draw::star_tex(app, note) {
             let ss = draw::STAR_SIZE * s;
-            draw::draw_tex(tex, x, y, ss, ss, draw::ca(255, 255, 255, 230));
+            draw::draw_tex(tex, x, y, ss, ss, ctx.color(draw::ca(255, 255, 255, 230)));
             if note.is_ex {
                 if let Some(ex) = draw_ex_star(app, note) {
-                    draw::draw_tex(ex, x, y, ss, ss, draw::ca(255, 255, 255, 230));
+                    draw::draw_tex(ex, x, y, ss, ss, ctx.color(draw::ca(255, 255, 255, 230)));
                 }
             }
         } else {
             let ss = draw::STAR_SIZE * s;
-            mq::draw_poly(x, y, 5, ss * 0.4, 0.0, draw::ca(250, 204, 21, 230));
+            mq::draw_poly(x, y, 5, ss * 0.4, 0.0, ctx.color(draw::ca(250, 204, 21, 230)));
         }
     }
 }
@@ -370,7 +383,7 @@ fn draw_ex_star<'a>(app: &'a PadPreviewState, note: &Note) -> Option<&'a macroqu
     .or(app.star_ex_tex.as_ref())
 }
 
-fn draw_delay_dash(x: f32, y: f32, delay_y: f32, delay_s: f32, s: f32) {
+fn draw_delay_dash(x: f32, y: f32, delay_y: f32, delay_s: f32, s: f32, tint: mq::Color) {
     let delay_len = (delay_y - y).abs();
     if delay_s <= 0.0 || delay_len <= 0.5 {
         return;
@@ -380,7 +393,7 @@ fn draw_delay_dash(x: f32, y: f32, delay_y: f32, delay_s: f32, s: f32) {
     let period = dash + gap;
     let top = y.min(delay_y);
     let n = (delay_len / period).ceil() as i32;
-    let col = draw::ca(253, 224, 71, 220);
+    let col = draw::tint(draw::ca(253, 224, 71, 220), tint);
     for k in 0..n {
         let y0 = top + k as f32 * period;
         let y1 = (y0 + dash).min(top + delay_len);
@@ -429,11 +442,12 @@ fn draw_trail_segment(
     a: (f32, f32),
     b: (f32, f32),
     s: f32,
+    tint: mq::Color,
 ) {
     let (x0, y0) = a;
     let (x1, y1) = b;
     let Some(tex) = texture else {
-        mq::draw_line(x0, y0, x1, y1, 3.0 * s, draw::ca(250, 204, 21, 200));
+        mq::draw_line(x0, y0, x1, y1, 3.0 * s, draw::tint(draw::ca(250, 204, 21, 200), tint));
         return;
     };
     let (dx, dy) = (x1 - x0, y1 - y0);
@@ -456,7 +470,7 @@ fn draw_trail_segment(
             bar_w,
             tile_h,
             angle,
-            draw::ca(255, 255, 255, 230),
+            draw::tint(draw::ca(255, 255, 255, 230), tint),
         );
     }
 }

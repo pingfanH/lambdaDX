@@ -14,6 +14,9 @@ use crate::player::state::PadPreviewState;
 pub struct JudgeEngine;
 
 impl JudgeEngine {
+    pub fn judgment_metadata(&self, _chart: &ChartDoc) -> crate::player::judge_windows::Metadata {
+        crate::player::judge_windows::Metadata::default()
+    }
     pub fn bind_editor_chart(
         &mut self,
         _note_ids: std::collections::HashMap<u64, u64>,
@@ -21,7 +24,11 @@ impl JudgeEngine {
     ) -> Result<(), String> {
         Err("backend disabled".into())
     }
-    pub fn slide_position(&self, chart: &ChartDoc, runtime: usize) -> Option<(u64, usize, usize, usize)> {
+    pub fn slide_position(
+        &self,
+        chart: &ChartDoc,
+        runtime: usize,
+    ) -> Option<(u64, usize, usize, usize)> {
         chart_slide_position(chart, runtime)
     }
     pub fn load(_simai_text: &str, _level_index: u32) -> Result<Self, String> {
@@ -36,6 +43,14 @@ impl JudgeEngine {
     pub fn seek(&mut self, _seconds: f32) -> Result<crate::core::types::SeekResult, String> {
         Err("backend disabled".into())
     }
+    pub fn seek_with_events(
+        &mut self,
+        seconds: f32,
+        _events: &[TimedInputEvent],
+        _keep_held: bool,
+    ) -> Result<crate::core::types::SeekResult, String> {
+        self.seek(seconds)
+    }
     pub fn step(
         &mut self,
         _current_secs: f32,
@@ -44,6 +59,12 @@ impl JudgeEngine {
         Ok(())
     }
     pub fn runtime_slide_index(&self, _note_index: u64) -> Option<usize> {
+        None
+    }
+    pub fn chart_note_id(&self, note_index: u64) -> Option<u64> {
+        Some(note_index)
+    }
+    pub fn slide_head_note_id(&self, _chart: &ChartDoc, _note_index: u64) -> Option<u64> {
         None
     }
     pub fn slide_count(&self) -> usize {
@@ -56,7 +77,10 @@ impl JudgeEngine {
         None
     }
     pub fn debug_dump_slide_bindings(&self) {}
-    pub fn slide_progress_updates(&self, _commands: &[()]) -> Vec<SlideArcProgress> {
+    pub fn slide_progress_updates(
+        &self,
+        _commands: &[crate::core::types::RenderCommand],
+    ) -> Vec<SlideArcProgress> {
         Vec::new()
     }
 }

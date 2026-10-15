@@ -13,58 +13,8 @@ use crate::player::state::PadPreviewState;
 
 use super::state::EditorState;
 
-/// The last compiled content, independent of the editor's saved/dirty flag.
-pub struct ChartSync {
-    notes: Vec<app::types::Note>,
-    bpms: Vec<app::types::BpmChange>,
-    current: bool,
-}
-
-impl ChartSync {
-    pub fn new(chart: &mut ChartDoc) -> Self {
-        app::maichart::recompute_each(&mut chart.notes);
-        Self {
-            notes: chart.notes.clone(),
-            bpms: chart.bpms.clone(),
-            current: true,
-        }
-    }
-
-    pub fn update(
-        &mut self,
-        app: &mut PadPreviewState,
-        gesture_active: bool,
-    ) -> Result<bool, String> {
-        app::maichart::recompute_each(&mut app.chart.notes);
-        if self.notes == app.chart.notes && self.bpms == app.chart.bpms {
-            return Ok(self.current);
-        }
-        if gesture_active {
-            return Ok(false);
-        }
-        let result = (|| {
-            #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
-            {
-                let level = app.chart.simai_level.max(1);
-                let compiled = super::core_chart::compile(&app.chart, level)?;
-                let mut engine = crate::player::engine::JudgeEngine::load(&compiled.text, level)?;
-                engine.bind_editor_chart(compiled.note_ids, compiled.slide_positions)?;
-                app.replace_edited_engine(engine, compiled.text, level)
-            }
-            #[cfg(not(any(feature = "backend-lean", feature = "backend-rust")))]
-            {
-                let mut cues = crate::player::cues::CueTrack::from_chart(&app.chart);
-                cues.reset(app.timeline_time().max(0.0));
-                app.cue_track = Some(cues);
-                Ok(())
-            }
-        })();
-        self.current = result.is_ok();
-        self.notes = app.chart.notes.clone();
-        self.bpms = app.chart.bpms.clone();
-        result.map(|()| true)
-    }
-}
+mod sync;
+pub use sync::ChartSync;
 
 /// A fully-loaded chart: parsed document plus its decoded track.
 pub struct ChartBundle {
@@ -73,6 +23,7 @@ pub struct ChartBundle {
     pub audio_pcm: Option<WavPcm>,
     pub simai: Option<String>,
     pub level: Option<u32>,
+    pub source: Option<crate::io::ChartSource>,
 }
 
 /// Finish chart initialization before the editor accepts preview-mode input.
@@ -92,54 +43,83 @@ pub fn initialize_player(
                 app.set_status(format!("engine: {error}"));
             }
         }
+    } else {
+        initialize_native(&mut app);
     }
     app
+}
+
+fn initialize_native(app: &mut PadPreviewState) {
+    #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+    {
+        let result = (|| {
+            app.refresh_playback_chart();
+            let chart = app.playback_chart();
+            let level = chart.simai_level.max(1);
+            let compiled = crate::core_chart::compile(chart, level)?;
+            let mut engine = crate::player::engine::JudgeEngine::load(&compiled.text, level)?;
+            engine.bind_editor_chart(compiled.note_ids, compiled.slide_positions)?;
+            crate::player::state::PreparedEditedEngine::new(chart, engine, compiled.text, level, app.edited_engine_context())
+        })();
+        match result {
+            Ok(prepared) => app.install_edited_engine(prepared),
+            Err(error) => app.set_status(format!("engine: {error}")),
+        }
+    }
 }
 
 /// Load a chart folder (or file) into a [`ChartBundle`]. `want_slot` selects a
 /// Simai `&inote_N` difficulty when present, else the highest available.
 pub fn load_chart_bundle(dir: &Path, want_slot: Option<u32>) -> ChartBundle {
-    let simai = app::chart::read_simai_source(dir);
+    try_load_chart_bundle(dir, want_slot).unwrap_or_else(|error| {
+        eprintln!("editor: load failed: {error}");
+        ChartBundle {
+            chart: app::chart::fallback_chart(), audio_name: None, audio_pcm: None,
+            simai: None, level: None, source: None,
+        }
+    })
+}
+
+pub fn try_load_chart_bundle(dir: &Path, want_slot: Option<u32>) -> Result<ChartBundle, String> {
+    let mut source = crate::io::ChartSource::resolve(dir, None);
+    let simai = if source.is_simai() {
+        Some(std::fs::read_to_string(&source.path).map_err(|e| format!("read {}: {e}", source.path.display()))?)
+    } else { None };
     let (chart, level) = match &simai {
         Some(text) => {
             let keys = app::maidata::inote_keys(text);
             let slot = want_slot
                 .filter(|s| keys.contains(s))
                 .or_else(|| keys.last().copied());
-            let chart = slot
-                .and_then(|s| app::maidata::from_maidata_level(text, s).ok())
-                .unwrap_or_else(|| {
-                    app::chart::load_chart_from_path(dir, None).unwrap_or_else(|e| {
-                        eprintln!("editor: load failed: {e}");
-                        app::chart::fallback_chart()
-                    })
-                });
+            let chart = app::maidata::from_maidata_level(text, slot.ok_or("No Simai difficulties")?)?;
             (chart, slot)
         }
         None => {
-            let chart = app::chart::load_chart_from_path(dir, None).unwrap_or_else(|e| {
-                eprintln!("editor: load failed: {e}");
-                app::chart::fallback_chart()
-            });
+            let chart = app::chart::load_chart_from_path(&source.path, None)?;
             (chart, None)
         }
     };
-    let (audio_name, audio_pcm) = app::chart::find_audio_in_dir(dir)
+    source.level = level;
+    let audio_dir = source.path.parent().unwrap_or(dir);
+    let (audio_name, audio_pcm) = app::chart::find_audio_in_dir(audio_dir)
         .map(|p| app::audio::load_audio_from_path(&p))
         .unwrap_or((None, None));
-    ChartBundle {
+    Ok(ChartBundle {
         chart,
         audio_name,
         audio_pcm,
         simai,
         level,
-    }
+        source: Some(source),
+    })
 }
 
 /// (Re)load a chart folder into a live [`PadPreviewState`], keeping the already
 /// loaded textures/materials/SFX. `want_slot` selects a Simai difficulty.
-pub fn load_chart_into(app: &mut PadPreviewState, dir: &Path, want_slot: Option<u32>) {
-    let bundle = load_chart_bundle(dir, want_slot);
+pub fn load_chart_into(app: &mut PadPreviewState, dir: &Path, want_slot: Option<u32>) -> Result<crate::io::ChartSource, String> {
+    let bundle = try_load_chart_bundle(dir, want_slot)?;
+    let source = bundle.source.ok_or("Missing loaded source")?;
+    let native = bundle.simai.is_none();
     app.load_chart(
         bundle.chart,
         bundle.audio_name,
@@ -147,6 +127,8 @@ pub fn load_chart_into(app: &mut PadPreviewState, dir: &Path, want_slot: Option<
         bundle.simai,
         bundle.level,
     );
+    if native { initialize_native(app); }
+    Ok(source)
 }
 
 /// Feed the shared player one frame: audio, cue sounds, autoplay and judgment.
@@ -195,14 +177,26 @@ pub fn preview_mode_label(mode: u8) -> &'static str {
     }
 }
 
-/// Follow the playhead while playing so the timeline does not scroll off-screen.
+/// Follow the chart playhead. Autoplay centers itself after laying out its plot.
 pub fn follow_playhead(editor: &mut EditorState, current_time: f32) {
-    editor.view_start = (current_time - 2.0).max(0.0);
+    if editor.workspace == crate::state::Workspace::Chart && !editor.keyboard.detached {
+        editor.view_start = (current_time - 2.0).max(0.0);
+    }
 }
 
 #[cfg(all(test, feature = "backend-lean"))]
 mod tests {
     use super::*;
+
+    fn settle(sync: &mut ChartSync, pad: &mut PadPreviewState) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            if sync.update(pad, false).unwrap() { return; }
+            sync.schedule(pad, false).unwrap();
+            assert!(std::time::Instant::now() < deadline, "core update did not finish");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
 
     #[test]
     fn editing_reloads_native_core_without_changing_player_clock_or_ids() {
@@ -219,7 +213,8 @@ mod tests {
         let id = pad.chart.notes[0].id;
         pad.chart.notes[0].time = 2.0;
         pad.chart.notes[0].lane = 7;
-        assert!(sync.update(&mut pad, false).unwrap());
+        assert!(!sync.update(&mut pad, false).unwrap());
+        settle(&mut sync, &mut pad);
         let spec = pad.judge_engine.as_ref().unwrap().chart_spec().unwrap();
         assert!(
             spec.taps
@@ -245,17 +240,9 @@ mod tests {
         let original = pad.chart.notes.clone();
         pad.chart.notes[0].lane = 7;
         assert!(!sync.update(&mut pad, true).unwrap());
-        assert_eq!(
-            pad.judge_engine
-                .as_ref()
-                .unwrap()
-                .chart_spec()
-                .unwrap()
-                .taps[0]
-                .slot,
-            crate::core::types::OuterSlot::S1
-        );
-        assert!(sync.update(&mut pad, false).unwrap());
+        assert!(!pad.has_engine(), "a gesture must not keep stale native state on the UI thread");
+        sync.schedule(&mut pad, true).unwrap();
+        settle(&mut sync, &mut pad);
         assert_eq!(
             pad.judge_engine
                 .as_ref()
@@ -267,7 +254,7 @@ mod tests {
             crate::core::types::OuterSlot::S7
         );
         pad.chart.notes.pop();
-        assert!(sync.update(&mut pad, false).unwrap());
+        settle(&mut sync, &mut pad);
         assert!(!pad.chart.notes[0].is_each);
         assert_eq!(
             pad.judge_engine
@@ -280,7 +267,7 @@ mod tests {
             1
         );
         pad.chart.notes = original;
-        assert!(sync.update(&mut pad, false).unwrap());
+        settle(&mut sync, &mut pad);
         assert!(pad.chart.notes.iter().all(|note| note.is_each));
         assert_eq!(
             pad.judge_engine
@@ -323,5 +310,40 @@ mod tests {
         autoplay::set_on(&mut pad, true);
         assert!(pad.autoplay);
         assert!(pad.use_core());
+    }
+
+    #[test]
+    fn authored_events_survive_background_rebuild_seek_and_both_playback_modes() {
+        use crate::app::autoplay_edit::{self, AutoplayOverride};
+        use crate::core::types::{SensorArea, TimedInputEvent};
+        for direct in [false, true] {
+            let chart = app::maidata::from_maidata_level("&inote_6=(120){4}1h[2],,,E", 6).unwrap();
+            let mut pad = initialize_player(PadPreviewState::new_at(chart, None, None, 0.0, None), None, None);
+            pad.forced_time = Some(0.0);
+            pad.autoplay = true;
+            pad.autoplay_direct_core = direct;
+            let mut sync = ChartSync::new(&mut pad.chart);
+            let part = &pad.default_autoplay_plan.as_ref().unwrap().groups[0].parts[0];
+            let key = autoplay_edit::key(pad.playback_chart(), pad.judge_engine.as_ref().unwrap(), part).unwrap();
+            let events = vec![
+                TimedInputEvent::SensorHold { tp: 100_000, area: SensorArea::A1, is_down: true },
+                TimedInputEvent::SensorHold { tp: 1_500_000, area: SensorArea::A1, is_down: false },
+            ];
+            pad.chart.autoplay_overrides.push(AutoplayOverride { key, events: events.clone() });
+            settle(&mut sync, &mut pad);
+            assert!(pad.external_autoplay);
+            assert_eq!(pad.autoplay_plan.as_ref().unwrap().events(), events);
+            for target in [0.75, 0.0, 0.75] {
+                pad.try_seek_to(target).unwrap();
+                assert_eq!(pad.autoplay_plan.as_ref().unwrap().events(), events);
+            }
+            assert_eq!(pad.autoplay_tactic_cursor, 1);
+            if direct { assert_eq!(pad.autoplay_direct_held, events[..1]); }
+            else { assert!(pad.autoplay_explicit_held.contains(&SensorArea::A1)); }
+            pad.forced_time = Some(1.5);
+            pad.audio_start_pending = false;
+            autoplay::tick(&mut pad);
+            assert_eq!(pad.engine_events, events[1..]);
+        }
     }
 }

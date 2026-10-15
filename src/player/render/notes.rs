@@ -53,7 +53,7 @@ fn draw_guide_pass(
         return;
     }
     let bpms = &app.chart.bpms;
-    for note in app.chart.notes.iter() {
+    for note in app.playback_chart().notes.iter() {
         if matches!(note.note_type, NoteType::Slide) || note_is_touch(note) {
             continue;
         }
@@ -86,7 +86,7 @@ pub fn draw_judge_dots(
         return;
     }
     let color = Color::from_rgba(0, 0, 0, 255);
-    for note in app.chart.notes.iter() {
+    for note in app.playback_chart().notes.iter() {
         if app.hidden_notes.contains(&note.id) {
             continue;
         }
@@ -118,7 +118,7 @@ fn draw_pass(
     let bpms = &app.chart.bpms;
     // Resolve visibility once, then draw per layer.
     let mut visible: Vec<(&Note, NoteTiming)> = Vec::new();
-    for note in &app.chart.notes {
+    for note in &app.playback_chart().notes {
         let is_slide = matches!(note.note_type, NoteType::Slide);
         if is_slide != slides {
             continue;

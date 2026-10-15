@@ -120,6 +120,13 @@ pub fn rect_contains(r: RectF, p: Vec2) -> bool {
 /// spawn, body 0) still renders the head cap as a blob scaling with `width`
 /// instead of a squeezed point. `fallback_dir` (the outward ray) orients the
 /// caps when the segment is degenerate during the approach.
+pub fn hold_slice_metrics(texture_width: f32, texture_height: f32, width: f32) -> (f32, f32, f32) {
+    let height = texture_height.max(3.0);
+    let cap = (height * 0.28).max(1.0).min(height * 0.45);
+    let cap_length = (cap * width / texture_width.max(1.0)).max(width * 0.12);
+    (cap, (height - cap * 2.0).max(1.0), cap_length)
+}
+
 pub fn draw_hold_9slice_segment(
     tex: &Texture2D,
     from: Vec2,
@@ -139,12 +146,10 @@ pub fn draw_hold_9slice_segment(
 
     let tex_w = tex.width().max(1.0);
     let tex_h = tex.height().max(3.0);
-    let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
-    let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
+    let (cap_h, body_src_h, natural_cap_len) = hold_slice_metrics(tex_w, tex_h, width);
     // Caps scale with the body width; the minimum is proportional to the width
     // (no fixed pixel floor), so a spawning hold grows uniformly from the centre
     // instead of hitting a constant minimum first.
-    let natural_cap_len = (cap_h * (width / tex_w)).max(width * 0.12);
     let (head_len, tail_len) = (natural_cap_len, natural_cap_len);
     let head_start = from - dir * head_len;
     let tail_start = to;

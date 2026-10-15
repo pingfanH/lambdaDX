@@ -1,0 +1,110 @@
+//! Editor ownership keys do not depend on core allocation order or absolute time.
+
+use super::types::{ChartDoc, note_secs};
+use crate::core::types::{AutoplayPart, AutoplayPlan, TimedInputEvent};
+use crate::player::engine::{JudgeEngine, timed_input_tp};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AutoplayKey {
+    pub note_id: u64,
+    pub role: u64,
+    pub slide: usize,
+    pub segment: usize,
+    pub track: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutoplayOverride {
+    pub key: AutoplayKey,
+    pub events: Vec<TimedInputEvent>,
+}
+
+pub fn key(chart: &ChartDoc, engine: &JudgeEngine, part: &AutoplayPart) -> Option<AutoplayKey> {
+    let (note_id, slide, segment) = match part.role {
+        1 => (engine.slide_head_note_id(chart, part.runtime_note_index)?, 0, 0),
+        2 => {
+            let runtime = engine.runtime_slide_index(part.runtime_note_index)?;
+            let (note_id, slide, segment, _) = engine.slide_position(chart, runtime)?;
+            (note_id, slide, segment)
+        }
+        _ => (engine.chart_note_id(part.runtime_note_index)?, 0, 0),
+    };
+    Some(AutoplayKey {
+        note_id,
+        role: part.role,
+        slide,
+        segment,
+        track: part.track_index,
+    })
+}
+
+pub fn with_time(event: &TimedInputEvent, tp: i64) -> TimedInputEvent {
+    let mut event = event.clone();
+    match &mut event {
+        TimedInputEvent::ButtonClick { tp: time, .. }
+        | TimedInputEvent::ButtonHold { tp: time, .. }
+        | TimedInputEvent::SensorClick { tp: time, .. }
+        | TimedInputEvent::SensorHold { tp: time, .. } => *time = tp,
+    }
+    event
+}
+
+pub fn relative(events: &[TimedInputEvent], head: i64) -> Vec<TimedInputEvent> {
+    events
+        .iter()
+        .map(|event| with_time(event, timed_input_tp(event).saturating_sub(head)))
+        .collect()
+}
+
+pub fn generated_plan(
+    chart: &ChartDoc,
+    engine: &JudgeEngine,
+    defaults: &AutoplayPlan,
+    inner_screen: bool,
+) -> AutoplayPlan {
+    let mut plan = defaults.clone();
+    if inner_screen {
+        for event in plan.groups.iter_mut()
+            .flat_map(|group| &mut group.parts)
+            .flat_map(|part| &mut part.events)
+        {
+            *event = crate::player::engine::normalize_tactic_event(event.clone());
+        }
+    }
+    // Authored events keep their explicit button/sensor choice in either mode.
+    apply(chart, engine, &mut plan);
+    plan
+}
+
+pub fn apply(chart: &ChartDoc, engine: &JudgeEngine, plan: &mut AutoplayPlan) {
+    if chart.autoplay_overrides.is_empty() {
+        return;
+    }
+    let authored: std::collections::HashMap<_, _> = chart
+        .autoplay_overrides
+        .iter()
+        .map(|item| (&item.key, &item.events))
+        .collect();
+    let heads: std::collections::HashMap<_, _> = chart
+        .notes
+        .iter()
+        .map(|note| (note.id, (note_secs(note, &chart.bpms) * 1e6).round() as i64))
+        .collect();
+    for part in plan.groups.iter_mut().flat_map(|group| &mut group.parts) {
+        let Some(key) = key(chart, engine, part) else {
+            continue;
+        };
+        let Some(events) = authored.get(&key) else {
+            continue;
+        };
+        let Some(head) = heads.get(&key.note_id) else {
+            continue;
+        };
+        part.events = events
+            .iter()
+            .map(|event| with_time(event, timed_input_tp(event).saturating_add(*head)))
+            .collect();
+        part.events.sort_by_key(timed_input_tp);
+    }
+}

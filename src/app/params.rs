@@ -213,6 +213,8 @@ pub struct Params {
     // ── Judgment ─────────────────────────────────────────────────────
     /// Draw a black dot at each note's judgment point (topmost layer).
     pub judge_dot: bool,
+    /// Show timing windows and sustained-hold requirements in pad and editor.
+    pub show_judge_windows: bool,
     /// Judge-dot radius (design px).
     pub judge_dot_size: f32,
     /// Tap judgment-point offset along the flight direction (design px, + out).
@@ -280,6 +282,8 @@ pub struct Params {
     /// touch motion). `false` = audio-only speed change; `true` = everything
     /// scales with the song (整体速度).
     pub speed_scales_visuals: bool,
+    /// Map generated core autoplay K1..K8 inputs to A1..A8 sensors.
+    pub autoplay_inner_screen: bool,
     /// Do **not** use lnmai-core: fall back to the pre-lnmai autoplay (local
     /// chart schedule), let slide stars fly on their own, and show "None" in the
     /// bottom-left score block. Useful for comparing against the old player.
@@ -384,6 +388,7 @@ impl Default for Params {
             pad_bg_scale: 1.06,
             pad_outside_alpha: 255.0,
             judge_dot: true,
+            show_judge_windows: false,
             judge_dot_size: 3.0,
             judge_off_tap: 0.0,
             judge_off_hold: 0.0,
@@ -398,6 +403,7 @@ impl Default for Params {
             hide_zones: false,
             play_speed_default: 1.0,
             speed_scales_visuals: false,
+            autoplay_inner_screen: true,
             no_core: false,
 
             hit_fx: true,
@@ -776,6 +782,18 @@ mod tests {
         let p: Params = serde_json::from_str(r#"{ "star_size": 99.0 }"#).unwrap();
         assert_eq!(p.star_size, 99.0);
         assert_eq!(p.tap_size, Params::default().tap_size);
+        assert!(!p.show_judge_windows);
+    }
+
+    #[test]
+    fn judgment_window_preference_round_trips() {
+        let p = Params {
+            show_judge_windows: true,
+            ..Params::default()
+        };
+        let saved = serde_json::to_string(&p).unwrap();
+        let restored: Params = serde_json::from_str(&saved).unwrap();
+        assert!(restored.show_judge_windows);
     }
 
     #[test]

@@ -239,7 +239,7 @@ pub fn draw(
     }
 }
 
-fn preview_subslides(
+pub(super) fn preview_subslides(
     note: &Note,
     solo: Option<(u64, usize)>,
     reverse: bool,
@@ -299,7 +299,7 @@ pub fn draw_just_overlays(app: &PadPreviewState, pad: &PadGeom, scale: f32, spaw
     // Slide judgments may be generated while paused. Use wall time so the
     // result is visible immediately and fades without advancing currentTime.
     let now = app.now();
-    for note in app.chart.notes.iter() {
+    for note in app.playback_chart().notes.iter() {
         if !matches!(note.note_type, NoteType::Slide) {
             continue;
         }

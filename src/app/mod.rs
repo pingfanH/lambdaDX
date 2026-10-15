@@ -1,4 +1,6 @@
 pub mod audio;
+pub mod autoplay_edit;
+pub mod templates;
 pub mod beat_format;
 pub mod anim;
 pub mod chart;

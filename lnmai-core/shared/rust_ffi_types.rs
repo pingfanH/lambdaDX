@@ -981,6 +981,7 @@ pub struct SeekResult {
     pub terminated: bool,
     pub retained_note_indices: Vec<u64>,
     pub skipped_note_indices: Vec<u64>,
+    pub render_commands: Vec<RenderCommand>,
 }
 
 #[derive(Debug, Clone, Copy)]

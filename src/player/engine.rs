@@ -175,6 +175,7 @@ pub fn zone_for_sensor(area: SensorArea) -> PadZone {
 /// A loaded lnmai-core (FFI) runtime session.
 pub struct JudgeEngine {
     session: Session<Loaded>,
+    chart_spec: ChartSpec,
     slide_bindings: HashMap<u64, usize>,
     /// Core slide head timings (µs), indexed by runtime slide index.
     slide_head_timings: Vec<i64>,
@@ -236,8 +237,14 @@ impl JudgeEngine {
             loaded
         };
         let (slide_bindings, slide_head_timings, slide_totals) = runtime_slide_bindings(&loaded)?;
+        #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
+        let chart_spec = loaded.chart_spec_native().map_err(|e| e.json)?;
+        #[cfg(feature = "backend-rust")]
+        let chart_spec = loaded.get_lowered_chart_json().map_err(|e| e.json)?
+            .decode_result().map_err(|e| format!("invalid lowered chart json: {e}"))?;
         Ok(JudgeEngine {
             session: loaded,
+            chart_spec,
             slide_bindings,
             slide_head_timings,
             slide_totals,
@@ -256,13 +263,25 @@ impl JudgeEngine {
         let spec = self.chart_spec()?;
         // Normalization can merge identical trails, but must not drop any
         // emitted source object or introduce IDs the editor cannot resolve.
-        let source_count = spec.taps.len() + spec.holds.len() + spec.touches.len()
+        let source_count = spec.taps.len()
+            + spec.holds.len()
+            + spec.touches.len()
             + spec.touch_holds.len()
-            + spec.slides.iter().map(|slide| slide.multiple.max(1) as usize).sum::<usize>();
+            + spec
+                .slides
+                .iter()
+                .map(|slide| slide.multiple.max(1) as usize)
+                .sum::<usize>();
         if source_count != note_ids.len() {
-            return Err(format!("edited chart object count mismatch: expected {}, parsed {source_count}", note_ids.len()));
+            return Err(format!(
+                "edited chart object count mismatch: expected {}, parsed {source_count}",
+                note_ids.len()
+            ));
         }
-        for index in spec.taps.iter().map(|n| n.note_index)
+        for index in spec
+            .taps
+            .iter()
+            .map(|n| n.note_index)
             .chain(spec.holds.iter().map(|n| n.note_index))
             .chain(spec.touches.iter().map(|n| n.note_index))
             .chain(spec.touch_holds.iter().map(|n| n.note_index))
@@ -279,7 +298,9 @@ impl JudgeEngine {
         }
         let mut positions = HashMap::new();
         for (note_index, runtime) in &self.slide_bindings {
-            let position = slides.get(note_index).copied()
+            let position = slides
+                .get(note_index)
+                .copied()
                 .ok_or_else(|| format!("unmapped edited slide {note_index}"))?;
             positions.insert(*runtime, position);
         }
@@ -288,14 +309,32 @@ impl JudgeEngine {
         Ok(())
     }
 
-    fn chart_note_id(&self, note_index: u64) -> Option<u64> {
+    pub fn chart_note_id(&self, note_index: u64) -> Option<u64> {
         match &self.chart_note_ids {
             Some(ids) => ids.get(&note_index).copied(),
             None => Some(note_index),
         }
     }
 
-    pub fn slide_position(&self, chart: &ChartDoc, runtime: usize) -> Option<(u64, usize, usize, usize)> {
+    pub fn slide_head_note_id(&self, chart: &ChartDoc, note_index: u64) -> Option<u64> {
+        if let Some(ids) = &self.chart_note_ids {
+            return ids.get(&note_index).copied();
+        }
+        // Imported stars have editor IDs independent of the lowered head IDs.
+        let head = self
+            .chart_spec
+            .slide_heads
+            .iter()
+            .find(|head| head.note_index == note_index)?;
+        let runtime = self.runtime_slide_index(head.logical_slide_id)?;
+        self.slide_position(chart, runtime).map(|position| position.0)
+    }
+
+    pub fn slide_position(
+        &self,
+        chart: &ChartDoc,
+        runtime: usize,
+    ) -> Option<(u64, usize, usize, usize)> {
         match &self.chart_slide_positions {
             Some(positions) => positions.get(&runtime).copied(),
             None => chart_slide_position(chart, runtime),
@@ -377,25 +416,36 @@ impl JudgeEngine {
     /// The lowered chart (per runtime slide arc: timings + ordered sensor-area
     /// queues with arrow progress). Used to drive a custom autoplay tactic.
     pub fn chart_spec(&self) -> Result<ChartSpec, String> {
-        #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
-        return self.session.chart_spec_native().map_err(|e| e.json);
-        #[cfg(feature = "backend-rust")]
-        {
-            let envelope = self.session.get_lowered_chart_json().map_err(|e| e.json)?;
-            envelope
-                .decode_result()
-                .map_err(|e| format!("invalid lowered chart json: {e}"))
-        }
+        Ok(self.chart_spec.clone())
+    }
+
+    pub fn judgment_metadata(&self, chart: &ChartDoc) -> crate::player::judge_windows::Metadata {
+        crate::player::judge_windows::Metadata::from_spec(
+            &self.chart_spec,
+            |index| self.chart_note_id(index),
+            |index| self.runtime_slide_index(index)
+                .and_then(|runtime| self.slide_position(chart, runtime))
+                .map(|(id, sub, _, _)| (id, sub)),
+        )
     }
 
     pub fn seek(&mut self, seconds: f32) -> Result<SeekResult, String> {
+        self.seek_with_events(seconds, &[], false)
+    }
+
+    pub fn seek_with_events(
+        &mut self,
+        seconds: f32,
+        events: &[TimedInputEvent],
+        keep_held: bool,
+    ) -> Result<SeekResult, String> {
         if !seconds.is_finite() {
             return Err("invalid seek time".into());
         }
         #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
         return self
             .session
-            .seek((seconds.max(0.0) * 1e6) as i64)
+            .seek_with_events((seconds.max(0.0) * 1e6) as i64, events, keep_held)
             .map_err(|e| e.json);
         #[cfg(feature = "backend-rust")]
         Err("seek is not supported by the Rust backend".into())
@@ -687,7 +737,7 @@ fn play_hold_head_hits(app: &mut PadPreviewState, events: &[TimedInputEvent]) {
             continue;
         }
         let t = tp as f32 / 1e6;
-        for note in &app.chart.notes {
+        for note in &app.playback_chart().notes {
             if !matches!(note.note_type, NoteType::Hold | NoteType::TouchHold) {
                 continue;
             }
@@ -899,7 +949,7 @@ fn log_lnmai_slide_state(engine: &JudgeEngine, now: f32, result: &RuntimeStepLig
 }
 
 fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResult) {
-    let displays = collect_judge_result_displays(&app.chart, app.judge_engine.as_ref(), &result);
+    let displays = collect_judge_result_displays(app.playback_chart(), app.judge_engine.as_ref(), &result);
     for display in displays {
         app.push_judgement(display.zone, display.label, display.duration);
         // Tap-family hits and any break note get the ring/spark burst — only on
@@ -912,21 +962,35 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
         }
     }
     // Record slide judgments so the renderer can show the `slideok` overlay.
-    for fx in collect_slide_judge_fx(&app.chart, app.judge_engine.as_ref(), &result) {
+    for fx in collect_slide_judge_fx(app.playback_chart(), app.judge_engine.as_ref(), &result) {
         app.record_slide_judge(fx.note_id, fx.slide_idx, fx.grade);
     }
     // Completed single-hit notes disappear on judgment, not after a timer.
-    app.hidden_notes.extend(judged_single_hit_notes(&app.chart, app.judge_engine.as_ref(), &result));
+    let hidden = judged_single_hit_notes(
+        app.playback_chart(),
+        app.judge_engine.as_ref(),
+        &result,
+    );
+    app.hidden_notes.extend(hidden);
     for command in &result.audio_commands {
         play_audio_command(app, command);
     }
 }
 
-fn judged_single_hit_notes(chart: &ChartDoc, engine: Option<&JudgeEngine>, result: &RuntimeStepLightResult) -> Vec<u64> {
+fn judged_single_hit_notes(
+    chart: &ChartDoc,
+    engine: Option<&JudgeEngine>,
+    result: &RuntimeStepLightResult,
+) -> Vec<u64> {
     result
         .events
         .iter()
-        .filter(|event| matches!(event.kind, JudgeEventKind::Touch | JudgeEventKind::Tap | JudgeEventKind::Break))
+        .filter(|event| {
+            matches!(
+                event.kind,
+                JudgeEventKind::Touch | JudgeEventKind::Tap | JudgeEventKind::Break
+            )
+        })
         .filter_map(|event| {
             let index = match engine {
                 Some(engine) => engine.chart_note_id(event.note_index)?,
@@ -962,7 +1026,8 @@ fn collect_slide_judge_fx(
         let Some(runtime_slide_index) = engine.runtime_slide_index(note_index) else {
             return;
         };
-        let Some((note_id, slide_idx, _, _)) = engine.slide_position(chart, runtime_slide_index) else {
+        let Some((note_id, slide_idx, _, _)) = engine.slide_position(chart, runtime_slide_index)
+        else {
             return;
         };
         if seen.insert((note_id, slide_idx)) {
@@ -1093,14 +1158,13 @@ fn judge_result_zone(
         slide_tail_zone_for_runtime_note(chart, engine, note_index)
             .or_else(|| event_position_zone(events, note_index, kind))
     } else {
-        event_position_zone(events, note_index, kind)
-            .or_else(|| {
-                let index = match engine {
-                    Some(engine) => engine.chart_note_id(note_index)?,
-                    None => note_index,
-                };
-                chart_note_head_zone(chart, index)
-            })
+        event_position_zone(events, note_index, kind).or_else(|| {
+            let index = match engine {
+                Some(engine) => engine.chart_note_id(note_index)?,
+                None => note_index,
+            };
+            chart_note_head_zone(chart, index)
+        })
     }
 }
 
@@ -1143,7 +1207,10 @@ fn slide_tail_zone_for_runtime_note(
     let engine = engine?;
     let runtime_slide_index = engine.runtime_slide_index(note_index)?;
     let (note_id, slide_idx, _, _) = engine.slide_position(chart, runtime_slide_index)?;
-    chart.notes.iter().find(|note| note.id == note_id)
+    chart
+        .notes
+        .iter()
+        .find(|note| note.id == note_id)
         .and_then(|note| note.slide.get(slide_idx))
         .and_then(|slide| slide.segments.last())
         .and_then(|segment| segment.points.last())
@@ -1250,7 +1317,10 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
                             Some(engine) => engine.chart_note_id(*note_index),
                             None => Some(*note_index),
                         };
-                        if id.and_then(|id| chart_note(&app.chart, id)).is_some_and(|n| n.is_touch) {
+                        if id
+                            .and_then(|id| chart_note(app.playback_chart(), id))
+                            .is_some_and(|n| n.is_touch)
+                        {
                             SfxKind::Touch
                         } else {
                             SfxKind::Tap
@@ -1307,10 +1377,17 @@ mod tests {
                 cursor += 1;
             }
             for result in step_engine_events(&mut engine, now, due) {
-                hidden.extend(judged_single_hit_notes(&chart, Some(&engine), &result.unwrap()));
+                hidden.extend(judged_single_hit_notes(
+                    &chart,
+                    Some(&engine),
+                    &result.unwrap(),
+                ));
             }
             if frame == 30 {
-                assert_eq!(hidden, chart.notes[..2].iter().map(|note| note.id).collect());
+                assert_eq!(
+                    hidden,
+                    chart.notes[..2].iter().map(|note| note.id).collect()
+                );
             }
         }
         assert_eq!(hidden, chart.notes.iter().map(|note| note.id).collect());
@@ -1322,37 +1399,50 @@ mod tests {
         let chart = crate::app::maidata::from_maidata(text, None).unwrap();
         for autoplay in [false, true] {
             let mut engine = JudgeEngine::load(text, 1).unwrap();
-            let tactic = if autoplay { engine.default_tactic().unwrap() } else { Vec::new() };
+            let tactic = if autoplay {
+                engine.default_tactic().unwrap()
+            } else {
+                Vec::new()
+            };
             let mut cursor = 0;
             let mut hidden = HashSet::new();
             for frame in 0..360 {
                 let now = frame as f32 / 120.0;
                 let mut due = Vec::new();
-                while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= (now * 1e6) as i64 {
+                while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= (now * 1e6) as i64
+                {
                     due.push(tactic[cursor].clone());
                     cursor += 1;
                 }
                 for result in step_engine_events(&mut engine, now, due) {
-                    hidden.extend(judged_single_hit_notes(&chart, Some(&engine), &result.unwrap()));
+                    hidden.extend(judged_single_hit_notes(
+                        &chart,
+                        Some(&engine),
+                        &result.unwrap(),
+                    ));
                 }
             }
-            let expected: HashSet<_> = chart.notes.iter()
-                .filter(|note| note.note_type == NoteType::Tap).map(|note| note.id).collect();
-            assert_eq!(hidden, expected, "tap hide on hit and miss; slide trails must survive");
+            let expected: HashSet<_> = chart
+                .notes
+                .iter()
+                .filter(|note| note.note_type == NoteType::Tap)
+                .map(|note| note.id)
+                .collect();
+            assert_eq!(
+                hidden, expected,
+                "tap hide on hit and miss; slide trails must survive"
+            );
         }
     }
 
     #[test]
     fn touch_after_grouped_slide_keeps_its_runtime_id() {
-        assert_touch_judgments_match_chart(
-            "&inote_1=(120){4}1v4>3[4:1],,,,B7,B6,E\n",
-        );
+        assert_touch_judgments_match_chart("&inote_1=(120){4}1v4>3[4:1],,,,B7,B6,E\n");
     }
 
     #[test]
     fn unknown_runtime_id_does_not_resolve_to_an_assigned_chart_note() {
-        let mut chart = crate::app::maidata::from_maidata("&inote_1=(120){4}B7,E\n", None)
-            .unwrap();
+        let mut chart = crate::app::maidata::from_maidata("&inote_1=(120){4}B7,E\n", None).unwrap();
         chart.notes = vec![crate::app::types::Note {
             id: 9,
             ..Default::default()
@@ -1390,9 +1480,7 @@ mod tests {
         for frame in 0..=(end * 120.0).ceil() as usize {
             let now = frame as f32 / 120.0;
             let mut due = Vec::new();
-            while cursor < tactic.len()
-                && timed_input_tp(&tactic[cursor]) <= (now * 1e6) as i64
-            {
+            while cursor < tactic.len() && timed_input_tp(&tactic[cursor]) <= (now * 1e6) as i64 {
                 due.push(tactic[cursor].clone());
                 cursor += 1;
             }
@@ -1408,7 +1496,8 @@ mod tests {
                     assert!(
                         (head - now).abs() < 0.1,
                         "touch {} at {head}s incorrectly hidden at {now}s by runtime {}",
-                        note.id, event.note_index
+                        note.id,
+                        event.note_index
                     );
                     assert_eq!(
                         event.position.sensor.map(zone_for_sensor),

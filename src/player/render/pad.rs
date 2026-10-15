@@ -92,6 +92,7 @@ pub fn draw_pad_sim(app: &PadPreviewState, cx: f32, cy: f32, outer_r: f32, scale
     }
     draw_outer_circle(&pad, scale);
     if !params::hide_notes() {
+        crate::player::render::judgment::draw(app, &pad, scale, spawn_cx, current_t, speed_scale);
         crate::player::render::hit_fx::draw(app, &pad, outer_r, spawn_cx, scale);
         crate::player::render::feedback::draw(app, &pad, outer_r, spawn_cx, scale);
         crate::player::render::notes::draw_judge_dots(

@@ -10,14 +10,43 @@ use crate::app::types::{
     zone::PadZone,
 };
 
-use super::state::EditorState;
+use super::state::{EditorState, HistoryEntry};
+
+impl HistoryEntry {
+    fn apply(self, chart: &mut ChartDoc) -> Self {
+        match self {
+            Self::Snapshot(mut previous) => {
+                std::mem::swap(chart, &mut previous);
+                Self::Snapshot(previous)
+            }
+            Self::RemoveNote(id) => {
+                let index = chart.notes.iter().position(|note| note.id == id)
+                    .expect("inserted note must exist until its insertion is undone");
+                Self::InsertNote { index, note: Box::new(chart.notes.remove(index)) }
+            }
+            Self::InsertNote { index, note } => {
+                let id = note.id;
+                chart.notes.insert(index, *note);
+                Self::RemoveNote(id)
+            }
+        }
+    }
+}
 
 impl EditorState {
     /// Snapshot `chart` onto the undo stack before a mutation. Trims the stack to
     /// a bounded depth and drops any redo history.
     pub fn push_history(&mut self, chart: &ChartDoc) {
         self.placement_sequence.clear();
-        self.undo.push(chart.clone());
+        self.push_history_entry(chart.clone().into());
+    }
+
+    pub fn record_insertion(&mut self, id: u64) {
+        self.push_history_entry(HistoryEntry::RemoveNote(id));
+    }
+
+    fn push_history_entry(&mut self, entry: HistoryEntry) {
+        self.undo.push(entry);
         if self.undo.len() > 64 {
             self.undo.drain(..self.undo.len() - 64);
         }
@@ -29,8 +58,9 @@ impl EditorState {
         if let Some(previous) = self.undo.pop() {
             self.placement_sequence.clear();
             self.last_edit = None;
-            self.redo.push(chart.clone());
-            *chart = previous;
+            self.redo.push(previous.apply(chart));
+            crate::app::maichart::recompute_each(&mut chart.notes);
+            crate::app::maichart::mark_double_stars(&mut chart.notes);
             self.reconcile_slide_target(chart);
             self.dirty = true;
         }
@@ -40,8 +70,9 @@ impl EditorState {
         if let Some(next) = self.redo.pop() {
             self.placement_sequence.clear();
             self.last_edit = None;
-            self.undo.push(chart.clone());
-            *chart = next;
+            self.undo.push(next.apply(chart));
+            crate::app::maichart::recompute_each(&mut chart.notes);
+            crate::app::maichart::mark_double_stars(&mut chart.notes);
             self.reconcile_slide_target(chart);
             self.dirty = true;
         }
@@ -59,12 +90,27 @@ impl EditorState {
 
     /// Delete the selected notes as one undoable step.
     pub fn delete_selection(&mut self, chart: &mut ChartDoc) {
-        if self.selected.is_empty() {
+        self.delete_notes(chart, &self.selected.clone());
+    }
+
+    pub fn delete_note(&mut self, chart: &mut ChartDoc, id: u64) {
+        self.delete_notes(chart, &HashSet::from([id]));
+    }
+
+    fn delete_notes(&mut self, chart: &mut ChartDoc, ids: &HashSet<u64>) {
+        if !chart.notes.iter().any(|n| ids.contains(&n.id)) {
             return;
         }
+        let mut sequence = std::mem::take(&mut self.placement_sequence);
         self.push_history(chart);
-        chart.notes.retain(|n| !self.selected.contains(&n.id));
-        self.selected.clear();
+        chart.notes.retain(|n| !ids.contains(&n.id));
+        self.selected.retain(|id| !ids.contains(id));
+        let live_ids: HashSet<_> = chart.notes.iter().map(|n| n.id).collect();
+        sequence.retain(|old| live_ids.contains(&old.id));
+        self.placement_sequence = sequence;
+        self.last_edit = None;
+        if self.keyboard.candidate.is_some_and(|id| ids.contains(&id)) { self.keyboard.candidate = None; }
+        if self.hovered.is_some_and(|id| ids.contains(&id)) { self.hovered = None; }
         self.reconcile_slide_target(chart);
     }
 
@@ -159,32 +205,42 @@ impl EditorState {
 
     /// Append a freshly placed note of the current tool's type and select it.
     pub fn place_note(&mut self, chart: &mut ChartDoc, time: f32, lane: u8) -> u64 {
-        let mut sequence = std::mem::take(&mut self.placement_sequence);
-        self.push_history(chart);
         let id = chart.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+        self.record_insertion(id);
         chart.notes.push(Note {
             id,
             ..crate::timeline::placement::note_for_tool(self, time, lane)
         });
-        sequence.push(chart.notes.last().unwrap().clone());
-        if sequence.len() > 3 {
-            sequence.remove(0);
-        }
-        self.placement_sequence = sequence;
+        self.placement_sequence.push(chart.notes.last().unwrap().clone());
         self.last_edit = None;
         self.select_only(id);
         id
     }
 
-    /// Continue only a confirmed three-placement translation pattern.
+    /// A pending hold is committed only after its tail is confirmed.
+    pub fn place_hold_step(&mut self, chart: &mut ChartDoc, time: f32, lane: u8) {
+        let Some(mut note) = self.hold_placement.take() else {
+            self.hold_placement = Some(crate::timeline::placement::note_for_tool(self, time, lane));
+            return;
+        };
+        note.hold_duration = (time - note.time).max(0.0);
+        note.id = chart.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+        self.record_insertion(note.id);
+        self.select_only(note.id);
+        self.placement_sequence.push(note.clone());
+        self.last_edit = None;
+        chart.notes.push(note);
+    }
+
+    /// Continue the translation between the latest two compatible placements.
     pub fn repeat_placement(&mut self, chart: &mut ChartDoc) {
         use crate::timeline::geometry::{move_note, snap};
-        let [a, b, c] = self.placement_sequence.as_slice() else {
+        let [.., a, b] = self.placement_sequence.as_slice() else {
             self.status = Some("No placement pattern".into());
             return;
         };
         let tolerance =
-            (a.time.abs().max(b.time.abs()).max(c.time.abs()) * f32::EPSILON * 4.0).max(1e-5);
+            (a.time.abs().max(b.time.abs()) * f32::EPSILON * 4.0).max(1e-5);
         let normalized = |note: &Note| {
             let mut copy = note.clone();
             move_note(&mut copy, 1.0, 1 - note.lane as i32);
@@ -208,14 +264,11 @@ impl EditorState {
                 })
                 && normalized(a) == normalized(b)
         };
-        let dt = (c.time - a.time) * 0.5;
-        let dl = (c.lane as i32 - b.lane as i32).rem_euclid(8);
-        let valid = ((c.time - b.time) - (b.time - a.time)).abs() <= tolerance
-            && dl == (b.lane as i32 - a.lane as i32).rem_euclid(8)
-            && (dt.abs() > 1e-5 || dl != 0)
+        let dt = b.time - a.time;
+        let dl = (b.lane as i32 - a.lane as i32).rem_euclid(8);
+        let valid = (dt.abs() > 1e-5 || dl != 0)
             && compatible(a, b)
-            && compatible(b, c)
-            && self.placement_sequence.iter().all(|old| {
+            && [a, b].into_iter().all(|old| {
                 chart.notes.iter().any(|n| {
                     n.id == old.id
                         && (n.time - old.time).abs() < 1e-5
@@ -223,21 +276,20 @@ impl EditorState {
                         && compatible(n, old)
                 })
             });
-        let time = snap(c.time + dt, self.snap_enabled, self.snap_division);
-        if !valid || time < 1.0 {
+        let time = snap(b.time + dt, self.snap_enabled, self.snap_division);
+        if !valid || !time.is_finite() || time < 1.0 {
             self.status = Some("No placement pattern".into());
             return;
         }
-        let mut copy = c.clone();
+        let mut copy = b.clone();
         move_note(&mut copy, time, dl);
         copy.id = chart.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
         copy.is_each = false;
         copy.is_each_head = false;
-        let sequence = vec![b.clone(), c.clone(), copy.clone()];
-        self.push_history(chart);
+        self.record_insertion(copy.id);
+        self.placement_sequence.push(copy.clone());
         self.select_only(copy.id);
         chart.notes.push(copy);
-        self.placement_sequence = sequence;
         self.status = Some("Repeated placement".into());
     }
 
@@ -572,6 +624,22 @@ mod tests {
     use crate::app::types::zone::PadZone;
     use crate::app::types::{ChartDoc, Note, NoteType, SlideShape};
 
+    #[test]
+    fn placement_history_is_a_delta_and_redo_keeps_the_final_note() {
+        use super::HistoryEntry;
+        let mut chart = chart(Vec::new());
+        let original = chart.notes.clone();
+        let mut editor = EditorState::default();
+        let id = editor.place_note(&mut chart, 4.0, 3);
+        assert!(matches!(editor.undo.last(), Some(HistoryEntry::RemoveNote(saved)) if *saved == id));
+        chart.notes.last_mut().unwrap().hold_duration = 2.0;
+        let placed = chart.notes.last().unwrap().clone();
+        editor.undo(&mut chart);
+        assert_eq!(chart.notes.len(), original.len());
+        editor.redo(&mut chart);
+        assert_eq!(chart.notes.last(), Some(&placed));
+    }
+
     fn note(id: u64, time: f32, lane: u8) -> Note {
         Note {
             id,
@@ -600,18 +668,53 @@ mod tests {
             notes,
             templates: Vec::new(),
             template_instances: Vec::new(),
+            autoplay_overrides: Vec::new(),
         }
     }
 
     #[test]
-    fn repeat_placement_requires_three_regular_compatible_notes_and_wraps_lanes() {
+    fn hold_placement_confirms_tail_once_and_keeps_head_lane() {
+        for tool in [crate::state::Tool::Hold, crate::state::Tool::TouchHold] {
+            let mut editor = EditorState { tool, ..Default::default() };
+            let mut chart = chart(Vec::new());
+            editor.place_hold_step(&mut chart, 2.0, 3);
+            assert!(chart.notes.is_empty());
+            assert!(editor.undo.is_empty());
+            assert_eq!(editor.hold_placement.as_ref().unwrap().hold_duration, 0.0);
+            editor.place_hold_step(&mut chart, 2.75, 8);
+            assert!(editor.hold_placement.is_none());
+            assert_eq!(chart.notes.len(), 1);
+            assert_eq!(chart.notes[0].time, 2.0);
+            assert_eq!(chart.notes[0].lane, 3);
+            assert_eq!(chart.notes[0].hold_duration, 0.75);
+            assert_eq!(editor.undo.len(), 1);
+            assert_eq!(editor.placement_sequence[0], chart.notes[0]);
+        }
+    }
+
+    #[test]
+    fn hold_placement_can_confirm_zero_duration_or_cancel_without_edit() {
+        let mut editor = EditorState { tool: crate::state::Tool::Hold, ..Default::default() };
+        let mut chart = chart(Vec::new());
+        editor.place_hold_step(&mut chart, 2.0, 3);
+        editor.hold_placement = None;
+        assert!(chart.notes.is_empty());
+        assert!(editor.undo.is_empty());
+        editor.place_hold_step(&mut chart, 2.0, 3);
+        editor.place_hold_step(&mut chart, 1.0, 8);
+        assert_eq!(chart.notes[0].hold_duration, 0.0);
+    }
+
+    #[test]
+    fn repeat_placement_requires_two_compatible_notes_and_wraps_lanes() {
         let mut editor = EditorState { tool: super::super::state::Tool::Tap, ..Default::default() };
         let mut chart = chart(Vec::new());
         editor.place_note(&mut chart, 2.0, 7);
+        crate::timeline::transform::repeat(&mut editor, &mut chart);
+        assert_eq!(chart.notes.len(), 1);
         editor.place_note(&mut chart, 2.25, 8);
         crate::timeline::transform::repeat(&mut editor, &mut chart);
-        assert_eq!(chart.notes.len(), 2);
-        editor.place_note(&mut chart, 2.5, 1);
+        assert_eq!((chart.notes[2].time, chart.notes[2].lane), (2.5, 1));
         crate::timeline::transform::repeat(&mut editor, &mut chart);
         assert_eq!((chart.notes[3].time, chart.notes[3].lane), (2.75, 2));
         crate::timeline::transform::repeat(&mut editor, &mut chart);
@@ -638,20 +741,74 @@ mod tests {
     }
 
     #[test]
-    fn repeat_placement_rejects_irregular_or_changed_notes() {
-        for case in 0..5 {
+    fn repeat_placement_rejects_incompatible_changed_or_stationary_notes() {
+        for case in 0..6 {
             let mut editor = EditorState { tool: super::super::state::Tool::Tap, ..Default::default() };
             let mut chart = chart(Vec::new());
             editor.place_note(&mut chart, 2.0, 1);
-            editor.place_note(&mut chart, 2.25, 2);
-            editor.place_note(&mut chart, if case == 0 { 2.75 } else { 2.5 }, if case == 1 { 4 } else { 3 });
-            if case == 2 { chart.notes[1].is_break = true; }
-            if case == 3 { chart.notes[2].time = 4.0; }
-            if case == 4 { chart.notes[0].note_type = NoteType::Hold; }
+            if case == 0 { editor.tool = crate::state::Tool::Hold; }
+            if case == 1 { editor.tool = crate::state::Tool::Touch; }
+            editor.place_note(&mut chart, if case == 2 { 2.0 } else { 2.25 }, if case == 2 { 1 } else { 2 });
+            if case == 3 { chart.notes[1].is_break = true; }
+            if case == 4 { chart.notes[1].time = 4.0; }
+            if case == 5 { chart.notes[0].note_type = NoteType::Hold; }
             crate::timeline::transform::repeat(&mut editor, &mut chart);
-            assert_eq!(chart.notes.len(), 3, "case {case}");
-            assert_eq!(editor.undo.len(), 3);
+            assert_eq!(chart.notes.len(), 2, "case {case}");
+            assert_eq!(editor.undo.len(), 2);
         }
+    }
+
+    #[test]
+    fn deleting_placements_rebuilds_pattern_from_latest_two_survivors() {
+        let mut editor = EditorState { tool: crate::state::Tool::Tap, ..Default::default() };
+        let mut chart = chart(Vec::new());
+        let mut ids = Vec::new();
+        for (time, lane) in [(2.0, 1), (2.25, 2), (3.0, 3), (4.0, 4), (5.0, 5)] {
+            ids.push(editor.place_note(&mut chart, time, lane));
+        }
+        editor.selected = ids[2..].iter().copied().collect();
+        editor.delete_selection(&mut chart);
+        assert_eq!(editor.placement_sequence.iter().map(|n| n.id).collect::<Vec<_>>(), ids[..2]);
+        crate::timeline::transform::repeat(&mut editor, &mut chart);
+        assert_eq!(chart.notes.len(), 3);
+        assert_eq!((chart.notes[2].time, chart.notes[2].lane), (2.5, 3));
+        editor.delete_selection(&mut chart);
+        crate::timeline::transform::repeat(&mut editor, &mut chart);
+        assert_eq!((chart.notes[2].time, chart.notes[2].lane), (2.5, 3));
+        editor.selected = [ids[0], ids[1]].into_iter().collect();
+        editor.delete_selection(&mut chart);
+        crate::timeline::transform::repeat(&mut editor, &mut chart);
+        assert_eq!(chart.notes.len(), 1, "one surviving placement is insufficient");
+    }
+
+    #[test]
+    fn placement_pattern_uses_latest_pair_instead_of_older_intervals() {
+        let mut editor = EditorState { tool: crate::state::Tool::Tap, ..Default::default() };
+        let mut chart = chart(Vec::new());
+        for (time, lane) in [(2.0, 1), (4.0, 4), (4.5, 5)] { editor.place_note(&mut chart, time, lane); }
+        crate::timeline::transform::repeat(&mut editor, &mut chart);
+        assert_eq!(chart.notes.len(), 4);
+        assert_eq!((chart.notes[3].time, chart.notes[3].lane), (5.0, 6));
+    }
+
+    #[test]
+    fn deleting_one_note_preserves_other_selection_and_surviving_placement_references() {
+        let mut editor = EditorState { tool: crate::state::Tool::Tap, ..Default::default() };
+        let mut chart = chart(Vec::new());
+        let a = editor.place_note(&mut chart, 2.0, 1);
+        let b = editor.place_note(&mut chart, 2.25, 2);
+        let c = editor.place_note(&mut chart, 3.0, 5);
+        editor.select_only(a);
+        editor.keyboard.candidate = Some(c); editor.hovered = Some(c);
+        editor.delete_note(&mut chart, c);
+        assert_eq!(editor.single_selected(), Some(a));
+        assert_eq!(editor.keyboard.candidate, None);
+        assert_eq!(editor.hovered, None);
+        assert_eq!(editor.placement_sequence.iter().map(|n| n.id).collect::<Vec<_>>(), vec![a, b]);
+        editor.delete_note(&mut chart, 999);
+        assert_eq!(editor.undo.len(), 4, "deleting a missing note is not an edit");
+        editor.repeat_placement(&mut chart);
+        assert_eq!((chart.notes[2].time, chart.notes[2].lane), (2.5, 3));
     }
 
     #[test]

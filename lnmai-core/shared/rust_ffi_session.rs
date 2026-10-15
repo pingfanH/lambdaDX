@@ -1,4 +1,5 @@
 use std::ffi::{CStr, CString};
+use std::cell::Cell;
 use std::marker::PhantomData;
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -137,15 +138,44 @@ fn ok_or_error(json: String) -> Result<FfiEnvelope> {
     }
 }
 
-/// Initialize the embedded Lean runtime once for the whole process.
-///
-/// Lean's runtime initialization is not idempotent. Keeping the guard in the
-/// FFI crate gives all Rust callers (parser and gameplay session alike) the
-/// same process-wide initialization state.
+struct RuntimeThread {
+    initialized: Cell<bool>,
+    owned: Cell<bool>,
+}
+
+impl Drop for RuntimeThread {
+    fn drop(&mut self) {
+        if self.owned.get() {
+            unsafe { lean_sys::lean_finalize_thread() };
+        }
+    }
+}
+
+thread_local! {
+    static RUNTIME_THREAD: RuntimeThread = const { RuntimeThread {
+        initialized: Cell::new(false), owned: Cell::new(false),
+    } };
+}
+
+/// Initialize Lean once per process and attach every calling thread.
 pub fn ensure_runtime() -> std::result::Result<(), ()> {
     static INIT: OnceLock<std::result::Result<(), ()>> = OnceLock::new();
-    INIT.get_or_init(|| unsafe { raw::initialize_lnmai_runtime() })
-        .clone()
+    (*INIT.get_or_init(|| {
+        let result = unsafe { raw::initialize_lnmai_runtime() };
+        if result.is_ok() {
+            // lean_initialize already initialized the calling thread.
+            RUNTIME_THREAD.with(|thread| thread.initialized.set(true));
+        }
+        result
+    }))?;
+    RUNTIME_THREAD.with(|thread| {
+        if !thread.initialized.get() {
+            unsafe { lean_sys::lean_initialize_thread() };
+            thread.initialized.set(true);
+            thread.owned.set(true);
+        }
+    });
+    Ok(())
 }
 
 /// Initialize the embedded Lean runtime without the process-wide guard.
@@ -234,7 +264,19 @@ impl Session<Loaded> {
     }
 
     pub fn seek(&mut self, target_us: i64) -> Result<types::SeekResult> {
-        crate::native::seek(self.handle(), target_us)
+        self.seek_with_events(target_us, &[], false)
+    }
+
+    /// Restore the chart runtime at `target_us` using a sorted event stream.
+    /// Events at the target stay pending; `keep_held` preserves ongoing autoplay
+    /// inputs. An empty stream uses the core's default autoplay plan.
+    pub fn seek_with_events(
+        &mut self,
+        target_us: i64,
+        events: &[types::TimedInputEvent],
+        keep_held: bool,
+    ) -> Result<types::SeekResult> {
+        crate::native::seek(self.handle(), target_us, events, keep_held)
     }
 
     pub fn autoplay_plan(&self) -> Result<types::AutoplayPlan> {

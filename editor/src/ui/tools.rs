@@ -61,6 +61,7 @@ pub fn handle_shortcuts(ui: &egui::Ui, editor: &mut EditorState) {
         if ui.input(|i| i.key_pressed(key)) {
             editor.tool = tool;
             editor.star_placement = None;
+            editor.hold_placement = None;
         }
     }
 }
@@ -73,6 +74,7 @@ pub fn draw(
     rect: egui::Rect,
     editor: &mut EditorState,
     textures: &[Option<egui::TextureHandle>],
+    interactive: bool,
 ) -> bool {
     let radius = egui::CornerRadius::same(4);
     {
@@ -95,9 +97,10 @@ pub fn draw(
             egui::pos2(rect.left() + INSET, y),
             egui::vec2(BUTTON, BUTTON),
         );
-        if tool_button(ui, btn, *tool, editor.tool == *tool, textures) {
+        if tool_button(ui, btn, *tool, editor.tool == *tool, textures, interactive) {
             editor.tool = *tool;
             editor.star_placement = None;
+            editor.hold_placement = None;
         }
         y += STEP;
         if SEPARATORS.contains(&i) && i + 1 < Tool::ALL.len() {
@@ -122,11 +125,12 @@ fn tool_button(
     tool: Tool,
     active: bool,
     textures: &[Option<egui::TextureHandle>],
+    interactive: bool,
 ) -> bool {
     let response = ui.interact(
         rect,
         ui.id().with(("tool", tool as u8)),
-        egui::Sense::click(),
+        if interactive { egui::Sense::click() } else { egui::Sense::hover() },
     );
     let radius = egui::CornerRadius::same(3);
     let fill = if active { BG_ACTIVE } else { BG_WIDGET };
@@ -158,7 +162,7 @@ fn tool_button(
         draw_icon(ui.painter(), rect.center(), tool, active);
     }
     let (_, key) = shortcut(tool);
-    response
+    interactive && response
         .on_hover_text(format!("{} ({key})", tool.label()))
         .clicked()
 }
@@ -292,7 +296,7 @@ mod tests {
                                 ui.id().with("timeline"),
                                 egui::Sense::click_and_drag(),
                             );
-                            assert!(draw(ui, panel, &mut editor, &[None, None, None]));
+                            assert!(draw(ui, panel, &mut editor, &[None, None, None], true));
                         });
                     },
                 );

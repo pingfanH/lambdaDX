@@ -207,16 +207,11 @@ fn run_lake_build(lean_project: &Path) {
         .expect("failed to resolve Lean include directory");
     assert!(prefix.status.success(), "Lean toolchain lookup failed");
     let include = PathBuf::from(String::from_utf8(prefix.stdout).unwrap().trim()).join("include");
-    let mut includes = vec![include];
+    let mut includes = vec![include.clone()];
     if cfg!(target_os = "macos") {
-        let resource = Command::new("xcrun")
-            .args(["clang", "-print-resource-dir"])
-            .output()
-            .expect("failed to resolve C standard headers");
-        assert!(resource.status.success(), "C header lookup failed");
-        includes.push(
-            PathBuf::from(String::from_utf8(resource.stdout).unwrap().trim()).join("include"),
-        );
+        // Lake already supplies its Clang resource headers. A second copy in
+        // CPATH breaks stdatomic.h through include_next and shared guards.
+        includes.push(include.join("clang"));
         includes.push(PathBuf::from(sdk_path()).join("usr/include"));
     }
     if let Some(existing) = env::var_os("CPATH") {

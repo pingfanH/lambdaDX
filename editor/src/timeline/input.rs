@@ -21,8 +21,8 @@ use crate::state::{
 };
 
 use super::geometry::{
-    JUDGE_MARGIN, LANE_COUNT, LANE_GUTTER, RULER_H, lane_at, lane_index_of, move_note,
-    paint_marquee, select_note, snap,
+    JUDGE_MARGIN, LANE_COUNT, LANE_GUTTER, MAX_PPS, MIN_PPS, RULER_H, lane_at, lane_index_of,
+    move_note, paint_marquee, select_note, snap,
 };
 
 // ── Shared shortcuts ───────────────────────────────────────────────────────
@@ -35,6 +35,9 @@ pub fn handle_edit_shortcuts(
     chart: &mut ChartDoc,
     current_time: f32,
 ) -> bool {
+    if let Some(owned) = crate::keyboard::handle(ui, editor, chart, current_time) {
+        return owned;
+    }
     if ui.ctx().wants_keyboard_input() {
         return true;
     }
@@ -71,6 +74,7 @@ pub fn handle_edit_shortcuts(
 
     if cmd && !shift && pressed(egui::Key::Z) {
         editor.star_placement = None;
+        editor.hold_placement = None;
         editor.undo(chart);
     }
     if (cmd && shift && pressed(egui::Key::Z)) || (cmd && pressed(egui::Key::Y)) {
@@ -107,7 +111,7 @@ pub fn handle_edit_shortcuts(
     if cmd {
         return true;
     }
-    if editor.star_placement.is_some() && !pressed(egui::Key::Escape) {
+    if (editor.star_placement.is_some() || editor.hold_placement.is_some()) && !pressed(egui::Key::Escape) {
         return true;
     }
     let shift_only = ui.input(|i| i.modifiers.shift && !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.mac_cmd);
@@ -240,6 +244,7 @@ pub fn handle_edit_shortcuts(
         editor.selected.clear();
         editor.tool = Tool::Select;
         editor.star_placement = None;
+        editor.hold_placement = None;
         editor.dragging = None;
         editor.drag_grab = None;
         editor.handle_grab = None;
@@ -349,7 +354,7 @@ struct Cursor {
 /// One on-screen note marker: id → position, used for hit-test and marquee.
 type Markers = Vec<(u64, egui::Rect)>;
 
-fn head_rect(
+pub(crate) fn head_rect(
     editor: &EditorState,
     note: &crate::app::types::Note,
     center: egui::Pos2,
@@ -375,14 +380,22 @@ fn interact(
             .hover_pos()
             .and_then(|p| nearest_marker(markers, p));
     }
-    if editor.star_placement.is_some() {
+    if response.contains_pointer() && ui.input(|i| i.pointer.primary_pressed()) {
+        let hit = response.interact_pointer_pos().and_then(|p| nearest_marker(markers, p));
+        crate::keyboard::navigation::pointer_anchor(editor, chart, cursor.time, cursor.lane, hit);
+    }
+    if editor.star_placement.is_some() || editor.hold_placement.is_some() {
         if response.clicked() {
             let measure = snap(
                 secs_to_measure(cursor.time, &chart.bpms),
                 editor.snap_enabled,
                 editor.snap_division,
             ).max(1.0);
-            editor.place_star_step(chart, measure, cursor.lane);
+            if editor.hold_placement.is_some() {
+                editor.place_hold_step(chart, measure, cursor.lane);
+            } else {
+                editor.place_star_step(chart, measure, cursor.lane);
+            }
         }
         return;
     }
@@ -543,13 +556,8 @@ fn interact(
         if let Some(id) =
             nearest_marker(markers, response.interact_pointer_pos().unwrap_or_default())
         {
-            editor.push_history(chart);
-            chart.notes.retain(|n| n.id != id);
-            editor.selected.remove(&id);
+            editor.delete_note(chart, id);
             reconcile_selection(editor);
-            if editor.hovered == Some(id) {
-                editor.hovered = None;
-            }
         }
     }
 
@@ -605,9 +613,7 @@ fn interact(
                 editor.pending_shape = None;
             }
             if editor.tool == Tool::Eraser {
-                editor.push_history(chart);
-                chart.notes.retain(|n| n.id != id);
-                editor.selected.clear();
+                editor.delete_note(chart, id);
             }
             return;
         }
@@ -634,6 +640,8 @@ fn interact(
             .max(1.0);
             if editor.tool == Tool::Slide {
                 editor.place_star_step(chart, measure, cursor.lane);
+            } else if matches!(editor.tool, Tool::Hold | Tool::TouchHold) {
+                editor.place_hold_step(chart, measure, cursor.lane);
             } else {
                 editor.place_note(chart, measure, cursor.lane);
             }
@@ -795,6 +803,7 @@ pub fn horizontal(
     chart: &mut ChartDoc,
     current_time: f32,
     ui: &egui::Ui,
+    raw_wheel: f32,
 ) {
     let plot_left = rect.left() + LANE_GUTTER;
     let lanes_top = rect.top() + RULER_H;
@@ -802,7 +811,7 @@ pub fn horizontal(
 
     // Wheel works on hover (no button held), so handle it before the
     // press-only pointer path below.
-    handle_wheel(response, ui, editor, plot_left, current_time, false);
+    handle_wheel(response, ui, editor, current_time, false, raw_wheel);
 
     let Some(pos) = response.interact_pointer_pos() else {
         return;
@@ -863,17 +872,17 @@ pub fn vertical(
     chart: &mut ChartDoc,
     current_time: f32,
     ui: &egui::Ui,
+    raw_wheel: f32,
 ) {
     let plot_left = rect.left() + LANE_GUTTER;
     let plot_right = rect.right();
     let judge_y = rect.bottom() - JUDGE_MARGIN;
     let lane_w = (plot_right - plot_left).max(1.0) / LANE_COUNT as f32;
-    let pps = editor.pixels_per_second;
-    let now = current_time;
-
     // Wheel works on hover (no button held), so handle it before the
     // press-only pointer path below.
-    handle_wheel(response, ui, editor, plot_left, current_time, true);
+    handle_wheel(response, ui, editor, current_time, true, raw_wheel);
+    let pps = editor.pixels_per_second;
+    let now = crate::keyboard::navigation::reference_time(editor, current_time);
 
     let Some(pos) = response.interact_pointer_pos() else {
         return;
@@ -919,16 +928,12 @@ pub fn vertical(
     }
 }
 
-/// Clamp bounds for the timeline zoom (pixels per second).
-const MIN_PPS: f32 = 30.0;
-const MAX_PPS: f32 = 1600.0;
-
 /// New pixels-per-second after a zoom of `delta` wheel units at `step`.
 ///
 /// The result is clamped into [`MIN_PPS`, `MAX_PPS`]; without the clamp a large
 /// wheel/flick makes `1 + delta * step` negative (or `0`), which flips the time
 /// axis (elements reverse) or collapses the view to nothing.
-fn zoomed_pps(old: f32, delta: f32, step: f32) -> f32 {
+pub(crate) fn zoomed_pps(old: f32, delta: f32, step: f32) -> f32 {
     (old * (1.0 + delta * step)).clamp(MIN_PPS, MAX_PPS)
 }
 
@@ -941,9 +946,9 @@ fn handle_wheel(
     response: &egui::Response,
     ui: &egui::Ui,
     editor: &mut EditorState,
-    plot_left: f32,
     current_time: f32,
     vertical: bool,
+    raw_wheel: f32,
 ) {
     /// Zoom fraction per wheel unit.
     const ZOOM_STEP: f32 = 0.05;
@@ -957,42 +962,28 @@ fn handle_wheel(
 
     // Trackpad pinch (macOS) applies whenever it arrives — a pinch doesn't move
     // the cursor, so requiring the pointer to hover the timeline would silently
-    // drop it (and make the user lift to re-pinch). The zoom anchors on the
-    // judgment line (vertical, fixed origin) or the pointer (horizontal).
+    // drop it (and make the user lift to re-pinch). Both layouts anchor on the red line.
     let pinch = crate::gesture::take();
     if pinch.abs() > 1e-6 {
         let old = editor.pixels_per_second;
         let new = zoomed_pps(old, pinch, PINCH_ZOOM);
-        if !vertical {
-            if let Some(pos) = response.hover_pos() {
-                let anchor = editor.view_start + (pos.x - plot_left) / old;
-                editor.view_start = (anchor - (pos.x - plot_left) / new).max(0.0);
-            }
-        }
-        editor.pixels_per_second = new;
+        super::geometry::set_zoom(editor, new, current_time, !vertical);
     }
 
     if !response.hovered() {
         return;
     }
-    let (_, raw_wheel) = macroquad::input::mouse_wheel();
     if raw_wheel.abs() < f32::EPSILON {
         return;
     }
-    let cmd = ui.input(|i| i.modifiers.command);
+    let cmd = ui.input(|i| i.modifiers.command || i.modifiers.ctrl);
     // The `Wheel ↕` toggle flips the pan/scrub direction only (not zoom).
     let wheel = raw_wheel * if editor.scroll_invert { -1.0 } else { 1.0 };
 
     if cmd {
         let old = editor.pixels_per_second;
         let new = zoomed_pps(old, raw_wheel, ZOOM_STEP);
-        if !vertical {
-            if let Some(pos) = response.hover_pos() {
-                let anchor = editor.view_start + (pos.x - plot_left) / old;
-                editor.view_start = (anchor - (pos.x - plot_left) / new).max(0.0);
-            }
-        }
-        editor.pixels_per_second = new;
+        super::geometry::set_zoom(editor, new, current_time, !vertical);
     } else if vertical {
         editor.pending_seek = Some((current_time - wheel * WHEEL_SECS).max(0.0));
     } else {
@@ -1021,6 +1012,7 @@ mod tests {
             notes,
             templates: Vec::new(),
             template_instances: Vec::new(),
+            autoplay_overrides: Vec::new(),
         }
     }
 
@@ -1124,6 +1116,41 @@ mod tests {
             self.frame(at, None, modifiers);
             self.frame(at, Some(true), modifiers);
             self.frame(at, Some(false), modifiers);
+        }
+    }
+
+    #[test]
+    fn requested_timeline_mouse_click_refreshes_tab_anchor() {
+        let mut test = PointerTest::new();
+        test.editor.keyboard.cursor = crate::keyboard::navigation::note_cursor(&test.chart.notes[1]);
+        test.editor.keyboard.candidate = Some(2);
+        test.click(egui::pos2(120.0, 100.0), egui::Modifiers::NONE);
+        assert_eq!(test.editor.keyboard.candidate, Some(1));
+        assert!(test.editor.pending_seek.is_none());
+        crate::keyboard::navigation::cycle(&mut test.editor, &test.chart, false);
+        assert_eq!(test.editor.keyboard.candidate, Some(2));
+        test.click(egui::pos2(200.0, 250.0), egui::Modifiers::NONE);
+        assert_eq!(test.editor.keyboard.candidate, None);
+        crate::keyboard::navigation::cycle(&mut test.editor, &test.chart, true);
+        assert_eq!(test.editor.keyboard.candidate, Some(1));
+    }
+
+    #[test]
+    fn hold_confirmation_click_sets_duration_without_placing_an_extra_note() {
+        for tool in [Tool::Hold, Tool::TouchHold] {
+            let mut test = PointerTest::new();
+            test.editor.tool = tool;
+            test.click(egui::pos2(300.0, 250.0), egui::Modifiers::NONE);
+            assert_eq!(test.chart.notes.len(), 2);
+            assert!(test.editor.hold_placement.is_some());
+            assert!(test.editor.undo.is_empty());
+            test.frame(egui::pos2(350.0, 250.0), None, egui::Modifiers::NONE);
+            assert_eq!(test.chart.notes.len(), 2);
+            test.click(egui::pos2(400.0, 250.0), egui::Modifiers::NONE);
+            assert_eq!(test.chart.notes.len(), 3);
+            assert_eq!(test.chart.notes[2].hold_duration, 0.5);
+            assert_eq!(test.editor.undo.len(), 1);
+            assert!(test.editor.hold_placement.is_none());
         }
     }
 

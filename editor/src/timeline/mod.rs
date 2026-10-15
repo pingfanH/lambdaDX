@@ -14,6 +14,7 @@ pub mod geometry;
 pub mod handles;
 pub mod horizontal;
 pub mod input;
+pub mod judgment;
 pub mod notes;
 pub mod placement;
 pub mod transform;
@@ -64,11 +65,12 @@ pub fn handle_input(
     chart: &mut ChartDoc,
     current_time: f32,
     ui: &egui_macroquad::egui::Ui,
+    raw_wheel: f32,
 ) {
     match layout {
-        EditorLayout::Vertical => input::vertical(response, rect, editor, chart, current_time, ui),
+        EditorLayout::Vertical => input::vertical(response, rect, editor, chart, current_time, ui, raw_wheel),
         EditorLayout::Horizontal => {
-            input::horizontal(response, rect, editor, chart, current_time, ui)
+            input::horizontal(response, rect, editor, chart, current_time, ui, raw_wheel)
         }
     }
 }

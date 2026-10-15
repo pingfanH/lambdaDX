@@ -65,14 +65,14 @@ pub fn draw(
     chart: &mut ChartDoc,
     current_time: f32,
 ) -> bool {
-    if editor.star_placement.is_some() {
+    if editor.star_placement.is_some() || editor.hold_placement.is_some() {
         return false;
     }
     let view = View {
         rect,
         layout: editor.layout,
         origin: match editor.layout {
-            EditorLayout::Vertical => current_time,
+            EditorLayout::Vertical => crate::keyboard::navigation::reference_time(editor, current_time),
             EditorLayout::Horizontal => editor.view_start,
         },
         pps: editor.pixels_per_second,
@@ -135,8 +135,8 @@ pub fn draw(
                 duration
             };
         let time = measure_to_secs(measure, &chart.bpms);
-        // Zero-length tails/delays stay next to the head, leaving it clickable.
-        let head_offset = if measure == head {
+        // Slide delay handles stay beside their head; hold tails use judgment centres.
+        let head_offset = if measure == head && idx.is_some() {
             let note = chart.notes.iter().find(|n| n.id == id).unwrap();
             super::notes::head_size(note)
                 * editor.glyph_to_points
@@ -463,11 +463,7 @@ mod tests {
                     origin: 0.0,
                     pps: editor.pixels_per_second,
                 };
-                let offset = super::super::notes::head_size(note)
-                    * editor.glyph_to_points
-                    * crate::app::params::get().editor_note_scale.clamp(0.05, 8.0)
-                    * 0.5
-                    + 8.0;
+                let offset = 0.0;
                 let start = view.handle_position(0.0, lane_index_of(note), offset);
                 let end = view.handle_position(0.5, lane_index_of(note), offset);
                 frame(

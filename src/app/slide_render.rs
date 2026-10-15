@@ -109,7 +109,7 @@ pub fn draw_slide_judge_band(
 
 /// Fill a custom polygon band of `width` around a polyline by emitting a quad
 /// per segment (two triangles) plus round joints at each vertex.
-fn draw_polyline_band(path: &[Vec2], width: f32, color: Color) {
+pub(crate) fn draw_polyline_band(path: &[Vec2], width: f32, color: Color) {
     let hw = (width * 0.5).max(0.5);
     for w in path.windows(2) {
         let delta = w[1] - w[0];

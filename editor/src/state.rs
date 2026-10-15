@@ -64,6 +64,13 @@ pub enum EditorLayout {
     Horizontal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Workspace {
+    #[default]
+    Chart,
+    Autoplay,
+}
+
 impl EditorLayout {
     pub fn toggled(self) -> Self {
         match self {
@@ -80,7 +87,7 @@ impl EditorLayout {
 pub enum PendingAction {
     /// Reload the current chart folder.
     Reload,
-    /// Open a native folder picker, then reload.
+    /// Open a native file/folder picker, then reload.
     Open,
     /// Close the editor.
     Quit,
@@ -135,6 +142,7 @@ pub enum SelectionTransformKind {
 
 #[derive(Debug, Clone)]
 pub struct SelectionTransform {
+    pub keyboard_driven: bool,
     pub kind: SelectionTransformKind,
     pub before: ChartDoc,
     pub was_dirty: bool,
@@ -180,9 +188,31 @@ pub struct CursorInfo {
     pub lane: u8,
 }
 
+#[derive(Debug, Clone)]
+pub enum HistoryEntry {
+    Snapshot(Box<ChartDoc>),
+    RemoveNote(u64),
+    InsertNote { index: usize, note: Box<Note> },
+}
+
+impl From<ChartDoc> for HistoryEntry {
+    fn from(chart: ChartDoc) -> Self {
+        Self::Snapshot(Box::new(chart))
+    }
+}
+
 /// All mutable state for one editing session.
 #[derive(Debug, Clone)]
 pub struct EditorState {
+    pub workspace: Workspace,
+    pub template_panel: bool,
+    pub template_name: String,
+    pub selected_template: Option<String>,
+    pub selected_instance: Option<String>,
+    pub template_session: Option<Box<crate::templates::Session>>,
+    pub template_action: Option<crate::templates::Action>,
+    pub autoplay_editor: crate::autoplay_editor::AutoplayEditor,
+    pub keyboard: crate::keyboard::KeyboardState,
     pub tool: Tool,
     pub layout: EditorLayout,
     /// Notes selected by id.
@@ -201,8 +231,8 @@ pub struct EditorState {
     /// whose OS "natural scrolling" setting feels backwards in the editor.
     pub scroll_invert: bool,
     pub dirty: bool,
-    pub undo: Vec<ChartDoc>,
-    pub redo: Vec<ChartDoc>,
+    pub undo: Vec<HistoryEntry>,
+    pub redo: Vec<HistoryEntry>,
     /// Note currently being dragged, if any.
     pub dragging: Option<u64>,
     /// Whether the in-progress drag already pushed an undo snapshot.
@@ -216,6 +246,7 @@ pub struct EditorState {
     /// Consume the whole pointer gesture used to confirm/cancel a transform.
     pub transform_pointer_down: bool,
     pub star_placement: Option<StarPlacement>,
+    pub hold_placement: Option<Note>,
     /// Rendered logical pixels converted to egui points for head hit boxes.
     pub glyph_to_points: f32,
     /// Timing-handle gesture, separate from moving the note head.
@@ -237,6 +268,8 @@ pub struct EditorState {
     pub status: Option<String>,
     /// Editable chart path (folder or `maidata.txt`).
     pub chart_dir: String,
+    /// Actual loaded file/slot, independent of a pending difficulty switch.
+    pub source: Option<crate::io::ChartSource>,
     /// Available Simai `&inote_N` difficulty slots for the current chart.
     pub level_slots: Vec<u32>,
     /// Index into [`Self::level_slots`].
@@ -245,8 +278,9 @@ pub struct EditorState {
     pub reload_request: bool,
     /// Set by the UI to ask the runtime to open a native file picker.
     pub open_dialog: bool,
-    /// Set by the UI to ask the runtime to export Simai (unimplemented → status).
+    /// Set by the UI to ask the runtime to export Simai.
     pub export_request: bool,
+    pub save_as_request: bool,
     /// Set while dragging the playhead/overview; the runtime applies it to the
     /// player's clock (`timeline_view_time` / `mode_song_offset`).
     pub pending_seek: Option<f32>,
@@ -282,12 +316,21 @@ pub struct EditorState {
 impl Default for EditorState {
     fn default() -> Self {
         Self {
+            workspace: Workspace::Chart,
+            template_panel: false,
+            template_name: "Template".into(),
+            selected_template: None,
+            selected_instance: None,
+            template_session: None,
+            template_action: None,
+            autoplay_editor: Default::default(),
+            keyboard: crate::keyboard::KeyboardState::default(),
             tool: Tool::Select,
             layout: EditorLayout::Vertical,
             selected: HashSet::new(),
             hovered: None,
             view_start: 0.0,
-            pixels_per_second: 120.0,
+            pixels_per_second: crate::timeline::geometry::DEFAULT_PPS,
             snap_division: 16,
             snap_enabled: true,
             scroll_invert: false,
@@ -303,6 +346,7 @@ impl Default for EditorState {
             placement_sequence: Vec::new(),
             transform_pointer_down: false,
             star_placement: None,
+            hold_placement: None,
             glyph_to_points: 1.0,
             handle_grab: None,
             drag_multi_orig: Vec::new(),
@@ -313,11 +357,13 @@ impl Default for EditorState {
             clipboard: Vec::new(),
             status: None,
             chart_dir: String::new(),
+            source: None,
             level_slots: Vec::new(),
             level_index: 0,
             reload_request: false,
             open_dialog: false,
             export_request: false,
+            save_as_request: false,
             pending_seek: None,
             scrubbing: false,
             cursor: None,
@@ -334,6 +380,16 @@ impl Default for EditorState {
 }
 
 impl EditorState {
+    pub fn cancel_file_action(&mut self) {
+        self.pending_action = None;
+        self.pending_confirmed = false;
+        if let Some(level) = self.source.as_ref().and_then(|source| source.level) {
+            if let Some(index) = self.level_slots.iter().position(|slot| *slot == level) {
+                self.level_index = index;
+            }
+        }
+    }
+
     /// Note type produced by the currently selected placement tool.
     pub fn selected_type(&self) -> NoteType {
         match self.tool {

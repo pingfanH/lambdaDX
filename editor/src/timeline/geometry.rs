@@ -17,6 +17,20 @@ pub const LANE_GUTTER: f32 = 30.0;
 pub const RULER_H: f32 = 22.0;
 /// Gap between the judgment line and the near edge (vertical layout only).
 pub const JUDGE_MARGIN: f32 = 38.0;
+/// Shared time scale for chart navigation and the Autoplay workspace.
+pub const MIN_PPS: f32 = 10.0;
+pub const MAX_PPS: f32 = 4800.0;
+pub const DEFAULT_PPS: f32 = 360.0;
+
+/// Preserve the playhead's screen position, including pre-roll exposed by zooming out.
+pub fn set_zoom(editor: &mut EditorState, pps: f32, playhead: f32, horizontal: bool) {
+    let pps = pps.clamp(MIN_PPS, MAX_PPS);
+    if horizontal {
+        editor.view_start = playhead
+            - (playhead - editor.view_start) * editor.pixels_per_second / pps;
+    }
+    editor.pixels_per_second = pps;
+}
 
 /// Map a row/column offset to its one-based timeline lane (including Touch).
 pub fn lane_at(offset: f32, size: f32) -> u8 {
@@ -116,6 +130,22 @@ pub fn paint_marquee(ui: &egui::Ui, rect: egui::Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requested_timeline_zoom_keeps_red_line_fixed() {
+        let mut editor = EditorState::default();
+        editor.view_start = 0.0;
+        editor.pixels_per_second = 360.0;
+        let playhead = 0.5;
+        let offset = (playhead - editor.view_start) * editor.pixels_per_second;
+        for pps in [120.0, MIN_PPS, MAX_PPS, 360.0] {
+            set_zoom(&mut editor, pps, playhead, true);
+            assert!(((playhead - editor.view_start) * editor.pixels_per_second - offset).abs() < 0.01);
+        }
+        let view = editor.view_start;
+        set_zoom(&mut editor, 120.0, playhead, false);
+        assert_eq!(editor.view_start, view);
+    }
 
     #[test]
     fn pointer_lanes_match_rendered_centers_and_edges() {

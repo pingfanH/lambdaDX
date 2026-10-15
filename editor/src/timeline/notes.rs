@@ -6,7 +6,7 @@
 //! visual recipes live here once.
 
 use macroquad::prelude as mq;
-use macroquad::prelude::{Color, Rect as MqRect, Texture2D};
+use macroquad::prelude::{Color, Texture2D};
 use macroquad::texture::DrawTextureParams;
 
 use crate::app::types::{Note, NoteType, Slide};
@@ -58,6 +58,16 @@ pub fn c(r: u8, g: u8, b: u8) -> Color {
 
 pub fn ca(r: u8, g: u8, b: u8, a: u8) -> Color {
     Color::from_rgba(r, g, b, a)
+}
+
+pub fn tint(color: Color, tint: Color) -> Color {
+    Color::new(color.r * tint.r, color.g * tint.g, color.b * tint.b, color.a * tint.a)
+}
+
+pub fn note_tint(note: &Note, backdrop: bool) -> Color {
+    if backdrop { ca(160, 170, 190, 65) }
+    else if note.template_source.is_some() { ca(180, 200, 255, 220) }
+    else { mq::WHITE }
 }
 
 // ── Texture selection ──────────────────────────────────────────────────────
@@ -162,15 +172,23 @@ pub fn tex_at(tex: &Texture2D, x: f32, y: f32, w: f32, h: f32, rot: f32, color: 
 
 /// Vector stand-in used when no tap texture is available.
 pub fn fallback_tap(x: f32, y: f32, size: f32) {
+    fallback_tap_tinted(x, y, size, mq::WHITE);
+}
+
+pub fn fallback_tap_tinted(x: f32, y: f32, size: f32, color: Color) {
     let r = size * 0.3125;
-    mq::draw_circle(x, y, r, c(17, 24, 39));
-    mq::draw_circle_lines(x, y, r, r * 0.3, c(244, 114, 182));
-    mq::draw_circle(x, y, r * 0.3, c(249, 168, 212));
+    mq::draw_circle(x, y, r, tint(c(17, 24, 39), color));
+    mq::draw_circle_lines(x, y, r, r * 0.3, tint(c(244, 114, 182), color));
+    mq::draw_circle(x, y, r * 0.3, tint(c(249, 168, 212), color));
 }
 
 /// Draw a touch note: cross of four triangles plus a centre point. Identical in
 /// both orientations, so it lives here.
 pub fn draw_touch(app: &PadPreviewState, s: f32, note: &Note, x: f32, y: f32) {
+    draw_touch_tinted(app, s, note, x, y, mq::WHITE);
+}
+
+pub fn draw_touch_tinted(app: &PadPreviewState, s: f32, note: &Note, x: f32, y: f32, color: Color) {
     let tri = if note.is_each {
         app.touch_tri_each_tex.as_ref()
     } else {
@@ -189,7 +207,7 @@ pub fn draw_touch(app: &PadPreviewState, s: f32, note: &Note, x: f32, y: f32) {
         let ts = TOUCH_TRI * s;
         let tw = ts;
         let th = ts / ratio.max(0.001);
-        let color = ca(255, 255, 255, 200);
+        let color = tint(ca(255, 255, 255, 200), color);
         tex_at(t, x - tw * 0.5, y + ts * 0.3 - th * 0.5, tw, th, 0.0, color);
         tex_at(
             t,
@@ -221,9 +239,9 @@ pub fn draw_touch(app: &PadPreviewState, s: f32, note: &Note, x: f32, y: f32) {
     }
     if let Some(p) = point {
         let ps = TOUCH_POINT * s;
-        draw_tex(p, x, y, ps, ps, ca(255, 255, 255, 200));
+        draw_tex(p, x, y, ps, ps, tint(ca(255, 255, 255, 200), color));
     } else {
-        mq::draw_circle(x, y, 3.0 * s, ca(103, 232, 249, 200));
+        mq::draw_circle(x, y, 3.0 * s, tint(ca(103, 232, 249, 200), color));
     }
 }
 
@@ -232,112 +250,15 @@ pub fn draw_touch(app: &PadPreviewState, s: f32, note: &Note, x: f32, y: f32) {
 /// Horizontal 9-slice of the (vertical) hold texture: fixed left/right caps,
 /// stretched middle. `x0..x1` are the head/tail judgment centres.
 pub fn draw_hold_9slice_horizontal(tex: &Texture2D, x0: f32, x1: f32, y: f32, width: f32, tint: Color) {
-    let tex_w = tex.width().max(1.0);
-    let tex_h = tex.height().max(3.0);
-    let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
-    let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
-    let cap_len = (cap_h * (width / tex_w)).max(1.0);
-
-    let left = x0.min(x1);
-    let right = x0.max(x1);
-    let center_len = (right - left).max(1.0);
-    let (head_len, tail_len) = if center_len < cap_len * 2.0 {
-        let squeezed = (center_len * 0.5).max(1.0);
-        (squeezed, squeezed)
-    } else {
-        (cap_len, cap_len)
-    };
-
-    let head_center = left;
-    let tail_center = right;
-    let body_start = head_center + head_len * 0.5;
-    let body_end = tail_center - tail_len * 0.5;
-    let body_len = (body_end - body_start).max(0.0);
-
-    hold_piece(tex, 0.0, cap_h, head_center, y, width, head_len, tint);
-    if body_len > 0.0 {
-        hold_piece(
-            tex,
-            cap_h,
-            body_src_h,
-            (body_start + body_end) * 0.5,
-            y,
-            width,
-            body_len,
-            tint,
-        );
-    }
-    hold_piece(tex, tex_h - cap_h, cap_h, tail_center, y, width, tail_len, tint);
-}
-
-fn hold_piece(tex: &Texture2D, src_y: f32, src_h: f32, cx: f32, cy: f32, width: f32, len: f32, tint: Color) {
-    mq::draw_texture_ex(
-        tex,
-        cx - width * 0.5,
-        cy - len * 0.5,
-        tint,
-        DrawTextureParams {
-            source: Some(MqRect {
-                x: 0.0,
-                y: src_y,
-                w: tex.width(),
-                h: src_h,
-            }),
-            dest_size: Some(mq::vec2(width, len)),
-            rotation: std::f32::consts::FRAC_PI_2,
-            pivot: Some(mq::vec2(width * 0.5, len * 0.5)),
-            ..Default::default()
-        },
+    crate::app::ui::draw_hold_9slice_segment(
+        tex, mq::vec2(x0, y), mq::vec2(x1, y), width, tint, mq::vec2(-1.0, 0.0),
     );
 }
 
 /// Vertical 9-slice of the (vertical) hold texture: fixed top/bottom caps,
 /// stretched middle. `y0..y1` are the head/tail judgment centres.
 pub fn draw_hold_9slice_vertical(tex: &Texture2D, cx: f32, y0: f32, y1: f32, width: f32, tint: Color) {
-    let tex_w = tex.width().max(1.0);
-    let tex_h = tex.height().max(3.0);
-    let cap_h = (tex_h * 0.28).max(1.0).min(tex_h * 0.45);
-    let body_src_h = (tex_h - cap_h * 2.0).max(1.0);
-    let cap_dest = (cap_h * (width / tex_w)).max(1.0);
-
-    let top_center = y0.min(y1);
-    let bottom_center = y0.max(y1);
-    let center_len = (bottom_center - top_center).max(1.0);
-    let (top_h, bottom_h) = if center_len < cap_dest * 2.0 {
-        let squeezed = (center_len * 0.5).max(1.0);
-        (squeezed, squeezed)
-    } else {
-        (cap_dest, cap_dest)
-    };
-    let top_y = top_center - top_h * 0.5;
-    let bottom_y = bottom_center - bottom_h * 0.5;
-    let body_y = top_y + top_h;
-    let body_h = (bottom_y - body_y).max(0.0);
-    let x = cx - width * 0.5;
-
-    v_piece(tex, x, top_y, 0.0, cap_h, tex_w, width, top_h, tint);
-    if body_h > 0.0 {
-        v_piece(tex, x, body_y, cap_h, body_src_h, tex_w, width, body_h, tint);
-    }
-    v_piece(tex, x, bottom_y, tex_h - cap_h, cap_h, tex_w, width, bottom_h, tint);
-}
-
-#[allow(clippy::too_many_arguments)]
-fn v_piece(tex: &Texture2D, x: f32, y: f32, src_y: f32, src_h: f32, src_w: f32, w: f32, h: f32, tint: Color) {
-    mq::draw_texture_ex(
-        tex,
-        x,
-        y,
-        tint,
-        DrawTextureParams {
-            source: Some(MqRect {
-                x: 0.0,
-                y: src_y,
-                w: src_w,
-                h: src_h,
-            }),
-            dest_size: Some(mq::vec2(w, h)),
-            ..Default::default()
-        },
+    crate::app::ui::draw_hold_9slice_segment(
+        tex, mq::vec2(cx, y0), mq::vec2(cx, y1), width, tint, mq::vec2(0.0, 1.0),
     );
 }

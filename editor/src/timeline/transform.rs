@@ -16,8 +16,10 @@ pub fn begin(
     anchor: egui::Pos2,
 ) {
     editor.star_placement = None;
+    editor.hold_placement = None;
     editor.placement_sequence.clear();
     editor.selection_transform = Some(SelectionTransform {
+        keyboard_driven: false,
         kind,
         before: chart.clone(),
         was_dirty: editor.dirty,
@@ -148,7 +150,7 @@ pub fn scale(editor: &mut EditorState, chart: &mut ChartDoc, pointer: egui::Pos2
     apply_scale(editor, chart, factor);
 }
 
-fn apply_scale(editor: &mut EditorState, chart: &mut ChartDoc, factor: f32) {
+pub fn apply_scale(editor: &mut EditorState, chart: &mut ChartDoc, factor: f32) {
     let Some(transform) = &mut editor.selection_transform else {
         return;
     };
@@ -322,6 +324,16 @@ pub fn handle_pointer(
     if editor.selection_transform.is_none() {
         return false;
     }
+    if editor.selection_transform.as_ref().is_some_and(|t| t.keyboard_driven) {
+        if ui.input(|i| i.pointer.primary_pressed()) {
+            finish(editor, chart, true);
+            editor.transform_pointer_down = true;
+        } else if ui.input(|i| i.pointer.secondary_pressed()) {
+            finish(editor, chart, false);
+            editor.transform_pointer_down = true;
+        }
+        return true;
+    }
     if let Some(pos) = ui.input(|i| i.pointer.hover_pos()) {
         let wheel = if rect.contains(pos) { wheel } else { 0.0 };
         preview(editor, chart, rect, current_time, pos, wheel);
@@ -378,6 +390,7 @@ mod tests {
             notes,
             templates: Vec::new(),
             template_instances: Vec::new(),
+            autoplay_overrides: Vec::new(),
         };
         (editor, chart)
     }
@@ -582,7 +595,7 @@ mod tests {
         for dirty in [false, true] {
             let (mut editor, mut chart) = fixture();
             editor.dirty = dirty;
-            editor.redo.push(chart.clone());
+            editor.redo.push(chart.clone().into());
             begin(
                 &mut editor,
                 &chart,

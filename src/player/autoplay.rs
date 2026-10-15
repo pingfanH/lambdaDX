@@ -15,6 +15,58 @@ pub fn rebuild(pad: &mut PadPreviewState) {
     pad.autoplay_direct_held.clear();
 }
 
+/// Restore input ownership without emitting clicks, judgments or sounds.
+pub(crate) fn restore_at(pad: &mut PadPreviewState, seconds: f32, events: &[TimedInputEvent]) {
+    if !pad.autoplay {
+        return;
+    }
+    let target = (seconds * 1e6) as i64;
+    let mut held = Vec::new();
+    for event in events {
+        let tp = crate::player::engine::timed_input_tp(event);
+        if tp >= target {
+            break;
+        }
+        track_direct_hold(&mut held, event);
+        if !pad.autoplay_direct_core && target - tp < 120_000 {
+            let zone = match event {
+                TimedInputEvent::ButtonClick { zone, .. } => {
+                    Some(crate::player::engine::zone_for_button(*zone))
+                }
+                TimedInputEvent::SensorClick { area, .. } => {
+                    Some(crate::player::engine::zone_for_sensor(*area))
+                }
+                _ => None,
+            };
+            if let Some(zone) = zone {
+                pad.push_feedback(zone, (120_000 - (target - tp)) as f64 / 1e6);
+            }
+        }
+    }
+    for event in &held {
+        if !pad.autoplay_direct_core {
+            let zone = match event {
+                TimedInputEvent::SensorHold { area, .. } => {
+                    if !pad.autoplay_explicit_held.contains(area) {
+                        pad.autoplay_explicit_held.push(*area);
+                    }
+                    crate::player::engine::zone_for_sensor(*area)
+                }
+                TimedInputEvent::ButtonHold { zone, .. } => {
+                    pad.autoplay_direct_held.push(event.clone());
+                    crate::player::engine::zone_for_button(*zone)
+                }
+                _ => continue,
+            };
+            pad.active_pointer_zones
+                .insert(u64::from(zone.to_id()) | (1u64 << 40), vec![zone]);
+        }
+    }
+    if pad.autoplay_direct_core {
+        pad.autoplay_direct_held = held;
+    }
+}
+
 pub fn set_direct_core(pad: &mut PadPreviewState, direct: bool) {
     if pad.autoplay_direct_core == direct {
         return;
@@ -43,6 +95,7 @@ pub fn set_on(pad: &mut PadPreviewState, on: bool) {
 }
 
 pub fn tick(pad: &mut PadPreviewState) {
+    pad.sync_autoplay_settings();
     if !pad.autoplay
         || pad.playback_pending
         || pad.audio_start_pending
@@ -99,6 +152,18 @@ fn feed(pad: &mut PadPreviewState, event: TimedInputEvent) {
     if pad.scrubbing {
         return;
     }
+    match &event {
+        TimedInputEvent::ButtonHold { .. } => {
+            track_direct_hold(&mut pad.autoplay_direct_held, &event);
+        }
+        TimedInputEvent::SensorHold { area, is_down, .. } if pad.external_autoplay => {
+            pad.autoplay_explicit_held.retain(|held| held != area);
+            if *is_down {
+                pad.autoplay_explicit_held.push(*area);
+            }
+        }
+        _ => {}
+    }
     mirror_visual(pad, &event);
     pad.engine_events.push(event);
 }
@@ -107,10 +172,16 @@ fn flush_holds(pad: &mut PadPreviewState) {
     let now = (pad.song_time().max(0.0) * 1e6) as i64;
     for event in pad.autoplay_direct_held.drain(..) {
         let release = match event {
-            TimedInputEvent::ButtonHold { zone, .. } =>
-                TimedInputEvent::ButtonHold { tp: now, zone, is_down: false },
-            TimedInputEvent::SensorHold { area, .. } =>
-                TimedInputEvent::SensorHold { tp: now, area, is_down: false },
+            TimedInputEvent::ButtonHold { zone, .. } => TimedInputEvent::ButtonHold {
+                tp: now,
+                zone,
+                is_down: false,
+            },
+            TimedInputEvent::SensorHold { area, .. } => TimedInputEvent::SensorHold {
+                tp: now,
+                area,
+                is_down: false,
+            },
             _ => continue,
         };
         pad.engine_events.push(release);
@@ -135,7 +206,9 @@ fn track_direct_hold(held: &mut Vec<TimedInputEvent>, event: &TimedInputEvent) {
         }
         _ => false,
     };
-    if down { held.push(event.clone()); }
+    if down {
+        held.push(event.clone());
+    }
 }
 
 fn release_click_holds(held: &mut Vec<SensorArea>, now: i64) -> Vec<TimedInputEvent> {
@@ -167,7 +240,6 @@ fn preprocess_tactic_frame_with_holds(
     let has_due = !due.is_empty();
     let mut events = Vec::new();
     for event in due {
-        let event = crate::player::engine::normalize_tactic_event(event);
         match event {
             TimedInputEvent::SensorClick { tp, area } => {
                 // A dense tactic can revisit the same sensor within one frame.
@@ -296,6 +368,60 @@ mod tests {
     use super::*;
     use crate::core::types::ButtonZone;
 
+    #[test]
+    fn scrub_restores_held_inputs_and_recent_clicks_without_replaying_events() {
+        let chart = crate::app::types::ChartDoc {
+            version: "1".into(),
+            title: String::new(),
+            artist: String::new(),
+            simai_level: 1,
+            bpm: 120.0,
+            bpms: vec![],
+            audio_offset: 0.0,
+            notes: vec![],
+            templates: vec![],
+            template_instances: vec![],
+            autoplay_overrides: vec![],
+        };
+        let events = vec![
+            TimedInputEvent::SensorHold {
+                tp: 0,
+                area: SensorArea::A1,
+                is_down: true,
+            },
+            TimedInputEvent::ButtonClick {
+                tp: 950_000,
+                zone: ButtonZone::K2,
+            },
+            TimedInputEvent::SensorHold {
+                tp: 2_000_000,
+                area: SensorArea::A1,
+                is_down: false,
+            },
+        ];
+        for direct in [false, true] {
+            let mut pad = PadPreviewState::new_at(chart.clone(), None, None, 0.0, None);
+            pad.forced_time = Some(1.0);
+            pad.autoplay = true;
+            pad.autoplay_direct_core = direct;
+            pad.scrubbing = true;
+            restore_at(&mut pad, 1.0, &events);
+            assert!(pad.engine_events.is_empty());
+            assert!(pad.judge_feedback.is_empty());
+            assert!(pad.hit_fx.is_empty());
+            if direct {
+                assert_eq!(pad.autoplay_direct_held, vec![events[0].clone()]);
+                assert!(pad.active_pointer_zones.is_empty());
+                assert!(pad.pad_feedback.is_empty());
+            } else {
+                assert_eq!(pad.autoplay_explicit_held.len(), 1);
+                assert_eq!(pad.active_pointer_zones.len(), 1);
+                assert_eq!(pad.pad_feedback.len(), 1);
+                assert!((pad.pad_feedback[0].until - 1.07).abs() < 1e-6);
+            }
+        }
+    }
+
     #[cfg(feature = "backend-lean")]
     #[test]
     fn direct_core_replays_original_events_without_touch_simulation() {
@@ -307,8 +433,12 @@ mod tests {
         pad.mode = Mode::Playing;
         set_on(&mut pad, true);
         set_direct_core(&mut pad, true);
-        let expected: Vec<_> = pad.autoplay_tactic.iter().filter(|e|
-            crate::player::engine::timed_input_tp(e) <= 0).cloned().collect();
+        let expected: Vec<_> = pad
+            .autoplay_tactic
+            .iter()
+            .filter(|e| crate::player::engine::timed_input_tp(e) <= 0)
+            .cloned()
+            .collect();
         assert!(!expected.is_empty());
         tick(&mut pad);
         assert_eq!(pad.engine_events, expected);
@@ -317,19 +447,22 @@ mod tests {
         assert!(pad.autoplay_click_held.is_empty());
         pad.engine_events.clear();
         set_on(&mut pad, false);
-        assert!(!pad.engine_events.is_empty(), "held inputs must be released");
+        assert!(
+            !pad.engine_events.is_empty(),
+            "held inputs must be released"
+        );
         assert!(pad.autoplay_direct_held.is_empty());
     }
 
     #[test]
-    fn button_click_holds_a_sensor_for_one_frame() {
+    fn sensor_click_holds_a_sensor_for_one_frame() {
         let mut held = Vec::new();
         let first = preprocess_tactic_frame(
             &mut held,
             100,
-            [TimedInputEvent::ButtonClick {
+            [TimedInputEvent::SensorClick {
                 tp: 100,
-                zone: ButtonZone::K3,
+                area: SensorArea::A3,
             }],
         );
         assert_eq!(

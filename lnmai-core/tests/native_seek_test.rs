@@ -2,6 +2,21 @@ use lnmai_core::session::{Empty, Session};
 use lnmai_core::types::{ChartSpec, RuntimeStepLightResult, TimedInputBatch};
 
 #[test]
+fn native_sessions_can_be_loaded_moved_and_dropped_on_worker_threads() {
+    let mut session = std::thread::spawn(|| {
+        let mut session = Session::<Empty>::create_native().unwrap()
+            .load_chart_text_native("&inote_6=(120){4}1,2h[4:2],E\n", 6).unwrap();
+        assert_eq!(session.seek(0).unwrap().current_time, 0);
+        session
+    }).join().unwrap();
+    assert_eq!(session.seek(250_000).unwrap().current_time, 250_000);
+    std::thread::spawn(move || {
+        assert!(!session.autoplay_plan().unwrap().groups.is_empty());
+        drop(session);
+    }).join().unwrap();
+}
+
+#[test]
 fn native_transport_matches_json_and_seek_is_repeatable() {
     let source = "&title=Native\n&artist=Test\n&first=0\n&lv_6=1\n&inote_6=(120){4}1,2,3h[4:2],A1,C1h[4:2],1-3[4:1],E\n";
     let mut native = Session::<Empty>::create_native()
@@ -129,7 +144,7 @@ fn native_transport_matches_json_and_seek_is_repeatable() {
     assert_eq!(finished.score.lost_base, 0);
     assert_eq!(finished.score.earned_base, finished.score.total_base);
 
-    // A long note crossing the target is skipped whole, not re-entered halfway.
+    // Seeking restores a crossing body rather than deleting it at its head.
     for (id, time) in chart
         .holds
         .iter()
@@ -142,8 +157,8 @@ fn native_transport_matches_json_and_seek_is_repeatable() {
         )
     {
         let crossing = native.seek(time + 1).unwrap();
-        assert!(crossing.skipped_note_indices.contains(&id));
-        assert!(!crossing.retained_note_indices.contains(&id));
+        assert!(!crossing.skipped_note_indices.contains(&id));
+        assert!(crossing.retained_note_indices.contains(&id));
     }
 
     // Connected chains and wifi tracks must stay in one ownership group.
@@ -170,9 +185,9 @@ fn native_transport_matches_json_and_seek_is_repeatable() {
             chart
                 .slides
                 .iter()
-                .all(|slide| seek.skipped_note_indices.contains(&slide.note_index))
+                .all(|slide| seek.retained_note_indices.contains(&slide.note_index))
         );
-        assert!(plan.retained(&seek.retained_note_indices).groups.is_empty());
+        assert!(!plan.retained(&seek.retained_note_indices).groups.is_empty());
         assert!(!session.seek(0).unwrap().retained_note_indices.is_empty());
     }
 }

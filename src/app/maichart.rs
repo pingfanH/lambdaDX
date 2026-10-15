@@ -317,6 +317,7 @@ fn convert(mai: MaiChart, diff_override: Option<i32>) -> ChartDoc {
         notes,
         templates: Vec::new(),
         template_instances: Vec::new(),
+        autoplay_overrides: Vec::new(),
     }
 }
 

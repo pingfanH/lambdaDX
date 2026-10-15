@@ -29,10 +29,13 @@ mod core_chart;
 mod edit_ops;
 mod gesture;
 mod io;
+mod keyboard;
 mod runtime;
 mod state;
 mod theme;
 mod timeline;
+mod templates;
+mod autoplay_editor;
 mod ui;
 
 use egui_macroquad::egui;
@@ -41,7 +44,7 @@ use macroquad::prelude::*;
 
 use app::pad_svg;
 use player::state::PadPreviewState;
-use state::{EditorState, PendingAction};
+use state::{EditorState, PendingAction, Workspace};
 use ui::EditorUi;
 
 fn editor_window_conf() -> Conf {
@@ -52,6 +55,13 @@ fn editor_window_conf() -> Conf {
     conf.window_width = 1600;
     conf.window_height = 900;
     conf.window_resizable = true;
+    if let Some((width, height)) = std::env::var("MAI2_EDITOR_WINDOW").ok().and_then(|size| {
+        let (width, height) = size.split_once('x')?;
+        Some((width.parse::<i32>().ok()?, height.parse::<i32>().ok()?))
+    }).filter(|(w, h)| *w >= 640 && *h >= 480) {
+        conf.window_width = width;
+        conf.window_height = height;
+    }
     conf
 }
 
@@ -80,6 +90,7 @@ async fn run() {
         .unwrap_or_else(|| app::platform::asset_dir().join("charts/jack_ripper"));
 
     let bundle = runtime::load_chart_bundle(&chart_dir, None);
+    let source = bundle.source.clone();
     mark("chart load");
     let mut app = runtime::initialize_player(
         PadPreviewState::new(bundle.chart, bundle.audio_name, bundle.audio_pcm),
@@ -127,10 +138,31 @@ async fn run() {
         editor.layout = state::EditorLayout::Horizontal;
     }
     editor.chart_dir = chart_dir.to_string_lossy().to_string();
+    editor.source = source;
     editor.level_slots = app::chart::read_simai_source(&chart_dir)
         .map(|t| app::maidata::inote_keys(&t))
         .unwrap_or_default();
     editor.level_index = editor.level_slots.len().saturating_sub(1);
+    if std::env::var("MAI2_EDITOR_WORKSPACE").is_ok_and(|v| v.eq_ignore_ascii_case("autoplay")) {
+        editor.workspace = Workspace::Autoplay;
+        editor.autoplay_mode = 2;
+        runtime::apply_preview_mode(&mut app, 2);
+    }
+    if std::env::var_os("MAI2_EDITOR_TEMPLATES").is_some() { editor.template_panel = true; }
+    if let Ok(id) = std::env::var("MAI2_EDITOR_TEMPLATE") {
+        templates::apply(&mut editor, &mut app, templates::Action::EnterDefinition(id));
+    }
+    // Screenshot overrides do not modify saved preferences.
+    if std::env::var_os("MAI2_EDITOR_JUDGE_WINDOWS").is_some() {
+        app.params.show_judge_windows = true;
+        app::params::set(app.params.clone());
+    }
+    app.show_params = std::env::var_os("MAI2_EDITOR_SHOW_SETTINGS").is_some();
+    if let Some(time) = std::env::var("MAI2_EDITOR_TIME").ok()
+        .and_then(|value| value.parse::<f32>().ok()).filter(|time| time.is_finite()) {
+        app.seek_to(time.max(0.0));
+        runtime::follow_playhead(&mut editor, time.max(0.0));
+    }
 
     let mut waveform = audio::WaveformPyramid::default();
     let shot_path = std::env::var("MAI2_EDITOR_SHOT").ok();
@@ -187,18 +219,22 @@ async fn run() {
             if waveform.levels.is_empty() && app.audio_wav_pcm.is_some() {
                 waveform = audio::WaveformPyramid::build(&app);
             }
-            ui.draw(ctx, &mut editor, &mut app, current_time, &waveform);
-            let preview_keys_enabled = !ctx.wants_keyboard_input() && !ctx.input(|i| i.modifiers.any())
+            editor.glyph_to_points = ctx.screen_rect().width() / screen_width().max(1.0);
+            ui.draw(ctx, &mut editor, &mut app, current_time, &waveform, mouse_wheel().1);
+            let preview_keys_enabled = editor.workspace == Workspace::Chart && !ui.input_blocked && !ctx.wants_keyboard_input() && !ctx.input(|i| i.modifiers.any())
                 && !editor.is_slide_edit() && editor.selection_transform.is_none()
+                && !editor.keyboard.owns_input() && !editor.keyboard.active
                 && ctx.input(|i| i.pointer.hover_pos().is_some_and(|p| ui.layout.preview.contains(p)));
             player::input::keyboard::handle_lane_input_when(&mut app, preview_keys_enabled);
-            player::params_panel::draw_embedded(ctx, &mut app);
             ctx.request_repaint();
             egui_screen_w = ctx.screen_rect().width();
         });
         let egui_wants_pointer = app::egui_bridge::wants_pointer();
         ui.finish_layout();
 
+        if let Some(action) = editor.template_action.take() {
+            templates::apply(&mut editor, &mut app, action);
+        }
         apply_io_requests(&mut editor, &mut app);
         let current_time = player_time(&app);
 
@@ -219,6 +255,10 @@ async fn run() {
         // A timeline / overview scrub seeks the shared player clock.
         let pending_seek = editor.pending_seek.take();
         if let Some(t) = pending_seek {
+            // Scene changes must detach old bindings before seeking the new chart.
+            if let Err(error) = chart_sync.update(&mut app, true) {
+                editor.status = Some(format!("core update: {error}"));
+            }
             let t = t.max(0.0);
             if editor.scrubbing {
                 app.scrub_to(t);
@@ -244,10 +284,12 @@ async fn run() {
                     || app.active_pointer_zones.contains_key(&e.id)
             })
             .collect();
-        let scale = (pad.outer_r / (ui::layout::DESIGN_PAD_REFERENCE)).max(0.1);
-        app.ui_scale_override = Some(scale);
+        let scale = ui::layout::preview_note_scale(
+            pad.outer_r,
+            player::render::ui_scale(&app),
+        );
         app::params::set_pad_scale(scale * app::params::pad_zoom());
-        if !egui_wants_pointer {
+        if editor.workspace == Workspace::Chart && !ui.input_blocked && !editor.keyboard.owns_input() && !editor.keyboard.suppress_pointer && !egui_wants_pointer {
             player::input::handle_touch_controls(&mut app, pad, &pad_events);
         }
 
@@ -256,7 +298,7 @@ async fn run() {
         // editing slide's last segment. Not gated on `egui_wants_pointer`: while
         // editing the pad is the interaction surface, and the sidebar merely
         // hovers it (egui reports `wants_pointer_input` for any covered area).
-        if editor.is_slide_edit() {
+        if editor.workspace == Workspace::Chart && !ui.input_blocked && !editor.keyboard.owns_input() && !editor.keyboard.suppress_pointer && editor.is_slide_edit() {
             let zone = {
                 let svg = app.pad_svg.as_ref();
                 pad_events
@@ -285,9 +327,12 @@ async fn run() {
         app.scrubbing = editor.scrubbing;
         // Star (slide) edit mode shows only the slide being edited, with its
         // whole trail (no time culling); everything else is hidden.
-        app.edit_solo_slide = editor.editing_slide.map(|id| (id, editor.editing_slide_idx));
-        let chart_current = match chart_sync.update(&mut app,
-            editor.dragging.is_some() || editor.selection_transform.is_some() || editor.handle_grab.is_some()) {
+        app.edit_solo_slide = (editor.workspace == Workspace::Chart).then_some(editor.editing_slide)
+            .flatten().map(|id| (id, editor.editing_slide_idx));
+        let gesture_active = editor.dragging.is_some() || editor.selection_transform.is_some()
+            || editor.handle_grab.is_some() || editor.keyboard.transaction.is_some()
+            || editor.autoplay_editor.dragging() || ui.templates.dragging();
+        let chart_current = match chart_sync.update(&mut app, gesture_active) {
             Ok(current) => current,
             Err(error) => {
                 editor.status = Some(format!("core update: {error}"));
@@ -336,7 +381,7 @@ async fn run() {
                 editor.layout,
                 &app,
                 &editor,
-                &app.chart,
+                app.playback_chart(),
                 rect,
                 current_time,
                 &waveform,
@@ -383,6 +428,9 @@ async fn run() {
             }
         }
         next_frame().await;
+        if let Err(error) = chart_sync.schedule(&mut app, gesture_active) {
+            editor.status = Some(format!("core update: {error}"));
+        }
     }
 }
 
@@ -413,7 +461,7 @@ fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
     if editor.pending_confirmed {
         editor.pending_confirmed = false;
         match editor.pending_action.take() {
-            Some(PendingAction::Reload) => reload_chart(editor, app),
+            Some(PendingAction::Reload) => { reload_chart(editor, app); }
             Some(PendingAction::Open) => open_chart(editor, app),
             Some(PendingAction::Quit) => quit_editor(),
             None => {}
@@ -428,7 +476,11 @@ fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
     }
     if editor.export_request {
         editor.export_request = false;
-        editor.status = Some("Simai export not implemented yet".into());
+        io::export_chart(editor, &app.chart, false);
+    }
+    if editor.save_as_request {
+        editor.save_as_request = false;
+        io::export_chart(editor, &app.chart, true);
     }
     if editor.reload_request {
         editor.reload_request = false;
@@ -438,12 +490,11 @@ fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
     }
 }
 
-/// Native folder picker, then load the chosen folder (no dirty guard — the
+/// Native file/folder picker, then load the chosen chart (no dirty guard — the
 /// caller has already resolved any unsaved changes).
 fn open_chart(editor: &mut EditorState, app: &mut PadPreviewState) {
     if let Some(path) = io::pick_chart_path() {
-        editor.chart_dir = path;
-        reload_chart(editor, app);
+        load_editor_chart(editor, app, std::path::Path::new(&path), None);
     }
 }
 
@@ -452,25 +503,45 @@ fn open_chart(editor: &mut EditorState, app: &mut PadPreviewState) {
 fn reload_chart(editor: &mut EditorState, app: &mut PadPreviewState) {
     let dir = std::path::PathBuf::from(&editor.chart_dir);
     let want = editor.level_slots.get(editor.level_index).copied();
-    runtime::load_chart_into(app, &dir, want);
-    editor.level_slots = app::chart::read_simai_source(&dir)
+    load_editor_chart(editor, app, &dir, want);
+}
+
+fn load_editor_chart(editor: &mut EditorState, app: &mut PadPreviewState, path: &std::path::Path, want: Option<u32>) {
+    let source = match runtime::load_chart_into(app, path, want) {
+        Ok(source) => source,
+        Err(error) => {
+            editor.cancel_file_action();
+            editor.status = Some(format!("Load failed: {error}"));
+            return;
+        }
+    };
+    editor.chart_dir = path.to_string_lossy().into_owned();
+    editor.source = Some(source.clone());
+    editor.level_slots = app::chart::read_simai_source(path)
         .map(|t| app::maidata::inote_keys(&t))
         .unwrap_or_default();
-    if editor.level_index >= editor.level_slots.len() {
-        editor.level_index = editor.level_slots.len().saturating_sub(1);
-    }
+    editor.level_index = source.level.and_then(|level| editor.level_slots.iter().position(|slot| *slot == level)).unwrap_or(0);
+    editor.undo.clear();
+    editor.redo.clear();
     editor.selected.clear();
+    editor.keyboard.reset_document();
     editor.selection_transform = None;
     editor.last_edit = None;
     editor.placement_sequence.clear();
     editor.transform_pointer_down = false;
     editor.star_placement = None;
+    editor.hold_placement = None;
     editor.pointer_press = None;
     editor.dragging = None;
     editor.handle_grab = None;
     editor.marquee_start = None;
     editor.editing_slide = None;
     editor.pending_shape = None;
+    editor.template_session = None;
+    editor.template_action = None;
+    editor.selected_template = None;
+    editor.selected_instance = None;
+    editor.autoplay_editor = Default::default();
     editor.view_start = 0.0;
     editor.dirty = false;
     editor.status = Some(format!("Loaded {}", editor.chart_dir));

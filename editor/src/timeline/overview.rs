@@ -22,6 +22,7 @@ pub fn draw_in(
     chart: &ChartDoc,
     current_time: f32,
     duration: f32,
+    interactive: bool,
 ) {
     let painter = ui.painter();
     // Band background blends with the workspace; the design's 10px scrubber
@@ -88,9 +89,9 @@ pub fn draw_in(
     let response = ui.interact(
         bar,
         ui.id().with("editor_overview"),
-        egui::Sense::click_and_drag(),
+        if interactive { egui::Sense::click_and_drag() } else { egui::Sense::hover() },
     );
-    if response.clicked() || response.dragged() {
+    if interactive && (response.clicked() || response.dragged()) {
         if let Some(pos) = response.interact_pointer_pos() {
             let frac = ((pos.x - plot_left) / width).clamp(0.0, 1.0);
             editor.pending_seek = Some(frac * duration);
@@ -145,6 +146,7 @@ mod tests {
             notes: Vec::new(),
             templates: Vec::new(),
             template_instances: Vec::new(),
+            autoplay_overrides: Vec::new(),
         };
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -163,6 +165,7 @@ mod tests {
                     &chart,
                     0.0,
                     8.0,
+                    true,
                 );
             });
         });

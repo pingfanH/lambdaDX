@@ -46,6 +46,10 @@ pub struct SerNote {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_star: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_fake_rotate: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_hanabi: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_tapless: bool,
     /// Hold duration as [numerator, denominator] in beats.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,6 +162,8 @@ pub fn note_to_ser(note: &Note) -> SerNote {
         is_break: note.is_break,
         is_ex: note.is_ex,
         is_star: note.is_star,
+        is_fake_rotate: note.is_fake_rotate,
+        is_hanabi: note.is_hanabi,
         is_tapless: note.is_tapless,
         hold_duration,
         slide: note.slide.clone(),
@@ -179,6 +185,8 @@ pub fn ser_to_note(s: &SerNote) -> Note {
         is_break: s.is_break,
         is_ex: s.is_ex,
         is_star: s.is_star,
+        is_fake_rotate: s.is_fake_rotate,
+        is_hanabi: s.is_hanabi,
         is_tapless: s.is_tapless,
         is_touch: matches!(
             s.note_type,
@@ -223,6 +231,7 @@ pub fn ser_to_chart(s: &SerChartDoc) -> ChartDoc {
         notes: s.notes.iter().map(ser_to_note).collect(),
         templates: Vec::new(),
         template_instances: Vec::new(),
+        autoplay_overrides: Vec::new(),
     }
 }
 

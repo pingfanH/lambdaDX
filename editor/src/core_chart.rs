@@ -13,6 +13,17 @@ pub struct CoreChart {
     pub slide_positions: HashMap<u64, (u64, usize, usize, usize)>,
 }
 
+/// Encode one note without changing the document's measure/BPM clock.
+pub fn note_text(note: &Note, bpms: &[BpmChange]) -> Result<String, String> {
+    let mut out = CoreChart {
+        text: String::new(),
+        note_ids: HashMap::new(),
+        slide_positions: HashMap::new(),
+    };
+    emit_note(&mut out, note, bpms, &mut 1)?;
+    Ok(out.text)
+}
+
 pub fn compile(chart: &ChartDoc, level: u32) -> Result<CoreChart, String> {
     let mut out = CoreChart {
         text: format!("&inote_{level}="),
@@ -61,9 +72,10 @@ pub fn compile(chart: &ChartDoc, level: u32) -> Result<CoreChart, String> {
 
 fn flags(note: &Note) -> String {
     format!(
-        "{}{}",
+        "{}{}{}",
         if note.is_break { "b" } else { "" },
-        if note.is_ex { "x" } else { "" }
+        if note.is_ex { "x" } else { "" },
+        if note.is_hanabi { "f" } else { "" }
     )
 }
 
@@ -111,7 +123,7 @@ fn emit_note(
                 seconds(mdur_to_secs(note.hold_duration, note.time, bpms))?
             ));
         } else if note.is_star {
-            out.text.push('$');
+            out.text.push_str(if note.is_fake_rotate { "$$" } else { "$" });
         }
         out.note_ids.insert(*index, note.id);
         *index += 1;
@@ -128,6 +140,7 @@ fn emit_note(
         }
         out.text.push_str(&head);
         out.text.push_str(&flags(note));
+        if note.is_fake_rotate { out.text.push_str("$$"); }
         if note.is_tapless || emitted {
             out.text.push('!');
         }
@@ -149,7 +162,7 @@ fn emit_note(
         emitted = true;
     }
     if !emitted && !note.is_tapless {
-        out.text.push_str(&format!("{head}{}$", flags(note)));
+        out.text.push_str(&format!("{head}{}{}", flags(note), if note.is_fake_rotate { "$$" } else { "$" }));
         out.note_ids.insert(*index, note.id);
         *index += 1;
     }

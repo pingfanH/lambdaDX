@@ -103,6 +103,102 @@ pub struct SlideJudgeFx {
     pub started: f64,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub struct EditedEngineContext {
+    pub time: f32,
+    revision: u64,
+    autoplay: bool,
+    direct: bool,
+    inner_screen: bool,
+    continuous: bool,
+}
+
+/// Chart-derived data prepared away from the graphics/audio thread.
+pub struct PreparedEditedEngine {
+    pub engine: crate::player::engine::JudgeEngine,
+    pub context: EditedEngineContext,
+    source: String,
+    level: u32,
+    plan: crate::core::types::AutoplayPlan,
+    inner_plan: crate::core::types::AutoplayPlan,
+    default_plan: std::sync::Arc<crate::core::types::AutoplayPlan>,
+    events: Vec<crate::core::types::TimedInputEvent>,
+    normalized_events: Vec<crate::core::types::TimedInputEvent>,
+    tactic: Vec<crate::core::types::TimedInputEvent>,
+    tactic_cursor: usize,
+    score: Option<crate::core::types::ScoreState>,
+    windows: crate::player::judge_windows::Metadata,
+    progress: Vec<crate::player::engine::SlideArcProgress>,
+    note_ends: Vec<(u64, f32)>,
+    hidden_notes: HashSet<u64>,
+    cues: CueTrack,
+    fragments: Vec<crate::app::maidata::SimaiFragment>,
+    authored: bool,
+}
+
+/// Move chart-sized allocations with the native session so their destruction
+/// cannot delay the first frame containing an edit.
+pub struct RetiredEditedEngine {
+    _engine: crate::player::engine::JudgeEngine,
+    _windows: crate::player::judge_windows::Metadata,
+    _tactic: Vec<crate::core::types::TimedInputEvent>,
+    _plan: Option<crate::core::types::AutoplayPlan>,
+    _default_plan: Option<std::sync::Arc<crate::core::types::AutoplayPlan>>,
+    _fragments: Vec<crate::app::maidata::SimaiFragment>,
+    _source: Option<String>,
+    _progress: HashMap<(u64, usize), SlideProgress>,
+    _hidden_notes: HashSet<u64>,
+    _hold_head_hits: HashSet<u64>,
+}
+
+impl PreparedEditedEngine {
+    pub fn new(
+        chart: &ChartDoc,
+        engine: crate::player::engine::JudgeEngine,
+        source: String,
+        level: u32,
+        context: EditedEngineContext,
+    ) -> Result<Self, String> {
+        let default_plan = std::sync::Arc::new(engine.autoplay_plan()?);
+        let plan = crate::app::autoplay_edit::generated_plan(chart, &engine, &default_plan, false);
+        let inner_plan = crate::app::autoplay_edit::generated_plan(chart, &engine, &default_plan, true);
+        let events = plan.events();
+        let normalized_events = inner_plan.events();
+        let windows = engine.judgment_metadata(chart);
+        let note_ends = chart.notes.iter()
+            .map(|note| (note.id, note_end_seconds(note, &chart.bpms))).collect();
+        let cues = CueTrack::from_chart(chart);
+        let fragments = crate::app::maidata::simai_timeline(&source, level).unwrap_or_default();
+        let mut prepared = Self {
+            engine, context, source, level, plan, inner_plan, default_plan, events, normalized_events, windows, note_ends, cues, fragments,
+            tactic: Vec::new(), tactic_cursor: 0, score: None, progress: Vec::new(), hidden_notes: HashSet::new(),
+            authored: !chart.autoplay_overrides.is_empty(),
+        };
+        prepared.restore(context)?;
+        Ok(prepared)
+    }
+
+    pub fn restore(&mut self, context: EditedEngineContext) -> Result<(), String> {
+        let (plan, events) = if context.inner_screen {
+            (&self.inner_plan, &self.normalized_events)
+        } else {
+            (&self.plan, &self.events)
+        };
+        let reset = self.engine.seek_with_events(context.time, events, context.autoplay)?;
+        self.progress = self.engine.slide_progress_updates(&reset.render_commands);
+        self.tactic = plan.retained(&reset.retained_note_indices).events();
+        self.tactic_cursor = self.tactic.partition_point(|event| {
+            crate::player::engine::timed_input_tp(event) < (context.time * 1e6) as i64
+        });
+        self.hidden_notes = self.note_ends.iter()
+            .filter(|(_, end)| *end < context.time).map(|(id, _)| *id).collect();
+        self.score = Some(reset.score);
+        self.cues.reset(context.time);
+        self.context = context;
+        Ok(())
+    }
+}
+
 /// All mutable state the standalone pad preview needs.
 ///
 /// This is the trimmed successor of the player's `PlayerState`: it keeps only
@@ -134,6 +230,8 @@ pub struct PadPreviewState {
 
     // ── Chart ────────────────────────────────────────────────────────
     pub chart: ChartDoc,
+    expanded_chart: Option<ChartDoc>,
+    expanded_source: Option<ChartDoc>,
     pub hidden_notes: HashSet<u64>,
     /// Hold / touch-hold notes whose **head** already had its hit sound played
     /// (detected locally, since the core reports holds only at their tail).
@@ -231,8 +329,9 @@ pub struct PadPreviewState {
     // ── Autoplay ─────────────────────────────────────────────────────
     /// When on, the pad presses itself at each note's hit time.
     pub autoplay: bool,
-    /// Submit the original tactic to core without synthetic sensor touches.
+    /// Submit the configured tactic to core without synthetic sensor touches.
     pub autoplay_direct_core: bool,
+    /// Raw held inputs, including button holds in simulated mode.
     pub autoplay_direct_held: Vec<crate::core::types::TimedInputEvent>,
     /// Sensor areas held open by a button-click tactic event, released on the
     /// next tactic frame so the core sees a hold for the click.
@@ -248,6 +347,8 @@ pub struct PadPreviewState {
     /// (no click-hold synthesis / dedup preprocessing).
     pub external_autoplay: bool,
     pub legacy_autoplay: bool,
+    /// None for external event streams, which keep their explicit input zones.
+    autoplay_plan_inner_screen: Option<bool>,
 
     // ── Progress / seeking ───────────────────────────────────────────
     /// True while the progress bar is being dragged.
@@ -278,12 +379,14 @@ pub struct PadPreviewState {
     // ── lnmai-core judgment engine ───────────────────────────────────
     /// Loaded lnmai-core judgment session (None until a chart is loaded).
     pub judge_engine: Option<crate::player::engine::JudgeEngine>,
+    pub judge_windows: crate::player::judge_windows::Metadata,
     /// Pending input events (pad presses/releases) for the next engine step.
     pub engine_events: Vec<crate::core::types::TimedInputEvent>,
     /// Autoplay: lnmai-core's default replay tactic, consumed by timestamp.
     pub autoplay_tactic: Vec<crate::core::types::TimedInputEvent>,
     /// Complete ownership plan; seek compiles whole retained groups from this.
     pub autoplay_plan: Option<crate::core::types::AutoplayPlan>,
+    pub default_autoplay_plan: Option<std::sync::Arc<crate::core::types::AutoplayPlan>>,
     pub autoplay_tactic_cursor: usize,
     /// Latest lnmai-core score snapshot (combo, DX score, judge counts).
     pub core_score: Option<crate::core::types::ScoreState>,
@@ -293,9 +396,26 @@ pub struct PadPreviewState {
     /// Simai source + `&inote_N` used to (re)build the engine on restart.
     simai_source: Option<String>,
     simai_level: u32,
+    runtime_revision: u64,
+    document_revision: u64,
 }
 
 impl PadPreviewState {
+    pub fn playback_chart(&self) -> &ChartDoc {
+        self.expanded_chart.as_ref().unwrap_or(&self.chart)
+    }
+
+    pub fn refresh_playback_chart(&mut self) {
+        if self.chart.template_instances.is_empty() {
+            self.expanded_chart = None;
+            self.expanded_source = None;
+        } else if !self.expanded_source.as_ref().is_some_and(|source|
+            crate::app::templates::same_inputs(source, &self.chart)) {
+            self.expanded_chart = Some(crate::app::templates::expand(&self.chart));
+            self.expanded_source = Some(self.chart.clone());
+        }
+    }
+
     pub fn new(
         chart: ChartDoc,
         audio_source_name: Option<String>,
@@ -330,7 +450,9 @@ impl PadPreviewState {
             .and_then(|v| v.parse::<f32>().ok())
             .map(|v| v.clamp(0.7, 2.4));
 
-        let cue_track = Some(CueTrack::from_chart(&chart));
+        let expanded_chart = (!chart.template_instances.is_empty()).then(|| crate::app::templates::expand(&chart));
+        let expanded_source = expanded_chart.as_ref().map(|_| chart.clone());
+        let cue_track = Some(CueTrack::from_chart(expanded_chart.as_ref().unwrap_or(&chart)));
 
         Self {
             mode: Mode::Idle,
@@ -345,6 +467,8 @@ impl PadPreviewState {
             touch_speed: NOTE_SPEED,
             slide_fade_in: 3.926_913 / crate::app::types::note_speed_from_setting(NOTE_SPEED),
             chart,
+            expanded_chart,
+            expanded_source,
             hidden_notes: HashSet::new(),
             hold_head_hits: HashSet::new(),
             slide_progress: HashMap::new(),
@@ -419,6 +543,7 @@ impl PadPreviewState {
             autoplay_tactic_path: None,
             external_autoplay: false,
             legacy_autoplay: false,
+            autoplay_plan_inner_screen: None,
             scrubbing: false,
             scrub_origin: None,
             edit_solo_slide: None,
@@ -430,12 +555,16 @@ impl PadPreviewState {
             params: crate::app::params::Params::default(),
             show_params: false,
             judge_engine: None,
+            judge_windows: crate::player::judge_windows::Metadata::default(),
             engine_events: Vec::new(),
             autoplay_tactic: Vec::new(),
             autoplay_plan: None,
+            default_autoplay_plan: None,
             autoplay_tactic_cursor: 0,
             core_score: None,
             simai_fragments: Vec::new(),
+            runtime_revision: 0,
+            document_revision: 0,
             simai_source: None,
             simai_level: 0,
         }
@@ -482,7 +611,7 @@ impl PadPreviewState {
         if self.mode == Mode::Playing {
             self.mode_song_offset = self.song_time();
             self.mode = Mode::Idle;
-            self.mode_wall_anchor = get_time();
+            self.mode_wall_anchor = self.now();
             self.playback_pending = false;
             self.audio_start_pending = false;
             self.pending_audio_start = false;
@@ -494,7 +623,7 @@ impl PadPreviewState {
         } else {
             self.audio_seek_offset = Some(self.mode_song_offset);
             self.mode = Mode::Playing;
-            self.mode_wall_anchor = get_time();
+            self.mode_wall_anchor = self.now();
             self.playback_pending = false;
             self.audio_start_pending = true;
             self.reset_cues(self.mode_song_offset);
@@ -514,7 +643,7 @@ impl PadPreviewState {
             return;
         }
         self.mode = Mode::Playing;
-        self.mode_wall_anchor = get_time();
+        self.mode_wall_anchor = self.now();
         self.playback_pending = true;
         self.audio_start_pending = true;
         self.audio_seek_offset = Some(self.mode_song_offset);
@@ -557,11 +686,13 @@ impl PadPreviewState {
         self.audio_wav_pcm
             .as_ref()
             .map(|pcm| {
-                pcm.samples.len() as f32 / f32::from(pcm.channels.max(1))
-                    / pcm.sample_rate.max(1) as f32 - self.chart.audio_offset
+                pcm.samples.len() as f32
+                    / f32::from(pcm.channels.max(1))
+                    / pcm.sample_rate.max(1) as f32
+                    - self.chart.audio_offset
             })
             .unwrap_or_else(|| {
-                self.chart
+                self.playback_chart()
                     .notes
                     .iter()
                     .map(|n| {
@@ -602,8 +733,11 @@ impl PadPreviewState {
             self.stop_audio_if_any();
         }
         let t = t.clamp(0.0, self.song_duration());
+        if let Err(error) = self.seek_runtime_to(t) {
+            self.set_status(format!("seek: {error}"));
+            return;
+        }
         self.timeline_view_time = t;
-        self.reconcile_slide_progress_for(t);
     }
 
     /// Commit a seek: reposition the clock and restart audio if playing.
@@ -613,7 +747,7 @@ impl PadPreviewState {
                 self.mode_song_offset = origin;
                 self.mode_wall_anchor = get_time();
                 self.seek_audio_to(origin);
-                self.reconcile_slide_progress_for(origin);
+                let _ = self.seek_runtime_to(origin);
             }
             self.timeline_view_time = self.mode_song_offset;
             self.set_status(format!("seek: {error}"));
@@ -626,9 +760,49 @@ impl PadPreviewState {
             return Err("invalid seek time".into());
         }
         let t = t.clamp(0.0, self.song_duration());
+        self.seek_runtime_to(t)?;
+        self.seek_audio_to(t);
+        self.mode_song_offset = t;
+        self.timeline_view_time = t;
+        self.mode_wall_anchor = self.now();
+        self.scrub_origin = None;
+        Ok(())
+    }
+
+    pub(crate) fn sync_autoplay_settings(&mut self) {
+        if self.autoplay_plan_inner_screen
+            .is_some_and(|inner| inner != self.params.autoplay_inner_screen)
+            && self.has_engine()
+        {
+            if let Err(error) = self.seek_runtime_to(self.timeline_time()) {
+                self.set_status(format!("autoplay: {error}"));
+            }
+        }
+    }
+
+    fn seek_runtime_to(&mut self, t: f32) -> Result<(), String> {
+        let refresh_plan = self.autoplay_plan_inner_screen
+            .is_some_and(|inner| inner != self.params.autoplay_inner_screen)
+            || self.legacy_autoplay && t > 0.0;
+        let updated_plan = if refresh_plan {
+            self.default_autoplay_plan.as_ref().zip(self.judge_engine.as_ref())
+                .map(|(defaults, engine)| crate::app::autoplay_edit::generated_plan(
+                    self.playback_chart(), engine, defaults, self.params.autoplay_inner_screen,
+                ))
+        } else {
+            None
+        };
+        let plan = updated_plan.as_ref().or(self.autoplay_plan.as_ref());
+        let events = if let Some(plan) = plan {
+            plan.events()
+        } else {
+            self.autoplay_tactic.clone()
+        };
+        let mut progress_updates = Vec::new();
         if let Some(engine) = self.judge_engine.as_mut() {
-            let result = engine.seek(t)?;
-            if let Some(plan) = &self.autoplay_plan {
+            let result = engine.seek_with_events(t, &events, self.autoplay)?;
+            progress_updates = engine.slide_progress_updates(&result.render_commands);
+            if let Some(plan) = plan {
                 // Bare legacy streams remain usable until a nonzero seek.
                 if !self.legacy_autoplay || t > 0.0 {
                     self.autoplay_tactic = plan.retained(&result.retained_note_indices).events();
@@ -640,6 +814,30 @@ impl PadPreviewState {
             }
             self.core_score = Some(result.score);
         }
+        if let Some(plan) = updated_plan {
+            self.autoplay_plan = Some(plan);
+            self.autoplay_plan_inner_screen = Some(self.params.autoplay_inner_screen);
+        }
+        self.clear_judgment_state();
+        self.runtime_revision = self.runtime_revision.wrapping_add(1);
+        let target_us = (t * 1e6) as i64;
+        self.autoplay_tactic_cursor = self
+            .autoplay_tactic
+            .partition_point(|event| crate::player::engine::timed_input_tp(event) < target_us);
+        self.apply_core_slide_progress_updates(&progress_updates);
+        if self.use_core() {
+            let past = self.playback_chart()
+                    .notes
+                    .iter()
+                    .filter(|note| note_end_seconds(note, &self.chart.bpms) < t)
+                    .map(|note| note.id).collect::<Vec<_>>();
+            self.hidden_notes.extend(past);
+        }
+        crate::player::autoplay::restore_at(self, t, &events);
+        Ok(())
+    }
+
+    fn clear_judgment_state(&mut self) {
         self.engine_events.clear();
         self.autoplay_click_held.clear();
         self.autoplay_explicit_held.clear();
@@ -653,26 +851,6 @@ impl PadPreviewState {
         self.slide_judge.clear();
         self.hidden_notes.clear();
         self.hold_head_hits.clear();
-        let target_us = (t * 1e6) as i64;
-        self.autoplay_tactic_cursor = self
-            .autoplay_tactic
-            .partition_point(|event| crate::player::engine::timed_input_tp(event) < target_us);
-        self.seek_audio_to(t);
-        self.mode_song_offset = t;
-        self.timeline_view_time = t;
-        self.mode_wall_anchor = get_time();
-        self.scrub_origin = None;
-        self.reconcile_slide_progress_for(t);
-        if self.use_core() {
-            self.hidden_notes.extend(
-                self.chart
-                    .notes
-                    .iter()
-                    .filter(|note| crate::app::types::note_secs(note, &self.chart.bpms) < t)
-                    .map(|note| note.id),
-            );
-        }
-        Ok(())
     }
 
     /// Fire the one-shot cue sound (`Sfx/answer.wav`).
@@ -768,7 +946,7 @@ impl PadPreviewState {
         }
         if self.mode == Mode::Playing {
             self.mode_song_offset = position;
-            self.mode_wall_anchor = get_time();
+            self.mode_wall_anchor = self.now();
             self.audio_seek_offset = Some(self.mode_song_offset);
             self.audio_start_pending = true;
             self.request_audio_start();
@@ -934,14 +1112,31 @@ impl PadPreviewState {
             }
             self.external_autoplay = true;
         }
+        self.autoplay_plan_inner_screen = if self.external_autoplay {
+            None
+        } else {
+            Some(self.params.autoplay_inner_screen)
+        };
+        if let Some(plan) = &mut selected_plan {
+            if self.external_autoplay {
+                crate::app::autoplay_edit::apply(self.playback_chart(), &engine, plan);
+            } else {
+                *plan = crate::app::autoplay_edit::generated_plan(
+                    self.playback_chart(), &engine, plan, self.params.autoplay_inner_screen,
+                );
+            }
+            self.external_autoplay |= !self.chart.autoplay_overrides.is_empty();
+        }
         self.autoplay_tactic = legacy.unwrap_or_else(|| {
             selected_plan
                 .as_ref()
                 .map(|p| p.events())
                 .unwrap_or_else(|| engine.default_tactic().unwrap_or_default())
         });
+        self.default_autoplay_plan = default_plan.map(std::sync::Arc::new);
         self.autoplay_plan = selected_plan;
         self.autoplay_tactic_cursor = 0;
+        self.judge_windows = engine.judgment_metadata(self.playback_chart());
         self.judge_engine = Some(engine);
         self.engine_events.clear();
         self.core_score = None;
@@ -956,67 +1151,101 @@ impl PadPreviewState {
         Ok(())
     }
 
-    /// Rebuild the engine (resetting core score/slide state) from the stored
-    /// Simai source, if any. Used on restart.
+    /// Seek the existing runtime back to zero.
     pub fn reset_engine(&mut self) {
         self.seek_to(0.0);
     }
 
-    /// Install an edited chart's core and schedules without restarting audio
-    /// or moving the clock. Prepare/seek the new session before replacing it.
-    pub fn replace_edited_engine(
-        &mut self,
-        mut engine: crate::player::engine::JudgeEngine,
-        source: String,
-        level: u32,
-    ) -> Result<(), String> {
-        let time = self.timeline_time().max(0.0);
-        let plan = engine.autoplay_plan()?;
-        let reset = engine.seek(time)?;
-        self.autoplay_tactic = plan.retained(&reset.retained_note_indices).events();
-        self.autoplay_plan = Some(plan);
-        self.external_autoplay = false;
-        self.legacy_autoplay = false;
-        self.autoplay_tactic_cursor = self.autoplay_tactic.partition_point(|event| {
-            crate::player::engine::timed_input_tp(event) < (time * 1e6) as i64
-        });
-        self.judge_engine = Some(engine);
-        self.core_score = Some(reset.score);
-        self.engine_events.clear();
-        self.autoplay_click_held.clear();
-        self.autoplay_explicit_held.clear();
-        self.autoplay_direct_held.clear();
-        self.active_pointer_zones.clear();
-        self.prev_pointer_pos.clear();
-        self.pad_feedback.clear();
-        self.judge_feedback.clear();
-        self.hit_fx.clear();
-        self.slide_progress.clear();
-        self.slide_judge.clear();
-        self.hidden_notes.clear();
-        self.hold_head_hits.clear();
-        if self.use_core() {
-            self.hidden_notes.extend(self.chart.notes.iter()
-                .filter(|note| crate::app::types::note_secs(note, &self.chart.bpms) < time)
-                .map(|note| note.id));
+    pub fn edited_engine_context(&self) -> EditedEngineContext {
+        EditedEngineContext {
+            time: self.timeline_time().max(0.0),
+            revision: self.runtime_revision,
+            autoplay: self.autoplay,
+            direct: self.autoplay_direct_core,
+            inner_screen: self.params.autoplay_inner_screen,
+            continuous: matches!(self.mode, Mode::Playing | Mode::Recording) && self.forced_time.is_none()
+                && !self.scrubbing && !self.playback_pending && !self.audio_start_pending,
         }
-        let mut cues = CueTrack::from_chart(&self.chart);
-        cues.reset(time);
+    }
+
+    pub fn accepts_edited_engine(&self, context: EditedEngineContext) -> bool {
+        let current = self.edited_engine_context();
+        current == context || (current.revision == context.revision
+            && current.autoplay == context.autoplay && current.direct == context.direct
+            && current.inner_screen == context.inner_screen
+            && current.continuous && context.continuous && current.time >= context.time)
+    }
+
+    pub fn document_revision(&self) -> u64 {
+        self.document_revision
+    }
+
+    /// Detach without freeing: the background worker owns the old native
+    /// session while loading its replacement under Lean's global mutex.
+    pub fn detach_edited_engine(&mut self) -> Option<RetiredEditedEngine> {
+        let retired = RetiredEditedEngine {
+            _engine: self.judge_engine.take()?,
+            _windows: std::mem::take(&mut self.judge_windows),
+            _tactic: std::mem::take(&mut self.autoplay_tactic),
+            _plan: self.autoplay_plan.take(),
+            _default_plan: self.default_autoplay_plan.take(),
+            _fragments: std::mem::take(&mut self.simai_fragments),
+            _source: self.simai_source.take(),
+            _progress: std::mem::take(&mut self.slide_progress),
+            _hidden_notes: std::mem::take(&mut self.hidden_notes),
+            _hold_head_hits: std::mem::take(&mut self.hold_head_hits),
+        };
+        self.autoplay_tactic_cursor = 0;
+        self.core_score = None;
+        self.clear_judgment_state();
+        Some(retired)
+    }
+
+    /// Publish already prepared data; no native calls, audio restart or clock
+    /// changes are allowed on this path.
+    pub fn install_edited_engine(&mut self, prepared: PreparedEditedEngine) {
+        assert!(self.judge_engine.is_none());
+        let PreparedEditedEngine {
+            engine, context, source, level, plan, inner_plan, default_plan, events, normalized_events, tactic, tactic_cursor,
+            score, windows, progress, hidden_notes, cues, fragments, authored, ..
+        } = prepared;
+        let (plan, events) = if context.inner_screen {
+            (inner_plan, normalized_events)
+        } else {
+            (plan, events)
+        };
+        self.clear_judgment_state();
+        self.autoplay_tactic = tactic;
+        self.autoplay_plan = Some(plan);
+        self.default_autoplay_plan = Some(default_plan);
+        self.autoplay_plan_inner_screen = Some(context.inner_screen);
+        self.external_autoplay = authored;
+        self.legacy_autoplay = false;
+        self.autoplay_tactic_cursor = tactic_cursor;
+        self.judge_windows = windows;
+        self.judge_engine = Some(engine);
+        self.core_score = score;
+        if self.use_core() {
+            self.hidden_notes = hidden_notes;
+        }
+        self.apply_core_slide_progress_updates(&progress);
+        crate::player::autoplay::restore_at(self, context.time, &events);
         self.cue_track = Some(cues);
-        self.simai_fragments =
-            crate::app::maidata::simai_timeline(&source, level).unwrap_or_default();
+        self.simai_fragments = fragments;
         self.simai_source = Some(source);
         self.simai_level = level;
-        Ok(())
     }
 
     /// Drop the loaded lnmai-core session (e.g. when switching to a chart with
     /// no Simai source). After this [`Self::use_core`] is false again.
     pub fn unload_engine(&mut self) {
+        self.judge_windows = crate::player::judge_windows::Metadata::default();
         self.scrub_origin = None;
         self.judge_engine = None;
         self.autoplay_tactic.clear();
         self.autoplay_plan = None;
+        self.default_autoplay_plan = None;
+        self.autoplay_plan_inner_screen = None;
         self.autoplay_tactic_cursor = 0;
         self.engine_events.clear();
         self.core_score = None;
@@ -1044,9 +1273,13 @@ impl PadPreviewState {
         simai_source: Option<String>,
         simai_level: Option<u32>,
     ) {
+        self.document_revision = self.document_revision.wrapping_add(1);
+        self.runtime_revision = self.runtime_revision.wrapping_add(1);
         crate::app::maichart::assign_note_ids(&mut chart.notes);
         self.chart = chart;
-        self.cue_track = Some(CueTrack::from_chart(&self.chart));
+        self.expanded_source = None;
+        self.refresh_playback_chart();
+        self.cue_track = Some(CueTrack::from_chart(self.playback_chart()));
 
         self.audio_source_name = audio_source_name;
         self.audio_wav_pcm = audio_wav_pcm;
@@ -1059,7 +1292,7 @@ impl PadPreviewState {
         self.mode_song_offset = 0.0;
         self.scrub_origin = None;
         self.timeline_view_time = 0.0;
-        self.mode_wall_anchor = get_time();
+        self.mode_wall_anchor = self.now();
         self.playback_pending = false;
         self.audio_start_pending = false;
 
@@ -1206,45 +1439,6 @@ impl PadPreviewState {
         }
     }
 
-    /// Mark slides whose head is before the seek target as hidden and un-hide
-    /// the rest. Used after a seek/scrub so the core-driven slides do not pile
-    /// up: lnmai-core does not backfill slides skipped by a timeline jump.
-    pub fn reconcile_slide_progress_for(&mut self, t: f32) {
-        if !self.use_core() {
-            return;
-        }
-        use crate::app::types::{NoteType, note_secs};
-        let bpms = self.chart.bpms.clone();
-        let mut past: Vec<((u64, usize), usize)> = Vec::new();
-        let mut future: Vec<(u64, usize)> = Vec::new();
-        for note in &self.chart.notes {
-            if !matches!(note.note_type, NoteType::Slide) {
-                continue;
-            }
-            let ns = note_secs(note, &bpms);
-            for (si, sl) in note.slide.iter().enumerate() {
-                if ns < t {
-                    past.push(((note.id, si), sl.runtime_parts));
-                } else {
-                    future.push((note.id, si));
-                }
-            }
-        }
-        for key in future {
-            self.slide_progress.remove(&key);
-        }
-        for (key, parts) in past {
-            self.slide_progress.insert(
-                key,
-                SlideProgress {
-                    seg_frac: vec![1.0; parts.max(1)],
-                    track_frac: HashMap::new(),
-                    track_hidden_until: HashMap::new(),
-                },
-            );
-        }
-    }
-
     /// Apply lnmai-core's per-runtime-arc consumed fractions to the chart's
     /// `(note_id, slide_idx)` sub-slides used by the renderer.
     ///
@@ -1256,12 +1450,16 @@ impl PadPreviewState {
         updates: &[crate::player::engine::SlideArcProgress],
     ) {
         for update in updates {
-            let Some((note_id, slide_idx, seg_idx, seg_count)) =
-                self.judge_engine.as_ref().and_then(|engine| {
-                    engine.slide_position(&self.chart, update.runtime_slide_index)
-                }).or_else(|| {
+            let Some((note_id, slide_idx, seg_idx, seg_count)) = self
+                .judge_engine
+                .as_ref()
+                .and_then(|engine| engine.slide_position(self.playback_chart(), update.runtime_slide_index))
+                .or_else(|| {
                     if self.judge_engine.is_none() {
-                        crate::player::engine::chart_slide_position(&self.chart, update.runtime_slide_index)
+                        crate::player::engine::chart_slide_position(
+                            self.playback_chart(),
+                            update.runtime_slide_index,
+                        )
                     } else {
                         None
                     }
@@ -1384,9 +1582,93 @@ fn hit_fx_color(label: &str, is_break: bool) -> Color {
     }
 }
 
+fn note_end_seconds(note: &crate::app::types::Note, bpms: &[crate::app::types::BpmChange]) -> f32 {
+    use crate::app::types::{NoteType, hold_tail_time, note_secs, slide_end_time};
+    match note.note_type {
+        NoteType::Hold | NoteType::TouchHold => hold_tail_time(note, bpms),
+        NoteType::Slide => slide_end_time(note, bpms),
+        _ => note_secs(note, bpms),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "backend-lean")]
+    #[test]
+    #[ignore = "interactive scrub timing budget; run without concurrent tests"]
+    fn dense_scrubbing_stays_interactive_in_both_autoplay_modes() {
+        use std::time::{Duration, Instant};
+
+        let text = format!(
+            "&inote_1=(120){{4}}{}E",
+            "1/2h[4:1]/B3/4-8[4:1],".repeat(256)
+        );
+        let mut worst = Duration::ZERO;
+        for direct in [false, true] {
+            let chart = crate::app::maidata::from_maidata(&text, None).unwrap();
+            let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+            pad.load_engine(&text, 1).unwrap();
+            pad.autoplay = true;
+            pad.autoplay_direct_core = direct;
+            pad.scrubbing = true;
+            for seconds in [0, 10, 30, 60, 120, 60, 30, 10, 0] {
+                let target = seconds as f32;
+                pad.forced_time = Some(target);
+                let start = Instant::now();
+                pad.scrub_to(target);
+                let elapsed = start.elapsed();
+                eprintln!(
+                    "scrub direct={direct} {seconds:3}s: {:.3} ms",
+                    elapsed.as_secs_f64() * 1_000.0
+                );
+                worst = worst.max(elapsed);
+                assert_eq!(pad.timeline_view_time, target);
+                assert!(pad.engine_events.is_empty());
+                let score = pad.core_score.as_ref().unwrap();
+                assert_eq!(score.earned_base, 0);
+                assert_eq!(score.lost_base, 0);
+            }
+        }
+        assert!(worst < Duration::from_millis(100), "scrub took {worst:?}");
+    }
+
+    #[cfg(feature = "backend-lean")]
+    #[test]
+    fn scrubbing_restores_crossing_bodies_and_autoplay_holds() {
+        for simai in ["1h[1:2]", "C1h[1:2]", "1-5[1:2]", "1-5[1:1]-8[1:1]"] {
+            let text = format!("&inote_1=(120){{4}}{simai},E");
+            let chart = crate::app::maidata::from_maidata(&text, None).unwrap();
+            let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+            pad.load_engine(&text, 1).unwrap();
+            pad.autoplay = true;
+            pad.scrubbing = true;
+            for target in [1.0, 0.0, 1.0] {
+                pad.forced_time = Some(target);
+                pad.scrub_to(target);
+                assert!(
+                    !pad.hidden_notes.contains(&pad.chart.notes[0].id),
+                    "{simai}"
+                );
+                assert!(!pad.pending_audio_start);
+                if target > 0.0 && !pad.chart.notes[0].slide.is_empty() {
+                    assert!(
+                        !pad.slide_progress
+                            .values()
+                            .any(|p| p.seg_frac.iter().all(|f| *f >= 1.0))
+                    );
+                }
+                if target > 0.0 && pad.chart.notes[0].slide.is_empty() {
+                    assert!(
+                        !pad.autoplay_explicit_held.is_empty(),
+                        "{simai}: lost held autoplay input"
+                    );
+                    assert!(!pad.active_pointer_zones.is_empty());
+                }
+            }
+        }
+    }
 
     fn rgb(c: Color) -> (u8, u8, u8) {
         (
@@ -1394,6 +1676,40 @@ mod tests {
             (c.g * 255.0).round() as u8,
             (c.b * 255.0).round() as u8,
         )
+    }
+
+    #[cfg(feature = "backend-lean")]
+    #[test]
+    fn autoplay_resumes_crossing_hold_and_next_note_in_both_input_modes() {
+        for direct in [false, true] {
+            let text = "&inote_1=(120){1}1h[1:2],,,1,E";
+            let chart = crate::app::maidata::from_maidata(text, None).unwrap();
+            let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+            pad.load_engine(text, 1).unwrap();
+            pad.autoplay = true;
+            pad.autoplay_direct_core = direct;
+            pad.scrub_to(1.0);
+            assert!(pad.engine_events.is_empty());
+            let remaining = pad.autoplay_tactic.clone();
+            for event in remaining {
+                let tp = crate::player::engine::timed_input_tp(&event);
+                if tp < 1_000_000 {
+                    continue;
+                }
+                let time = tp as f32 / 1e6;
+                pad.forced_time = Some(time);
+                crate::player::autoplay::tick(&mut pad);
+                let inputs = std::mem::take(&mut pad.engine_events);
+                for result in crate::player::engine::step_engine_events(pad.judge_engine.as_mut().unwrap(), time, inputs) {
+                    result.unwrap();
+                }
+            }
+            let result = pad.judge_engine.as_mut().unwrap().step(10.0, Vec::new()).unwrap();
+            assert_eq!(result.score.lost_base, 0, "direct={direct}");
+            assert_eq!(result.score.earned_base, result.score.total_base, "direct={direct}");
+            assert!(pad.autoplay_explicit_held.is_empty());
+            assert!(pad.autoplay_direct_held.is_empty());
+        }
     }
 
     #[test]

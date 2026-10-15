@@ -6,6 +6,7 @@ pub mod export_video;
 pub mod font;
 pub mod hud;
 pub mod input;
+pub mod judge_windows;
 pub mod layout;
 pub mod params_panel;
 pub mod render;

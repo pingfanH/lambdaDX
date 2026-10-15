@@ -15,11 +15,12 @@
 
 ## P0 — 阻塞日常编辑
 
-- [~] **保存** — `⌘/Ctrl+S` 或 header `SAVE` 按钮写出 `output/editor_chart.json`
-      (pretty JSON,format C)。**另存为/自定义路径**尚未做。
-      `editor/src/timeline/input.rs::save_chart`(经 `editor/src/io.rs`)、`editor/src/ui/toolbar.rs`。
-- [ ] **Simai 导出** — 含分数/休止符换算。原版 `simai_io.rs:1255`。
-      移植版 `app/` 目前**没有** Simai writer,需新写,工作量较大。
+- [x] **保存 / 另存为** — `⌘/Ctrl+S` 写回实际打开的文件和 Simai 难度槽位;
+      `⌘/Ctrl+Shift+S` 另存为 `.txt` / `.json`,成功后切换保存目标。失败或取消不清除未保存状态。
+      原生 JSON 保留 ID、时间精度、速度与模板;见 `editor/src/io.rs` / `docs/EDITOR_FILES.md`。
+- [x] **Simai 导出** — 文件菜单或 `⌘/Ctrl+Shift+E`;支持休止、变速、速度指令、
+      Hold、Touch、连滑及同头轨迹,保留源文件其它难度和自定义头字段,不改变当前保存目标。
+      不支持无损表示的数据会报错并保留原目标文件;见 `editor/src/io/simai.rs`。
 - [x] **撤销 / 重做入口** — `⌘/Ctrl+Z` 撤销、`⌘/Ctrl+Shift+Z` 或 `⌘/Ctrl+Y` 重做。
       `editor/src/timeline/input.rs::handle_edit_shortcuts`。
 - [x] **多选 + 框选(橡皮筋)** — Shift+点选/框选追加,Cmd/Ctrl+点选切换/框选减选;
@@ -35,7 +36,7 @@
 - [x] **Break / Ex / ExBreak 快捷键** — B / X / N(作用于整个选区,可撤销)。
       `editor/src/timeline/input.rs::handle_edit_shortcuts`。
 - [x] **原生打开文件 + 难度切换** — 侧栏 `CHART`:路径输入框 + `OPEN…`
-      (macOS 经 `osascript` 选文件夹)+ `LOAD` + `◀/▶` 难度循环。
+      (macOS 经 `osascript` 选文件或文件夹)+ `LOAD` + `◀/▶` 难度循环。
       `PadPreviewState::load_chart` 原地换谱面(重建 chart/cue/音频/引擎/autoplay,
       纹理材质复用),无需重启。见 `editor/src/ui/toolbar.rs`(难度切换)、
       `player/state.rs::load_chart`、`editor/src/runtime.rs::load_chart_into` /
@@ -60,9 +61,14 @@
       (原版 `input.rs:243/291/680/1155/1381`)。
 - [ ] **形状自动匹配与生成** — Line/VShape 匹配、形状→航点、形状合法性校验。
       原版 `slide_match.rs:37`,`simai_io.rs:781`,`types.rs:204`。
-- [ ] **模板 / 场景隔离系统(整块)** — 建/删/改名/插入/移动实例、进入隔离与回写、
-      版本传播、面包屑、场景抽屉、模板音符保护。原版 `template.rs` 全文件,
-      `egui_ui/mod.rs:1203`。
+- [x] **模板 / 场景隔离系统** — 建/删/改名/插入/移动实例、定义/实例隔离与回写、
+      版本传播、面包屑、场景抽屉、模板音符保护;Shift 拖动实例、Shift 点击/双击隔离。
+      JSON 保留定义与实例,Simai 导出展开;见 `editor/src/templates.rs`、
+      `editor/src/ui/templates.rs` / `docs/EDITOR_TEMPLATES.md`。
+- [x] **Autoplay 编辑工作区** — 顶栏切换,上方 Pad/属性、下方多层事件时间轴;
+      按 Note ID、星头/子滑条/连滑段保留核心事件归属,可编辑时间/动作/区域、吸附拖拽、
+      增删/恢复默认和撤销重做。JSON 保存修改,模拟触摸/直传核心与 seek 均应用;
+      见 `editor/src/autoplay_editor.rs` / `docs/EDITOR_AUTOPLAY.md`。
 - [ ] **隐藏 / 取消隐藏** — H / Shift+H,隐藏音符 30% 透明。原版 `input.rs:66`。
 - [~] **Hold / Slide 时长拖拽** — 已有头部移动、Hold/TouchHold 尾端、Slide 延时/尾端
       手柄(吸附、单步撤销、子滑条独立编辑,`timeline/handles.rs`);身体分段拖拽待做。

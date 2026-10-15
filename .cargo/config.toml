@@ -4,4 +4,4 @@
 # `{ value, force }` table) so Cargo can merge this with the `pure/` worktree's
 # `.cargo/config.toml`, which sets the same key as a string.
 [env]
-LNMAI_CORE_LEAN_PROJECT = "/Users/pingfanh/project/Mai2Chart/demo/macroquad_sim/lnmai-core-rs/lnmai-core-ffi/lnmai-core"
+LNMAI_CORE_LEAN_PROJECT = "/Users/pingfanh/project/Mai2Chart/demo/lnmai-core"

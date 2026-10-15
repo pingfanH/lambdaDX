@@ -16,7 +16,7 @@ pub fn judge_label_for_zone(app: &PadPreviewState, zone: PadZone) -> Option<&'st
     let zid = zone.to_id();
 
     let mut best = f32::MAX;
-    for note in &app.chart.notes {
+    for note in &app.playback_chart().notes {
         if sanitize_note_zone(note.note_type, note.lane) != zid {
             continue;
         }

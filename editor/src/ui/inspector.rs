@@ -27,21 +27,20 @@ fn note_properties(ui: &mut egui::Ui, editor: &mut EditorState, chart: &mut Char
 
     // Multi-select: read-only aggregate (a value when every note agrees, else
     // "mixed"). Editing is per-note, so it stays a single-selection action.
-    if editor.selected.len() > 1 {
+    let cursor_mode = crate::keyboard::navigation::cursor_mode(editor);
+    if !cursor_mode && editor.selected.len() > 1 {
         draw_multi(ui, chart, &editor.selected);
         return;
     }
 
     // The rows are always laid out (with "-" placeholders when nothing is
     // selected) so the panel keeps the design's shape.
-    let selected = editor
-        .selected
-        .iter()
-        .next()
-        .copied()
+    let selected = crate::keyboard::navigation::target(editor, chart)
         .and_then(|id| chart.notes.iter().position(|n| n.id == id));
     let Some(idx) = selected else {
-        let hint = if editor.selected.is_empty() {
+        let hint = if cursor_mode {
+            "no note at cursor"
+        } else if editor.selected.is_empty() {
             "no selection"
         } else {
             "selection not found"
@@ -56,7 +55,8 @@ fn note_properties(ui: &mut egui::Ui, editor: &mut EditorState, chart: &mut Char
 
     let id = chart.notes[idx].id;
     ui.label(
-        egui::RichText::new(format!("{} selected · id {id}", editor.selected.len()))
+        egui::RichText::new(if cursor_mode { format!("Cursor · id {id}") }
+            else { format!("{} selected · id {id}", editor.selected.len()) })
             .size(FONT_SMALL)
             .color(TEXT_DIM),
     );
@@ -153,7 +153,7 @@ fn note_properties(ui: &mut egui::Ui, editor: &mut EditorState, chart: &mut Char
         }
     });
 
-    if changed {
+    if changed && ui.is_enabled() {
         editor.push_history(chart);
         let n = &mut chart.notes[idx];
         n.time = time.max(0.0);
@@ -259,7 +259,7 @@ fn chart_info(ui: &mut egui::Ui, editor: &mut EditorState, chart: &mut ChartDoc,
     changed |= drag_row(ui, "BPM", &mut bpm, 0.1, 1.0..=1000.0);
     changed |= drag_row(ui, "Offset", &mut offset, 0.001, -60.0..=60.0);
 
-    if changed {
+    if changed && ui.is_enabled() {
         editor.push_history(chart);
         chart.title = title;
         chart.artist = artist;
@@ -303,6 +303,7 @@ mod tests {
             notes: Vec::new(),
             templates: Vec::new(),
             template_instances: Vec::new(),
+            autoplay_overrides: Vec::new(),
         }
     }
 

@@ -293,6 +293,7 @@ pub fn fallback_chart() -> ChartDoc {
         ],
         templates: Vec::new(),
         template_instances: Vec::new(),
+        autoplay_overrides: Vec::new(),
     }
 }
 

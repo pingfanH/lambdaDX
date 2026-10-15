@@ -107,8 +107,9 @@
 ## P2 — 内容与工程
 
 - [ ] **模板/场景系统**(见 `docs/editor_todo.md` P1)。
-- [ ] **Simai 导出**(P0 缺口)。
-- [ ] **Save As / 最近文件 / 自动保存 / 拖放导入**。
+- [x] **Simai 导出**,支持当前难度及源文件其它难度保留(见 `docs/EDITOR_FILES.md`)。
+- [x] **保存 / Save As**,写回源文件或另存为 `.txt` / `.json`。
+- [ ] **最近文件 / 自动保存 / 拖放导入**。
 - [ ] **Chart Info 可编辑**(Title/Artist/BPM/Offset)。
 - [ ] **Toast 通知系统**(status 字段目前只在顶栏)。
 

@@ -27,9 +27,13 @@ pub fn ghost(
 ) -> Option<(Note, egui::Pos2)> {
     let plot = egui::Rect::from_min_max(rect.min + egui::vec2(LANE_GUTTER, RULER_H), rect.max);
     if !plot.contains(pointer)
+        || editor.keyboard.active
+        || editor.keyboard.owns_input()
+        || editor.keyboard.suppress_pointer
         || editor.selection_transform.is_some()
         || editor.transform_pointer_down
         || editor.star_placement.is_some()
+        || editor.hold_placement.is_some()
         || editor.dragging.is_some()
         || editor.handle_grab.is_some()
         || editor.marquee_start.is_some()
@@ -79,10 +83,20 @@ pub fn draw(
     now: f32,
     textures: &[Option<egui::TextureHandle>; 6],
 ) {
-    let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
-        return;
+    let now = crate::keyboard::navigation::reference_time(editor, now);
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+    let preview = if editor.keyboard.active && !editor.keyboard.owns_input()
+        && !editor.keyboard.suppress_pointer && editor.selection_transform.is_none()
+        && !editor.is_slide_edit() && !matches!(editor.tool, Tool::Select | Tool::Eraser)
+    {
+        let cursor = editor.keyboard.cursor;
+        let mut note = note_for_tool(editor, cursor.measure, cursor.zone);
+        note.lane = cursor.zone;
+        Some((note, crate::keyboard::navigation::position(editor, chart, now, cursor)))
+    } else {
+        pointer.and_then(|pointer| ghost(rect, editor, chart, now, pointer))
     };
-    if let Some((note, position)) = ghost(rect, editor, chart, now, pointer) {
+    if let Some((note, position)) = preview {
         let painter = ui.painter().with_clip_rect(rect);
         let size = super::notes::head_size(&note)
             * editor.glyph_to_points
@@ -131,6 +145,8 @@ pub fn draw(
             } else {
                 painter.circle_stroke(position, size * 0.5, egui::Stroke::new(2.0_f32, tint));
             }
+        } else if matches!(editor.tool, Tool::Hold | Tool::TouchHold) && textures[1].is_some() {
+            draw_hold_ghost(&painter, textures[1].as_ref().unwrap(), position, position, size, editor.layout, tint);
         } else if let Some(texture) = textures[index].as_ref().or(textures[0].as_ref()) {
             painter.image(
                 texture.id(),
@@ -141,6 +157,49 @@ pub fn draw(
         } else {
             painter.circle_stroke(position, size * 0.5, egui::Stroke::new(2.0_f32, tint));
         }
+    }
+    let Some(pointer) = pointer else { return; };
+    if let Some(pending) = &editor.hold_placement {
+        let seconds = match editor.layout {
+            EditorLayout::Vertical => {
+                now + (rect.bottom() - JUDGE_MARGIN - pointer.y) / editor.pixels_per_second
+            }
+            EditorLayout::Horizontal => {
+                editor.view_start + (pointer.x - rect.left() - LANE_GUTTER) / editor.pixels_per_second
+            }
+        };
+        let tail_measure = snap(
+            secs_to_measure(seconds, &chart.bpms),
+            editor.snap_enabled,
+            editor.snap_division,
+        ).max(pending.time);
+        let lane = lane_index_of(pending) as f32 + 0.5;
+        let position = |measure| {
+            let seconds = measure_to_secs(measure, &chart.bpms);
+            match editor.layout {
+                EditorLayout::Vertical => egui::pos2(
+                    rect.left() + LANE_GUTTER + lane * (rect.width() - LANE_GUTTER) / LANE_COUNT as f32,
+                    rect.bottom() - JUDGE_MARGIN - (seconds - now) * editor.pixels_per_second,
+                ),
+                EditorLayout::Horizontal => egui::pos2(
+                    rect.left() + LANE_GUTTER + (seconds - editor.view_start) * editor.pixels_per_second,
+                    rect.top() + RULER_H + lane * (rect.height() - RULER_H) / LANE_COUNT as f32,
+                ),
+            }
+        };
+        let from = position(pending.time);
+        let to = position(tail_measure);
+        let width = super::notes::HOLD_WIDTH * editor.glyph_to_points * crate::app::params::get().editor_note_scale.clamp(0.05, 8.0);
+        let painter = ui.painter().with_clip_rect(rect);
+        if let Some(texture) = &textures[1] {
+            draw_hold_ghost(&painter, texture, from, to, width, editor.layout, egui::Color32::from_white_alpha(160));
+        } else {
+            painter.line_segment([from, to], egui::Stroke::new(width, egui::Color32::from_white_alpha(120)));
+            painter.circle_filled(from, width * 0.5, egui::Color32::from_white_alpha(120));
+        }
+        painter.circle_filled(from, 3.0, egui::Color32::WHITE);
+        painter.circle_filled(to, 3.0, egui::Color32::WHITE);
+        return;
     }
     let Some(pending) = editor.star_placement else {
         return;
@@ -224,9 +283,91 @@ pub fn draw(
     painter.circle_filled(delay, 4.0, stroke.color);
 }
 
+fn draw_hold_ghost(
+    painter: &egui::Painter,
+    texture: &egui::TextureHandle,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    width: f32,
+    layout: EditorLayout,
+    tint: egui::Color32,
+) {
+    let size = texture.size();
+    let height = (size[1] as f32).max(3.0);
+    let (cap, body, cap_len) = crate::app::ui::hold_slice_metrics(size[0] as f32, height, width);
+    let direction = match layout {
+        EditorLayout::Vertical => egui::vec2(0.0, -1.0),
+        EditorLayout::Horizontal => egui::vec2(1.0, 0.0),
+    };
+    let rotation = egui::emath::Rot2::from_angle(direction.y.atan2(direction.x) - std::f32::consts::FRAC_PI_2);
+    for (start, length, uv_start, uv_length) in [
+        (to, cap_len, 1.0 - cap / height, cap / height),
+        (from, (to - from).length(), cap / height, body / height),
+        (from - direction * cap_len, cap_len, 0.0, cap / height),
+    ] {
+        let center = start + direction * (length * 0.5);
+        let mut mesh = egui::Mesh::with_texture(texture.id());
+        mesh.add_rect_with_uv(
+            egui::Rect::from_center_size(center, egui::vec2(width, length)),
+            egui::Rect::from_min_max(
+                egui::pos2(0.0, uv_start),
+                egui::pos2(1.0, uv_start + uv_length),
+            ),
+            tint,
+        );
+        for vertex in &mut mesh.vertices {
+            vertex.pos = center + rotation * (vertex.pos - center);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hold_hover_ghost_uses_pad_cap_lengths_in_both_layouts() {
+        for layout in [EditorLayout::Vertical, EditorLayout::Horizontal] {
+            let ctx = egui::Context::default();
+            let texture = ctx.load_texture(
+                "hold-regression",
+                egui::ColorImage::new([40, 100], egui::Color32::WHITE),
+                egui::TextureOptions::LINEAR,
+            );
+            let textures = [None, Some(texture.clone()), None, None, None, None];
+            let editor = EditorState { tool: Tool::Hold, layout, ..Default::default() };
+            let chart = ChartDoc {
+                version: String::new(), title: String::new(), artist: String::new(),
+                simai_level: 0, bpm: 120.0, bpms: Vec::new(), audio_offset: 0.0,
+                notes: Vec::new(), templates: Vec::new(), template_instances: Vec::new(), autoplay_overrides: Vec::new(),
+            };
+            let output = ctx.run(egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                events: vec![egui::Event::PointerMoved(egui::pos2(400.0, 400.0))],
+                ..Default::default()
+            }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    draw(ui, ui.max_rect(), &editor, &chart, 0.0, &textures);
+                });
+            });
+            let mut bounds = egui::Rect::NOTHING;
+            for shape in output.shapes {
+                if let egui::Shape::Mesh(mesh) = shape.shape {
+                    if mesh.texture_id == texture.id() {
+                        for vertex in &mesh.vertices { bounds.extend_with(vertex.pos); }
+                    }
+                }
+            }
+            let size = match layout {
+                EditorLayout::Vertical => bounds.size(),
+                EditorLayout::Horizontal => egui::vec2(bounds.height(), bounds.width()),
+            };
+            let scale = crate::app::params::get().editor_note_scale.clamp(0.05, 8.0);
+            assert!((size.x - 40.0 * scale).abs() < 0.01, "{size:?}");
+            assert!((size.y - 56.0 * scale).abs() < 0.01, "{size:?}");
+        }
+    }
 
     #[test]
     fn ghost_matches_snapped_placement_and_lane_center_in_both_layouts() {
@@ -241,6 +382,7 @@ mod tests {
             notes: Vec::new(),
             templates: Vec::new(),
             template_instances: Vec::new(),
+            autoplay_overrides: Vec::new(),
         };
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(930.0, 922.0));
         for layout in [EditorLayout::Vertical, EditorLayout::Horizontal] {

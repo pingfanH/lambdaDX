@@ -220,6 +220,7 @@ mod lean {
             notes,
             templates: Vec::new(),
             template_instances: Vec::new(),
+            autoplay_overrides: Vec::new(),
         }
     }
 
@@ -364,6 +365,8 @@ mod lean {
                 note_type: NoteType::Tap,
                 is_break: token.is_break,
                 is_ex: token.is_ex,
+                is_star: token.is_force_star,
+                is_fake_rotate: token.is_fake_rotate,
                 hi_speed,
                 ..Default::default()
             }),
@@ -382,6 +385,8 @@ mod lean {
                 lane: sensor_lane(token.sensor_pos?)?,
                 note_type: NoteType::Touch,
                 is_break: token.is_break,
+                is_ex: token.is_ex,
+                is_hanabi: token.is_hanabi,
                 is_touch: true,
                 hi_speed,
                 ..Default::default()
@@ -393,6 +398,7 @@ mod lean {
                 hold_duration: duration(token.length.unwrap_or(0), token.timing, bpms),
                 is_break: token.is_break,
                 is_ex: token.is_ex,
+                is_hanabi: token.is_hanabi,
                 is_touch: true,
                 hi_speed,
                 ..Default::default()
@@ -436,13 +442,12 @@ mod lean {
             travel += duration(len, token.timing, bpms);
         }
 
-        // Break can be signalled on any token of the chain (`is_break`) or as
-        // the slide-specific `is_slide_break`; OR them so a break slide is not
-        // silently rendered/judged as a normal one.
-        let is_break = group.iter().any(|&index| {
+        // Head and trail break flags are independent; a break head alone must
+        // not turn its slide trail into a break slide.
+        let slide_is_break = group.iter().any(|&index| {
             tokens
                 .get(index)
-                .map(|token| token.is_break || token.is_slide_break)
+                .map(|token| token.is_slide_break)
                 .unwrap_or(false)
         });
 
@@ -454,15 +459,16 @@ mod lean {
             time,
             lane: slot_lane(head.slot?),
             note_type: NoteType::Slide,
-            is_break,
+            is_break: head.is_break,
             is_ex: head.is_ex,
+            is_fake_rotate: head.is_fake_rotate,
             is_tapless: head.is_slide_no_head,
             hi_speed,
             slide: vec![Slide {
                 segments,
                 slide_duration: wait + travel,
                 slide_start_delay: wait,
-                slide_is_break: is_break,
+                slide_is_break,
                 runtime_parts,
             }],
             ..Default::default()
