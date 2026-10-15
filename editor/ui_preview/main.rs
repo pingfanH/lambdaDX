@@ -38,7 +38,8 @@ async fn run() {
     let screenshot = std::env::var("MAI2_UI_PREVIEW_SHOT").ok();
     let mut frames = 0;
     loop {
-        clear_background(Color::from_rgba(30, 31, 32, 255));
+        let [r, g, b, a] = theme::WINDOW.to_array();
+        clear_background(Color::from_rgba(r, g, b, a));
         let (x, y) = mouse_position();
         egui_bridge::pointer(
             vec2(x, y),

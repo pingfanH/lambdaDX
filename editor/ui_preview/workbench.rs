@@ -63,16 +63,15 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
         }
         _ => {
             let mut dock = DockState::new(vec![pane(PaneKind::Chart)]);
-            let [main, _] = dock.main_surface_mut().split_below(
+            let [main, right] = dock.main_surface_mut().split_right(
                 NodeIndex::root(),
-                0.87,
-                vec![pane(PaneKind::Overview)],
+                0.72,
+                vec![pane(PaneKind::Pad)],
             );
-            let [_, right] =
-                dock.main_surface_mut()
-                    .split_right(main, 0.68, vec![pane(PaneKind::Pad)]);
             dock.main_surface_mut()
-                .split_below(right, 0.55, vec![pane(PaneKind::Properties)]);
+                .split_below(main, 0.90, vec![pane(PaneKind::Overview)]);
+            dock.main_surface_mut()
+                .split_below(right, 0.46, vec![pane(PaneKind::Properties)]);
             dock
         }
     }
@@ -105,7 +104,7 @@ impl Workbench {
     pub fn show(&mut self, ctx: &Context, dt: f32) {
         self.demo.tick(dt);
         ctx.style_mut(|style| {
-            style.visuals.window_fill = glass(self.demo.translucent);
+            style.visuals.window_fill = floating_glass(self.demo.translucent);
         });
         if !ctx.wants_keyboard_input() && !self.settings {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Space)) {
@@ -143,7 +142,7 @@ impl Workbench {
         TopBottomPanel::top("global-menu")
             .frame(
                 Frame::new()
-                    .fill(glass(self.demo.translucent))
+                    .fill(HEADER)
                     .inner_margin(Margin::symmetric(8, 2)),
             )
             .show(ctx, |ui| {
@@ -173,15 +172,11 @@ impl Workbench {
                                 n.lane + 1
                             ))
                             .size(11.0)
-                            .color(BLUE),
+                            .color(MUTED),
                         );
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new("UI PREVIEW  /  MEMORY ONLY")
-                                .size(10.0)
-                                .color(GOLD),
-                        );
+                        ui.label(RichText::new("UI Preview").size(10.0).color(MUTED));
                     });
                 });
             });
@@ -194,10 +189,8 @@ impl Workbench {
             .frame(Frame::new().fill(WINDOW))
             .show(ctx, |ui| {
                 if let Some(pane) = &mut self.maximized {
-                    let (rect, response) =
+                    let (_, response) =
                         ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
-                    ui.painter()
-                        .rect_filled(rect, 0, glass(self.demo.translucent));
                     area_header(
                         pane,
                         &mut self.demo,
@@ -211,7 +204,7 @@ impl Workbench {
                         panels::body(ui, pane, &mut self.demo, &self.assets)
                     });
                 } else {
-                    let style = theme::dock_style(ui.style(), self.demo.translucent);
+                    let style = theme::dock_style(ui.style());
                     let mut viewer = Viewer {
                         demo: &mut self.demo,
                         assets: &self.assets,
@@ -426,7 +419,7 @@ impl Workbench {
                     self.speed_control(ui);
                 });
             });
-            ui.separator();
+            ui.add_space(16.0);
             self.workspace_controls(ui, width);
         });
     }
@@ -466,7 +459,10 @@ impl Workbench {
                 .response
                 .on_hover_text("Workspace");
         }
-        ui.separator();
+        let playback_width = 290.0
+            + if width >= 1160.0 { 86.0 } else { 0.0 }
+            + if width >= 960.0 { 75.0 } else { 0.0 };
+        ui.add_space((ui.available_width() - playback_width).max(8.0));
         if icon(ui, Icon::SkipBack, "Restart", false).clicked() {
             self.demo.beat = 0.0;
         }
@@ -612,7 +608,7 @@ impl Workbench {
                                     Slider::new(&mut self.demo.note_scale, 0.65..=1.6).suffix("x"),
                                 );
                                 ui.add_space(8.0);
-                                ui.label(RichText::new("CHARCOAL").color(MUTED).size(11.0));
+                                ui.label(RichText::new("PALETTE").color(MUTED).size(11.0));
                                 ui.horizontal(|ui| {
                                     for color in
                                         [WINDOW, CANVAS, PANEL, CONTROL, BLUE, GOLD, RED, GREEN]
@@ -715,9 +711,10 @@ fn area_header(
             .layout(Layout::left_to_right(Align::Center)),
     );
     ui.set_clip_rect(response.rect);
+    ui.painter().add(header_surface(response.rect));
     ui.spacing_mut().item_spacing.x = 3.0;
     ui.add_enabled_ui(!locked, |ui| {
-        ui.menu_button(glyph(pane.kind.icon(), 14.0), |ui| {
+        ui.menu_button(glyph(pane.kind.icon(), 13.0).color(MUTED), |ui| {
             for kind in PaneKind::ALL {
                 if ui
                     .selectable_label(pane.kind == kind, kind.title())
@@ -736,7 +733,7 @@ fn area_header(
         ui.set_min_size(content_size);
         ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
         if ui.available_width() >= 155.0 {
-            ui.add(Label::new(RichText::new(pane.kind.title()).size(12.0).color(MUTED)).truncate());
+            ui.add(Label::new(RichText::new(pane.kind.title()).size(12.0).color(TEXT)).truncate());
             ui.add_space(8.0);
         }
         if ui.available_width() >= 26.0 {

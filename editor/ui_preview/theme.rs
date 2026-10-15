@@ -2,25 +2,47 @@ use egui_macroquad::egui::{self, *};
 use lucide_icons::{Icon, LUCIDE_FONT_BYTES};
 use std::sync::Arc;
 
-pub const WINDOW: Color32 = Color32::from_rgb(30, 31, 32);
-pub const CANVAS: Color32 = Color32::from_rgb(35, 36, 37);
-pub const PANEL: Color32 = Color32::from_rgb(38, 39, 40);
-pub const CONTROL: Color32 = Color32::from_rgb(48, 49, 50);
-pub const BORDER: Color32 = Color32::from_rgb(62, 63, 64);
-pub const TEXT: Color32 = Color32::from_rgb(227, 230, 232);
-pub const MUTED: Color32 = Color32::from_rgb(172, 178, 184);
+pub const WINDOW: Color32 = Color32::from_gray(23);
+pub const HEADER: Color32 = Color32::from_gray(31);
+pub const CANVAS: Color32 = Color32::from_gray(39);
+pub const LANE: Color32 = Color32::from_gray(41);
+pub const RECESSED: Color32 = Color32::from_gray(34);
+pub const PANEL: Color32 = Color32::from_gray(40);
+pub const CONTROL: Color32 = Color32::from_gray(52);
+pub const BORDER: Color32 = Color32::from_gray(61);
+pub const TEXT: Color32 = Color32::from_gray(220);
+pub const MUTED: Color32 = Color32::from_gray(160);
 pub const BLUE: Color32 = Color32::from_rgb(121, 184, 244);
 pub const GOLD: Color32 = Color32::from_rgb(229, 195, 122);
 pub const RED: Color32 = Color32::from_rgb(241, 109, 122);
 pub const GREEN: Color32 = Color32::from_rgb(107, 200, 175);
 pub const PINK: Color32 = Color32::from_rgb(231, 138, 187);
 
-pub fn glass(translucent: bool) -> Color32 {
-    Color32::from_rgba_unmultiplied(35, 36, 37, if translucent { 208 } else { 255 })
+pub fn floating_glass(translucent: bool) -> Color32 {
+    Color32::from_rgba_unmultiplied(43, 43, 43, if translucent { 232 } else { 255 })
 }
 
 pub fn glass_edge() -> Stroke {
-    Stroke::new(1.0_f32, Color32::from_white_alpha(4))
+    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(80, 80, 80, 48))
+}
+
+pub fn floating_shadow() -> Shadow {
+    Shadow {
+        offset: [0, 3],
+        blur: 8,
+        spread: 0,
+        color: Color32::from_black_alpha(55),
+    }
+}
+
+pub fn header_surface(rect: Rect) -> Shape {
+    Shape::Vec(vec![
+        Shape::rect_filled(rect, 0, HEADER),
+        Shape::line_segment(
+            [rect.left_bottom(), rect.right_bottom()],
+            Stroke::new(1.0_f32, Color32::from_gray(42)),
+        ),
+    ])
 }
 
 pub fn install(ctx: &Context) {
@@ -35,30 +57,37 @@ pub fn install(ctx: &Context) {
     ctx.set_fonts(fonts);
     let mut style = Style::default();
     for (kind, size) in [
-        (TextStyle::Body, 13.0),
+        (TextStyle::Body, 12.0),
         (TextStyle::Button, 12.0),
         (TextStyle::Small, 11.0),
-        (TextStyle::Heading, 16.0),
+        (TextStyle::Heading, 14.0),
     ] {
         style.text_styles.insert(kind, FontId::proportional(size));
     }
     style
         .text_styles
         .insert(TextStyle::Monospace, FontId::monospace(12.0));
-    style.spacing.item_spacing = vec2(5.0, 4.0);
+    style.spacing.item_spacing = vec2(5.0, 3.0);
     style.spacing.button_padding = vec2(4.0, 2.0);
     style.spacing.interact_size = vec2(22.0, 22.0);
     style.spacing.slider_width = 110.0;
     style.visuals = Visuals::dark();
     style.visuals.panel_fill = PANEL;
-    style.visuals.window_fill = PANEL;
-    style.visuals.extreme_bg_color = WINDOW;
+    style.visuals.window_fill = floating_glass(true);
+    style.visuals.extreme_bg_color = RECESSED;
     style.visuals.faint_bg_color = CONTROL;
     style.visuals.override_text_color = Some(TEXT);
-    style.visuals.selection.bg_fill = Color32::from_white_alpha(4);
+    style.visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(121, 184, 244, 18);
     style.visuals.selection.stroke = Stroke::new(1.0_f32, BLUE);
     style.visuals.window_corner_radius = CornerRadius::same(4);
     style.visuals.window_stroke = glass_edge();
+    style.visuals.window_shadow = Shadow {
+        offset: [0, 6],
+        blur: 16,
+        spread: 0,
+        color: Color32::from_black_alpha(80),
+    };
+    style.visuals.popup_shadow = floating_shadow();
     style.visuals.window_highlight_topmost = false;
     for w in [
         &mut style.visuals.widgets.inactive,
@@ -74,10 +103,10 @@ pub fn install(ctx: &Context) {
         w.fg_stroke = Stroke::new(1.0_f32, TEXT);
     }
     style.visuals.widgets.inactive.fg_stroke.color = MUTED;
-    style.visuals.widgets.hovered.bg_fill = Color32::from_gray(52);
-    style.visuals.widgets.hovered.weak_bg_fill = Color32::from_white_alpha(4);
-    style.visuals.widgets.active.weak_bg_fill = Color32::from_white_alpha(8);
-    style.visuals.widgets.open.weak_bg_fill = Color32::from_white_alpha(6);
+    style.visuals.widgets.hovered.bg_fill = Color32::from_gray(56);
+    style.visuals.widgets.hovered.weak_bg_fill = Color32::from_rgba_unmultiplied(128, 128, 128, 16);
+    style.visuals.widgets.active.weak_bg_fill = Color32::from_rgba_unmultiplied(128, 128, 128, 24);
+    style.visuals.widgets.open.weak_bg_fill = Color32::from_rgba_unmultiplied(128, 128, 128, 20);
     style.visuals.widgets.noninteractive.bg_stroke = glass_edge();
     ctx.set_style(style);
 }
@@ -89,8 +118,8 @@ pub fn glyph(icon: Icon, size: f32) -> RichText {
 
 pub fn icon(ui: &mut Ui, symbol: Icon, name: &str, active: bool) -> Response {
     ui.add_sized(
-        vec2(24.0, 24.0),
-        Button::new(glyph(symbol, 15.0).color(if active { BLUE } else { MUTED }))
+        vec2(22.0, 22.0),
+        Button::new(glyph(symbol, 14.0).color(if active { BLUE } else { MUTED }))
             .stroke(Stroke::NONE),
     )
     .on_hover_text(name)
@@ -100,14 +129,14 @@ pub fn text(p: &Painter, at: Pos2, align: Align2, s: impl ToString, size: f32, c
     p.text(at, align, s, FontId::proportional(size), color);
 }
 
-pub fn dock_style(style: &egui::Style, translucent: bool) -> egui_dock::Style {
+pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
     let mut s = egui_dock::Style::from_egui(style);
     s.dock_area_padding = Some(Margin::ZERO);
     s.main_surface_border_rounding = CornerRadius::ZERO;
     s.main_surface_border_stroke = Stroke::NONE;
     s.tab_bar.height = 26.0;
     s.tab_bar.fill_tab_bar = true;
-    s.tab_bar.bg_fill = glass(translucent);
+    s.tab_bar.bg_fill = WINDOW;
     s.tab_bar.corner_radius = CornerRadius::ZERO;
     s.tab_bar.hline_color = Color32::TRANSPARENT;
     s.tab.tab_body.inner_margin = Margin::ZERO;
@@ -129,7 +158,7 @@ pub fn dock_style(style: &egui::Style, translucent: bool) -> egui_dock::Style {
         state.text_color = TEXT;
     }
     s.tab.inactive.text_color = MUTED;
-    s.separator.width = 2.0;
+    s.separator.width = 3.0;
     s.separator.extra_interact_width = 7.0;
     s.separator.extra = 110.0;
     s.separator.color_idle = WINDOW;

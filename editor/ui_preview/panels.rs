@@ -50,6 +50,14 @@ impl PaneKind {
             Self::Overview => Icon::Focus,
         }
     }
+
+    pub fn surface(self) -> Color32 {
+        match self {
+            Self::Properties | Self::Templates | Self::History => PANEL,
+            Self::Pad | Self::Overview => RECESSED,
+            Self::Chart | Self::Autoplay => CANVAS,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -76,11 +84,18 @@ impl Pane {
 }
 
 pub fn body(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo, assets: &Assets) {
+    if matches!(
+        pane.kind,
+        PaneKind::Properties | PaneKind::Templates | PaneKind::History
+    ) {
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0, pane.kind.surface());
+    }
     match pane.kind {
         PaneKind::Chart => chart(ui, pane, demo, assets),
         PaneKind::Pad => pad(ui, demo, assets),
         PaneKind::Autoplay => autoplay(ui, pane, demo),
-        PaneKind::Properties => properties(ui, demo),
+        PaneKind::Properties => properties(ui, demo, assets),
         PaneKind::Templates => templates(ui, demo, assets),
         PaneKind::History => history(ui, demo),
         PaneKind::Overview => overview(ui, demo),
@@ -117,20 +132,8 @@ pub fn header_tools(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo) {
             if icon(ui, Icon::Crosshair, "Sensor overlay", demo.show_sensors).clicked() {
                 demo.show_sensors = !demo.show_sensors;
             }
-            if ui.available_width() >= 65.0 {
-                ui.label(RichText::new("NO CORE").size(10.0).color(GOLD));
-            }
         }
         PaneKind::Properties => {
-            if ui.available_width() >= 230.0 {
-                if let Some(note) = demo.selected() {
-                    ui.label(
-                        RichText::new(format!("{} #{:04}", note.kind.label(), note.id))
-                            .size(11.0)
-                            .color(MUTED),
-                    );
-                }
-            }
             if ui.available_width() >= 110.0 {
                 note_actions(ui, demo);
             } else {
@@ -181,7 +184,7 @@ fn snap_tools(ui: &mut Ui, pane: &Pane, demo: &mut Demo) {
 
 fn timeline_tools(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo) {
     snap_tools(ui, pane, demo);
-    ui.separator();
+    ui.add_space(8.0);
     if icon(ui, Icon::ZoomOut, "Zoom out", false).clicked() {
         pane.zoom = (pane.zoom / 1.2).max(0.3);
     }
@@ -200,7 +203,7 @@ fn timeline_tools(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo) {
     if icon(ui, Icon::ZoomIn, "Zoom in", false).clicked() {
         pane.zoom = (pane.zoom * 1.2).min(4.0);
     }
-    ui.separator();
+    ui.add_space(8.0);
     if icon(ui, Icon::ScanLine, "Follow playhead", pane.follow).clicked() {
         pane.follow = !pane.follow;
         pane.center = demo.beat;
@@ -292,9 +295,10 @@ fn chart(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo, assets: &Assets) {
             .layout(Layout::top_down(Align::Min)),
     );
     tool_ui.set_clip_rect(rect.intersect(ui.clip_rect()));
-    let tools = Frame::new()
-        .fill(glass(demo.translucent))
+    let tools_frame = Frame::new()
+        .fill(floating_glass(demo.translucent))
         .stroke(glass_edge())
+        .shadow(floating_shadow())
         .corner_radius(4)
         .inner_margin(4)
         .show(&mut tool_ui, |ui| {
@@ -325,9 +329,8 @@ fn chart(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo, assets: &Assets) {
             if icon(ui, Icon::Copy, "Duplicate selected note", false).clicked() {
                 demo.duplicate();
             }
-        })
-        .response
-        .rect;
+        });
+    let tools = tools_frame.response.rect;
     if !ui.rect_contains_pointer(tools) {
         scroll(ui, &response, pane, demo, rect);
     }
@@ -352,9 +355,13 @@ fn chart(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo, assets: &Assets) {
             pos2(plot.left() + (lane + 1) as f32 * lane_width, plot.bottom()),
         );
         if lane % 2 == 1 {
-            paint.rect_filled(r, 0, PANEL);
+            paint.rect_filled(r, 0, LANE);
         }
-        paint.vline(r.left(), r.y_range(), Stroke::new(1.0_f32, CONTROL));
+        paint.vline(
+            r.left(),
+            r.y_range(),
+            Stroke::new(1.0_f32, Color32::from_gray(40)),
+        );
         text(
             &p,
             pos2(x(lane), rect.top() + 12.0),
@@ -382,9 +389,9 @@ fn chart(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo, assets: &Assets) {
                     if strong {
                         BORDER
                     } else if whole {
-                        CONTROL
+                        Color32::from_gray(48)
                     } else {
-                        Color32::from_gray(44)
+                        Color32::from_gray(40)
                     },
                 ),
             );
@@ -554,7 +561,7 @@ fn pad(ui: &mut Ui, demo: &mut Demo, assets: &Assets) {
     let (rect, _) =
         ui.allocate_exact_size(ui.available_size().max(Vec2::splat(1.0)), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0, WINDOW);
+    p.rect_filled(rect, 0, RECESSED);
     let center = rect.center();
     let radius = (rect.width().min(rect.height()) * 0.44).max(10.0);
     p.circle_filled(center, radius, CANVAS);
@@ -686,7 +693,7 @@ fn autoplay(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo) {
         p.rect_filled(
             Rect::from_min_size(pos2(rect.left(), y), vec2(rect.width(), row_h)),
             0,
-            if row % 2 == 0 { CANVAS } else { PANEL },
+            if row % 2 == 0 { CANVAS } else { LANE },
         );
         text(
             &p,
@@ -701,7 +708,7 @@ fn autoplay(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo) {
     p.rect_filled(
         Rect::from_min_size(rect.min, vec2(rect.width(), ruler_h)),
         0,
-        PANEL,
+        LANE,
     );
     let first = beat_at(plot.left()).floor().max(0.0) as i32;
     let last = beat_at(plot.right()).ceil().min(LENGTH) as i32;
@@ -741,15 +748,23 @@ fn autoplay(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo) {
         let color = note.kind.color();
         paint.rect_filled(
             clip,
-            3,
-            color.gamma_multiply(if selected { 0.3 } else { 0.14 }),
+            2,
+            if selected {
+                Color32::from_gray(58)
+            } else {
+                CONTROL
+            },
         );
         paint.rect_stroke(
             clip,
-            3,
+            2,
             Stroke::new(
-                if selected { 1.5_f32 } else { 1.0_f32 },
-                color.gamma_multiply(if selected { 1.0 } else { 0.55 }),
+                1.0_f32,
+                if selected {
+                    BLUE
+                } else {
+                    Color32::from_gray(68)
+                },
             ),
             StrokeKind::Inside,
         );
@@ -933,89 +948,140 @@ fn autoplay(ui: &mut Ui, pane: &mut Pane, demo: &mut Demo) {
     );
 }
 
-fn properties(ui: &mut Ui, demo: &mut Demo) {
-    ScrollArea::vertical().show(ui, |ui| {
-        Frame::new().inner_margin(10).show(ui, |ui| {
-            ui.set_min_width((ui.available_width() - 1.0).max(0.0));
-            if let Some(mut note) = demo.selected().cloned() {
-                let mut changed = false;
-                Grid::new(ui.id().with("fields"))
-                    .num_columns(2)
-                    .spacing(vec2(14.0, 6.0))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new("Beat").color(MUTED));
-                        changed |= ui
-                            .add(
-                                DragValue::new(&mut note.beat)
-                                    .speed(0.25)
-                                    .range(0.0..=LENGTH)
-                                    .fixed_decimals(2),
-                            )
-                            .changed();
-                        ui.end_row();
-                        ui.label(RichText::new("Lane").color(MUTED));
-                        let mut lane = note.lane + 1;
-                        changed |= ui.add(DragValue::new(&mut lane).range(1..=8)).changed();
-                        note.lane = lane - 1;
-                        ui.end_row();
-                        if matches!(note.kind, Kind::Hold | Kind::Slide) {
-                            ui.label(RichText::new("Duration").color(MUTED));
-                            changed |= ui
-                                .add(
-                                    DragValue::new(&mut note.duration)
-                                        .speed(0.25)
-                                        .range(0.0..=32.0)
-                                        .suffix(" beats"),
-                                )
-                                .changed();
-                            ui.end_row();
-                        }
-                        if note.kind == Kind::Slide {
-                            ui.label(RichText::new("End lane").color(MUTED));
-                            let mut lane = note.end_lane + 1;
-                            changed |= ui.add(DragValue::new(&mut lane).range(1..=8)).changed();
-                            note.end_lane = lane - 1;
-                            ui.end_row();
-                        }
-                    });
-                if changed {
-                    demo.checkpoint("Edit note properties");
-                    if let Some(n) = demo.notes.iter_mut().find(|n| n.id == note.id) {
-                        *n = note.clone();
-                    }
-                }
-                ui.add_space(8.0);
-                ui.separator();
-                ui.label(RichText::new("AUTOPLAY").size(10.0).color(MUTED));
-                ui.horizontal(|ui| {
-                    ui.label(format!("{} intervals", note.events.len()));
-                    ui.label(RichText::new("Note-owned").color(GREEN).size(11.0));
-                });
-                for (i, event) in note.events.iter().enumerate() {
+fn property_section(ui: &mut Ui, title: &str, contents: impl FnOnce(&mut Ui)) {
+    let background = ui.painter().add(Shape::Noop);
+    let response = CollapsingHeader::new(title)
+        .default_open(true)
+        .show_unindented(ui, |ui| {
+            ui.add_space(4.0);
+            contents(ui);
+            ui.add_space(6.0);
+        });
+    ui.painter().set(
+        background,
+        Shape::rect_filled(response.header_response.rect, 0, Color32::from_gray(46)),
+    );
+}
+
+fn properties(ui: &mut Ui, demo: &mut Demo, assets: &Assets) {
+    ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            Frame::new().inner_margin(8).show(ui, |ui| {
+                ui.set_min_width((ui.available_width() - 1.0).max(0.0));
+                ui.visuals_mut().collapsing_header_frame = true;
+                if let Some(mut note) = demo.selected().cloned() {
                     ui.horizontal(|ui| {
-                        if ui
-                            .selectable_label(demo.selected_event == Some(i), &event.sensor)
-                            .clicked()
-                        {
-                            demo.selected_event = Some(i);
-                        }
+                        ui.add(Image::new((
+                            tex(assets, note.kind, note.each).id(),
+                            vec2(22.0, 22.0),
+                        )));
+                        ui.label(RichText::new(note.kind.label()).strong());
                         ui.label(
-                            RichText::new(format!("{:.2} - {:.2}", event.start, event.end))
+                            RichText::new(format!("#{:04}", note.id))
                                 .monospace()
                                 .color(MUTED),
                         );
                     });
+                    ui.add_space(6.0);
+                    let mut changed = false;
+                    property_section(ui, "Timing", |ui| {
+                        ui.visuals_mut().widgets.inactive.weak_bg_fill = CONTROL;
+                        ui.visuals_mut().widgets.hovered.weak_bg_fill = Color32::from_gray(64);
+                        let field_size = vec2((ui.available_width() - 72.0).max(48.0), 22.0);
+                        Grid::new(ui.id().with("fields"))
+                            .num_columns(2)
+                            .min_col_width(60.0)
+                            .spacing(vec2(12.0, 3.0))
+                            .show(ui, |ui| {
+                                ui.label(RichText::new("Beat").color(MUTED));
+                                changed |= ui
+                                    .add_sized(
+                                        field_size,
+                                        DragValue::new(&mut note.beat)
+                                            .speed(0.25)
+                                            .range(0.0..=LENGTH)
+                                            .fixed_decimals(2),
+                                    )
+                                    .changed();
+                                ui.end_row();
+                                ui.label(RichText::new("Lane").color(MUTED));
+                                let mut lane = note.lane + 1;
+                                changed |= ui
+                                    .add_sized(field_size, DragValue::new(&mut lane).range(1..=8))
+                                    .changed();
+                                note.lane = lane - 1;
+                                ui.end_row();
+                                if matches!(note.kind, Kind::Hold | Kind::Slide) {
+                                    ui.label(RichText::new("Duration").color(MUTED));
+                                    changed |= ui
+                                        .add_sized(
+                                            field_size,
+                                            DragValue::new(&mut note.duration)
+                                                .speed(0.25)
+                                                .range(0.0..=32.0)
+                                                .suffix(" beats"),
+                                        )
+                                        .changed();
+                                    ui.end_row();
+                                }
+                                if note.kind == Kind::Slide {
+                                    ui.label(RichText::new("End lane").color(MUTED));
+                                    let mut lane = note.end_lane + 1;
+                                    changed |= ui
+                                        .add_sized(
+                                            field_size,
+                                            DragValue::new(&mut lane).range(1..=8),
+                                        )
+                                        .changed();
+                                    note.end_lane = lane - 1;
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                    if changed {
+                        demo.checkpoint("Edit note properties");
+                        if let Some(n) = demo.notes.iter_mut().find(|n| n.id == note.id) {
+                            *n = note.clone();
+                        }
+                    }
+                    property_section(ui, "Autoplay", |ui| {
+                        let column_width = ((ui.available_width() - 16.0) / 3.0).max(40.0);
+                        Grid::new(ui.id().with("sensor-intervals"))
+                            .num_columns(3)
+                            .min_col_width(column_width)
+                            .spacing(vec2(8.0, 3.0))
+                            .show(ui, |ui| {
+                                for label in ["Sensor", "Press", "Release"] {
+                                    ui.label(RichText::new(label).size(11.0).color(MUTED));
+                                }
+                                ui.end_row();
+                                for (i, event) in note.events.iter().enumerate() {
+                                    if ui
+                                        .selectable_label(
+                                            demo.selected_event == Some(i),
+                                            &event.sensor,
+                                        )
+                                        .clicked()
+                                    {
+                                        demo.selected_event = Some(i);
+                                    }
+                                    for value in [event.start, event.end] {
+                                        ui.label(RichText::new(format!("{value:.2}")).monospace());
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                } else {
+                    property_section(ui, "Chart", |ui| {
+                        ui.label(format!("{} notes", demo.notes.len()));
+                        ui.label(format!("{} BPM", demo.bpm));
+                    });
+                    ui.label(RichText::new("No selection").size(11.0).color(MUTED));
                 }
-            } else {
-                ui.heading("Chart");
-                ui.label(RichText::new("Workbench study").color(MUTED));
-                ui.separator();
-                ui.label(format!("{} notes", demo.notes.len()));
-                ui.label(format!("{} BPM", demo.bpm));
-                ui.label(RichText::new("No selection").color(MUTED));
-            }
+            });
         });
-    });
 }
 
 fn templates(ui: &mut Ui, demo: &mut Demo, assets: &Assets) {
@@ -1073,33 +1139,40 @@ fn overview(ui: &mut Ui, demo: &mut Demo) {
         Sense::click_and_drag(),
     );
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0, WINDOW);
-    let r = rect.shrink2(vec2(16.0, 8.0));
+    p.rect_filled(rect, 0, RECESSED);
+    let r = rect.shrink2(vec2(16.0, 4.0));
     let x = |b: f32| r.left() + b / LENGTH * r.width();
-    let rows = (r.height() - 20.0).max(8.0);
+    let ruler_height = if r.height() >= 36.0 { 18.0 } else { 0.0 };
+    let rows = (r.height() - ruler_height).max(1.0);
     for n in &demo.notes {
         p.rect_filled(
             Rect::from_min_size(
                 pos2(x(n.beat), r.top() + n.lane as f32 * rows / 8.0),
-                vec2((n.duration / LENGTH * r.width()).max(3.0), 3.0),
+                vec2(
+                    (n.duration / LENGTH * r.width()).max(3.0),
+                    (rows / 8.0).clamp(1.0, 3.0),
+                ),
             ),
             0,
             n.kind.color().gamma_multiply(0.7),
         );
     }
-    for b in (0..=64).step_by(8) {
-        text(
-            &p,
-            pos2(x(b as f32), r.bottom()),
-            Align2::CENTER_BOTTOM,
-            format!("{:03}", b / 4 + 1),
-            10.0,
-            MUTED,
-        );
+    if ruler_height > 0.0 {
+        let step = if r.width() < 360.0 { 16 } else { 8 };
+        for b in (0..=64).step_by(step) {
+            text(
+                &p,
+                pos2(x(b as f32), r.bottom()),
+                Align2::CENTER_BOTTOM,
+                format!("{:03}", b / 4 + 1),
+                10.0,
+                MUTED,
+            );
+        }
     }
     let band = Rect::from_min_max(
         pos2(x((demo.beat - 2.0).max(0.0)), r.top()),
-        pos2(x((demo.beat + 8.0).min(LENGTH)), r.bottom() - 15.0),
+        pos2(x((demo.beat + 8.0).min(LENGTH)), r.top() + rows),
     );
     p.rect_stroke(
         band,
