@@ -1,5 +1,8 @@
 # Editor UI TODO
 
+> 新工作台设计处于确认阶段, 参见 [风格与布局](EDITOR_WORKBENCH_DESIGN.md)及
+> [交互方案](EDITOR_INTERACTION_SPEC.md)。以下仍为原实现清单, 新提案未计为完成。
+
 > 配套计划:`docs/EDITOR_UI_PLAN.md`。勾选即完成(需可截图/可测试复核)。
 > 涉及:`editor/src/ui/*`、`editor/src/timeline/*`、`editor/src/theme.rs`、`editor/src/main.rs`。
 

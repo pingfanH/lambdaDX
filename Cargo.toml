@@ -8,7 +8,7 @@ members = [".", "lnmai-core"]
 # The Rust shim pulls in an external pure-Rust port via an absolute path; it is
 # excluded so a missing port does not break the default (Lean) build. It is only
 # loaded when `backend-rust` is enabled.
-exclude = ["lnmai-rust"]
+exclude = ["lnmai-rust", "vendor/egui-miniquad"]
 
 # Gameplay-core backend selection. Exactly one should be enabled:
 #   backend-lean (default) — the vendored `lnmai-core/` Lean FFI (needs Nix/Lean)
@@ -23,6 +23,7 @@ default = ["backend-lean"]
 backend-rust = ["dep:lnmai-core-rust"]
 backend-lean = ["dep:lnmai-core"]
 backend-none = []
+ui-preview = ["dep:egui_dock", "dep:lucide-icons"]
 
 [[bin]]
 name = "lambda_dx_pad_preview"
@@ -37,6 +38,12 @@ path = "src/player_ui_main.rs"
 [[bin]]
 name = "lambda_dx_editor"
 path = "editor/src/main.rs"
+
+# Isolated, memory-only workbench design prototype. No gameplay backend needed.
+[[bin]]
+name = "lambda_dx_ui_preview"
+path = "editor/ui_preview/main.rs"
+required-features = ["ui-preview"]
 
 [[bin]]
 name = "macroanimate_test"
@@ -64,6 +71,8 @@ egui-macroquad = { version = "0.17", default-features = false }
 # Direct egui<->miniquad bridge, vendored in `app::egui_bridge` to add touch
 # input to the egui params panel (egui-macroquad only forwards mouse/keyboard).
 egui-miniquad = "0.16"
+egui_dock = { version = "0.16", optional = true }
+lucide-icons = { version = "=1.57.0", optional = true }
 # Gameplay core backend (see [features]): rust (default) or lean (unmodified
 # vendored crate). Selected by the `backend-*` features.
 lnmai-core = { path = "lnmai-core", optional = true }
@@ -84,6 +93,10 @@ evdev = "0.13"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSEvent", "block2"] }
 block2 = "0.5"
+
+# Keep egui draw batches from overwriting buffers still being read by the GPU.
+[patch.crates-io]
+egui-miniquad = { path = "vendor/egui-miniquad" }
 
 # The expensive load work (JPEG decode, CJK font parsing, note-texture decode)
 # runs inside dependencies, so an unoptimized `cargo run` is ~7x slower to boot
