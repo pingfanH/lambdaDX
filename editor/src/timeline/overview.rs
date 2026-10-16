@@ -25,12 +25,11 @@ pub fn draw_in(
     interactive: bool,
 ) {
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, BG_OVERVIEW);
+    painter.rect_filled(rect, 0.0, crate::theme::surface(BG_OVERVIEW));
     let bar = egui::Rect::from_min_size(
         rect.min,
         egui::vec2(rect.width(), (rect.height() - 20.0).max(10.0)),
     );
-    painter.rect_filled(bar, 0.0, BG_OVERVIEW);
     painter.vline(
         bar.left() + 0.5,
         bar.y_range(),

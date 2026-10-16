@@ -89,9 +89,11 @@ evdev = "0.13"
 
 # Trackpad pinch-to-zoom: miniquad's macOS backend drops magnify events, so the
 # editor installs its own NSEvent local monitor for the magnify gesture (see
-# `editor/src/gesture.rs`).
+# `editor/src/gesture.rs`). File dialogs use cached, asynchronous AppKit sheets.
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSEvent", "block2"] }
+objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSEvent", "NSApplication", "NSOpenPanel", "NSSavePanel", "NSPanel", "NSResponder", "NSWindow", "NSView", "block2"] }
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSArray", "NSString", "NSURL", "NSOperation", "NSThread", "block2"] }
 block2 = "0.5"
 
 # Keep egui draw batches from overwriting buffers still being read by the GPU.

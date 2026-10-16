@@ -25,6 +25,7 @@ mod core;
 mod player;
 
 mod audio;
+mod appearance;
 mod core_chart;
 mod edit_ops;
 mod gesture;
@@ -80,6 +81,11 @@ async fn run() {
 
     set_pc_assets_folder(&app::platform::asset_dir().to_string_lossy());
     mark("assets folder");
+    let mut file_dialogs = io::dialogs::Dialogs::default();
+    file_dialogs.warm_up();
+    // Let the main queue initialize native panels before the editing UI is live.
+    clear_background(theme::to_mq(theme::BG_WINDOW));
+    next_frame().await;
 
     // Load a chart *folder* (Simai source + track) so the judgment engine and
     // autoplay modes work. Override with `MAI2_EDITOR_CHART`.
@@ -128,6 +134,7 @@ async fn run() {
     }
 
     let mut ui = EditorUi::new();
+    ui.appearance.load();
     let mut editor = EditorState::default();
     // Trackpad pinch-to-zoom (macOS); a no-op elsewhere.
     gesture::install();
@@ -173,6 +180,7 @@ async fn run() {
     let start_time = get_time();
     let mut chart_sync = runtime::ChartSync::new(&mut app.chart);
     let mut auto_save = io::autosave::AutoSave::default();
+    let mut cover_art = appearance::CoverArt::default();
 
     // `MAI2_EDITOR_FPS=1` prints a once-per-second frame-time summary to stderr
     // (a lightweight perf read-out; no-op otherwise).
@@ -186,15 +194,16 @@ async fn run() {
         // OS close requests are deferred while there are unsaved changes: with a
         // dirty document we cancel the quit and raise a confirm action instead
         // (resolved by the Save / Discard / Cancel dialog).
-        if editor.has_unsaved_changes() {
+        if editor.has_unsaved_changes() || editor.file_dialog_active {
             macroquad::input::prevent_quit();
         }
-        if macroquad::input::is_quit_requested() {
+        if macroquad::input::is_quit_requested() && !editor.file_dialog_active {
             timeline::transform::finish(&mut editor, &mut app.chart, false);
             editor.pending_action = Some(PendingAction::Quit);
         }
 
         app::anim::tick();
+        ui.appearance.update();
 
         // Preview-mode shortcuts are routed through egui so text fields and
         // slide shape keys keep ownership of their keyboard input.
@@ -232,7 +241,11 @@ async fn run() {
         if let Some(action) = editor.template_action.take() {
             templates::apply(&mut editor, &mut app, action);
         }
-        apply_io_requests(&mut editor, &mut app);
+        apply_io_requests(&mut editor, &mut app, &mut file_dialogs, &mut ui.appearance);
+        ui.input_blocked |= editor.file_dialog_active;
+        if let Some(error) = cover_art.update(editor.source.as_ref(), &mut app) {
+            editor.status = Some(error);
+        }
         let current_time = player_time(&app);
 
         // egui points → macroquad logical units (normally 1.0; kept explicit for
@@ -352,6 +365,7 @@ async fn run() {
         runtime::follow_playhead(&mut editor, current_time);
 
         clear_background(theme::to_mq(theme::BG_WINDOW));
+        ui.appearance.draw();
 
         if pad_visible {
             draw_rectangle(
@@ -359,7 +373,7 @@ async fn run() {
                 preview.top() * to_mq,
                 preview.width() * to_mq,
                 preview.height() * to_mq,
-                theme::to_mq(theme::BG_OVERVIEW),
+                theme::to_mq(theme::surface(theme::BG_OVERVIEW)),
             );
         }
 
@@ -368,7 +382,12 @@ async fn run() {
         if preview.width() > 1.0 && preview.height() > 1.0 {
             let scissor = to_scissor(preview, s_phys, fb_w);
             unsafe { get_internal_gl() }.quad_gl.scissor(Some(scissor));
-            player::render::pad::draw_pad_sim(&app, pad.cx, pad.cy, pad.outer_r, scale);
+            player::render::pad::draw_pad_sim_transparent(
+                &app, pad.cx, pad.cy, pad.outer_r, scale,
+                |pad| ui.appearance.draw_pad_surround(
+                    pad, theme::to_mq(theme::surface(theme::BG_OVERVIEW)),
+                ),
+            );
             unsafe { get_internal_gl() }.quad_gl.scissor(None);
         }
 
@@ -462,31 +481,54 @@ fn to_scissor(rect: egui::Rect, s_phys: f32, fb_w: f32) -> (i32, i32, i32, i32) 
 /// next frame draws. Load/open/quit are gated on the unsaved-changes prompt:
 /// when the document is dirty they are deferred to `pending_action` and run
 /// later, once the confirm dialog resolves (Save / Discard).
-fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
+fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState, dialogs: &mut io::dialogs::Dialogs, appearance: &mut appearance::Appearance) {
+    use io::dialogs::Request;
+    if let Some((request, result)) = dialogs.poll() {
+        match result {
+            Ok(Some(path)) => match request {
+                Request::Open => load_editor_chart(editor, app, &path, None),
+                Request::Save { save_as, .. } => io::finish_export(editor, &app.chart, save_as, &path),
+                Request::Background => appearance.request_image(path.to_string_lossy().into_owned()),
+            },
+            Ok(None) => editor.status = Some("File selection cancelled".into()),
+            Err(error) => editor.status = Some(format!("File dialog failed: {error}")),
+        }
+    }
+    editor.file_dialog_active = dialogs.busy();
+    if editor.file_dialog_active { return; }
+
     // Resolve a confirmed deferred action first (Save/Discard was chosen).
     if editor.pending_confirmed {
         editor.pending_confirmed = false;
         match editor.pending_action.take() {
             Some(PendingAction::Reload) => { reload_chart(editor, app); }
-            Some(PendingAction::Open) => open_chart(editor, app),
+            Some(PendingAction::Open) => open_chart(editor, dialogs),
             Some(PendingAction::Quit) => quit_editor(),
             None => {}
         }
     }
+    if dialogs.busy() { return; }
 
     if editor.open_dialog {
         editor.open_dialog = false;
         if !editor.defer_if_dirty(PendingAction::Open) {
-            open_chart(editor, app);
+            open_chart(editor, dialogs);
         }
+        return;
     }
     if editor.export_request {
         editor.export_request = false;
-        io::export_chart(editor, &mut app.chart, false);
+        export_chart(editor, app, dialogs, false);
+        return;
     }
     if editor.save_as_request {
         editor.save_as_request = false;
-        io::export_chart(editor, &mut app.chart, true);
+        export_chart(editor, app, dialogs, true);
+        return;
+    }
+    if std::mem::take(&mut appearance.browse_requested) {
+        start_file_dialog(editor, dialogs, Request::Background, Some(appearance.image_path()));
+        return;
     }
     if editor.reload_request {
         editor.reload_request = false;
@@ -496,11 +538,28 @@ fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
     }
 }
 
-/// Native file/folder picker, then load the chosen chart (no dirty guard — the
-/// caller has already resolved any unsaved changes).
-fn open_chart(editor: &mut EditorState, app: &mut PadPreviewState) {
-    if let Some(path) = io::pick_chart_path() {
-        load_editor_chart(editor, app, std::path::Path::new(&path), None);
+fn start_file_dialog(editor: &mut EditorState, dialogs: &mut io::dialogs::Dialogs, request: io::dialogs::Request, hint: Option<std::path::PathBuf>) {
+    let hint = hint.or_else(|| editor.source.as_ref().map(|source| source.path.clone()))
+        .or_else(|| Some(std::path::PathBuf::from(&editor.chart_dir)));
+    match dialogs.start(request, hint) {
+        Ok(()) => {
+            editor.file_dialog_active = true;
+            editor.status = Some("Waiting for file selection...".into());
+        }
+        Err(error) => editor.status = Some(format!("File dialog failed: {error}")),
+    }
+}
+
+/// The caller has already resolved unsaved changes. Present asynchronously and
+/// install the result on the frame thread after the sheet completes.
+fn open_chart(editor: &mut EditorState, dialogs: &mut io::dialogs::Dialogs) {
+    start_file_dialog(editor, dialogs, io::dialogs::Request::Open, None);
+}
+
+fn export_chart(editor: &mut EditorState, app: &mut PadPreviewState, dialogs: &mut io::dialogs::Dialogs, save_as: bool) {
+    match io::prepare_export(editor, &mut app.chart, save_as) {
+        Ok(request) => start_file_dialog(editor, dialogs, request, None),
+        Err(error) => editor.status = Some(error),
     }
 }
 

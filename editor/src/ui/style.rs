@@ -12,6 +12,24 @@ pub fn apply(ctx: &egui::Context) {
     ctx.set_style(style());
 }
 
+pub fn refresh_surfaces(ctx: &egui::Context) {
+    ctx.style_mut(|style| surface_visuals(&mut style.visuals));
+}
+
+fn surface_visuals(visuals: &mut egui::Visuals) {
+    visuals.window_fill = floating_surface();
+    visuals.panel_fill = surface(BG_TOOLBAR);
+    visuals.extreme_bg_color = surface(BG_TOOLBAR);
+    visuals.faint_bg_color = surface(BG_WIDGET);
+    for widget in [
+        &mut visuals.widgets.inactive, &mut visuals.widgets.noninteractive,
+        &mut visuals.widgets.active, &mut visuals.widgets.open,
+    ] {
+        widget.bg_fill = surface(BG_WIDGET);
+    }
+    visuals.widgets.hovered.bg_fill = surface(BG_WIDGET_HOVER);
+}
+
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     // Prefer the same CJK-capable font the F1 params panel uses so opening that
@@ -66,10 +84,6 @@ fn style() -> egui::Style {
     style.spacing.slider_width = 100.0;
 
     let mut visuals = egui::Visuals::dark();
-    visuals.window_fill = floating_surface();
-    visuals.panel_fill = BG_TOOLBAR;
-    visuals.extreme_bg_color = BG_TOOLBAR;
-    visuals.faint_bg_color = BG_WIDGET;
     visuals.override_text_color = Some(TEXT);
     visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(121, 184, 244, 18);
     visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT_BLUE);
@@ -97,19 +111,18 @@ fn style() -> egui::Style {
         &mut visuals.widgets.open,
     ] {
         widget.corner_radius = egui::CornerRadius::same(2);
-        widget.bg_fill = BG_WIDGET;
         widget.weak_bg_fill = egui::Color32::TRANSPARENT;
         widget.bg_stroke = egui::Stroke::NONE;
         widget.fg_stroke = egui::Stroke::new(1.0_f32, TEXT);
     }
     visuals.widgets.inactive.fg_stroke.color = TEXT_DIM;
-    visuals.widgets.hovered.bg_fill = BG_WIDGET_HOVER;
     visuals.widgets.hovered.weak_bg_fill = egui::Color32::from_white_alpha(16);
     visuals.widgets.active.weak_bg_fill = egui::Color32::from_white_alpha(24);
     visuals.widgets.open.weak_bg_fill = egui::Color32::from_white_alpha(20);
     // Egui uses this color to fade disabled content; transparent hides it entirely.
     visuals.widgets.noninteractive.weak_bg_fill = BG_PANEL;
     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, BORDER);
+    surface_visuals(&mut visuals);
     style.visuals = visuals;
     style
 }
@@ -137,7 +150,8 @@ pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
     s.main_surface_border_stroke = egui::Stroke::NONE;
     s.tab_bar.height = 26.0;
     s.tab_bar.fill_tab_bar = true;
-    s.tab_bar.bg_fill = BG_TOOLBAR;
+    // The custom pane header paints the surface once.
+    s.tab_bar.bg_fill = egui::Color32::TRANSPARENT;
     s.tab_bar.corner_radius = egui::CornerRadius::ZERO;
     s.tab_bar.hline_color = egui::Color32::TRANSPARENT;
     s.tab.tab_body.inner_margin = egui::Margin::ZERO;
@@ -161,7 +175,7 @@ pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
     s.separator.width = 3.0;
     s.separator.extra_interact_width = 7.0;
     s.separator.extra = 90.0;
-    s.separator.color_idle = BG_WINDOW;
+    s.separator.color_idle = surface(BG_WINDOW);
     s.separator.color_hovered = ACCENT_BLUE;
     s.separator.color_dragged = ACCENT_BLUE;
     s

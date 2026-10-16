@@ -264,7 +264,7 @@ fn song_from_folder(folder: &Path) -> Option<LibrarySong> {
         descriptor,
         folder: folder.to_path_buf(),
         chart_path,
-        cover_path: find_cover(folder),
+        cover_path: crate::app::chart::find_cover_in_dir(folder),
         levels,
     })
 }
@@ -285,18 +285,6 @@ fn read_designer(text: &str) -> Option<String> {
             if !v.is_empty() {
                 return Some(v.to_string());
             }
-        }
-    }
-    None
-}
-
-fn find_cover(folder: &Path) -> Option<PathBuf> {
-    for name in [
-        "bg.jpg", "bg.png", "bg.jpeg", "cover.jpg", "cover.png", "jacket.jpg", "jacket.png",
-    ] {
-        let p = folder.join(name);
-        if p.is_file() {
-            return Some(p);
         }
     }
     None

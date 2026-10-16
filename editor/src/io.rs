@@ -6,6 +6,7 @@ use super::state::EditorState;
 
 pub(crate) mod simai;
 pub mod autosave;
+pub mod dialogs;
 #[cfg(test)]
 mod tests;
 
@@ -152,28 +153,24 @@ fn save_as_to(editor: &mut EditorState, chart: &ChartDoc, path: &Path) -> Result
     Ok(())
 }
 
-pub fn export_chart(editor: &mut EditorState, chart: &mut ChartDoc, save_as: bool) {
-    if let Err(error) = crate::simai_editor::apply(editor, chart) {
-        editor.status = Some(error);
-        return;
-    }
-    let result: Result<Option<PathBuf>, String> = (|| {
-        let canonical = crate::templates::document(editor, chart);
-        let native = has_editor_data(&canonical)
-            || editor.source.as_ref().is_some_and(|s| !s.is_simai());
-        let Some(path) = pick_save_path(save_as, native)? else { return Ok(None); };
-        if save_as { save_as_to(editor, chart, &path)?; }
-        else { export_to(editor, chart, &path)?; }
-        Ok(Some(path))
-    })();
+pub fn prepare_export(editor: &mut EditorState, chart: &mut ChartDoc, save_as: bool) -> Result<dialogs::Request, String> {
+    crate::simai_editor::apply(editor, chart)?;
+    let canonical = crate::templates::document(editor, chart);
+    let native = has_editor_data(&canonical)
+        || editor.source.as_ref().is_some_and(|s| !s.is_simai());
+    Ok(dialogs::Request::Save { save_as, native })
+}
+
+pub fn finish_export(editor: &mut EditorState, chart: &ChartDoc, save_as: bool, path: &Path) {
+    let result = if save_as { save_as_to(editor, chart, path) }
+        else { export_to(editor, chart, path).map(|_| ()) };
     match result {
-        Ok(Some(path)) => {
+        Ok(()) => {
             if save_as {
                 editor.pending_confirmed = editor.pending_action.is_some();
             }
             editor.status = Some(format!("{} {}", if save_as { "Saved" } else { "Exported" }, path.display()));
         }
-        Ok(None) => {}
         Err(error) => editor.status = Some(format!("{} failed: {error}", if save_as { "Save As" } else { "Export" })),
     }
 }
@@ -274,57 +271,4 @@ pub(crate) fn validate(chart: &ChartDoc) -> Result<(), String> {
         return Err("Duplicate Autoplay track override".into());
     }
     Ok(())
-}
-
-pub fn pick_chart_path() -> Option<String> {
-    #[cfg(target_os = "macos")]
-    let result = dialog_output(std::process::Command::new("osascript")
-        .args(["-l", "JavaScript", "-e", r#"
-ObjC.import('AppKit');
-const panel = $.NSOpenPanel.openPanel;
-panel.title = 'Open chart';
-panel.canChooseFiles = true;
-panel.canChooseDirectories = true;
-panel.allowsMultipleSelection = false;
-$.NSApplication.sharedApplication.activateIgnoringOtherApps(true);
-panel.runModal === 1 ? ObjC.unwrap(panel.URL.path) : '';
-"#]).output());
-    #[cfg(not(target_os = "macos"))]
-    let result: Result<Option<String>, String> = Err("Native open dialog is unavailable".to_string());
-    result.ok().flatten().map(|path| path.trim_end_matches('/').to_string())
-}
-
-fn pick_save_path(save_as: bool, native: bool) -> Result<Option<PathBuf>, String> {
-    let (prompt, default_name) = if save_as {
-        ("Save chart (.txt Simai / .json native)", if native { "chart.json" } else { "maidata.txt" })
-    } else { ("Export Simai maidata.txt", "maidata.txt") };
-    #[cfg(target_os = "macos")]
-    let result = dialog(&format!("POSIX path of (choose file name with prompt \"{prompt}\" default name \"{default_name}\")"));
-    #[cfg(not(target_os = "macos"))]
-    let result: Result<Option<String>, String> = Err("Native export dialog is unavailable on this platform".into());
-    result.and_then(|path| path.map(|path| {
-        let mut path = PathBuf::from(path);
-        if path.extension().is_none() { path.set_extension(if save_as && native { "json" } else { "txt" }); }
-        if !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("txt") || (save_as && ext.eq_ignore_ascii_case("json"))) {
-            return Err(if save_as { "Save As requires .txt or .json" } else { "Simai export requires a .txt filename" }.into());
-        }
-        Ok(path)
-    }).transpose())
-}
-
-#[cfg(target_os = "macos")]
-fn dialog(script: &str) -> Result<Option<String>, String> {
-    dialog_output(std::process::Command::new("osascript").args(["-e", script]).output())
-}
-
-#[cfg(target_os = "macos")]
-fn dialog_output(output: std::io::Result<std::process::Output>) -> Result<Option<String>, String> {
-    let output = output.map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-        if error.contains("-128") { return Ok(None); }
-        return Err(error.trim().to_string());
-    }
-    let path = String::from_utf8(output.stdout).map_err(|error| error.to_string())?;
-    Ok(Some(path.trim_end_matches(['\r', '\n']).to_string()).filter(|s| !s.is_empty()))
 }

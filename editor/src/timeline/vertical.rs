@@ -164,9 +164,8 @@ pub fn draw(
 }
 
 fn draw_background(rect: MqRect, header_h: f32, plot_top: f32, plot_bottom: f32, left_margin: f32) {
-    let bg = theme::to_mq(theme::BG_CANVAS);
+    let bg = theme::to_mq(theme::surface(theme::BG_CANVAS));
     mq::draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
-    mq::draw_rectangle(rect.x, plot_top, left_margin, (plot_bottom - plot_top).max(0.0), bg);
     mq::draw_line(
         rect.x,
         rect.y + header_h,

@@ -79,9 +79,9 @@ pub fn draw(
     let pps = editor.pixels_per_second * g;
     let view = editor.view_start;
 
-    mq::draw_rectangle(rect.x, rect.y, rect.w, rect.h, crate::theme::to_mq(crate::theme::BG_CANVAS));
-    mq::draw_rectangle(rect.x, rect.y, rect.w, ruler_h, crate::theme::to_mq(crate::theme::BG_OVERVIEW));
-    mq::draw_rectangle(rect.x, lanes_top, gutter, lanes_h, crate::theme::to_mq(crate::theme::BG_OVERVIEW));
+    mq::draw_rectangle(rect.x + gutter, lanes_top, (rect.w - gutter).max(0.0), lanes_h, crate::theme::to_mq(crate::theme::surface(crate::theme::BG_CANVAS)));
+    mq::draw_rectangle(rect.x, rect.y, rect.w, ruler_h, crate::theme::to_mq(crate::theme::surface(crate::theme::BG_OVERVIEW)));
+    mq::draw_rectangle(rect.x, lanes_top, gutter, lanes_h, crate::theme::to_mq(crate::theme::surface(crate::theme::BG_OVERVIEW)));
 
     let view_end = view + (plot_right - plot_left) / pps;
     waveform::draw_horizontal(waveform, plot_left, plot_right, lanes_top, lanes_h, view, pps, s, chart.audio_offset);

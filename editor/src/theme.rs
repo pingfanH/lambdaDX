@@ -11,15 +11,32 @@ const fn rgb(r: u8, g: u8, b: u8) -> egui::Color32 {
 
 /// Convert an egui colour to a macroquad colour (for the macroquad layers).
 pub fn to_mq(c: egui::Color32) -> macroquad::prelude::Color {
-    let [r, g, b, a] = c.to_array();
+    let [r, g, b, a] = c.to_srgba_unmultiplied();
     macroquad::prelude::Color::from_rgba(r, g, b, a)
+}
+
+thread_local! {
+    static SURFACE_OPACITY: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+pub fn set_surface_opacity(opacity: f32) -> bool {
+    let opacity = if opacity.is_finite() { opacity.clamp(0.0, 1.0) } else { 1.0 };
+    SURFACE_OPACITY.with(|value| value.replace(opacity) != opacity)
+}
+
+/// Only backgrounds fade; foreground glyphs, notes and selection keep their alpha.
+pub fn surface(color: egui::Color32) -> egui::Color32 {
+    let [r, g, b, a] = color.to_srgba_unmultiplied();
+    let alpha = SURFACE_OPACITY.with(|value| (a as f32 * value.get()).round() as u8);
+    egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)
 }
 
 // ── Surfaces ───────────────────────────────────────────────────────────────
 pub const BG_WINDOW: egui::Color32 = rgb(23, 23, 23);
 pub const BG_TOOLBAR: egui::Color32 = rgb(31, 31, 31);
 pub fn floating_surface() -> egui::Color32 {
-    egui::Color32::from_rgba_unmultiplied(43, 43, 43, 232)
+    let opacity = SURFACE_OPACITY.with(|value| value.get().max(0.9));
+    egui::Color32::from_rgba_unmultiplied(43, 43, 43, (255.0 * opacity) as u8)
 }
 pub const BG_CANVAS: egui::Color32 = rgb(39, 39, 39);
 pub const BG_PANEL: egui::Color32 = rgb(40, 40, 40);

@@ -304,6 +304,8 @@ pub struct EditorState {
     /// Set by the UI to ask the runtime to export Simai.
     pub export_request: bool,
     pub save_as_request: bool,
+    /// A native picker is running in the background; keep drawing, but freeze edits.
+    pub file_dialog_active: bool,
     /// Set while dragging the playhead/overview; the runtime applies it to the
     /// player's clock (`timeline_view_time` / `mode_song_offset`).
     pub pending_seek: Option<f32>,
@@ -398,6 +400,7 @@ impl Default for EditorState {
             open_dialog: false,
             export_request: false,
             save_as_request: false,
+            file_dialog_active: false,
             pending_seek: None,
             scrubbing: false,
             cursor: None,

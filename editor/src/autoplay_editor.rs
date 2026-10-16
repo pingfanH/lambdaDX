@@ -836,7 +836,7 @@ pub fn prepare(
 
 pub fn tracks_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPreviewState, enabled: bool, raw_wheel: f32) {
     let mut state = std::mem::take(&mut editor.autoplay_editor);
-    ui.painter().rect_filled(ui.max_rect(), 0.0, crate::theme::BG_CANVAS);
+    ui.painter().rect_filled(ui.max_rect(), 0.0, crate::theme::surface(crate::theme::BG_CANVAS));
     ui.add_enabled_ui(enabled, |ui| {
         let editable = enabled && app.has_engine() && !state.suppress_pointer;
         if state.raw_events { tracks_ui(ui, &mut state, editor, app, editable, raw_wheel); }
@@ -1115,7 +1115,7 @@ fn viewport(
     let view = state.view_start;
     let x_of = |time: f32| left + (time - view) * pps;
     let painter = ui.painter().with_clip_rect(ruler);
-    painter.rect_filled(ruler, 0.0, crate::theme::BG_OVERVIEW);
+    painter.rect_filled(ruler, 0.0, crate::theme::surface(crate::theme::BG_OVERVIEW));
     crate::timeline::overview::paint_loop(&painter, Rect::from_min_max(Pos2::new(left, ruler.top()), ruler.max), editor, x_of, true);
     let start = secs_to_measure(view, &app.chart.bpms).floor().max(1.0);
     let end = secs_to_measure(view + (ruler.right() - left) / pps, &app.chart.bpms)
@@ -1191,12 +1191,9 @@ fn tracks_ui(ui: &mut egui::Ui, state: &mut AutoplayEditor, editor: &mut EditorS
                     state.clear_selection();
                 }
                 let painter = ui.painter().clone();
-                let bg = if lane % 2 == 0 {
-                    crate::theme::BG_CANVAS
-                } else {
-                    Color32::from_gray(41)
-                };
-                painter.rect_filled(rect, 0.0, bg);
+                if lane % 2 != 0 {
+                    painter.rect_filled(rect, 0.0, crate::theme::surface(Color32::from_white_alpha(3)));
+                }
                 painter.with_clip_rect(header.shrink(6.0)).text(
                     Pos2::new(header.left() + 8.0, header.center().y),
                     egui::Align2::LEFT_CENTER,

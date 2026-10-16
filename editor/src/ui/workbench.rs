@@ -545,7 +545,7 @@ impl<F: FnMut(&mut Ui, PaneKind)> Viewer<'_, F> {
                 .layout(Layout::left_to_right(Align::Center)),
         );
         ui.set_clip_rect(response.rect);
-        ui.painter().rect_filled(response.rect, 0, BG_TOOLBAR);
+        ui.painter().rect_filled(response.rect, 0, surface(BG_TOOLBAR));
         if pane.kind == self.focused {
             ui.painter().hline(response.rect.x_range(), response.rect.bottom() - 1.0, Stroke::new(1.0_f32, ACCENT_BLUE.gamma_multiply(0.55)));
         }

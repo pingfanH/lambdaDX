@@ -127,6 +127,7 @@ const AUTOPLAY_SHORTCUTS: &[(&str, &str)] = &[
 
 /// Chrome-owned state that survives across frames (unrelated to the document).
 pub struct EditorUi {
+    pub appearance: crate::appearance::Appearance,
     /// Screen regions computed last frame.
     pub layout: Layout,
     /// Pad preview zoom multiplier.
@@ -152,6 +153,7 @@ impl Default for EditorUi {
 impl EditorUi {
     pub fn new() -> Self {
         Self {
+            appearance: Default::default(),
             layout: Layout::default(),
             pad_scale: 1.0,
             workbench: Workbench::default(),
@@ -186,6 +188,7 @@ impl EditorUi {
             editor.loop_drag = None;
         }
         crate::player::params_panel::ensure_egui_font(ctx);
+        let appearance_changed = crate::theme::set_surface_opacity(self.appearance.opacity());
         if !self.style_applied {
             style::apply(ctx);
             self.style_applied = true;
@@ -194,8 +197,9 @@ impl EditorUi {
             ctx.request_discard("editor font initialization");
             return;
         }
+        if appearance_changed { style::refresh_surfaces(ctx); }
         let overlay_was_open = app.show_params || editor.show_help || editor.pending_action.is_some()
-            || editor.keyboard.dialog.is_some();
+            || editor.keyboard.dialog.is_some() || editor.file_dialog_active;
         let canvas_tab = (self.workbench.focused(PaneKind::Chart) || self.workbench.focused(PaneKind::Autoplay))
             && !overlay_was_open && !self.menu_open && !editor.keyboard.ime
             && !ctx.wants_keyboard_input() && !ctx.memory(|m| m.any_popup_open())
@@ -204,7 +208,7 @@ impl EditorUi {
                     if !modifiers.alt && !modifiers.ctrl && !modifiers.command)));
         let settings_key = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F1)
             || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma));
-        if settings_key && !editor.keyboard.owns_input() && editor.selection_transform.is_none()
+        if settings_key && !editor.file_dialog_active && !editor.keyboard.owns_input() && editor.selection_transform.is_none()
             && !editor.autoplay_editor.dragging() && !self.templates.dragging() {
             app.show_params = !app.show_params;
         }
@@ -270,7 +274,7 @@ impl EditorUi {
             .exact_height(TOOLBAR_H)
             .frame(
                 egui::Frame::NONE
-                    .fill(BG_TOOLBAR)
+                    .fill(crate::theme::surface(BG_TOOLBAR))
                     .inner_margin(egui::Margin::symmetric(6, 0)),
             )
             .show(ctx, |ui| {
@@ -288,6 +292,9 @@ impl EditorUi {
             editor.template_panel = self.workbench.has(PaneKind::Templates);
         }
         crate::player::params_panel::draw_embedded_with(ctx, app, |ui| {
+            egui::CollapsingHeader::new("外观与背景").default_open(true).show(ui, |ui| {
+                self.appearance.controls(ui);
+            });
             toolbar::draw_editor_settings(ui, editor, &mut self.pad_scale, &mut self.workbench);
         });
         let workspace_blocked = overlay_was_open || app.show_params || editor.show_help
@@ -298,7 +305,7 @@ impl EditorUi {
             self.workbench.set_visible(PaneKind::Templates, editor.template_panel);
         }
         let chart_keys = editor.workspace == Workspace::Chart && self.workbench.focused(PaneKind::Chart);
-        if !chart_keys { crate::keyboard::handle_modals(ctx, editor, &mut app.chart); }
+        if !chart_keys && !editor.file_dialog_active { crate::keyboard::handle_modals(ctx, editor, &mut app.chart); }
         crate::autoplay_editor::prepare(ctx, editor, app, !chart_keys && !self.input_blocked
             && !self.workbench.dragging() && !self.workbench.focused(PaneKind::Simai)
             && !editor.keyboard.owns_input() && (!transaction || editor.autoplay_editor.dragging()),
@@ -347,7 +354,7 @@ impl EditorUi {
                     !self.input_blocked && (!transaction || editor.autoplay_editor.dragging()
                         || editor.scrubbing || editor.loop_drag.is_some()), raw_wheel),
                 PaneKind::Properties | PaneKind::Templates | PaneKind::History => {
-                    egui::Frame::NONE.fill(BG_PANEL).inner_margin(8).show(&mut ui, |ui| {
+                    egui::Frame::NONE.fill(crate::theme::surface(BG_PANEL)).inner_margin(8).show(&mut ui, |ui| {
                         ui.set_min_size(ui.available_size());
                         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                             let editable = !self.input_blocked && editor.loop_drag.is_none() && !editor.keyboard.owns_input()
@@ -367,7 +374,7 @@ impl EditorUi {
                 }
             }
         }
-        crate::keyboard::panels::draw(ctx, editor, &mut app.chart);
+        if !editor.file_dialog_active { crate::keyboard::panels::draw(ctx, editor, &mut app.chart); }
         crate::keyboard::apply_transport(editor, app);
         self.apply_view_commands(editor, app);
         // Do not carry a pinch over a menu or another pane into a later frame.
@@ -377,9 +384,10 @@ impl EditorUi {
         if editor.show_help {
             self.draw_help(ctx, editor);
         }
-        if editor.pending_action.is_some() {
+        if editor.pending_action.is_some() && !editor.file_dialog_active {
             self.draw_confirm(ctx, editor, &mut app.chart);
         }
+        self.appearance.flush(ctx.input(|i| i.pointer.any_down()));
     }
 
     fn apply_view_commands(&mut self, editor: &mut EditorState, app: &mut PadPreviewState) {
@@ -535,7 +543,7 @@ impl EditorUi {
         let was_transforming = editor.selection_transform.is_some();
         let shortcuts_owned = if template_was_dragging || self.templates.dragging() {
             true
-        } else if self.workbench.focused(PaneKind::Chart)
+        } else if self.workbench.focused(PaneKind::Chart) && !editor.file_dialog_active
             && (!self.input_blocked || editor.show_help || editor.pending_action.is_some()) {
             crate::timeline::handle_edit_shortcuts(ui, editor, chart, current_time)
         } else {

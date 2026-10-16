@@ -58,12 +58,43 @@ pub fn draw_pad_disc(cx: f32, cy: f32, outer_r: f32) {
 /// The backdrop is a square of `pad_circle_scale()*outer_r` centered on the pad,
 /// so the A-ring dots and the tap guide ring stay on it at any zoom.
 pub fn draw_pad_sim(app: &PadPreviewState, cx: f32, cy: f32, outer_r: f32, scale: f32) {
-    let pad = PadGeom { cx, cy, outer_r };
-    let backdrop_r = outer_r * params::pad_circle_scale().max(1.0);
-    draw_circle(cx, cy, backdrop_r, Color::from_rgba(30, 30, 30, 255));
+    draw_pad_sim_impl(app, cx, cy, outer_r, scale, true, |pad| {
+        draw_outer_circle(pad, scale);
+    });
+}
 
+/// Transparent host preview. Restore the host backdrop outside the circle
+/// after notes, before judgment effects, to retain the usual circular clipping.
+pub fn draw_pad_sim_transparent(
+    app: &PadPreviewState,
+    cx: f32,
+    cy: f32,
+    outer_r: f32,
+    scale: f32,
+    restore_outside: impl FnOnce(&PadGeom),
+) {
+    draw_pad_sim_impl(app, cx, cy, outer_r, scale, false, |pad| {
+        draw_outer_outline(pad, scale);
+        restore_outside(pad);
+    });
+}
+
+fn draw_pad_sim_impl(
+    app: &PadPreviewState,
+    cx: f32,
+    cy: f32,
+    outer_r: f32,
+    scale: f32,
+    opaque: bool,
+    draw_boundary: impl FnOnce(&PadGeom),
+) {
+    let pad = PadGeom { cx, cy, outer_r };
     let bg_r = outer_r * params::pad_bg_scale();
-    draw_pad_disc(cx, cy, bg_r);
+    if opaque {
+        let backdrop_r = outer_r * params::pad_circle_scale().max(1.0);
+        draw_circle(cx, cy, backdrop_r, Color::from_rgba(30, 30, 30, 255));
+        draw_pad_disc(cx, cy, bg_r);
+    }
     draw_cover(app, cx, cy, bg_r);
 
     let spawn_cx = app
@@ -90,7 +121,7 @@ pub fn draw_pad_sim(app: &PadPreviewState, cx: f32, cy: f32, outer_r: f32, scale
         crate::player::render::notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale);
         crate::player::render::slide::draw_just_overlays(app, &pad, scale, spawn_cx);
     }
-    draw_outer_circle(&pad, scale);
+    draw_boundary(&pad);
     if !params::hide_notes() {
         crate::player::render::judgment::draw(app, &pad, scale, spawn_cx, current_t, speed_scale);
         crate::player::render::hit_fx::draw(app, &pad, outer_r, spawn_cx, scale);
@@ -133,12 +164,14 @@ pub fn draw_video_background(app: &PadPreviewState, rect: RectF, scale: f32) {
     );
 }
 
-/// Circular cover art drawn inside the disc (square texture, circular UV fan).
+/// Circular, center-cropped cover art drawn inside the disc.
 pub fn draw_cover(app: &PadPreviewState, cx: f32, cy: f32, r: f32) {
     let Some(tex) = &app.cover_texture else {
         return;
     };
     const SEGS: usize = 72;
+    let side = tex.width().min(tex.height());
+    let uv = vec2(side / tex.width(), side / tex.height()) * 0.5;
     let mut mesh = Mesh {
         vertices: Vec::with_capacity(SEGS + 2),
         indices: Vec::with_capacity(SEGS * 3),
@@ -148,7 +181,7 @@ pub fn draw_cover(app: &PadPreviewState, cx: f32, cy: f32, r: f32) {
     for i in 0..=SEGS {
         let a = i as f32 / SEGS as f32 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
         let (s, c) = a.sin_cos();
-        mesh.vertices.push(Vertex::new(cx + c * r, cy + s * r, 0.0, 0.5 + c * 0.5, 0.5 + s * 0.5, WHITE));
+        mesh.vertices.push(Vertex::new(cx + c * r, cy + s * r, 0.0, 0.5 + c * uv.x, 0.5 + s * uv.y, WHITE));
     }
     for i in 1..=SEGS as u16 {
         mesh.indices.extend_from_slice(&[0, i, i + 1]);
@@ -233,8 +266,8 @@ pub fn draw_zones(app: &PadPreviewState, pad: &PadGeom, scale: f32) {
 /// active (so the video shows inside the pad but notes outside are still
 /// hidden).
 pub fn draw_outer_circle(pad: &PadGeom, scale: f32) {
+    draw_outer_outline(pad, scale);
     let r = pad.outer_r * params::pad_circle_scale().max(1.0);
-    draw_circle_lines(pad.cx, pad.cy, r, 1.5 * scale, Color::from_rgba(0x4a, 0x4a, 0x4f, 255));
 
     let a = params::pad_outside_alpha().clamp(0.0, 255.0) / 255.0;
     if a > 0.0 {
@@ -249,8 +282,17 @@ pub fn draw_outer_circle(pad: &PadGeom, scale: f32) {
     }
 }
 
+fn draw_outer_outline(pad: &PadGeom, scale: f32) {
+    let r = pad.outer_r * params::pad_circle_scale().max(1.0);
+    draw_circle_lines(pad.cx, pad.cy, r, 1.5 * scale, Color::from_rgba(0x4a, 0x4a, 0x4f, 255));
+}
+
 /// Filled annulus (inner radius `ri`, outer radius `ro`) as a triangle strip.
 fn draw_annulus(cx: f32, cy: f32, ri: f32, ro: f32, color: Color) {
+    draw_mesh(&annulus_mesh(cx, cy, ri, ro, color));
+}
+
+pub(crate) fn annulus_mesh(cx: f32, cy: f32, ri: f32, ro: f32, color: Color) -> Mesh {
     const SEGS: usize = 96;
     let mut mesh = Mesh {
         vertices: Vec::with_capacity((SEGS + 1) * 2),
@@ -267,7 +309,7 @@ fn draw_annulus(cx: f32, cy: f32, ri: f32, ro: f32, color: Color) {
         let b = i * 2;
         mesh.indices.extend_from_slice(&[b, b + 1, b + 2, b + 1, b + 3, b + 2]);
     }
-    draw_mesh(&mesh);
+    mesh
 }
 
 /// The eight dots at the ring positions plus a light connecting octagon arc.

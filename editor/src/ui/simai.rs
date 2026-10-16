@@ -128,7 +128,7 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
     let follow_changed = ui.data(|d| d.get_temp::<Option<usize>>(follow_id)).flatten() != target;
     ui.data_mut(|d| d.insert_temp(follow_id, target));
     let mut seek_time = None;
-    Frame::NONE.fill(BG_PANEL).inner_margin(8).show(ui, |ui| {
+    Frame::NONE.fill(crate::theme::surface(BG_PANEL)).inner_margin(8).show(ui, |ui| {
         ui.set_min_size(ui.available_size());
         if template { ui.colored_label(TEXT_DIM, "模板编辑中"); }
         if editor.simai_editor.conflict(chart) {

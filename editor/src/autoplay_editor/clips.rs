@@ -480,15 +480,9 @@ pub(super) fn draw(
                 }
                 let plot = Rect::from_min_max(Pos2::new(left, rect.top()), rect.max);
                 let p = ui.painter().with_clip_rect(plot.intersect(ui.clip_rect()));
-                p.rect_filled(
-                    plot,
-                    0.0,
-                    if lane % 2 == 0 {
-                        BG_CANVAS
-                    } else {
-                        Color32::from_gray(39)
-                    },
-                );
+                if lane % 2 != 0 {
+                    p.rect_filled(plot, 0.0, crate::theme::surface(Color32::from_white_alpha(3)));
+                }
                 ui.painter().text(
                     Pos2::new(rect.left() + 9.0, rect.center().y),
                     egui::Align2::LEFT_CENTER,
@@ -959,7 +953,6 @@ fn sensor_rows(
             }
             let plot = Rect::from_min_max(Pos2::new(left, rect.top()), rect.max);
             let p = ui.painter().with_clip_rect(plot.intersect(ui.clip_rect()));
-            p.rect_filled(plot, 0.0, BG_CANVAS);
             let label = if lane != 0 {
                 String::new()
             } else if state.tracks[row].key.role == 2 {

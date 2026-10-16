@@ -122,6 +122,17 @@ pub fn find_audio_in_dir(dir: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Cover art alongside a chart; the player and editor share this priority.
+pub fn find_cover_in_dir(dir: &Path) -> Option<PathBuf> {
+    [
+        "bg.jpg", "bg.png", "bg.jpeg", "cover.jpg", "cover.png", "jacket.jpg", "jacket.png",
+        "cover.jpeg", "jacket.jpeg",
+    ]
+    .into_iter()
+    .map(|name| dir.join(name))
+    .find(|path| path.is_file())
+}
+
 /// Load a chart from JSON, supporting the beat format, the legacy measure
 /// format, the old seconds format, and `RecordingDoc` (which wraps a chart).
 fn load_chart_from_json(json: &str) -> Result<ChartDoc, String> {
