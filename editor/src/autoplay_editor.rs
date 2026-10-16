@@ -5,7 +5,6 @@ use crate::app::types::{ChartDoc, Mode, measure_to_secs, note_secs, secs_to_meas
 use crate::core::types::{AutoplayPlan, ButtonZone, SensorArea, TimedInputEvent};
 use crate::player::{engine::timed_input_tp, state::PadPreviewState};
 use crate::state::EditorState;
-use crate::ui::layout::Layout;
 use egui_macroquad::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 use std::{
     collections::{HashMap, HashSet},
@@ -14,6 +13,8 @@ use std::{
 
 #[cfg(all(test, feature = "backend-lean"))]
 mod tests;
+mod clips;
+mod inspector;
 
 const HEADER: f32 = 96.0;
 const ROW: f32 = 52.0;
@@ -67,6 +68,7 @@ pub struct AutoplayEditor {
     pub selected: Option<(usize, usize)>,
     pub selected_row: Option<usize>,
     drag: Option<Drag>,
+    pan_x: Option<f32>,
     inspector_edit: Option<InspectorEdit>,
     pub filter: String,
     lanes: Vec<Vec<LaneGroup>>,
@@ -77,6 +79,20 @@ pub struct AutoplayEditor {
     lane_heights: Vec<f32>,
     new_zone: String,
     new_kind: u8,
+    pub view_start: f32,
+    pub pixels_per_second: f32,
+    center_requested: bool,
+    view_changed: bool,
+    plot_width: f32,
+    pub follow: bool,
+    raw_events: bool,
+    draw_mode: bool,
+    clip_layout: Arc<clips::ClipLayout>,
+    clip_drag: Option<clips::Gesture>,
+    detail_row: Option<usize>,
+    selected_pair: Option<usize>,
+    fit_requested: Option<(f32, f32)>,
+    suppress_pointer: bool,
 }
 
 impl Default for AutoplayEditor {
@@ -89,6 +105,7 @@ impl Default for AutoplayEditor {
             selected: None,
             selected_row: None,
             drag: None,
+            pan_x: None,
             inspector_edit: None,
             filter: String::new(),
             lanes: vec![Vec::new(); DEFAULT_LANES],
@@ -99,13 +116,29 @@ impl Default for AutoplayEditor {
             lane_heights: Vec::new(),
             new_zone: "A1".into(),
             new_kind: 0,
+            view_start: 0.0,
+            pixels_per_second: crate::timeline::geometry::DEFAULT_PPS,
+            center_requested: true,
+            view_changed: false,
+            plot_width: 0.0,
+            follow: true,
+            raw_events: false,
+            draw_mode: false,
+            clip_layout: Default::default(),
+            clip_drag: None,
+            detail_row: None,
+            selected_pair: None,
+            fit_requested: None,
+            suppress_pointer: false,
         }
     }
 }
 
 impl AutoplayEditor {
+    pub fn pointer_dragging(&self) -> bool { self.drag.is_some() || self.clip_drag.is_some() || self.pan_x.is_some() }
+
     pub fn dragging(&self) -> bool {
-        self.drag.is_some() || self.inspector_edit.is_some()
+        self.pointer_dragging() || self.inspector_edit.is_some()
     }
 
     fn sync(&mut self, app: &PadPreviewState) {
@@ -117,6 +150,14 @@ impl AutoplayEditor {
         };
         let changed = self.plan.as_ref().is_none_or(|old| !Arc::ptr_eq(old, plan))
             || self.inner_screen != app.params.autoplay_inner_screen;
+        let refresh = changed || self.overrides != app.chart.autoplay_overrides;
+        let old_detail = refresh.then(|| self.detail_row.and_then(|row| self.tracks.get(row)).map(|track| track.key.clone())).flatten();
+        let old_selection = refresh.then(|| self.selected.and_then(|(row, index)| {
+            let track = self.tracks.get(row)?;
+            let event = track.events.get(index)?;
+            let relative = |event: &TimedInputEvent| autoplay_edit::with_time(event, timed_input_tp(event).saturating_sub(track.head));
+            Some((track.key.clone(), index, relative(event), self.selected_pair.and_then(|i| track.events.get(i)).map(relative)))
+        })).flatten();
         if changed {
             let Some(engine) = &app.judge_engine else {
                 return;
@@ -125,9 +166,6 @@ impl AutoplayEditor {
                 .selected_row
                 .and_then(|row| self.tracks.get(row))
                 .map(|track| track.key.clone());
-            let old_event = self.selected.and_then(|(row, index)| {
-                self.tracks.get(row).map(|track| (track.key.clone(), index))
-            });
             let chart = app.playback_chart();
             let notes: HashMap<_, _> = chart.notes.iter().map(|note| (note.id, note)).collect();
             self.tracks.clear();
@@ -181,16 +219,10 @@ impl AutoplayEditor {
             });
             self.selected_row =
                 old_key.and_then(|key| self.tracks.iter().position(|track| track.key == key));
-            self.selected = old_event.and_then(|(key, index)| {
-                self.tracks
-                    .iter()
-                    .position(|track| track.key == key)
-                    .map(|row| (row, index))
-            });
             self.plan = Some(Arc::clone(plan));
             self.inner_screen = app.params.autoplay_inner_screen;
         }
-        if changed || self.overrides != app.chart.autoplay_overrides {
+        if refresh {
             let authored: HashMap<_, _> = app
                 .chart
                 .autoplay_overrides
@@ -215,8 +247,29 @@ impl AutoplayEditor {
                     .unwrap_or_else(|| track.defaults.clone());
             }
             self.overrides.clone_from(&app.chart.autoplay_overrides);
+            self.detail_row = old_detail.and_then(|key| self.tracks.iter().position(|t| t.key == key));
+            self.selected_pair = None;
+            self.selected = old_selection.and_then(|(key, old_index, event, pair)| {
+                let row = self.tracks.iter().position(|t| t.key == key)?;
+                let track = &self.tracks[row];
+                let matches = |candidate: &TimedInputEvent, target: &TimedInputEvent| {
+                    autoplay_edit::with_time(candidate, timed_input_tp(candidate).saturating_sub(track.head)) == *target
+                };
+                let index = if track.events.get(old_index).is_some_and(|e| matches(e, &event)) { old_index }
+                    else { track.events.iter().position(|e| matches(e, &event))? };
+                self.selected_pair = pair.and_then(|pair| track.events.iter().enumerate()
+                    .find(|(i, e)| *i != index && matches(e, &pair)).map(|(i, _)| i));
+                Some((row, index))
+            });
             self.lanes_dirty = true;
         }
+        self.validate_selection();
+        self.repack();
+    }
+
+    fn validate_selection(&mut self) {
+        if self.selected_row.is_some_and(|row| row >= self.tracks.len()) { self.selected_row = None; }
+        if self.detail_row.is_some_and(|row| row >= self.tracks.len()) { self.detail_row = None; }
         if self.selected.is_some_and(|(r, i)| {
             self.tracks
                 .get(r)
@@ -224,12 +277,16 @@ impl AutoplayEditor {
         }) {
             self.selected = None;
         }
-        self.repack();
+        if let Some((row, index)) = self.selected {
+            if self.selected_pair.is_some_and(|pair| !clips::intervals(&self.tracks[row].events)
+                .iter().any(|span| span.press == index && span.release == Some(pair))) { self.selected_pair = None; }
+        } else { self.selected_pair = None; }
     }
 
     fn repack(&mut self) {
         if self.lanes_dirty && !self.dragging() {
             self.lanes = pack_lanes(&self.tracks, self.lane_count);
+            self.clip_layout = Arc::new(clips::ClipLayout::build(&self.tracks, self.lane_count, &self.clip_layout));
             self.lanes_dirty = false;
             self.layout_pps = 0.0;
         }
@@ -247,9 +304,11 @@ impl AutoplayEditor {
         self.layout_pps = pps;
     }
 
-    fn clear_selection(&mut self) {
+    pub fn clear_selection(&mut self) {
         self.selected = None;
         self.selected_row = None;
+        self.selected_pair = None;
+        self.draw_mode = false;
     }
 
     pub fn commit(
@@ -287,6 +346,58 @@ impl AutoplayEditor {
         self.lanes_dirty = true;
     }
 
+    fn commit_many(&mut self, editor: &mut EditorState, chart: &mut ChartDoc, edits: Vec<(usize, Vec<TimedInputEvent>)>) {
+        let edits: Vec<_> = edits.into_iter().filter(|(row, events)| {
+            self.tracks.get(*row).is_some_and(|track| {
+                let relative = autoplay_edit::relative(events, track.head);
+                chart.autoplay_overrides.iter().find(|item| item.key == track.key)
+                    .map_or(*events != track.defaults, |item| item.events != relative)
+            })
+        }).collect();
+        if edits.is_empty() { return; }
+        editor.push_history(chart);
+        for (row, events) in edits {
+            let track = &mut self.tracks[row];
+            chart.autoplay_overrides.retain(|item| item.key != track.key);
+            track.authored = events != track.defaults;
+            if track.authored {
+                chart.autoplay_overrides.push(AutoplayOverride {
+                    key: track.key.clone(), events: autoplay_edit::relative(&events, track.head),
+                });
+            }
+            track.events = events;
+        }
+        self.lanes_dirty = true;
+    }
+
+    fn clip_rows(&self, row: usize) -> Vec<usize> {
+        self.clip_layout.clips.iter().find(|clip| clip.rows.contains(&row))
+            .map(|clip| clip.rows.clone()).unwrap_or_else(|| vec![row])
+    }
+
+    pub fn selection_span(&self) -> Option<(f32, f32)> {
+        if let Some((row, index)) = self.selected {
+            let events = &self.tracks.get(row)?.events;
+            let start = timed_input_tp(events.get(index)?);
+            let end = self.selected_pair.and_then(|i| events.get(i)).map(timed_input_tp).unwrap_or(start);
+            return Some((start.min(end) as f32 / 1e6, start.max(end) as f32 / 1e6));
+        }
+        let row = self.selected_row?;
+        let rows = self.clip_rows(row);
+        let mut times = rows.iter().filter_map(|row| self.tracks.get(*row))
+            .flat_map(|track| &track.events).map(timed_input_tp);
+        let first = times.next()?;
+        let (start, end) = times.fold((first, first), |(a, b), t| (a.min(t), b.max(t)));
+        Some((start as f32 / 1e6, end as f32 / 1e6))
+    }
+
+    pub fn locate(&mut self, span: Option<(f32, f32)>) {
+        self.fit_requested = span;
+        self.center_requested = false;
+    }
+
+    pub fn return_current(&mut self) { self.follow = true; self.center_requested = true; }
+
     pub fn reset(&mut self, editor: &mut EditorState, chart: &mut ChartDoc, row: usize) {
         let Some(track) = self.tracks.get_mut(row) else {
             return;
@@ -305,6 +416,7 @@ impl AutoplayEditor {
         track.events = track.defaults.clone();
         track.authored = false;
         self.selected = None;
+        self.selected_pair = None;
         self.lanes_dirty = true;
     }
 
@@ -313,15 +425,33 @@ impl AutoplayEditor {
             if let Some(track) = self.tracks.get(row) {
                 let mut events = track.events.clone();
                 if index < events.len() {
+                    if let Some(pair) = self.selected_pair.take().filter(|pair| *pair < events.len() && *pair != index) {
+                        events.remove(index.max(pair));
+                        events.remove(index.min(pair));
+                    } else {
                     events.remove(index);
+                    }
                     self.commit(editor, chart, row, events);
                 }
             }
             self.selected = None;
+        } else if let Some(row) = self.selected_row {
+            let edits = self.clip_rows(row).into_iter().map(|row| (row, Vec::new())).collect();
+            self.commit_many(editor, chart, edits);
         }
     }
 
     pub fn cancel(&mut self) {
+        self.pan_x = None;
+        if let Some(gesture) = self.clip_drag.take() {
+            self.selected = gesture.selection;
+            self.selected_pair = gesture.pair;
+            self.selected_row = gesture.row;
+            for (row, events) in gesture.originals {
+                if let Some(track) = self.tracks.get_mut(row) { track.events = events; }
+            }
+            self.lanes_dirty = true;
+        }
         if let Some(drag) = self.drag.take() {
             if let Some(event) = self
                 .tracks
@@ -338,6 +468,7 @@ impl AutoplayEditor {
             }
             self.lanes_dirty = true;
         }
+        self.validate_selection();
     }
 
     fn finish_inspector(&mut self, editor: &mut EditorState, chart: &mut ChartDoc) {
@@ -414,32 +545,11 @@ fn pack_lanes(tracks: &[Track], minimum: usize) -> Vec<Vec<LaneGroup>> {
 }
 
 fn event_layout(events: &[TimedInputEvent], pps: f32) -> EventLayout {
-    let mut order: Vec<_> = (0..events.len()).collect();
-    order.sort_by_key(|&index| timed_input_tp(&events[index]));
-    let mut spans: Vec<(i64, i64, usize, Option<usize>)> = Vec::new();
-    let mut held: HashMap<String, Vec<usize>> = HashMap::new();
-    for index in order {
-        let event = &events[index];
-        let time = timed_input_tp(event);
-        let zone = event_zone(event);
-        match event_kind(event) {
-            1 => {
-                held.entry(zone).or_default().push(spans.len());
-                spans.push((time, i64::MAX, index, None));
-            }
-            2 => {
-                if let Some(span) = held.get_mut(&zone).and_then(|starts| {
-                    if starts.is_empty() { None } else { Some(starts.remove(0)) }
-                }) {
-                    spans[span].1 = time;
-                    spans[span].3 = Some(index);
-                } else {
-                    spans.push((time, time, index, None));
-                }
-            }
-            _ => spans.push((time, time, index, None)),
-        }
-    }
+    let mut spans: Vec<_> = clips::intervals(events).into_iter().map(|span| {
+        let start = timed_input_tp(&events[span.press]);
+        let end = span.release.map(|i| timed_input_tp(&events[i])).unwrap_or(start);
+        (start, end, span.press, span.release)
+    }).collect();
     spans.sort_by_key(|&(start, _, index, _)| (start, index));
     let padding = (20.0 / pps.max(1.0) * 1e6).ceil() as i64;
     let mut ends: Vec<i64> = Vec::new();
@@ -454,7 +564,7 @@ fn event_layout(events: &[TimedInputEvent], pps: f32) -> EventLayout {
         if let Some(release) = release {
             layout.rows[release] = row;
         }
-        if event_kind(&events[index]) == 1 {
+        if event_kind(&events[index]) == 1 && release.is_some() {
             layout.holds.push((index, release));
         }
     }
@@ -467,48 +577,54 @@ fn event_center(event: &TimedInputEvent, index: usize, layout: &EventLayout, top
     Pos2::new(x, top + layout.rows[index] as f32 * EVENT_ROW + offset)
 }
 
-pub fn draw(
+pub fn prepare(
     ctx: &egui::Context,
     editor: &mut EditorState,
     app: &mut PadPreviewState,
-    layout: &mut Layout,
     enabled: bool,
-    raw_wheel: f32,
+    event_commands: bool,
 ) {
     let mut state = std::mem::take(&mut editor.autoplay_editor);
-    if !enabled {
-        state.cancel();
-    }
+    state.suppress_pointer = false;
     state.sync(app);
-    layout.sidebar = Rect::NOTHING;
-    layout.timeline = Rect::NOTHING;
-    layout.tools = Rect::NOTHING;
-    layout.overview = Rect::NOTHING;
     if enabled {
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-            state.cancel();
-            state.clear_selection();
+        if event_commands && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if state.dragging() { state.cancel(); }
+            else if state.draw_mode { state.draw_mode = false; }
+            else if state.selected_row.is_some() { state.clear_selection(); }
+            else { state.detail_row = None; }
+            state.suppress_pointer = true;
             ctx.memory_mut(|m| {
                 if let Some(id) = m.focused() {
                     m.surrender_focus(id);
                 }
             });
+            editor.autoplay_editor = state;
+            return;
         }
         if !ctx.wants_keyboard_input() && !ctx.memory(|m| m.any_popup_open())
             && !state.dragging() && !editor.keyboard.ime {
             crate::keyboard::panels::load_bindings(editor);
             let events = ctx.input(|i| i.events.clone());
-            for event in events {
+            let mut consumed = Vec::new();
+            for (event_index, event) in events.into_iter().enumerate() {
                 let egui::Event::Key {
                     key,
                     pressed: true,
-                    repeat: false,
+                    repeat,
                     modifiers,
                     ..
                 } = event
                 else {
                     continue;
                 };
+                if event_commands && key == egui::Key::Tab && !modifiers.command && !modifiers.ctrl && !modifiers.alt {
+                    clips::navigate(&mut state, modifiers.shift);
+                    consumed.push(event_index);
+                    continue;
+                }
+                if repeat { continue; }
+                let mut handled = true;
                 match crate::keyboard::panels::bound_command(editor, key, modifiers) {
                     Some("play") => app.toggle_play(),
                     Some("help") => editor.show_help = true,
@@ -516,292 +632,179 @@ pub fn draw(
                     Some("save_as") => editor.save_as_request = true,
                     Some("export") => editor.export_request = true,
                     Some("open") => editor.open_dialog = true,
-                    Some("undo") => editor.undo(&mut app.chart),
-                    Some("redo") => editor.redo(&mut app.chart),
+                    Some("undo") => { editor.undo(&mut app.chart); state.suppress_pointer = true; }
+                    Some("redo") => { editor.redo(&mut app.chart); state.suppress_pointer = true; }
                     Some("snap") => editor.snap_enabled = !editor.snap_enabled,
+                    Some("commands") => crate::keyboard::panels::open(editor, &app.chart, crate::keyboard::panels::DialogKind::Commands),
                     _ if !modifiers.command && !modifiers.ctrl && !modifiers.alt => match key {
-                        egui::Key::Delete | egui::Key::Backspace if !modifiers.shift => {
-                            state.delete(editor, &mut app.chart)
+                        egui::Key::G if event_commands && !state.raw_events && !modifiers.shift => clips::begin_selected(&mut state, ctx, false),
+                        egui::Key::D if event_commands && !state.raw_events && modifiers.shift => clips::begin_selected(&mut state, ctx, true),
+                        egui::Key::V if event_commands => state.draw_mode = false,
+                        egui::Key::Enter if event_commands && !state.raw_events => state.detail_row = state.selected_row,
+                        egui::Key::D if event_commands && state.selected_row.is_some() && !state.raw_events => {
+                            state.detail_row = state.selected_row;
+                            state.draw_mode = true;
+                        }
+                        egui::Key::Delete | egui::Key::Backspace if event_commands && !modifiers.shift => {
+                            state.delete(editor, &mut app.chart);
+                            state.suppress_pointer = true;
                         }
                         egui::Key::Questionmark | egui::Key::Slash
                             if modifiers.shift || key == egui::Key::Questionmark =>
                         {
                             editor.show_help = true
                         }
-                        _ => {}
+                        _ => handled = false,
                     },
-                    _ => {}
+                    _ => handled = false,
                 }
-                if editor.show_help {
+                if handled { consumed.push(event_index); }
+                if state.dragging() || state.suppress_pointer || editor.keyboard.dialog.is_some()
+                    || editor.open_dialog || editor.save_as_request || editor.export_request || editor.show_help {
                     break;
                 }
             }
+            ctx.input_mut(|i| {
+                let mut index = 0;
+                i.events.retain(|_| { let keep = !consumed.contains(&index); index += 1; keep });
+            });
         }
     }
     state.sync(app);
-    let editable = enabled && app.has_engine();
-    egui::CentralPanel::default()
-        .frame(egui::Frame::NONE)
-        .show(ctx, |ui| {
-            let rect = ui.max_rect();
-            let top_h = (rect.height() * 0.44)
-                .clamp(140.0, 400.0)
-                .min((rect.height() - 130.0).max(100.0));
-            let inspector_w = (rect.width() * 0.38)
-                .clamp(220.0, 400.0)
-                .min(rect.width() * 0.55);
-            layout.preview = Rect::from_min_max(
-                rect.min,
-                egui::pos2(rect.right() - inspector_w, rect.top() + top_h),
-            );
-            let inspector = Rect::from_min_max(
-                egui::pos2(layout.preview.right(), rect.top()),
-                egui::pos2(rect.right(), rect.top() + top_h),
-            )
-            .shrink(10.0);
-            ui.scope_builder(egui::UiBuilder::new().max_rect(inspector), |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("autoplay_inspector")
-                    .show(ui, |ui| {
-                        ui.add_enabled_ui(enabled, |ui| {
-                            inspector_ui(ui, &mut state, editor, app, editable)
-                        });
-                    });
-            });
-            let bottom = Rect::from_min_max(egui::pos2(rect.left(), rect.top() + top_h), rect.max);
-            ui.scope_builder(egui::UiBuilder::new().max_rect(bottom), |ui| {
-                ui.add_enabled_ui(enabled, |ui| {
-                    tracks_ui(ui, &mut state, editor, app, editable, raw_wheel)
-                });
-            });
-        });
     editor.autoplay_editor = state;
 }
 
-fn inspector_ui(
-    ui: &mut egui::Ui,
-    state: &mut AutoplayEditor,
-    editor: &mut EditorState,
-    app: &mut PadPreviewState,
-    editable: bool,
-) {
-    ui.horizontal(|ui| {
-        ui.heading("Autoplay");
-        if ui
-            .button(if app.mode == Mode::Playing {
-                "⏸"
-            } else {
-                "▶"
-            })
-            .on_hover_text("播放 / 暂停")
-            .clicked()
-        {
-            app.toggle_play();
-        }
-        ui.label(format!("{:.3} s", app.timeline_time()));
+pub fn tracks_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPreviewState, enabled: bool, raw_wheel: f32) {
+    let mut state = std::mem::take(&mut editor.autoplay_editor);
+    ui.painter().rect_filled(ui.max_rect(), 0.0, crate::theme::BG_CANVAS);
+    ui.add_enabled_ui(enabled, |ui| {
+        let editable = enabled && app.has_engine() && !state.suppress_pointer;
+        if state.raw_events { tracks_ui(ui, &mut state, editor, app, editable, raw_wheel); }
+        else { clips::draw(ui, &mut state, editor, app, editable, raw_wheel); }
     });
-    ui.horizontal_wrapped(|ui| {
-        for (mode, label) in [(2, "模拟触摸"), (3, "直传核心")] {
-            if ui
-                .selectable_value(&mut editor.autoplay_mode, mode, label)
-                .changed()
-            {
-                editor.mode_dirty = true;
-            }
-        }
-    });
-    let mut inner_screen = app.params.autoplay_inner_screen;
-    if ui.checkbox(&mut inner_screen, "内屏模式 (K1-K8 → A1-A8)").changed() {
-        state.finish_inspector(editor, &mut app.chart);
-        app.params.autoplay_inner_screen = inner_screen;
-        crate::app::params::set(app.params.clone());
-        state.sync(app);
-    }
-    ui.separator();
-    ui.add_enabled_ui(editable, |ui| {
-        let mut owner = state.selected_row;
-        ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("autoplay_owner")
-                .selected_text(owner.and_then(|row| state.tracks.get(row))
-                    .map(|track| track.label.as_str()).unwrap_or("事件组"))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut owner, None, "无");
-                    for (row, track) in state.tracks.iter().enumerate() {
-                        ui.selectable_value(&mut owner, Some(row), &track.label);
-                    }
-                });
-            if ui.add_enabled(owner.is_some(), egui::Button::new("×"))
-                .on_hover_text("取消选择").clicked() {
-                owner = None;
-            }
-        });
-        if owner != state.selected_row {
-            state.finish_inspector(editor, &mut app.chart);
-            state.selected_row = owner;
-            state.selected = None;
-        }
-        ui.horizontal_wrapped(|ui| {
-            ui.label("新建");
-            egui::ComboBox::from_id_salt("autoplay_new_zone")
-                .selected_text(&state.new_zone)
-                .width(48.0)
-                .show_ui(ui, |ui| {
-                    for zone in zone_names() {
-                        ui.selectable_value(&mut state.new_zone, zone.clone(), zone);
-                    }
-                });
-            for (kind, label) in [(0, "点击"), (1, "按下"), (2, "松开")] {
-                ui.selectable_value(&mut state.new_kind, kind, label);
-            }
-            if ui.add_enabled(owner.is_some(), egui::Button::new("+"))
-                .on_hover_text("在红线处添加事件").clicked() {
-                if let Some(row) = owner {
-                    state.finish_inspector(editor, &mut app.chart);
-                    let tp = (snap_time(app.timeline_time(), editor, &app.chart) * 1e6).round() as i64;
-                    let mut events = state.tracks[row].events.clone();
-                    events.push(make_event(&state.new_zone, state.new_kind, tp));
-                    state.commit(editor, &mut app.chart, row, events);
-                    state.selected = None;
-                }
-            }
-        });
-        if let Some(row) = state.selected_row.filter(|row| *row < state.tracks.len()) {
-            ui.label(format!("Note {}", state.tracks[row].key.note_id));
-            if let Some(lane) = state
-                .lanes
-                .iter()
-                .position(|groups| groups.iter().any(|group| group.row == row))
-            {
-                ui.label(format!("轨道 {}", lane + 1));
-            }
-            ui.horizontal(|ui| {
-                if ui.button("↺").on_hover_text("恢复此组默认事件").clicked() {
-                    state.finish_inspector(editor, &mut app.chart);
-                    state.reset(editor, &mut app.chart, row);
-                }
-                if ui.button("跳转").clicked() {
-                    editor.pending_seek = Some(state.tracks[row].head as f32 / 1e6);
-                    editor.view_start = (state.tracks[row].head as f32 / 1e6 - 0.5).max(0.0);
-                }
-            });
-            let mut choice = state
-                .selected
-                .filter(|(selected_row, _)| *selected_row == row)
-                .map(|(_, index)| index);
-            egui::ComboBox::from_id_salt("autoplay_event_list")
-                .selected_text(
-                    choice
-                        .map(|index| event_label(index, &state.tracks[row].events[index]))
-                        .unwrap_or_else(|| "事件".into()),
-                )
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut choice, None, "无");
-                    for (index, event) in state.tracks[row].events.iter().enumerate() {
-                        ui.selectable_value(&mut choice, Some(index), event_label(index, event));
-                    }
-                });
-            if choice
-                != state
-                    .selected
-                    .filter(|(selected_row, _)| *selected_row == row)
-                    .map(|(_, index)| index)
-            {
-                state.finish_inspector(editor, &mut app.chart);
-                state.selected = choice.map(|index| (row, index));
-            }
-        }
-        if let Some((row, index)) = state.selected.filter(|(row, index)| {
-            state
-                .tracks
-                .get(*row)
-                .is_some_and(|t| *index < t.events.len())
-        }) {
-            let original = state.tracks[row].events[index].clone();
-            let mut time = timed_input_tp(&original) as f64 / 1e6;
-            let mut kind = event_kind(&original);
-            let mut zone = event_zone(&original);
-            let response = ui
-                .horizontal(|ui| {
-                    ui.label("时间 (s)");
-                    ui.add(egui::DragValue::new(&mut time).speed(0.001).max_decimals(6))
-                })
-                .inner;
-            ui.horizontal(|ui| {
-                ui.label("动作");
-                ui.selectable_value(&mut kind, 0, "点击");
-                ui.selectable_value(&mut kind, 1, "按下");
-                ui.selectable_value(&mut kind, 2, "松开");
-            });
-            egui::ComboBox::from_id_salt("event_zone")
-                .selected_text(&zone)
-                .show_ui(ui, |ui| {
-                    for candidate in zone_names() {
-                        ui.selectable_value(&mut zone, candidate.clone(), candidate);
-                    }
-                });
-            let event = make_event(&zone, kind, (time * 1e6).round() as i64);
-            if event != original {
-                if response.dragged() || response.has_focus() || state.inspector_edit.is_some() {
-                    state.inspector_edit.get_or_insert_with(|| InspectorEdit {
-                        row,
-                        original: state.tracks[row].events.clone(),
-                    });
-                    state.tracks[row].events[index] = event;
-                } else {
-                    let mut events = state.tracks[row].events.clone();
-                    events[index] = event;
-                    state.commit(editor, &mut app.chart, row, events);
-                }
-            }
-            if response.drag_stopped()
-                || response.lost_focus()
-                || state.inspector_edit.is_some() && !response.dragged() && !response.has_focus()
-            {
-                state.finish_inspector(editor, &mut app.chart);
-            }
-            if ui.button("×").on_hover_text("删除事件").clicked() {
-                state.finish_inspector(editor, &mut app.chart);
-                state.delete(editor, &mut app.chart);
-            }
-        }
-    });
-    if !app.has_engine() {
-        ui.label(if app.status.is_empty() {
-            "核心更新中"
-        } else {
-            &app.status
-        });
-    }
-    if let Some(score) = &app.core_score {
-        ui.separator();
-        ui.label(format!(
-            "Combo {}   DX {} / {}",
-            score.combo,
-            score.dx_score_remaining(),
-            score.max_dx_score
-        ));
-    }
+    editor.autoplay_editor = state;
 }
 
-fn set_centered_zoom(editor: &mut EditorState, pps: f32, playhead: f32, plot_width: f32) {
+pub fn inspector_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPreviewState, enabled: bool) {
+    let mut state = std::mem::take(&mut editor.autoplay_editor);
+    ui.add_enabled_ui(enabled && !state.suppress_pointer, |ui| inspector::draw(ui, &mut state, editor, app, enabled && app.has_engine()));
+    editor.autoplay_editor = state;
+}
+
+pub fn header(ui: &mut egui::Ui, editor: &mut EditorState, duration: f32) {
+    use crate::ui::style::{glyph, icon};
+    use lucide_icons::Icon;
+    let state = &mut editor.autoplay_editor;
+    if ui.available_width() > 350.0 {
+        ui.add(egui::TextEdit::singleline(&mut state.filter).desired_width(80.0).hint_text("Note ID"));
+    }
+    ui.menu_button(glyph(Icon::ListFilter, 14.0), |ui| {
+        if ui.checkbox(&mut state.raw_events, "原始事件视图").changed() {
+            state.selected_pair = None;
+            state.draw_mode = false;
+        }
+        ui.add(egui::TextEdit::singleline(&mut state.filter).desired_width(120.0).hint_text("Note ID"));
+        ui.horizontal(|ui| {
+            ui.label("基础轨道");
+            if ui.add(egui::DragValue::new(&mut state.lane_count).range(1..=32)).changed() { state.lanes_dirty = true; }
+        });
+        ui.horizontal(|ui| {
+            ui.label("视图起点 (s)");
+            if ui.add(egui::DragValue::new(&mut state.view_start).range(-86400.0..=86400.0).speed(0.1)).changed() {
+                state.center_requested = false;
+                state.view_changed = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("缩放");
+            let mut zoom = state.pixels_per_second;
+            if ui.add(egui::DragValue::new(&mut zoom)
+                .range(crate::timeline::geometry::MIN_PPS..=crate::timeline::geometry::MAX_PPS)
+                .speed(2.0).max_decimals(0).suffix(" px/s")).changed() {
+                set_anchored_zoom(state, zoom, state.plot_width * 0.5);
+            }
+        });
+        if ui.button("显示完整谱面").clicked() { state.locate(Some((0.0, duration))); ui.close_menu(); }
+        let selection = state.selection_span();
+        if ui.add_enabled(selection.is_some(), egui::Button::new("显示所选片段")).clicked() {
+            state.locate(selection); ui.close_menu();
+        }
+    }).response.on_hover_text("筛选与轨道");
+    if icon(ui, Icon::LocateFixed, "回到播放线", false).clicked() { state.center_requested = true; state.follow = true; }
+    if icon(ui, Icon::MoveRight, "跟随播放线", state.follow).clicked() { state.follow = !state.follow; if state.follow { state.center_requested = true; } }
+    let mut zoom = state.pixels_per_second;
+    if ui.available_width() > 140.0 {
+        if ui.add(egui::DragValue::new(&mut zoom).range(crate::timeline::geometry::MIN_PPS..=crate::timeline::geometry::MAX_PPS)
+            .speed(2.0).max_decimals(0).suffix(" px/s")).changed() {
+            set_anchored_zoom(state, zoom, state.plot_width * 0.5);
+        }
+    }
+    if ui.available_width() > 25.0 { crate::ui::toolbar::grid_controls(ui, editor); }
+}
+
+
+fn set_anchored_zoom(editor: &mut AutoplayEditor, pps: f32, offset: f32) {
+    let time = editor.view_start + offset / editor.pixels_per_second;
     editor.pixels_per_second = pps.clamp(
         crate::timeline::geometry::MIN_PPS,
         crate::timeline::geometry::MAX_PPS,
     );
-    editor.view_start = playhead - plot_width.max(0.0) * 0.5 / editor.pixels_per_second;
+    editor.view_start = time - offset / editor.pixels_per_second;
+    editor.view_changed = true;
+    editor.center_requested = false;
 }
 
-fn tracks_ui(
+struct Viewport {
+    ruler: Rect,
+    left: f32,
+    grid: Vec<(f32, bool)>,
+}
+
+fn grid_stroke(major: bool) -> Stroke {
+    Stroke::new(1.0_f32, if major { crate::theme::GRID_BEAT } else { crate::theme::GRID_LINE })
+}
+
+fn paint_grid(painter: &egui::Painter, plot: Rect, grid: &[(f32, bool)]) {
+    for &(x, major) in grid {
+        painter.vline(x, plot.y_range(), grid_stroke(major));
+    }
+}
+
+fn viewport(
     ui: &mut egui::Ui,
     state: &mut AutoplayEditor,
     editor: &mut EditorState,
     app: &mut PadPreviewState,
-    editable: bool,
     raw_wheel: f32,
-) {
+) -> Viewport {
     let now = app.timeline_time();
-    let mut zoom = editor.pixels_per_second;
-    let mut center_playhead = false;
+    let navigation = ui.is_enabled() && (!state.dragging() || state.pan_x.is_some()) && !state.suppress_pointer;
+    let bounds = ui.max_rect().intersect(ui.clip_rect());
+    let over_timeline = ui.rect_contains_pointer(bounds);
+    let width = ui.available_width();
+    let (ruler, response) = ui.allocate_exact_size(Vec2::new(width, 26.0),
+        if navigation { Sense::click_and_drag() } else { Sense::hover() });
+    let left = ruler.left() + HEADER.min(width * 0.4);
+    let plot_width = ruler.right() - left;
+    let pointer = ui.input(|i| i.pointer.latest_pos());
+    let middle = egui::PointerButton::Middle;
+    let primary = egui::PointerButton::Primary;
+    let was_panning = state.pan_x.is_some();
+    if !navigation || !ui.input(|i| i.focused && i.pointer.button_down(middle)) {
+        state.pan_x = None;
+    } else if !editor.scrubbing && editor.loop_drag.is_none() {
+        if over_timeline && ui.input(|i| i.pointer.button_pressed(middle) && !i.pointer.primary_down()) {
+            state.pan_x = pointer.map(|p| p.x);
+            state.center_requested = false;
+        }
+        if let (Some(origin), Some(pos)) = (state.pan_x, pointer) {
+            let step = crate::timeline::input::rate_pan_step(pos.x - origin, ui.input(|i| i.stable_dt));
+            state.view_start += step / state.pixels_per_second;
+            ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+            if step != 0.0 { ui.ctx().request_repaint(); }
+        }
+    }
+    let panning = was_panning || state.pan_x.is_some();
     let command = ui.input(|i| {
         i.modifiers.command || i.modifiers.ctrl || i.modifiers.mac_cmd
             || i.events.iter().any(|event| matches!(event,
@@ -809,81 +812,91 @@ fn tracks_ui(
                     if modifiers.command || modifiers.ctrl || modifiers.mac_cmd
             ))
     });
-    let over_timeline = ui.rect_contains_pointer(ui.max_rect());
-    let pinch = crate::gesture::take();
+    let shift = ui.input(|i| i.modifiers.shift || i.events.iter().any(|event| matches!(event,
+        egui::Event::MouseWheel { modifiers, .. } if modifiers.shift
+    )));
+    let pinch = if over_timeline { crate::gesture::take() } else { 0.0 };
     let wheel_zoom = command && over_timeline && raw_wheel.abs() > f32::EPSILON;
-    if ui.is_enabled() && !state.dragging() {
-        let delta = if pinch.abs() > 1e-6 { pinch } else if wheel_zoom { raw_wheel * 0.05 } else { 0.0 };
-        if delta != 0.0 {
-            zoom = crate::timeline::input::zoomed_pps(zoom, delta, 1.0);
-            center_playhead = true;
-        }
-    }
+    let zoom_delta = if pinch.abs() > 1e-6 { pinch } else if wheel_zoom { raw_wheel * 0.05 } else { 0.0 };
     if wheel_zoom || pinch.abs() > 1e-6 {
         ui.input_mut(|i| {
             i.smooth_scroll_delta = Vec2::ZERO;
             i.raw_scroll_delta = Vec2::ZERO;
         });
     }
-    ui.separator();
-    ui.horizontal_wrapped(|ui| {
-        ui.strong("事件轨道");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.filter)
-                .desired_width(115.0)
-                .hint_text("Note ID"),
-        );
-        ui.label("基础轨道");
-        if ui
-            .add(egui::DragValue::new(&mut state.lane_count).range(1..=32))
-            .changed()
+    if !state.dragging() && !panning && editor.loop_drag.is_none() && !editor.scrubbing {
+        let pan = if navigation && over_timeline && !command && pinch.abs() <= 1e-6 {
+            ui.input(|i| {
+                let delta = i.raw_scroll_delta;
+                if shift && delta.y.abs() > delta.x.abs() { delta.y } else { delta.x }
+            })
+        } else { 0.0 };
+        if let Some((a, b)) = state.fit_requested.take() {
+            let margin = ((b - a) * 0.1).max(0.2);
+            state.pixels_per_second = (plot_width / (b - a + margin * 2.0).max(0.1))
+                .clamp(crate::timeline::geometry::MIN_PPS, crate::timeline::geometry::MAX_PPS);
+            state.view_start = (a + b) * 0.5 - plot_width * 0.5 / state.pixels_per_second;
+            state.center_requested = false;
+        } else if navigation && zoom_delta != 0.0 {
+            let zoom = crate::timeline::input::zoomed_pps(state.pixels_per_second, zoom_delta, 1.0);
+            let offset = pointer.map_or(plot_width * 0.5, |pos| (pos.x - left).clamp(0.0, plot_width));
+            set_anchored_zoom(state, zoom, offset);
+        } else if pan != 0.0 {
+            state.center_requested = false;
+            state.view_start -= pan / state.pixels_per_second;
+            ui.input_mut(|i| {
+                i.raw_scroll_delta.x = 0.0;
+                i.smooth_scroll_delta.x = 0.0;
+                if shift { i.raw_scroll_delta.y = 0.0; i.smooth_scroll_delta.y = 0.0; }
+            });
+        } else if !state.view_changed && !ui.input(|i| i.pointer.primary_down())
+            && (state.center_requested || state.follow && matches!(app.mode, Mode::Playing | Mode::Recording))
         {
-            state.lanes_dirty = true;
-        }
-        ui.checkbox(&mut editor.snap_enabled, "吸附");
-        ui.label("1/");
-        ui.add(egui::DragValue::new(&mut editor.snap_division).range(1..=256));
-        ui.add(
-            egui::Slider::new(
-                &mut zoom,
-                crate::timeline::geometry::MIN_PPS..=crate::timeline::geometry::MAX_PPS,
-            )
-            .logarithmic(true)
-            .text("缩放")
-            .show_value(false),
-        );
-        if ui.button("当前").clicked() {
-            center_playhead = true;
-        }
-    });
-    ui.horizontal(|ui| {
-        ui.label("时间 (s)");
-        ui.add(
-            egui::DragValue::new(&mut editor.view_start)
-                .range(-86400.0..=86400.0)
-                .speed(0.1),
-        );
-    });
-    let width = ui.available_width();
-    let (ruler, response) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click_and_drag());
-    let left = ruler.left() + HEADER.min(width * 0.4);
-    if !state.dragging() {
-        if center_playhead || zoom != editor.pixels_per_second
-            || matches!(app.mode, Mode::Playing | Mode::Recording)
-        {
-            set_centered_zoom(editor, zoom, now, ruler.right() - left);
-        } else if ui.is_enabled() && over_timeline && !command && pinch.abs() <= 1e-6 {
-            // Smoothed scroll can outlive a zoom and move the freshly centered view.
-            editor.view_start -= ui.input(|i| i.raw_scroll_delta.x) / editor.pixels_per_second;
+            state.view_start = now - plot_width * 0.5 / state.pixels_per_second;
+            state.center_requested = false;
+        } else if state.plot_width > 0.0 && (plot_width - state.plot_width).abs() > 0.5 {
+            state.view_start += (state.plot_width - plot_width) * 0.5 / state.pixels_per_second;
         }
     }
+    state.view_changed = false;
+    state.plot_width = plot_width;
     state.repack();
-    state.layout_events(editor.pixels_per_second);
-    let pps = editor.pixels_per_second;
-    let view = editor.view_start;
+    if state.raw_events { state.layout_events(state.pixels_per_second); }
+    let pps = state.pixels_per_second;
+    let snap = editor.snap_enabled;
+    let division = editor.snap_division.max(1) as f32;
+    let looping = crate::timeline::overview::loop_gesture(ui, &response, editor,
+        navigation && !panning && response.interact_pointer_pos().is_some_and(|pos| pos.x >= left), |x| {
+            let time = state.view_start + (x.max(left) - left) / pps;
+            if snap {
+                let measure = (secs_to_measure(time, &app.chart.bpms) * division).round() / division;
+                measure_to_secs(measure, &app.chart.bpms).max(0.0)
+            } else { time.max(0.0) }
+        });
+    if looping { state.center_requested = false; }
+    let dragging = response.dragged_by(primary);
+    let released = response.drag_stopped_by(primary);
+    let started_in_plot = ui.input(|i| i.pointer.press_origin()).or(response.interact_pointer_pos())
+        .is_some_and(|pos| pos.x >= left && pos.x <= ruler.right());
+    if navigation && !panning && !looping && started_in_plot
+        && (response.clicked() || dragging || released)
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        state.center_requested = false;
+        // Continue moving while held outside, even when no new pointer event arrives.
+        let x = pos.x.clamp(left, ruler.right());
+        if dragging && pos.x != x {
+            state.view_start += crate::timeline::input::scroll_step(pos.x - x, ui.input(|i| i.stable_dt)) / pps;
+            ui.ctx().request_repaint();
+        }
+        editor.pending_seek = Some(snap_time(state.view_start + (x - left) / pps, editor, &app.chart).max(0.0));
+        editor.scrubbing = dragging;
+    }
+    if released { editor.scrubbing = false; }
+    let view = state.view_start;
     let x_of = |time: f32| left + (time - view) * pps;
     let painter = ui.painter().with_clip_rect(ruler);
-    painter.rect_filled(ruler, 0.0, Color32::from_rgb(32, 33, 35));
+    painter.rect_filled(ruler, 0.0, crate::theme::BG_OVERVIEW);
     let start = secs_to_measure(view, &app.chart.bpms).floor().max(1.0);
     let end = secs_to_measure(view + (ruler.right() - left) / pps, &app.chart.bpms)
         .ceil()
@@ -902,32 +915,40 @@ fn tracks_ui(
         let division = editor.snap_division.max(1);
         let step =
             (measure_to_secs(measure as f32 + 1.0, &app.chart.bpms) - time) * pps / division as f32;
-        for sub in 0..division {
-            if sub != 0 && step < 5.0 {
-                continue;
-            }
+        // Thin dense grids to a coarser divisor without losing all subdivisions.
+        let stride = (1..=division)
+            .find(|stride| division % *stride == 0 && step * *stride as f32 >= 5.0)
+            .unwrap_or(division);
+        for sub in (0..division).step_by(stride as usize) {
             let x = x_of(measure_to_secs(
                 measure as f32 + sub as f32 / division as f32,
                 &app.chart.bpms,
             ));
             if x >= left && x <= ruler.right() {
                 grid.push((x, sub == 0));
+                let height = if sub == 0 { 8.0 } else { 4.0 };
+                painter.vline(x, (ruler.bottom() - height)..=ruler.bottom(), grid_stroke(sub == 0));
             }
         }
     }
-    if (response.clicked() || response.dragged())
-        && response
-            .interact_pointer_pos()
-            .is_some_and(|pos| pos.x >= left)
-    {
-        let pos = response.interact_pointer_pos().unwrap();
-        let time = snap_time(view + (pos.x - left) / pps, editor, &app.chart).max(0.0);
-        editor.pending_seek = Some(time);
-        editor.scrubbing = response.dragged();
+    if let Some((a, b)) = editor.loop_range {
+        let range = Rect::from_min_max(Pos2::new(x_of(a).max(left), ruler.top()), Pos2::new(x_of(b).min(ruler.right()), ruler.bottom()));
+        if range.is_positive() {
+            painter.rect_filled(range, 0.0, Color32::from_rgba_unmultiplied(98, 174, 211, if editor.loop_enabled { 45 } else { 15 }));
+            painter.hline(range.x_range(), ruler.bottom() - 2.0, Stroke::new(2.0_f32, crate::theme::ACCENT_BLUE));
+        }
     }
-    if response.drag_stopped() {
-        editor.scrubbing = false;
-    }
+    Viewport { ruler, left, grid }
+}
+
+fn tracks_ui(ui: &mut egui::Ui, state: &mut AutoplayEditor, editor: &mut EditorState,
+    app: &mut PadPreviewState, editable: bool, raw_wheel: f32) {
+    let Viewport { ruler, left, grid } = viewport(ui, state, editor, app, raw_wheel);
+    let width = ruler.width();
+    let now = editor.pending_seek.unwrap_or_else(|| app.timeline_time());
+    let pps = state.pixels_per_second;
+    let view = state.view_start;
+    let x_of = |time: f32| left + (time - view) * pps;
     let mut reset_row = None;
     let filter = state.filter.trim().to_lowercase();
     let visible_start = ((view - 8.0 / pps) * 1e6).floor() as i64;
@@ -939,6 +960,7 @@ fn tracks_ui(
         .or_else(|| state.inspector_edit.as_ref().map(|edit| edit.row));
     egui::ScrollArea::vertical()
         .id_salt("autoplay_tracks")
+        .drag_to_scroll(state.pan_x.is_none())
         .auto_shrink([false, false])
         .show(ui, |ui| {
             for lane in 0..state.lanes.len() {
@@ -950,16 +972,16 @@ fn tracks_ui(
                 let header = Rect::from_min_max(rect.min, Pos2::new(left, rect.bottom()));
                 let plot = Rect::from_min_max(Pos2::new(left, rect.top()), rect.max);
                 let background = ui.interact(plot.intersect(ui.clip_rect()),
-                    ui.id().with(("autoplay_empty", lane)), Sense::click());
-                if background.clicked() && state.drag.is_none() {
+                    ui.id().with(("autoplay_empty", lane)), if editable && !state.pointer_dragging() { Sense::click() } else { Sense::hover() });
+                if background.clicked() && editable && state.drag.is_none() {
                     state.finish_inspector(editor, &mut app.chart);
                     state.clear_selection();
                 }
                 let painter = ui.painter().clone();
                 let bg = if lane % 2 == 0 {
-                    Color32::from_rgb(26, 27, 29)
+                    crate::theme::BG_CANVAS
                 } else {
-                    Color32::from_rgb(30, 31, 33)
+                    Color32::from_gray(41)
                 };
                 painter.rect_filled(rect, 0.0, bg);
                 painter.with_clip_rect(header.shrink(6.0)).text(
@@ -974,12 +996,7 @@ fn tracks_ui(
                     Stroke::new(1.0_f32, Color32::from_gray(55)),
                 );
                 let p = painter.with_clip_rect(plot.intersect(ui.clip_rect()));
-                for &(x, major) in &grid {
-                    p.line_segment(
-                        [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-                        Stroke::new(1.0_f32, Color32::from_gray(if major { 65 } else { 39 })),
-                    );
-                }
+                paint_grid(&p, plot, &grid);
                 // Groups in a lane are ordered, disjoint spans; skip offscreen notes.
                 let groups = &state.lanes[lane];
                 let first = groups.partition_point(|group| group.end < visible_start);
@@ -1025,13 +1042,14 @@ fn tracks_ui(
                     p.rect_filled(
                         clip,
                         3.0,
-                        color.gamma_multiply(if selected { 0.3 } else { 0.12 }),
+                        Color32::from_gray(if selected { 55 } else { 46 }),
                     );
+                    p.vline(clip.left() + 1.0, clip.y_range(), Stroke::new(2.0_f32, color));
                     if selected {
                         p.rect_stroke(
                             clip,
                             3.0,
-                            Stroke::new(1.0_f32, color),
+                            Stroke::new(1.0_f32, crate::theme::ACCENT_BLUE),
                             egui::StrokeKind::Inside,
                         );
                     }
@@ -1070,15 +1088,16 @@ fn tracks_ui(
                         .interact(
                             clip.intersect(ui.clip_rect()),
                             ui.id().with(("event_group", row)),
-                            Sense::click(),
+                            if editable && !state.pointer_dragging() { Sense::click() } else { Sense::hover() },
                         )
                         .on_hover_text(format!("{} / Note {}", track.label, track.key.note_id));
                     if response.clicked() && state.drag.is_none() {
                         state.finish_inspector(editor, &mut app.chart);
                         state.selected_row = Some(row);
                         state.selected = None;
+                        state.selected_pair = None;
                     }
-                    if editable {
+                    if editable && !state.pointer_dragging() {
                         response.context_menu(|ui| {
                             if ui.button("恢复此组默认事件").clicked() {
                                 reset_row = Some(row);
@@ -1119,7 +1138,7 @@ fn tracks_ui(
                         let event_response = ui.interact(
                             hit,
                             ui.id().with(("event", row, index)),
-                            if editable {
+                            if editable && !state.pointer_dragging() {
                                 Sense::click_and_drag()
                             } else {
                                 Sense::hover()
@@ -1147,12 +1166,14 @@ fn tracks_ui(
                         }
                         event_response.clone().on_hover_text(format!("{} / {}",
                             state.tracks[row].label, event_label(index, &event)));
-                        if event_response.clicked() || event_response.drag_started() {
+                        if event_response.clicked() || event_response.drag_started_by(egui::PointerButton::Primary) {
                             state.finish_inspector(editor, &mut app.chart);
                             state.selected = Some((row, index));
                             state.selected_row = Some(row);
+                            state.selected_pair = None;
                         }
-                        if event_response.drag_started() {
+                        if event_response.drag_started_by(egui::PointerButton::Primary) {
+                            state.center_requested = false;
                             state.drag = Some(Drag {
                                 row,
                                 index,
@@ -1163,7 +1184,7 @@ fn tracks_ui(
                                     .unwrap_or(x),
                             });
                         }
-                        if editable {
+                        if editable && !state.pointer_dragging() {
                             event_response.context_menu(|ui| {
                                 if ui.button("恢复此组默认事件").clicked() {
                                     reset_row = Some(row);

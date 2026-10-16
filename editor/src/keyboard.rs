@@ -25,6 +25,12 @@ pub enum Focus { #[default] Timeline, Tools, Properties, Playback, Settings }
 #[derive(Debug, Clone, Copy)]
 pub enum Transport { Toggle, Seek(f32), Jump(f32), Cursor(f32), Speed(f32), Audio, Restart }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ViewCommand {
+    FitSelection, FitSong, Current, Follow, LoopSelection, ClearLoop,
+    Settings, History, Maximize, SaveLayout, RestoreLayout, ResetLayout,
+}
+
 #[derive(Debug, Clone)]
 pub struct KeyboardState {
     pub active: bool,
@@ -39,6 +45,7 @@ pub struct KeyboardState {
     pub transaction: Option<edit::Transaction>,
     pub dialog: Option<panels::Dialog>,
     pub transport: Vec<Transport>,
+    pub view_commands: Vec<ViewCommand>,
     pub numeric: String,
     pub segment: usize,
     pub bindings: Vec<panels::Binding>,
@@ -54,7 +61,7 @@ impl Default for KeyboardState {
         Self {
             active: false, initialized: false, cursor: EditCursor::default(), touch_ring: 0,
             candidate: None, range: None, detached: false, rect: egui::Rect::NOTHING,
-            focus: Focus::Timeline, transaction: None, dialog: None, transport: Vec::new(),
+            focus: Focus::Timeline, transaction: None, dialog: None, transport: Vec::new(), view_commands: Vec::new(),
             numeric: String::new(), segment: 0, bindings: panels::default_bindings(),
             bindings_loaded: false, ime: false, pending_path: None, confirm_choice: 0,
             suppress_pointer: false,
@@ -167,14 +174,14 @@ pub fn handle(ui: &egui::Ui, editor: &mut EditorState, chart: &mut ChartDoc, now
     initialize(editor, chart, now);
     panels::load_bindings(editor);
     editor.keyboard.suppress_pointer = false;
-    if !editor.keyboard.detached && editor.layout == crate::state::EditorLayout::Vertical {
-        editor.view_start = now;
+    if editor.follow_playhead && !editor.keyboard.detached && editor.layout == crate::state::EditorLayout::Vertical {
+        editor.view_start = navigation::reference_time(editor, now);
     }
     if !editor.keyboard.owns_input() && editor.selection_transform.is_none()
         && ui.input(|i| i.pointer.any_pressed())
     {
         editor.keyboard.active = false;
-        editor.keyboard.detached = false;
+        editor.keyboard.detached = !editor.follow_playhead;
     }
     let events = ui.input(|i| i.events.clone());
     let mut consumed = Vec::new();

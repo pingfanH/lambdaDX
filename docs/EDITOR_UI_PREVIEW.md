@@ -1,7 +1,9 @@
 # 工作台 UI 预览
 
 这是独立的原生 Rust bin `lambda_dx_ui_preview`, 用来确认
-[工作台设计](EDITOR_WORKBENCH_DESIGN.md)的风格与布局, 不替换现有 editor。
+[工作台设计](EDITOR_WORKBENCH_DESIGN.md)的风格与布局。
+正式 `lambda_dx_editor` 已接入主题、自由分屏、历史、循环试听和 Autoplay 区间精修; 本 bin 仍是独立演示,
+不是正式 editor 的另一个启动方式, 下文只描述原型能力。
 
 ## 启动
 
@@ -12,7 +14,7 @@ cargo run --no-default-features --features ui-preview --bin lambda_dx_ui_preview
 ```
 
 不需要 Lean / lnmai-core。源码位于 `editor/ui_preview/`,
-停靠组件和图标字体依赖只在 `ui-preview` feature 下启用。
+停靠组件和图标字体与正式 editor 共用依赖; `ui-preview` feature 仅控制演示 bin。
 
 ## 绘制性能
 
@@ -96,7 +98,9 @@ Figma 节点 `6564-7869`。采用其中的紧凑密度、中性灰阶、明确�
   不透出桌面、不读取屏幕背景、不增加实时模糊开销; 画布保持不透明。
   关闭透明选项后改为同色实底, 保留表面明暗层级与控件位置。
 - 只支持窗内停靠与分屏, 不创建跨屏原生子窗口。
-- 确认视觉和布局后再接入正式编辑器, 不直接把原型作为生产实现。
+- 正式 editor 复用了主题和区域布局方向, 并接入片段/区间精修、显式焦点、固定属性、
+  跟随控制、真实历史、循环试听和显式保存布局。保留真实文档、编辑事务与播放核心,
+  没有迁入这里的示例数据或简化的事件模型。实现边界见工作台文档“当前实现”。
 
 ## 可选启动参数
 

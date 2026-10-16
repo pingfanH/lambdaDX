@@ -65,12 +65,11 @@ pub fn handle_input(
     chart: &mut ChartDoc,
     current_time: f32,
     ui: &egui_macroquad::egui::Ui,
-    raw_wheel: f32,
 ) {
     match layout {
-        EditorLayout::Vertical => input::vertical(response, rect, editor, chart, current_time, ui, raw_wheel),
+        EditorLayout::Vertical => input::vertical(response, rect, editor, chart, current_time, ui),
         EditorLayout::Horizontal => {
-            input::horizontal(response, rect, editor, chart, current_time, ui, raw_wheel)
+            input::horizontal(response, rect, editor, chart, current_time, ui)
         }
     }
 }

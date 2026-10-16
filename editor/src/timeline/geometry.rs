@@ -7,7 +7,7 @@
 use egui_macroquad::egui;
 
 use crate::app::types::{Note, NoteType};
-use crate::state::{DragGrab, EditorState};
+use crate::state::{DragGrab, EditorLayout, EditorState};
 
 /// Play lanes (1..=8) plus the dedicated touch lane, rendered last.
 pub const LANE_COUNT: usize = 9;
@@ -22,12 +22,32 @@ pub const MIN_PPS: f32 = 10.0;
 pub const MAX_PPS: f32 = 4800.0;
 pub const DEFAULT_PPS: f32 = 360.0;
 
+pub fn view_reference(editor: &EditorState, playhead: f32) -> f32 {
+    // Dragging the line owns the view until release; overview seeking still follows.
+    if !editor.follow_playhead || editor.keyboard.detached
+        || editor.scrubbing && editor.pointer_press.is_some_and(|press| press.on_playhead) {
+        return editor.view_start;
+    }
+    let playhead = editor.pending_seek.unwrap_or(playhead);
+    editor.follow_view_offset.map_or_else(|| match editor.layout {
+        EditorLayout::Vertical => playhead,
+        EditorLayout::Horizontal => (playhead - 2.0).max(0.0),
+    }, |offset| playhead - offset)
+}
+
+pub fn set_view_reference(editor: &mut EditorState, time: f32, playhead: f32) {
+    editor.view_start = time;
+    if editor.follow_playhead && !editor.keyboard.detached {
+        editor.follow_view_offset = Some(editor.pending_seek.unwrap_or(playhead) - time);
+    }
+}
+
 /// Preserve the playhead's screen position, including pre-roll exposed by zooming out.
 pub fn set_zoom(editor: &mut EditorState, pps: f32, playhead: f32, horizontal: bool) {
     let pps = pps.clamp(MIN_PPS, MAX_PPS);
     if horizontal {
-        editor.view_start = playhead
-            - (playhead - editor.view_start) * editor.pixels_per_second / pps;
+        let view = playhead - (playhead - editor.view_start) * editor.pixels_per_second / pps;
+        set_view_reference(editor, view, playhead);
     }
     editor.pixels_per_second = pps;
 }

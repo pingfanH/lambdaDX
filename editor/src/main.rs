@@ -50,8 +50,7 @@ use ui::EditorUi;
 fn editor_window_conf() -> Conf {
     let mut conf = app::window_conf();
     conf.window_title = "LambdaDX Editor".to_string();
-    // Wide default so the design's ~1:1 timeline/panel split has room. The
-    // layout is fully responsive, so any window size stays usable.
+    // Leave room for the main chart and the docked preview/inspector.
     conf.window_width = 1600;
     conf.window_height = 900;
     conf.window_resizable = true;
@@ -202,13 +201,9 @@ async fn run() {
             runtime::apply_preview_mode(&mut app, editor.autoplay_mode);
         }
 
+        runtime::tick_loop(&editor, &mut app);
         let current_time = player_time(&app);
-        if matches!(
-            app.mode,
-            app::types::Mode::Playing | app::types::Mode::Recording
-        ) {
-            runtime::follow_playhead(&mut editor, current_time);
-        }
+        runtime::follow_playhead(&mut editor, current_time);
 
         let events = player::input::collect_pointer_events();
         let pointer = player::input::pointer::ui_pointer(&events);
@@ -276,12 +271,19 @@ async fn run() {
         pad.cy *= to_mq;
         pad.outer_r *= to_mq;
         pad.outer_r /= app::params::pad_circle_scale().max(1.0);
+        let preview = ui.layout.preview;
+        let pad_visible = preview.width() > 1.0 && preview.height() > 1.0;
+        let pad_input = pad_visible && editor.workspace == Workspace::Chart && !ui.input_blocked
+            && !egui_wants_pointer
+            && !editor.keyboard.owns_input() && !editor.keyboard.suppress_pointer;
         let pad_events: Vec<_> = events
             .into_iter()
             .filter(|e| {
                 let p = e.position;
-                (p.x - pad.cx).hypot(p.y - pad.cy) <= pad.outer_r
-                    || app.active_pointer_zones.contains_key(&e.id)
+                let release = matches!(e.phase, TouchPhase::Ended | TouchPhase::Cancelled)
+                    && app.active_pointer_zones.contains_key(&e.id);
+                release || (pad_input && preview.contains(egui_macroquad::egui::pos2(p.x / to_mq, p.y / to_mq))
+                    && (p.x - pad.cx).hypot(p.y - pad.cy) <= pad.outer_r)
             })
             .collect();
         let scale = ui::layout::preview_note_scale(
@@ -289,16 +291,14 @@ async fn run() {
             player::render::ui_scale(&app),
         );
         app::params::set_pad_scale(scale * app::params::pad_zoom());
-        if editor.workspace == Workspace::Chart && !ui.input_blocked && !editor.keyboard.owns_input() && !editor.keyboard.suppress_pointer && !egui_wants_pointer {
+        if !pad_events.is_empty() {
             player::input::handle_touch_controls(&mut app, pad, &pad_events);
         }
 
         // Slide-edit mode: a pad press on an A-zone (1-8) completes a pending
         // shape key, otherwise the pressed zone is appended as a waypoint on the
-        // editing slide's last segment. Not gated on `egui_wants_pointer`: while
-        // editing the pad is the interaction surface, and the sidebar merely
-        // hovers it (egui reports `wants_pointer_input` for any covered area).
-        if editor.workspace == Workspace::Chart && !ui.input_blocked && !editor.keyboard.owns_input() && !editor.keyboard.suppress_pointer && editor.is_slide_edit() {
+        // editing slide's last segment. Chrome-owned presses never reach the pad.
+        if pad_input && editor.is_slide_edit() {
             let zone = {
                 let svg = app.pad_svg.as_ref();
                 pad_events
@@ -341,19 +341,17 @@ async fn run() {
         };
         runtime::tick_player(&mut app, chart_current).await;
         let current_time = player_time(&app);
+        runtime::follow_playhead(&mut editor, current_time);
 
         clear_background(theme::to_mq(theme::BG_WINDOW));
 
-        // Sidebar background (the egui sidebar frame is transparent so the pad
-        // macroquad layer can show through).
-        let sidebar = ui.layout.sidebar;
-        if sidebar.width() > 1.0 && sidebar.height() > 1.0 {
+        if pad_visible {
             draw_rectangle(
-                sidebar.left() * to_mq,
-                sidebar.top() * to_mq,
-                sidebar.width() * to_mq,
-                sidebar.height() * to_mq,
-                theme::to_mq(theme::BG_PANEL),
+                preview.left() * to_mq,
+                preview.top() * to_mq,
+                preview.width() * to_mq,
+                preview.height() * to_mq,
+                theme::to_mq(theme::BG_OVERVIEW),
             );
         }
 
@@ -532,6 +530,7 @@ fn load_editor_chart(editor: &mut EditorState, app: &mut PadPreviewState, path: 
     editor.star_placement = None;
     editor.hold_placement = None;
     editor.pointer_press = None;
+    editor.timeline_pan = None;
     editor.dragging = None;
     editor.handle_grab = None;
     editor.marquee_start = None;

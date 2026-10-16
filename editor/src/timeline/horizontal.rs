@@ -79,9 +79,9 @@ pub fn draw(
     let pps = editor.pixels_per_second * g;
     let view = editor.view_start;
 
-    mq::draw_rectangle(rect.x, rect.y, rect.w, rect.h, draw::c(24, 24, 27));
-    mq::draw_rectangle(rect.x, rect.y, rect.w, ruler_h, draw::c(42, 42, 45));
-    mq::draw_rectangle(rect.x, lanes_top, gutter, lanes_h, draw::c(42, 42, 45));
+    mq::draw_rectangle(rect.x, rect.y, rect.w, rect.h, crate::theme::to_mq(crate::theme::BG_CANVAS));
+    mq::draw_rectangle(rect.x, rect.y, rect.w, ruler_h, crate::theme::to_mq(crate::theme::BG_OVERVIEW));
+    mq::draw_rectangle(rect.x, lanes_top, gutter, lanes_h, crate::theme::to_mq(crate::theme::BG_OVERVIEW));
 
     let view_end = view + (plot_right - plot_left) / pps;
     waveform::draw_horizontal(waveform, plot_left, plot_right, lanes_top, lanes_h, view, pps, s, chart.audio_offset);
@@ -127,7 +127,7 @@ pub fn draw(
 
     let px = ctx.x_of(current_time);
     if px >= plot_left - 2.0 * g && px <= plot_right + 2.0 * g {
-        mq::draw_line(px, rect.y, px, lanes_bottom, 2.0 * s, draw::c(208, 70, 70));
+        mq::draw_line(px, rect.y, px, lanes_bottom, 1.0 * s, crate::theme::to_mq(crate::theme::JUDGE_LINE));
     }
 }
 
@@ -157,11 +157,11 @@ fn draw_measure_grid(
                 continue;
             }
             let (col, th) = if i == 0 {
-                (draw::c(140, 50, 50), 2.0 * s)
+                (crate::theme::to_mq(crate::theme::GRID_BEAT), 1.2 * s)
             } else if i * 4 % subdiv == 0 {
-                (draw::c(80, 80, 80), 1.5 * s)
+                (crate::theme::to_mq(crate::theme::GRID_LINE), 1.0 * s)
             } else {
-                (draw::c(40, 40, 40), 0.5 * s)
+                (crate::theme::to_mq(crate::theme::GRID_MINOR), 0.6 * s)
             };
             mq::draw_line(x, lanes_top, x, lanes_bottom, th, col);
         }
@@ -172,7 +172,7 @@ fn draw_measure_grid(
                 x + 3.0 * g,
                 rect.y + 15.0 * g,
                 14.0 * s,
-                draw::c(140, 140, 140),
+                crate::theme::to_mq(crate::theme::TEXT_RULER),
             );
         }
         m += 1.0;
@@ -192,9 +192,9 @@ fn draw_lanes(
     for lane in 0..=LANE_COUNT {
         let y = lanes_top + lane as f32 * lane_h;
         let (col, th) = if lane == 4 {
-            (draw::c(90, 90, 90), 2.0 * s)
+            (crate::theme::to_mq(crate::theme::GRID_LANE_CENTER), 1.0 * s)
         } else {
-            (draw::c(55, 55, 55), 1.0 * s)
+            (crate::theme::to_mq(crate::theme::GRID_LANE), 1.0 * s)
         };
         mq::draw_line(plot_left, y, plot_right, y, th, col);
     }
@@ -204,7 +204,7 @@ fn draw_lanes(
         let (label, col) = if lane == LANE_COUNT - 1 {
             ("T".to_string(), draw::c(230, 149, 48))
         } else {
-            ((lane + 1).to_string(), draw::c(180, 180, 180))
+            ((lane + 1).to_string(), crate::theme::to_mq(crate::theme::TEXT_RULER))
         };
         mq::draw_text(&label, rect.x + 10.0 * g, y, 15.0 * s, col);
     }

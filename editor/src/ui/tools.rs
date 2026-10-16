@@ -1,27 +1,20 @@
-//! Tool palette, drawn as the design's floating panel over the timeline.
-//!
-//! The design places a rounded, shadowed panel (`#252529`, 38×268) at the
-//! timeline's top-left with eight 30×30 icon buttons (`#303035`, active
-//! `#477DAD`) split into 4 / 2 / 2 groups by hairline separators.
+//! Compact floating note palette over the chart canvas.
 
 use egui_macroquad::egui;
 
 use crate::state::{EditorState, Tool};
-use crate::theme::{BG_ACTIVE, BG_TOOLS_PANEL, BG_WIDGET, SEPARATOR, TEXT, TEXT_ON_ACTIVE};
+use crate::theme::{ACCENT_BLUE, floating_surface, SEPARATOR, TEXT};
+use lucide_icons::Icon;
 
-/// Panel width (design 38).
-pub const PANEL_W: f32 = 38.0;
-/// Button edge (design 30).
-const BUTTON: f32 = 30.0;
-/// Inset from the panel edge to the buttons (design 4).
+pub const PANEL_W: f32 = 32.0;
+const BUTTON: f32 = 24.0;
 const INSET: f32 = 4.0;
-/// Vertical step between two buttons (design 32 = 30 + 2 gap).
-const STEP: f32 = 32.0;
+const STEP: f32 = 26.0;
 /// Extra space a group separator takes (design ≈5px block around the 1px line).
 const SEP_EXTRA: f32 = 3.0;
 /// Design offsets of the panel from the timeline's top-left corner.
-pub const PANEL_X: f32 = 12.0;
-pub const PANEL_Y: f32 = 72.0;
+pub const PANEL_X: f32 = 8.0;
+pub const PANEL_Y: f32 = 38.0;
 
 /// Tool indices after which a separator is drawn (0-based): after the 4th and
 /// 6th buttons, giving the design's 4 / 2 / 2 grouping.
@@ -87,7 +80,7 @@ pub fn draw(
             color: egui::Color32::from_black_alpha(102),
         };
         painter.add(shadow.as_shape(rect, radius));
-        painter.rect_filled(rect, radius, BG_TOOLS_PANEL);
+        painter.rect_filled(rect, radius, floating_surface());
     }
 
     let mut y = rect.top() + INSET;
@@ -133,24 +126,29 @@ fn tool_button(
         if interactive { egui::Sense::click() } else { egui::Sense::hover() },
     );
     let radius = egui::CornerRadius::same(3);
-    let fill = if active { BG_ACTIVE } else { BG_WIDGET };
-    ui.painter().rect_filled(rect, radius, fill);
+    ui.painter().rect_filled(rect, radius, egui::Color32::TRANSPARENT);
+    if active {
+        ui.painter().vline(rect.left(), rect.y_range().shrink(4.0), egui::Stroke::new(2.0_f32, ACCENT_BLUE));
+    }
     if response.hovered() && !active {
         ui.painter().rect_filled(
             rect,
             radius,
-            egui::Color32::from_rgba_premultiplied(255, 255, 255, 14),
+            egui::Color32::from_white_alpha(14),
         );
     }
     let texture = match tool {
-        Tool::Tap => textures[0].as_ref(),
-        Tool::Hold => textures[1].as_ref(),
-        Tool::Slide => textures[2].as_ref(),
+        Tool::Tap => textures.first().and_then(Option::as_ref),
+        Tool::Hold => textures.get(1).and_then(Option::as_ref),
+        Tool::Slide => textures.get(2).and_then(Option::as_ref),
+        Tool::Touch => textures.get(3).and_then(Option::as_ref),
+        Tool::TouchHold => textures.get(4).and_then(Option::as_ref),
+        Tool::Break => textures.get(5).and_then(Option::as_ref),
         _ => None,
     };
     if let Some(texture) = texture {
         let natural = texture.size_vec2();
-        let factor = (22.0 / natural.x).min(22.0 / natural.y);
+        let factor = (19.0 / natural.x).min(19.0 / natural.y);
         let image_rect = egui::Rect::from_center_size(rect.center(), natural * factor);
         ui.painter().image(
             texture.id(),
@@ -169,86 +167,19 @@ fn tool_button(
 
 /// Vector icon per tool (14 px footprint, matching the design glyphs).
 fn draw_icon(painter: &egui::Painter, c: egui::Pos2, tool: Tool, active: bool) {
-    let dim = if active { TEXT_ON_ACTIVE } else { TEXT };
-    let stroke = egui::Stroke::new(1.8_f32, dim);
-    match tool {
-        Tool::Select => {
-            // Cursor arrow.
-            let pts = vec![
-                c + egui::vec2(-4.5, -6.0),
-                c + egui::vec2(-4.5, 5.5),
-                c + egui::vec2(-0.5, 1.5),
-                c + egui::vec2(2.0, 6.0),
-                c + egui::vec2(4.0, 5.0),
-                c + egui::vec2(1.5, 0.7),
-                c + egui::vec2(5.0, 0.2),
-            ];
-            painter.add(egui::Shape::closed_line(pts, stroke));
-        }
-        Tool::Tap => {
-            painter.circle_stroke(c, 5.0, stroke);
-            painter.circle_filled(c, 1.6, dim);
-        }
-        Tool::Hold => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(6.0, 12.0)),
-                3.0,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-        }
-        Tool::Touch => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(12.0, 12.0)),
-                3.5,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-        }
-        Tool::TouchHold => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(12.0, 12.0)),
-                3.5,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-            painter.line_segment(
-                [c + egui::vec2(0.0, -3.5), c + egui::vec2(0.0, 3.5)],
-                egui::Stroke::new(1.6_f32, dim),
-            );
-        }
-        Tool::Slide => {
-            let pts: Vec<egui::Pos2> = (0..5)
-                .map(|i| {
-                    let a = -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::TAU / 5.0;
-                    egui::pos2(c.x + a.cos() * 6.0, c.y + a.sin() * 6.0)
-                })
-                .collect();
-            painter.add(egui::Shape::closed_line(pts, stroke));
-        }
-        Tool::Break => {
-            // Break note marker: a filled diamond.
-            let pts = vec![
-                c + egui::vec2(0.0, -6.0),
-                c + egui::vec2(6.0, 0.0),
-                c + egui::vec2(0.0, 6.0),
-                c + egui::vec2(-6.0, 0.0),
-            ];
-            painter.add(egui::Shape::convex_polygon(pts, dim, egui::Stroke::NONE));
-        }
-        Tool::Eraser => {
-            painter.rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(12.0, 8.0)),
-                2.0,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-            painter.line_segment(
-                [c + egui::vec2(-4.0, 5.0), c + egui::vec2(4.0, -5.0)],
-                stroke,
-            );
-        }
-    }
+    let symbol = match tool {
+        Tool::Select => Icon::MousePointer2,
+        Tool::Tap => Icon::CircleDot,
+        Tool::Hold => Icon::RectangleVertical,
+        Tool::Touch => Icon::Scan,
+        Tool::TouchHold => Icon::ScanLine,
+        Tool::Slide => Icon::Star,
+        Tool::Break => Icon::Zap,
+        Tool::Eraser => Icon::Eraser,
+    };
+    painter.text(c, egui::Align2::CENTER_CENTER, char::from(symbol),
+        egui::FontId::new(14.0, egui::FontFamily::Name("lucide".into())),
+        if active { ACCENT_BLUE } else { TEXT });
 }
 
 #[cfg(test)]
@@ -258,6 +189,7 @@ mod tests {
     #[test]
     fn clicking_each_palette_button_selects_tool_and_preserves_selection() {
         let ctx = egui::Context::default();
+        super::super::style::apply(&ctx);
         let mut editor = EditorState::default();
         editor.selected.insert(42);
         let panel = egui::Rect::from_min_size(
@@ -312,10 +244,9 @@ mod tests {
 
     #[test]
     fn panel_height_matches_the_design() {
-        // Design: 8 buttons, 4 / 2 / 2 groups, panel is 38×268.
-        assert!((PANEL_W - 38.0).abs() < 1e-6);
+        assert!((PANEL_W - 32.0).abs() < 1e-6);
         assert!(
-            (panel_height(Tool::ALL.len()) - 268.0).abs() < 0.01,
+            (panel_height(Tool::ALL.len()) - 220.0).abs() < 0.01,
             "height = {}",
             panel_height(Tool::ALL.len())
         );

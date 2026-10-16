@@ -1,90 +1,239 @@
 use super::*;
 use std::collections::HashSet;
 
-#[test]
-fn autoplay_zoom_stays_centered_during_playback_and_after_wheel_release() {
-    for mode in [Mode::Idle, Mode::Playing, Mode::Recording] {
-        let ctx = egui::Context::default();
-        let mut editor = EditorState::default();
-        editor.workspace = crate::state::Workspace::Autoplay;
+struct NavigationFixture {
+    ctx: egui::Context,
+    state: AutoplayEditor,
+    editor: EditorState,
+    app: PadPreviewState,
+    time: f64,
+}
+
+impl NavigationFixture {
+    fn new(mode: Mode) -> Self {
         let mut app = PadPreviewState::new_at(chart("1"), None, None, 0.0, None);
         app.mode = mode;
-        let mut layout = Layout::default();
-        let command = egui::Modifiers {
-            command: true,
-            mac_cmd: true,
+        let mut f = Self { ctx: egui::Context::default(), state: AutoplayEditor::default(),
+            editor: EditorState::default(), app, time: 0.0 };
+        f.editor.snap_enabled = false;
+        f.frame(Vec::new(), 0.0);
+        f.frame(Vec::new(), 0.0);
+        f
+    }
+
+    fn frame(&mut self, events: Vec<egui::Event>, wheel: f32) -> Viewport {
+        self.time += 1.0 / 60.0;
+        let now = 30.0 + if matches!(self.app.mode, Mode::Playing | Mode::Recording) { self.time as f32 } else { 0.0 };
+        self.app.forced_time = Some(now);
+        self.app.timeline_view_time = now;
+        let mut result = None;
+        let _ = self.ctx.run(egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0))),
+            time: Some(self.time), events, ..Default::default()
+        }, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                result = Some(viewport(ui, &mut self.state, &mut self.editor, &mut self.app, wheel));
+            });
+        });
+        result.unwrap()
+    }
+
+    fn button(&mut self, pos: Pos2, button: egui::PointerButton, pressed: bool) {
+        self.frame(vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton {
+            pos, button, pressed, modifiers: egui::Modifiers::NONE,
+        }], 0.0);
+    }
+}
+
+#[test]
+fn timeline_grid_subdivisions_contrast_with_track_backgrounds() {
+    for raw in [false, true] {
+        let mut f = NavigationFixture::new(Mode::Idle);
+        let plot = f.frame(Vec::new(), 0.0);
+        let x = plot.grid.iter().find(|(_, major)| !major).unwrap().0;
+        let output = f.ctx.run(egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0))),
             ..Default::default()
-        };
-        let pointer = Pos2::new(640.0, 680.0);
-        for frame in 0..18 {
-            let playing = matches!(mode, Mode::Playing | Mode::Recording);
-            let now = 30.0 + if playing { frame as f32 / 60.0 } else { 0.0 };
-            app.forced_time = Some(now);
-            app.timeline_view_time = now;
-            if playing {
-                crate::runtime::follow_playhead(&mut editor, now);
-            }
-            let modifiers = if frame == 4 { command } else { egui::Modifiers::NONE };
-            let mut events = vec![egui::Event::PointerMoved(pointer)];
-            if matches!(frame, 3 | 4 | 8 | 16) {
-                events.push(egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: match frame {
-                        4 => Vec2::new(0.0, 30.0),
-                        8 => Vec2::new(0.0, -30.0),
-                        _ => Vec2::new(60.0, 0.0),
-                    },
-                    modifiers: if frame == 4 || frame == 8 {
-                        command
-                    } else {
-                        egui::Modifiers::NONE
-                    },
-                });
-            }
-            let old_pps = editor.pixels_per_second;
-            let wheel = match frame { 4 => 1.0, 8 => -1.0, _ => 0.0 };
-            let output = ctx.run(egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0))),
-                time: Some(frame as f64 / 60.0),
-                events,
-                modifiers,
-                ..Default::default()
-            }, |ctx| draw(ctx, &mut editor, &mut app, &mut layout, true, wheel));
-            if wheel != 0.0 {
-                assert_ne!(editor.pixels_per_second, old_pps, "zoom ignored on frame {frame}");
-            }
-            if frame >= 4 {
-                let lines: Vec<_> = output.shapes.iter().filter_map(|shape| match &shape.shape {
-                    egui::Shape::LineSegment { points, stroke }
-                        if stroke.color == Color32::from_rgb(255, 73, 92) =>
-                            Some((points[0].x, shape.clip_rect)),
-                    _ => None,
-                }).collect();
-                assert!(!lines.is_empty(), "missing playhead on frame {frame}");
-                let pan = if !playing && frame >= 16 { 60.0 } else { 0.0 };
-                for (x, plot) in lines {
-                    assert!((x - plot.center().x - pan).abs() <= 1.0,
-                        "{mode:?}, frame {frame}: playhead x={x}, plot={plot:?}, view={}, pps={}",
-                        editor.view_start, editor.pixels_per_second);
-                }
-            }
+        }, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                if raw { tracks_ui(ui, &mut f.state, &mut f.editor, &mut f.app, false, 0.0); }
+                else { clips::draw(ui, &mut f.state, &mut f.editor, &mut f.app, false, 0.0); }
+            });
+        });
+        let strokes: Vec<_> = output.shapes.iter().filter_map(|shape| match &shape.shape {
+            egui::Shape::LineSegment { points, stroke }
+                if (points[0].x - x).abs() < 0.01 && points[0].x == points[1].x
+                    && points[0].y >= plot.ruler.bottom() => Some(stroke),
+            _ => None,
+        }).collect();
+        assert!(!strokes.is_empty(), "missing subdivisions: raw={raw}");
+        for stroke in strokes {
+            assert!(stroke.color.r() >= 53, "subdivision blends into the 39/41 background: raw={raw}, {stroke:?}");
         }
     }
 }
 
 #[test]
-fn autoplay_zoom_centers_playhead() {
-    let mut editor = EditorState::default();
-    for width in [180.0, 640.0, 1600.0] {
-        for playhead in [0.0, 0.5, 30.0] {
-            for pps in [10.0, 120.0, 360.0, 4800.0] {
-                editor.view_start = playhead + 100.0;
-                set_centered_zoom(&mut editor, pps, playhead, width);
-                let x = (playhead - editor.view_start) * editor.pixels_per_second;
-                assert!((x - width * 0.5).abs() < 0.01,
-                    "playhead at {x} instead of center for {width} px, {pps} px/s, {playhead} s");
+fn timeline_grid_zoom_out_keeps_coarser_subdivisions() {
+    let mut f = NavigationFixture::new(Mode::Idle);
+    f.state.pixels_per_second = 30.0;
+    for division in [16, 32, 48, 192] {
+        f.editor.snap_division = division;
+        let plot = f.frame(Vec::new(), 0.0);
+        assert!(plot.grid.iter().any(|(_, major)| !major), "1/{division} dropped every subdivision");
+    }
+}
+
+#[test]
+fn timeline_navigation_browsing_retains_follow_until_playback_resumes() {
+    let mut f = NavigationFixture::new(Mode::Idle);
+    let pos = Pos2::new(500.0, 250.0);
+    f.frame(vec![egui::Event::PointerMoved(pos), egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point, delta: Vec2::new(0.0, -60.0),
+        modifiers: egui::Modifiers::SHIFT,
+    }], -1.0);
+    assert!(f.state.follow, "browsing must not switch follow off");
+    let view = f.state.view_start;
+    f.frame(Vec::new(), 0.0);
+    assert_eq!(f.state.view_start, view, "paused browsing stays in place");
+    f.app.mode = Mode::Playing;
+    let plot = f.frame(Vec::new(), 0.0);
+    let play_x = (f.app.timeline_time() - f.state.view_start) * f.state.pixels_per_second;
+    assert!((play_x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01);
+}
+
+#[test]
+fn timeline_navigation_zoom_keeps_pointer_time_during_playback() {
+    for mode in [Mode::Idle, Mode::Playing, Mode::Recording] {
+        let mut f = NavigationFixture::new(mode);
+        let pointer = Pos2::new(340.0, 680.0);
+        for frame in 0..18 {
+            let old_view = f.state.view_start;
+            let old_pps = f.state.pixels_per_second;
+            let wheel = match frame { 0 => 1.0, 4 => -1.0, _ => 0.0 };
+            let mut events = vec![egui::Event::PointerMoved(pointer)];
+            if wheel != 0.0 {
+                events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point, delta: Vec2::new(0.0, wheel * 30.0),
+                    modifiers: egui::Modifiers { command: true, mac_cmd: true, ..Default::default() },
+                });
             }
+            let plot = f.frame(events, wheel);
+            if wheel != 0.0 {
+                assert_ne!(f.state.pixels_per_second, old_pps);
+                let before = old_view + (pointer.x - plot.left) / old_pps;
+                let after = f.state.view_start + (pointer.x - plot.left) / f.state.pixels_per_second;
+                assert!((before - after).abs() < 0.0001, "pointer time shifted: {mode:?}");
+            } else if mode == Mode::Idle {
+                assert_eq!(f.state.view_start, old_view, "follow overwrote manual zoom");
+            } else {
+                let x = (f.app.timeline_time() - f.state.view_start) * f.state.pixels_per_second;
+                assert!((x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01);
+            }
+            assert!(f.state.follow);
+            assert!(f.editor.pending_seek.is_none());
         }
+        f.state.return_current();
+        let plot = f.frame(Vec::new(), 0.0);
+        assert!(f.state.follow);
+        let x = (f.app.timeline_time() - f.state.view_start) * f.state.pixels_per_second;
+        assert!((x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01);
+    }
+}
+
+#[test]
+fn timeline_navigation_zoom_preserves_anchor_at_scale_limits() {
+    for offset in [0.0, 32.0, 640.0, 1600.0] {
+        for pps in [1.0, 10.0, 120.0, 360.0, 4800.0, 9600.0] {
+            let mut state = AutoplayEditor { view_start: -2.5, ..Default::default() };
+            let anchor = state.view_start + offset / state.pixels_per_second;
+            set_anchored_zoom(&mut state, pps, offset);
+            let after = state.view_start + offset / state.pixels_per_second;
+            assert!((anchor - after).abs() < 0.0001);
+            assert!(state.follow && !state.center_requested);
+        }
+    }
+}
+
+#[test]
+fn timeline_navigation_middle_rate_scroll_and_shift_wheel_do_not_seek() {
+    for y in [21.0, 250.0] {
+        let mut f = NavigationFixture::new(Mode::Playing);
+        let pos = Pos2::new(500.0, y);
+        f.frame(vec![egui::Event::PointerMoved(pos)], 0.0);
+        let before = f.state.view_start;
+        let pps = f.state.pixels_per_second;
+        f.button(pos, egui::PointerButton::Middle, true);
+        let moved = pos + Vec2::new(75.0, 5.0);
+        f.frame(vec![egui::Event::PointerMoved(moved)], 0.0);
+        assert!(f.state.view_start > before);
+        let before = f.state.view_start;
+        f.frame(Vec::new(), 0.0);
+        let slow_step = f.state.view_start - before;
+        assert!(slow_step > 0.0, "stationary pointer away from origin keeps scrolling");
+        let outside = Pos2::new(1400.0, y);
+        let before = f.state.view_start;
+        f.frame(vec![egui::Event::PointerMoved(outside)], 0.0);
+        assert!(f.state.view_start - before > slow_step, "distance controls speed");
+        let before = f.state.view_start;
+        f.frame(vec![egui::Event::PointerMoved(pos - Vec2::new(75.0, 0.0))], 0.0);
+        assert!(f.state.view_start < before, "crossing the origin reverses scroll");
+        let before = f.state.view_start;
+        f.frame(vec![egui::Event::PointerMoved(pos)], 0.0);
+        f.frame(Vec::new(), 0.0);
+        assert_eq!(f.state.view_start, before, "returning to origin stops scroll");
+        f.button(outside, egui::PointerButton::Middle, false);
+        assert!(!f.state.pointer_dragging() && f.state.follow);
+        assert!(!f.editor.scrubbing && f.editor.pending_seek.is_none());
+        let plot = f.frame(Vec::new(), 0.0);
+        let x = (f.app.timeline_time() - f.state.view_start) * pps;
+        assert!((x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01, "playback resumes following");
+        f.app.mode = Mode::Idle;
+        let view = f.state.view_start;
+        f.frame(vec![egui::Event::PointerMoved(pos), egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point, delta: Vec2::new(0.0, -60.0),
+            modifiers: egui::Modifiers { shift: true, ..Default::default() },
+        }], -1.0);
+        assert!((f.state.view_start - (view + 60.0 / pps)).abs() < 0.0001);
+        let view = f.state.view_start;
+        f.frame(vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point, delta: Vec2::new(0.0, -60.0),
+            modifiers: egui::Modifiers::NONE,
+        }], -1.0);
+        assert_eq!(f.state.view_start, view, "vertical wheel is reserved for lanes");
+        assert!(f.editor.pending_seek.is_none());
+    }
+}
+
+#[test]
+fn timeline_navigation_locator_keeps_panning_outside_until_release() {
+    for direction in [-1.0, 1.0] {
+        let mut f = NavigationFixture::new(Mode::Playing);
+        let plot = f.frame(Vec::new(), 0.0);
+        let start = Pos2::new((plot.left + plot.ruler.right()) * 0.5, plot.ruler.center().y);
+        f.frame(vec![egui::Event::PointerMoved(start)], 0.0);
+        f.button(start, egui::PointerButton::Primary, true);
+        let edge = if direction < 0.0 { plot.left } else { plot.ruler.right() };
+        let outside = Pos2::new(edge + direction * 50.0, start.y);
+        f.frame(vec![egui::Event::PointerMoved(outside)], 0.0);
+        assert!(f.editor.scrubbing);
+        for _ in 0..4 {
+            let view = f.state.view_start;
+            let seek = f.editor.pending_seek.unwrap();
+            f.frame(Vec::new(), 0.0);
+            assert!((f.state.view_start - view) * direction > 0.0);
+            assert!((f.editor.pending_seek.unwrap() - seek) * direction > 0.0);
+        }
+        f.frame(vec![egui::Event::PointerMoved(start)], 0.0);
+        let view = f.state.view_start;
+        f.frame(Vec::new(), 0.0);
+        assert_eq!(f.state.view_start, view, "returning inside stops edge pan");
+        f.frame(vec![egui::Event::PointerMoved(outside)], 0.0);
+        f.button(outside, egui::PointerButton::Primary, false);
+        assert!(!f.editor.scrubbing && f.state.follow);
+        let plot = f.frame(Vec::new(), 0.0);
+        let x = (f.app.timeline_time() - f.state.view_start) * f.state.pixels_per_second;
+        assert!((x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01, "playback resumes following");
     }
 }
 

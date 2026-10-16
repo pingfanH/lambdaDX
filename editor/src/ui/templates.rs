@@ -28,28 +28,12 @@ impl TemplateUi {
 
     pub fn panel(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         editor: &mut EditorState,
         chart: &ChartDoc,
         enabled: bool,
     ) {
-        if !editor.template_panel {
-            return;
-        }
-        egui::SidePanel::left("template_library")
-            .resizable(true)
-            .default_width(225.0)
-            .width_range(190.0..=320.0)
-            .show(ctx, |ui| {
                 ui.add_enabled_ui(enabled, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.strong("Templates");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("×").on_hover_text("关闭模板库").clicked() {
-                                editor.template_panel = false;
-                            }
-                        });
-                    });
                     if let Some(session) = &editor.template_session {
                         let name = session
                             .parent
@@ -253,7 +237,6 @@ impl TemplateUi {
                             }
                         });
                 });
-            });
     }
 
     pub fn timeline(

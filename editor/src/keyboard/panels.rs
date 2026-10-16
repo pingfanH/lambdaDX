@@ -173,14 +173,30 @@ pub fn draw(ctx: &egui::Context, editor: &mut EditorState, chart: &mut ChartDoc)
             DialogKind::Commands => {
                 let response = ui.text_edit_singleline(&mut dialog.value);
                 if dialog.request_focus { response.request_focus(); }
-                let options: Vec<_> = [("Tools", "tools"), ("Properties", "properties"),
-                    ("Handles", "handles"), ("Jump", "jump"), ("Open chart", "open"),
-                    ("Save chart", "save"), ("Save As", "save_as"), ("Export Simai", "export")].into_iter()
-                    .filter(|(label, _)| label.to_lowercase().contains(&dialog.value.to_lowercase())).collect();
+                let query = dialog.value.trim().to_lowercase();
+                let options: Vec<_> = [
+                    ("工具 / Tools", "tools"), ("属性 / Properties", "properties"),
+                    ("手柄 / Handles", "handles"), ("跳转 / Jump", "jump"),
+                    ("打开谱面 / Open chart", "open"), ("保存谱面 / Save chart", "save"),
+                    ("另存为 / Save As", "save_as"), ("导出 Simai / Export", "export"),
+                    ("显示所选 / Frame selection", "fit_selection"), ("显示全曲 / Frame song", "fit_song"),
+                    ("回到播放线 / Current playhead", "current"), ("跟随播放线 / Follow", "follow"),
+                    ("循环所选 / Loop selection", "loop_selection"), ("清除循环 / Clear loop", "clear_loop"),
+                    ("设置 / Settings", "settings"), ("显示历史 / History", "history"),
+                    ("最大化或恢复分区 / Maximize", "maximize"),
+                    ("记住当前布局 / Save layout", "save_layout"),
+                    ("恢复已记住布局 / Restore layout", "restore_layout"),
+                    ("重置当前工作区 / Reset layout", "reset_layout"),
+                ].into_iter().filter(|(label, command)| label.to_lowercase().contains(&query) || command.contains(&query)).collect();
                 navigate(&mut dialog.index, options.len());
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for (index, (label, command)) in options.into_iter().enumerate() {
-                    if ui.selectable_label(dialog.index == index, label).clicked() || (enter && !done && dialog.index == index) {
+                    let selected = dialog.index == index;
+                    let response_row = ui.selectable_label(selected, label);
+                    if selected && (up || down) { response_row.scroll_to_me(None); }
+                    if response_row.clicked() || (enter && !done && selected) {
                         response.surrender_focus();
+                        use super::ViewCommand;
                         match command {
                             "tools" => super::panels::open(editor, chart, DialogKind::Tools),
                             "properties" => super::panels::open(editor, chart, DialogKind::Properties),
@@ -190,11 +206,24 @@ pub fn draw(ctx: &egui::Context, editor: &mut EditorState, chart: &mut ChartDoc)
                             "save" => crate::io::save_chart(editor, chart),
                             "save_as" => editor.save_as_request = true,
                             "export" => editor.export_request = true,
+                            "fit_selection" => editor.keyboard.view_commands.push(ViewCommand::FitSelection),
+                            "fit_song" => editor.keyboard.view_commands.push(ViewCommand::FitSong),
+                            "current" => editor.keyboard.view_commands.push(ViewCommand::Current),
+                            "follow" => editor.keyboard.view_commands.push(ViewCommand::Follow),
+                            "loop_selection" => editor.keyboard.view_commands.push(ViewCommand::LoopSelection),
+                            "clear_loop" => editor.keyboard.view_commands.push(ViewCommand::ClearLoop),
+                            "settings" => editor.keyboard.view_commands.push(ViewCommand::Settings),
+                            "history" => editor.keyboard.view_commands.push(ViewCommand::History),
+                            "maximize" => editor.keyboard.view_commands.push(ViewCommand::Maximize),
+                            "save_layout" => editor.keyboard.view_commands.push(ViewCommand::SaveLayout),
+                            "restore_layout" => editor.keyboard.view_commands.push(ViewCommand::RestoreLayout),
+                            "reset_layout" => editor.keyboard.view_commands.push(ViewCommand::ResetLayout),
                             _ => {}
                         }
                         done = true;
                     }
                 }
+                });
             }
         }
     });

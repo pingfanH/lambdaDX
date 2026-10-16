@@ -201,6 +201,16 @@ impl From<ChartDoc> for HistoryEntry {
     }
 }
 
+/// Captured ruler gesture, separate from playback seeking.
+#[derive(Debug, Clone)]
+pub struct LoopDrag {
+    pub owner: egui_macroquad::egui::Id,
+    pub anchor: f32,
+    pub previous: Option<(f32, f32)>,
+    pub was_enabled: bool,
+    pub cancelled: bool,
+}
+
 /// All mutable state for one editing session.
 #[derive(Debug, Clone)]
 pub struct EditorState {
@@ -213,6 +223,13 @@ pub struct EditorState {
     pub template_action: Option<crate::templates::Action>,
     pub autoplay_editor: crate::autoplay_editor::AutoplayEditor,
     pub keyboard: crate::keyboard::KeyboardState,
+    pub follow_playhead: bool,
+    /// Playhead offset from the view reference after pointer-anchored zoom.
+    pub follow_view_offset: Option<f32>,
+    pub loop_range: Option<(f32, f32)>,
+    pub loop_enabled: bool,
+    pub loop_drag: Option<LoopDrag>,
+    pub pinned_note: Option<u64>,
     pub tool: Tool,
     pub layout: EditorLayout,
     /// Notes selected by id.
@@ -221,6 +238,8 @@ pub struct EditorState {
     pub hovered: Option<u64>,
     /// Left edge of the visible time window, in seconds.
     pub view_start: f32,
+    /// Middle-button rate scrolling: fixed press coordinate and whether it moved.
+    pub timeline_pan: Option<(f32, bool)>,
     /// Horizontal/vertical zoom: pixels per second.
     pub pixels_per_second: f32,
     /// Snap grid as subdivisions per measure (e.g. 16 = 16th notes).
@@ -325,11 +344,18 @@ impl Default for EditorState {
             template_action: None,
             autoplay_editor: Default::default(),
             keyboard: crate::keyboard::KeyboardState::default(),
+            follow_playhead: true,
+            follow_view_offset: None,
+            loop_range: None,
+            loop_enabled: false,
+            loop_drag: None,
+            pinned_note: None,
             tool: Tool::Select,
             layout: EditorLayout::Vertical,
             selected: HashSet::new(),
             hovered: None,
             view_start: 0.0,
+            timeline_pan: None,
             pixels_per_second: crate::timeline::geometry::DEFAULT_PPS,
             snap_division: 16,
             snap_enabled: true,

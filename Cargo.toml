@@ -23,7 +23,7 @@ default = ["backend-lean"]
 backend-rust = ["dep:lnmai-core-rust"]
 backend-lean = ["dep:lnmai-core"]
 backend-none = []
-ui-preview = ["dep:egui_dock", "dep:lucide-icons"]
+ui-preview = []
 
 [[bin]]
 name = "lambda_dx_pad_preview"
@@ -71,8 +71,8 @@ egui-macroquad = { version = "0.17", default-features = false }
 # Direct egui<->miniquad bridge, vendored in `app::egui_bridge` to add touch
 # input to the egui params panel (egui-macroquad only forwards mouse/keyboard).
 egui-miniquad = "0.16"
-egui_dock = { version = "0.16", optional = true }
-lucide-icons = { version = "=1.57.0", optional = true }
+egui_dock = { version = "0.16" }
+lucide-icons = { version = "=1.57.0" }
 # Gameplay core backend (see [features]): rust (default) or lean (unmodified
 # vendored crate). Selected by the `backend-*` features.
 lnmai-core = { path = "lnmai-core", optional = true }

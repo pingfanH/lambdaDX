@@ -29,7 +29,7 @@ pub fn pointer_anchor(editor: &mut EditorState, chart: &ChartDoc, time: f32, lan
 }
 
 pub fn reference_time(editor: &EditorState, now: f32) -> f32 {
-    if editor.keyboard.detached { editor.view_start } else { now }
+    crate::timeline::geometry::view_reference(editor, now)
 }
 
 pub fn position(editor: &EditorState, chart: &ChartDoc, now: f32, cursor: EditCursor) -> egui::Pos2 {

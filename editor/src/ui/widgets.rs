@@ -3,7 +3,7 @@
 use egui_macroquad::egui;
 
 use crate::theme::{
-    BG_ACTIVE, BG_WIDGET, FONT_BODY, FONT_HEADER, FONT_SMALL, PANEL_SEP, SEPARATOR, TEXT,
+    BG_ACTIVE, FONT_BODY, FONT_HEADER, PANEL_SEP, SEPARATOR, TEXT,
     TEXT_DIM, TEXT_FAINT, TEXT_ON_ACTIVE, TEXT_VALUE,
 };
 
@@ -49,23 +49,14 @@ pub fn toolbar_separator(ui: &mut egui::Ui) {
     );
 }
 
-/// A section header row: collapse triangle + bold label, with a settings gear on
-/// the right. Returns `true` when the header is clicked.
+/// A collapsible section heading.
 pub fn section_header(ui: &mut egui::Ui, label: &str, open: bool) -> bool {
     ui.horizontal(|ui| {
         let arrow = if open { "▾" } else { "▸" };
         let text = egui::RichText::new(format!("{arrow}  {label}"))
             .size(FONT_HEADER)
             .color(TEXT);
-        let clicked = ui.add(egui::Button::new(text).frame(false)).clicked();
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                egui::RichText::new("⚙")
-                    .size(FONT_HEADER)
-                    .color(TEXT_DIM),
-            );
-        });
-        clicked
+        ui.add(egui::Button::new(text).frame(false)).clicked()
     })
     .inner
 }
@@ -89,7 +80,7 @@ pub fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String) -> bool {
             changed |= ui
                 .add(
                     egui::TextEdit::singleline(value)
-                        .desired_width(150.0)
+                        .desired_width(ui.available_width().min(180.0))
                         .font(egui::FontId::proportional(FONT_BODY))
                         .text_color(TEXT_VALUE),
                 )
@@ -121,17 +112,7 @@ pub fn drag_row(
 
 /// A toggle chip (Break / Ex / Each / …).
 pub fn toggle_chip(ui: &mut egui::Ui, label: &str, on: &mut bool) -> bool {
-    let (fill, color) = if *on {
-        (BG_ACTIVE, TEXT_ON_ACTIVE)
-    } else {
-        (BG_WIDGET, TEXT_DIM)
-    };
-    let text = egui::RichText::new(label).size(FONT_SMALL).color(color);
-    let clicked = ui.add(egui::Button::new(text).fill(fill)).clicked();
-    if clicked {
-        *on = !*on;
-    }
-    clicked
+    ui.checkbox(on, label).changed()
 }
 
 /// A thin horizontal separator across the current layout width.

@@ -151,14 +151,14 @@ pub fn draw(
     }
     }
 
-    // Judgment line doubles as the "now" playhead (design: 1px `#FF3B50`).
-    mq::draw_line(plot_left, judge_y, plot_right, judge_y, 1.0 * s, theme::to_mq(theme::JUDGE_LINE));
+    let play_y = y_of(editor.pending_seek.unwrap_or(current_time));
+    if play_y >= plot_top && play_y <= plot_bottom {
+        mq::draw_line(plot_left, play_y, plot_right, play_y, 1.0 * s, theme::to_mq(theme::JUDGE_LINE));
+    }
 }
 
 fn draw_background(rect: MqRect, header_h: f32, plot_top: f32, plot_bottom: f32, left_margin: f32) {
-    // Design: the whole timeline shares the workspace background (`#1D1D1E`),
-    // with a hairline under the ruler and a left edge line.
-    let bg = theme::to_mq(theme::BG_WINDOW);
+    let bg = theme::to_mq(theme::BG_CANVAS);
     mq::draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
     mq::draw_rectangle(rect.x, plot_top, left_margin, (plot_bottom - plot_top).max(0.0), bg);
     mq::draw_line(

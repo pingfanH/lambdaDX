@@ -179,8 +179,19 @@ pub fn preview_mode_label(mode: u8) -> &'static str {
 
 /// Follow the chart playhead. Autoplay centers itself after laying out its plot.
 pub fn follow_playhead(editor: &mut EditorState, current_time: f32) {
-    if editor.workspace == crate::state::Workspace::Chart && !editor.keyboard.detached {
-        editor.view_start = (current_time - 2.0).max(0.0);
+    if editor.follow_playhead && !editor.keyboard.detached {
+        editor.view_start = crate::timeline::geometry::view_reference(editor, current_time);
+    }
+}
+
+pub fn tick_loop(editor: &EditorState, app: &mut PadPreviewState) {
+    if !editor.loop_enabled || editor.loop_drag.is_some() || editor.scrubbing || app.scrubbing
+        || !matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) { return; }
+    if let Some((start, end)) = editor.loop_range
+        && start.is_finite() && end.is_finite() && end - start >= 0.01
+        && app.timeline_time() >= end {
+        let target = start + (app.timeline_time() - end).rem_euclid(end - start);
+        app.seek_to(target);
     }
 }
 

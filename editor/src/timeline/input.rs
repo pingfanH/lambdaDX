@@ -35,6 +35,7 @@ pub fn handle_edit_shortcuts(
     chart: &mut ChartDoc,
     current_time: f32,
 ) -> bool {
+    if editor.timeline_pan.is_some() { return true; }
     if let Some(owned) = crate::keyboard::handle(ui, editor, chart, current_time) {
         return owned;
     }
@@ -375,7 +376,7 @@ fn interact(
 ) {
     // Note under the pointer, for the hover ring + read-out. Skipped mid-drag so
     // the read-out tracks the dragged note rather than the raw cursor.
-    if !response.dragged() {
+    if !response.dragged_by(egui::PointerButton::Primary) {
         editor.hovered = response
             .hover_pos()
             .and_then(|p| nearest_marker(markers, p));
@@ -412,7 +413,7 @@ fn interact(
         }
     }
 
-    if response.drag_started() {
+    if response.drag_started_by(egui::PointerButton::Primary) {
         let additive = ui.input(|i| i.modifiers.shift);
         let press = editor.pointer_press;
         editor.scrubbing = press.map(|p| p.on_playhead).unwrap_or(cursor.on_playhead);
@@ -465,12 +466,13 @@ fn interact(
         }
     }
 
-    if response.dragged() && editor.scrubbing {
+    if editor.scrubbing && (response.dragged_by(egui::PointerButton::Primary)
+        || response.drag_stopped_by(egui::PointerButton::Primary)) {
         editor.pending_seek = Some(cursor.time.max(0.0));
-        return;
+        if response.dragged_by(egui::PointerButton::Primary) { return; }
     }
 
-    if response.dragged() || response.drag_stopped() {
+    if response.dragged_by(egui::PointerButton::Primary) || response.drag_stopped_by(egui::PointerButton::Primary) {
         if let Some((sx, sy)) = editor.marquee_start {
             if let Some(p) = response.interact_pointer_pos() {
                 let sel_rect = egui::Rect::from_two_pos(egui::pos2(sx, sy), p);
@@ -487,12 +489,12 @@ fn interact(
                 }
                 reconcile_selection(editor);
             }
-            if response.dragged() {
+            if response.dragged_by(egui::PointerButton::Primary) {
                 return;
             }
         }
     }
-    if response.dragged() {
+    if response.dragged_by(egui::PointerButton::Primary) {
         if let Some(id) = editor.dragging {
             let cur_measure = secs_to_measure(cursor.time, &chart.bpms);
             match editor.drag_grab {
@@ -538,7 +540,7 @@ fn interact(
         }
     }
 
-    if response.drag_stopped() {
+    if response.drag_stopped_by(egui::PointerButton::Primary) {
         editor.dragging = None;
         editor.drag_history_pushed = false;
         editor.scrubbing = false;
@@ -548,6 +550,9 @@ fn interact(
         editor.drag_orig_notes.clear();
         editor.pointer_press = None;
         editor.marquee_base.clear();
+    }
+    if ui.input(|i| i.pointer.primary_released()) {
+        editor.pointer_press = None;
     }
 
     // Right-click removes the nearest note (the count of markers is small, so a
@@ -793,6 +798,54 @@ fn edge_pan(p: f32, lo: f32, hi: f32) -> f32 {
 /// Seconds the view advances per frame at full marquee-autoscroll tilt.
 const AUTOSCROLL_SECS: f32 = 0.08;
 
+pub(crate) fn scroll_step(offset: f32, dt: f32) -> f32 {
+    (offset * 6.0).clamp(-1200.0, 1200.0) * dt.clamp(0.0, 0.05)
+}
+
+pub(crate) fn rate_pan_step(offset: f32, dt: f32) -> f32 {
+    // A small neutral zone prevents pointer jitter from starting a scroll.
+    scroll_step(offset.signum() * (offset.abs() - 4.0).max(0.0), dt)
+}
+
+fn view_time(editor: &EditorState, now: f32) -> f32 {
+    super::geometry::view_reference(editor, now)
+}
+
+fn pan_view(editor: &mut EditorState, delta: f32, now: f32) {
+    if delta == 0.0 { return; }
+    let view = view_time(editor, now);
+    if editor.follow_playhead && !editor.keyboard.detached {
+        let now = editor.pending_seek.unwrap_or(now);
+        let target = (now + delta).max(0.0);
+        editor.follow_view_offset = Some(now - view);
+        editor.view_start = view + target - now;
+        if target != now { editor.pending_seek = Some(target); }
+    } else {
+        editor.view_start = view + delta;
+    }
+}
+
+fn scrub_position(
+    response: &egui::Response, ui: &egui::Ui, rect: egui::Rect,
+    editor: &mut EditorState, now: f32, mut pos: egui::Pos2,
+) -> egui::Pos2 {
+    let dragging = response.dragged_by(egui::PointerButton::Primary);
+    if (dragging || response.drag_stopped_by(egui::PointerButton::Primary))
+        && (editor.scrubbing || editor.pointer_press.is_some_and(|press| press.on_playhead)) {
+        let (axis, lo, hi, sign) = match editor.layout {
+            EditorLayout::Horizontal => (&mut pos.x, rect.left() + LANE_GUTTER, rect.right(), 1.0),
+            EditorLayout::Vertical => (&mut pos.y, rect.top() + RULER_H, rect.bottom(), -1.0),
+        };
+        let edge = (*axis).clamp(lo, hi.max(lo));
+        let step = if dragging { scroll_step((*axis - edge) * sign, ui.input(|i| i.stable_dt)) } else { 0.0 };
+        editor.view_start = view_time(editor, now) + step / editor.pixels_per_second;
+        editor.scrubbing = true;
+        *axis = edge;
+        if step != 0.0 { ui.ctx().request_repaint(); }
+    }
+    pos
+}
+
 // ── Horizontal timeline (time → right) ──────────────────────────────────────
 
 /// Pointer handling for the horizontal timeline. `rect` is in egui points.
@@ -803,19 +856,15 @@ pub fn horizontal(
     chart: &mut ChartDoc,
     current_time: f32,
     ui: &egui::Ui,
-    raw_wheel: f32,
 ) {
     let plot_left = rect.left() + LANE_GUTTER;
     let lanes_top = rect.top() + RULER_H;
     let lane_h = (rect.bottom() - lanes_top) / LANE_COUNT as f32;
 
-    // Wheel works on hover (no button held), so handle it before the
-    // press-only pointer path below.
-    handle_wheel(response, ui, editor, current_time, false, raw_wheel);
-
     let Some(pos) = response.interact_pointer_pos() else {
         return;
     };
+    let pos = scrub_position(response, ui, rect, editor, current_time, pos);
     let time = editor.view_start + (pos.x - plot_left) / editor.pixels_per_second;
     let lane = lane_at(pos.y - lanes_top, lane_h);
     let play_x = plot_left + (current_time - editor.view_start) * editor.pixels_per_second;
@@ -856,7 +905,7 @@ pub fn horizontal(
         if let Some(p) = response.interact_pointer_pos() {
             let f = edge_pan(p.x, rect.left(), rect.right());
             if f != 0.0 {
-                editor.view_start = (editor.view_start + f * AUTOSCROLL_SECS).max(0.0);
+                pan_view(editor, f * AUTOSCROLL_SECS, current_time);
             }
         }
     }
@@ -872,24 +921,21 @@ pub fn vertical(
     chart: &mut ChartDoc,
     current_time: f32,
     ui: &egui::Ui,
-    raw_wheel: f32,
 ) {
     let plot_left = rect.left() + LANE_GUTTER;
     let plot_right = rect.right();
     let judge_y = rect.bottom() - JUDGE_MARGIN;
     let lane_w = (plot_right - plot_left).max(1.0) / LANE_COUNT as f32;
-    // Wheel works on hover (no button held), so handle it before the
-    // press-only pointer path below.
-    handle_wheel(response, ui, editor, current_time, true, raw_wheel);
-    let pps = editor.pixels_per_second;
-    let now = crate::keyboard::navigation::reference_time(editor, current_time);
-
     let Some(pos) = response.interact_pointer_pos() else {
         return;
     };
+    let pos = scrub_position(response, ui, rect, editor, current_time, pos);
+    let pps = editor.pixels_per_second;
+    let now = crate::keyboard::navigation::reference_time(editor, current_time);
     let time = now + (judge_y - pos.y) / pps;
     let lane = lane_at(pos.x - plot_left, lane_w);
-    let on_playhead = (pos.y - judge_y).abs() <= 6.0;
+    let play_y = judge_y - (current_time - now) * pps;
+    let on_playhead = (pos.y - play_y).abs() <= 6.0;
     if let (Some(start), Some(press)) = (&mut editor.marquee_start, editor.pointer_press) {
         start.1 = judge_y - (measure_to_secs(press.measure, &chart.bpms) - now) * pps;
     }
@@ -922,7 +968,7 @@ pub fn vertical(
         if let Some(p) = response.interact_pointer_pos() {
             let f = edge_pan(p.y, rect.top(), rect.bottom());
             if f != 0.0 {
-                editor.pending_seek = Some((now - f * AUTOSCROLL_SECS).max(0.0));
+                pan_view(editor, -f * AUTOSCROLL_SECS, current_time);
             }
         }
     }
@@ -937,58 +983,81 @@ pub(crate) fn zoomed_pps(old: f32, delta: f32, step: f32) -> f32 {
     (old * (1.0 + delta * step)).clamp(MIN_PPS, MAX_PPS)
 }
 
-/// Cmd/Ctrl + wheel zooms; plain wheel pans (horizontal) or scrubs (vertical).
-///
-/// Reads macroquad's raw wheel delta (the egui bridge divides it down, which
-/// made the egui scroll far too small, and egui also consumes Cmd+scroll for its
-/// own zoom). Needs only hover, not a held button.
-fn handle_wheel(
-    response: &egui::Response,
+/// Navigation runs before note handles so middle-button presses cannot edit notes.
+pub fn navigate(
     ui: &egui::Ui,
+    rect: egui::Rect,
     editor: &mut EditorState,
     current_time: f32,
-    vertical: bool,
     raw_wheel: f32,
-) {
-    /// Zoom fraction per wheel unit.
-    const ZOOM_STEP: f32 = 0.05;
-    /// Seconds the view advances per wheel unit when panning / scrubbing. A fixed
-    /// *time* step (rather than a pixel amount) keeps the scroll speed tied to the
-    /// time axis, the same at every zoom level.
-    const WHEEL_SECS: f32 = 0.002;
-    /// Zoom factor per unit of accumulated trackpad magnification (a pinch is a
-    /// fraction, e.g. 0.1 ≈ +10%).
-    const PINCH_ZOOM: f32 = 1.0;
-
-    // Trackpad pinch (macOS) applies whenever it arrives — a pinch doesn't move
-    // the cursor, so requiring the pointer to hover the timeline would silently
-    // drop it (and make the user lift to re-pinch). Both layouts anchor on the red line.
+) -> bool {
+    let middle = egui::PointerButton::Middle;
+    let pointer = ui.input(|i| i.pointer.latest_pos());
+    let vertical = editor.layout == EditorLayout::Vertical;
+    let axis = |pos: egui::Pos2| if vertical { -pos.y } else { pos.x };
+    if editor.timeline_pan.is_some() {
+        if ui.input(|i| !i.focused || i.key_pressed(egui::Key::Escape)) {
+            editor.timeline_pan = None;
+            editor.scrubbing = false;
+            return true;
+        }
+        if !ui.input(|i| i.pointer.button_down(middle)) {
+            // A stationary middle click still opens a slide; scrolling never does.
+            editor.scrubbing = false;
+            return editor.timeline_pan.take().is_some_and(|(_, moved)| moved);
+        }
+    }
+    if editor.dragging.is_some() || editor.handle_grab.is_some()
+        || editor.scrubbing && editor.timeline_pan.is_none()
+        || editor.marquee_start.is_some()
+        || editor.pointer_press.is_some() && ui.input(|i| i.pointer.primary_down()) {
+        return false;
+    }
+    let hovered = ui.rect_contains_pointer(rect);
+    if hovered && ui.input(|i| i.focused && i.pointer.button_pressed(middle) && !i.pointer.primary_down()) {
+        editor.timeline_pan = pointer.map(|pos| (axis(pos), false));
+        editor.view_start = view_time(editor, current_time);
+    }
+    if let Some((origin, moved)) = editor.timeline_pan {
+        let step = pointer.map_or(0.0, |pos| rate_pan_step(axis(pos) - origin, ui.input(|i| i.stable_dt)));
+        editor.timeline_pan = Some((origin, moved || step != 0.0));
+        pan_view(editor, step / editor.pixels_per_second, current_time);
+        if editor.pending_seek.is_some() { editor.scrubbing = true; }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+        if step != 0.0 { ui.ctx().request_repaint(); }
+        return true;
+    }
+    if !hovered { return false; }
+    let command = ui.input(|i| i.modifiers.command || i.modifiers.ctrl || i.modifiers.mac_cmd
+        || i.events.iter().any(|event| matches!(event, egui::Event::MouseWheel { modifiers, .. }
+            if modifiers.command || modifiers.ctrl || modifiers.mac_cmd)));
+    let shift = ui.input(|i| i.modifiers.shift || i.events.iter().any(|event|
+        matches!(event, egui::Event::MouseWheel { modifiers, .. } if modifiers.shift)));
+    let delta = ui.input(|i| i.raw_scroll_delta);
+    let scroll = if delta.y.abs() > delta.x.abs() { delta.y } else { delta.x };
+    let wheel = if raw_wheel.abs() > f32::EPSILON { raw_wheel } else { scroll / 30.0 };
     let pinch = crate::gesture::take();
-    if pinch.abs() > 1e-6 {
+    if pinch.abs() > 1e-6 || command && wheel.abs() > f32::EPSILON {
+        let change = if pinch.abs() > 1e-6 { pinch } else { wheel * 0.05 };
         let old = editor.pixels_per_second;
-        let new = zoomed_pps(old, pinch, PINCH_ZOOM);
-        super::geometry::set_zoom(editor, new, current_time, !vertical);
-    }
-
-    if !response.hovered() {
-        return;
-    }
-    if raw_wheel.abs() < f32::EPSILON {
-        return;
-    }
-    let cmd = ui.input(|i| i.modifiers.command || i.modifiers.ctrl);
-    // The `Wheel ↕` toggle flips the pan/scrub direction only (not zoom).
-    let wheel = raw_wheel * if editor.scroll_invert { -1.0 } else { 1.0 };
-
-    if cmd {
-        let old = editor.pixels_per_second;
-        let new = zoomed_pps(old, raw_wheel, ZOOM_STEP);
-        super::geometry::set_zoom(editor, new, current_time, !vertical);
-    } else if vertical {
-        editor.pending_seek = Some((current_time - wheel * WHEEL_SECS).max(0.0));
-    } else {
-        editor.view_start = (editor.view_start - wheel * WHEEL_SECS).max(0.0);
-    }
+        let new = zoomed_pps(old, change, 1.0);
+        let pos = pointer.unwrap_or(rect.center());
+        let offset = if vertical { rect.bottom() - JUDGE_MARGIN - pos.y }
+            else { pos.x - rect.left() - LANE_GUTTER };
+        let time = view_time(editor, current_time) + offset / old - offset / new;
+        super::geometry::set_view_reference(editor, time, current_time);
+        editor.pixels_per_second = new;
+    } else if !command && (scroll != 0.0 || wheel != 0.0) {
+        let direction = if editor.scroll_invert { -1.0 } else { 1.0 };
+        let seconds = if shift { (if scroll != 0.0 { scroll } else { wheel * 30.0 }) / editor.pixels_per_second }
+            else { wheel * 0.002 };
+        pan_view(editor, -seconds * direction, current_time);
+    } else { return false; }
+    ui.input_mut(|i| {
+        i.smooth_scroll_delta = egui::Vec2::ZERO;
+        i.raw_scroll_delta = egui::Vec2::ZERO;
+    });
+    false
 }
 
 #[cfg(test)]

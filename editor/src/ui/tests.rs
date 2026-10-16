@@ -58,6 +58,258 @@ fn text_position(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
     }).unwrap_or_else(|| panic!("missing visible label: {label}"))
 }
 
+#[test]
+fn timeline_regression_pane_switch_keeps_menu_and_canvas_interactive() {
+    let mut f = Fixture::new();
+    f.ui.workbench.reset_layout();
+    for (icon, label, kind) in [
+        (lucide_icons::Icon::Music2, "Autoplay", PaneKind::Autoplay),
+        (lucide_icons::Icon::ListVideo, "谱面", PaneKind::Chart),
+    ] {
+        let output = f.frame(Vec::new());
+        f.click(text_position(&output, &char::from(icon).to_string()));
+        let menu = f.frame(Vec::new());
+        let position = menu.shapes.iter().rev().find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == label =>
+                Some(text.pos + text.galley.size() * 0.5),
+            _ => None,
+        }).expect("pane type menu must remain visible");
+        f.click(position);
+        f.frame(Vec::new());
+        f.frame(Vec::new());
+        assert!(f.ui.workbench.has(kind), "pane menu did not switch to {kind:?}");
+        assert!(!f.ctx.memory(|m| m.any_popup_open()), "pane popup stayed open");
+        assert!(!f.ui.input_blocked, "pane switch left the timeline disabled");
+    }
+}
+
+mod timeline_navigation {
+    use super::*;
+    use crate::state::EditorLayout;
+    use crate::timeline::geometry::{JUDGE_MARGIN, LANE_GUTTER, RULER_H};
+
+    fn fixture(layout: EditorLayout) -> Fixture {
+        let mut f = Fixture::new();
+        f.editor.layout = layout;
+        f.editor.tool = Tool::Select;
+        f.editor.view_start = 19.0;
+        f.editor.pixels_per_second = 100.0;
+        f.editor.follow_playhead = false;
+        f.editor.keyboard.detached = true;
+        f.app.forced_time = Some(20.0);
+        f.app.timeline_view_time = 20.0;
+        f.frame(Vec::new());
+        f.frame(Vec::new());
+        f
+    }
+
+    fn position(f: &Fixture, time: f32) -> egui::Pos2 {
+        let rect = f.ui.layout.timeline;
+        match f.editor.layout {
+            EditorLayout::Horizontal => egui::pos2(
+                rect.left() + LANE_GUTTER + (time - f.editor.view_start) * f.editor.pixels_per_second,
+                (rect.top() + RULER_H + rect.bottom()) * 0.5,
+            ),
+            EditorLayout::Vertical => egui::pos2(
+                (rect.left() + LANE_GUTTER + rect.right()) * 0.5,
+                rect.bottom() - JUDGE_MARGIN - (time - crate::keyboard::navigation::reference_time(
+                    &f.editor, f.app.timeline_time())) * f.editor.pixels_per_second,
+            ),
+        }
+    }
+
+    fn button(f: &mut Fixture, pos: egui::Pos2, button: egui::PointerButton, pressed: bool) {
+        f.frame(vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton {
+            pos, button, pressed, modifiers: egui::Modifiers::NONE,
+        }]);
+    }
+
+    #[test]
+    fn middle_scroll_controls_speed_without_editing_and_keeps_slide_click() {
+        for layout in [EditorLayout::Horizontal, EditorLayout::Vertical] {
+            let mut f = fixture(layout);
+            f.click(position(&f, 20.5));
+            assert!(f.editor.pointer_press.is_none(), "click must release navigation guard");
+            f.app.chart.notes[0].note_type = crate::app::types::NoteType::Hold;
+            f.app.chart.notes[0].time = 11.0;
+            f.app.chart.notes[0].lane = 5;
+            f.app.chart.notes[0].hold_duration = 0.5;
+            f.frame(Vec::new());
+            let notes = f.app.chart.notes.clone();
+            let origin = position(&f, 21.0);
+            let direction = match layout {
+                EditorLayout::Horizontal => egui::vec2(1.0, 0.0),
+                EditorLayout::Vertical => egui::vec2(0.0, -1.0),
+            };
+            button(&mut f, origin, egui::PointerButton::Middle, true);
+            assert!(f.editor.timeline_pan.is_some());
+            f.frame(vec![egui::Event::PointerMoved(origin + direction * 50.0)]);
+            let before = f.editor.view_start;
+            f.frame(Vec::new());
+            let slow_step = f.editor.view_start - before;
+            assert!(slow_step > 0.0, "stationary offset must keep scrolling: {layout:?}");
+            let before = f.editor.view_start;
+            f.frame(vec![egui::Event::PointerMoved(origin + direction * 100.0)]);
+            assert!(f.editor.view_start - before > slow_step);
+            let before = f.editor.view_start;
+            f.frame(vec![egui::Event::PointerMoved(origin - direction * 50.0)]);
+            assert!(f.editor.view_start < before);
+            let before = f.editor.view_start;
+            f.frame(vec![egui::Event::PointerMoved(origin)]);
+            f.frame(Vec::new());
+            assert_eq!(f.editor.view_start, before);
+            let outside = origin + direction * 1000.0;
+            f.frame(vec![egui::Event::PointerMoved(outside)]);
+            let before = f.editor.view_start;
+            f.frame(Vec::new());
+            assert!(f.editor.view_start > before);
+            button(&mut f, outside, egui::PointerButton::Middle, false);
+            let before = f.editor.view_start;
+            f.frame(Vec::new());
+            assert_eq!(f.editor.view_start, before);
+            assert!(f.editor.timeline_pan.is_none() && f.editor.handle_grab.is_none());
+            assert!(f.editor.pending_seek.is_none() && f.editor.undo.is_empty());
+            assert_eq!(f.app.chart.notes, notes);
+
+            let mut f = fixture(layout);
+            let note = &mut f.app.chart.notes[0];
+            note.note_type = crate::app::types::NoteType::Slide;
+            note.time = 11.0;
+            note.lane = 5;
+            note.slide.push(crate::app::types::Slide {
+                slide_duration: 1.0, slide_start_delay: 0.25, segments: Vec::new(),
+                slide_is_break: false, runtime_parts: 1,
+            });
+            let id = note.id;
+            f.frame(Vec::new());
+            let pos = position(&f, 21.0);
+            button(&mut f, pos, egui::PointerButton::Middle, true);
+            button(&mut f, pos, egui::PointerButton::Middle, false);
+            assert_eq!(f.editor.editing_slide, Some(id), "middle click: {layout:?}");
+        }
+    }
+
+    #[test]
+    fn zoom_keeps_pointer_time_and_following_pan_seeks() {
+        for layout in [EditorLayout::Horizontal, EditorLayout::Vertical] {
+            for playing in [false, true] {
+                let mut f = fixture(layout);
+                if playing { f.app.mode = Mode::Playing; }
+                f.editor.follow_playhead = true;
+                f.editor.keyboard.detached = false;
+                crate::runtime::follow_playhead(&mut f.editor, 20.0);
+                let pos = position(&f, 21.0);
+                let rect = f.ui.layout.timeline;
+                let offset = match layout {
+                    EditorLayout::Horizontal => pos.x - rect.left() - LANE_GUTTER,
+                    EditorLayout::Vertical => rect.bottom() - JUDGE_MARGIN - pos.y,
+                };
+                f.frame(vec![egui::Event::PointerMoved(pos), egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, 30.0),
+                    modifiers: egui::Modifiers { command: true, mac_cmd: true, ..Default::default() },
+                }]);
+                assert!(f.editor.pixels_per_second > 100.0);
+                assert!((f.editor.view_start + offset / f.editor.pixels_per_second - 21.0).abs() < 0.0001);
+                assert!(f.editor.follow_playhead && !f.editor.keyboard.detached);
+                assert!(f.editor.pending_seek.is_none(), "zoom must not seek");
+                let before = f.editor.view_start;
+                f.app.forced_time = Some(22.0);
+                f.app.timeline_view_time = 22.0;
+                crate::runtime::follow_playhead(&mut f.editor, 22.0);
+                f.frame(Vec::new());
+                assert!((f.editor.view_start - before - 2.0).abs() < 0.0001);
+                let before = f.editor.view_start;
+                f.frame(vec![egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -60.0),
+                    modifiers: egui::Modifiers { shift: true, ..Default::default() },
+                }]);
+                assert!((f.editor.view_start - before - 60.0 / f.editor.pixels_per_second).abs() < 0.0001);
+                let time = f.editor.pending_seek.take().expect("following pan must move the clock");
+                assert!((time - 22.0 - 60.0 / f.editor.pixels_per_second).abs() < 0.0001);
+                f.app.forced_time = Some(time);
+                f.app.timeline_view_time = time;
+                crate::runtime::follow_playhead(&mut f.editor, time);
+                assert!(f.editor.follow_playhead && !f.editor.keyboard.detached);
+                f.editor.follow_playhead = false;
+                f.editor.keyboard.detached = true;
+                let before = f.editor.view_start;
+                f.frame(vec![egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -60.0),
+                    modifiers: egui::Modifiers { shift: true, ..Default::default() },
+                }]);
+                assert!((f.editor.view_start - before - 60.0 / f.editor.pixels_per_second).abs() < 0.0001);
+                assert!(f.editor.pending_seek.is_none() && f.editor.undo.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn following_middle_scroll_moves_clock_and_keeps_follow_enabled() {
+        for layout in [EditorLayout::Horizontal, EditorLayout::Vertical] {
+            let mut f = fixture(layout);
+            super::super::navigation::current_chart(&mut f.editor, 20.0);
+            let origin = position(&f, 21.0);
+            let direction = if layout == EditorLayout::Vertical { egui::vec2(0.0, -1.0) } else { egui::vec2(1.0, 0.0) };
+            button(&mut f, origin, egui::PointerButton::Middle, true);
+            assert!(f.editor.follow_playhead && !f.editor.keyboard.detached);
+            f.frame(vec![egui::Event::PointerMoved(origin + direction * 60.0)]);
+            for _ in 0..3 {
+                let time = f.editor.pending_seek.take().expect("middle scroll must seek while following");
+                assert!(time > f.app.timeline_time());
+                f.app.forced_time = Some(time);
+                f.app.timeline_view_time = time;
+                let view = f.editor.view_start;
+                crate::runtime::follow_playhead(&mut f.editor, time);
+                assert!((f.editor.view_start - view).abs() < 0.0001);
+                assert!(f.editor.follow_playhead && !f.editor.keyboard.detached && f.editor.scrubbing);
+                f.frame(Vec::new());
+            }
+            button(&mut f, origin, egui::PointerButton::Middle, false);
+            assert!(f.editor.follow_playhead && !f.editor.keyboard.detached);
+            assert!(f.editor.timeline_pan.is_none() && !f.editor.scrubbing);
+            assert!(f.editor.undo.is_empty());
+        }
+    }
+
+    #[test]
+    fn playhead_drag_scrolls_beyond_edges_until_release() {
+        for layout in [EditorLayout::Horizontal, EditorLayout::Vertical] {
+            for direction in [-1.0, 1.0] {
+                let mut f = fixture(layout);
+                let start = position(&f, 20.0);
+                let rect = f.ui.layout.timeline;
+                let outside = match layout {
+                    EditorLayout::Horizontal => egui::pos2(
+                        if direction > 0.0 { rect.right() + 60.0 } else { rect.left() + LANE_GUTTER - 60.0 }, start.y),
+                    EditorLayout::Vertical => egui::pos2(start.x,
+                        if direction > 0.0 { rect.top() + RULER_H - 60.0 } else { rect.bottom() + 60.0 }),
+                };
+                button(&mut f, start, egui::PointerButton::Primary, true);
+                f.frame(vec![egui::Event::PointerMoved(outside)]);
+                assert!(f.editor.scrubbing, "{layout:?}");
+                for _ in 0..3 {
+                    let view = f.editor.view_start;
+                    let seek = f.editor.pending_seek.unwrap();
+                    f.frame(Vec::new());
+                    assert!((f.editor.view_start - view) * direction > 0.0);
+                    assert!((f.editor.pending_seek.unwrap() - seek) * direction > 0.0);
+                }
+                f.frame(vec![egui::Event::PointerMoved(start)]);
+                let view = f.editor.view_start;
+                f.frame(Vec::new());
+                assert_eq!(f.editor.view_start, view);
+                f.frame(vec![egui::Event::PointerMoved(outside)]);
+                button(&mut f, outside, egui::PointerButton::Primary, false);
+                assert!(!f.editor.scrubbing && f.editor.pointer_press.is_none());
+                let view = f.editor.view_start;
+                f.frame(Vec::new());
+                assert_eq!(f.editor.view_start, view);
+                assert!(f.editor.undo.is_empty());
+            }
+        }
+    }
+}
+
 mod template_interactions {
     use super::*;
     use crate::app::types::{Note, measure_to_secs};
@@ -149,9 +401,9 @@ mod template_interactions {
 }
 
 fn tool_fill(output: &egui::FullOutput, ui: &EditorUi) -> egui::Color32 {
-    let center = ui.layout.tools.min + egui::vec2(19.0, 19.0);
+    let center = ui.layout.tools.min + egui::vec2(16.0, 16.0);
     output.shapes.iter().find_map(|s| match &s.shape {
-        egui::Shape::Rect(rect) if rect.rect.size() == egui::vec2(30.0, 30.0) && rect.rect.contains(center) => Some(rect.fill),
+        egui::Shape::Rect(rect) if rect.rect.size() == egui::vec2(24.0, 24.0) && rect.rect.contains(center) => Some(rect.fill),
         _ => None,
     }).expect("palette button must remain painted")
 }
@@ -579,6 +831,7 @@ fn navigation_preserves_playback_and_can_edit_past_the_song_end() {
     for layout in [crate::state::EditorLayout::Vertical, crate::state::EditorLayout::Horizontal] {
         let mut f = Fixture::new();
         f.editor.layout = layout;
+        f.editor.pixels_per_second = 180.0;
         f.key(egui::Key::Space, egui::Modifiers::NONE);
         let key = match layout {
             crate::state::EditorLayout::Vertical => egui::Key::ArrowUp,
@@ -697,7 +950,9 @@ mod autoplay {
         f.app = crate::runtime::initialize_player(PadPreviewState::new_at(chart, None, None, 0.0, None), None, None);
         f.app.forced_time = Some(0.0);
         assert!(f.app.has_engine(), "{}", f.app.status);
-        f.editor.workspace = Workspace::Autoplay;
+        let output = f.frame(Vec::new());
+        f.click(text_position(&output, "Autoplay"));
+        assert_eq!(f.editor.workspace, Workspace::Autoplay);
         f.frame(Vec::new()); f.frame(Vec::new());
         f
     }
@@ -710,6 +965,83 @@ mod autoplay {
     }
 
     #[test]
+    fn timeline_regression_slide_group_click_draws_sensor_details() {
+        let mut f = fixture();
+        f.ui.workbench.reset_layout();
+        let chart = crate::app::maidata::from_maidata_level(
+            "&inote_6=(120){4}1-5[4:2],B2,E", 6,
+        ).unwrap();
+        f.app = crate::runtime::initialize_player(
+            PadPreviewState::new_at(chart, None, None, 0.0, None), None, None,
+        );
+        f.app.forced_time = Some(0.75);
+        assert!(f.app.has_engine(), "{}", f.app.status);
+        let output = f.frame(Vec::new());
+        let track = f.editor.autoplay_editor.tracks.iter().find(|track| track.key.role == 2)
+            .expect("slide must have an autoplay group");
+        let label = format!("#{} Slide {}", track.key.note_id, track.key.slide + 1);
+        let sensor = track.events.iter().find_map(|event| match event {
+            crate::core::types::TimedInputEvent::SensorHold { area, .. }
+            | crate::core::types::TimedInputEvent::SensorClick { area, .. } =>
+                Some(format!("{} {area:?}", track.key.segment + 1)),
+            _ => None,
+        }).expect("slide must have sensor events");
+        f.click(text_position(&output, &label));
+        let output = f.frame(Vec::new());
+        assert!(f.editor.autoplay_editor.selected_row.is_some(), "group click was ignored");
+        text_position(&output, &sensor);
+    }
+
+    #[test]
+    fn timeline_regression_subdivision_popup_keeps_controls_interactive() {
+        let mut f = fixture();
+        f.ui.workbench.reset_layout();
+        f.editor.snap_division = 16;
+        let output = f.frame(Vec::new());
+        f.click(text_position(&output, "1/16"));
+        let menu = f.frame(Vec::new());
+        f.click(text_position(&menu, "细分 1/16"));
+        let menu = f.frame(Vec::new());
+        f.click(text_position(&menu, "1/8"));
+        assert_eq!(f.editor.snap_division, 8, "subdivision popup disabled itself");
+        f.frame(Vec::new());
+        let output = f.frame(Vec::new());
+        assert!(!f.ctx.memory(|m| m.any_popup_open()), "subdivision popup stayed open");
+        assert!(!f.ui.input_blocked, "subdivision change left the timeline disabled");
+        let position = text_position(&output, "01") + egui::vec2(200.0, 0.0);
+        let view = f.editor.autoplay_editor.view_start;
+        f.frame(vec![
+            egui::Event::PointerMoved(position),
+            egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -60.0), modifiers: egui::Modifiers { shift: true, ..Default::default() } },
+        ]);
+        assert_ne!(f.editor.autoplay_editor.view_start, view);
+    }
+
+    #[test]
+    fn timeline_regression_combined_autoplay_remains_live_without_focus() {
+        let mut f = fixture();
+        let output = f.frame(Vec::new());
+        f.click(text_position(&output, "组合"));
+        f.ui.workbench.reset_layout();
+        f.frame(Vec::new());
+        let output = f.frame(Vec::new());
+        assert_eq!(f.editor.workspace, Workspace::Chart);
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::LineSegment { stroke, .. } if stroke.color == crate::theme::ACCENT_RED
+        )), "unfocused Autoplay timeline must not be greyed out");
+        let position = text_position(&output, "01") + egui::vec2(200.0, 0.0);
+        let view = f.editor.autoplay_editor.view_start;
+        f.frame(vec![
+            egui::Event::PointerMoved(position),
+            egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -60.0), modifiers: egui::Modifiers { shift: true, ..Default::default() } },
+        ]);
+        assert_ne!(f.editor.autoplay_editor.view_start, view, "visible timeline must remain browsable");
+        assert_eq!(f.editor.workspace, Workspace::Chart, "hover must not take keyboard focus");
+    }
+
+    #[test]
     fn event_click_drag_release_outside_and_undo_are_one_transaction() {
         let mut f = fixture();
         f.editor.snap_enabled = false;
@@ -719,7 +1051,7 @@ mod autoplay {
         let selected = f.editor.autoplay_editor.selected.expect("marker click must not be swallowed by its row");
         assert_eq!(f.editor.autoplay_editor.selected_row, Some(selected.0));
         let original = f.editor.autoplay_editor.tracks[selected.0].events[selected.1].clone();
-        let moved = position + egui::vec2(f.editor.pixels_per_second * 0.25, -500.0);
+        let moved = position + egui::vec2(f.editor.autoplay_editor.pixels_per_second * 0.25, -500.0);
         f.frame(vec![egui::Event::PointerButton { pos: position, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE }]);
         f.frame(vec![egui::Event::PointerMoved(moved)]);
         assert!(f.editor.autoplay_editor.dragging());
@@ -969,6 +1301,7 @@ fn keyboard_tab_keeps_the_view_still_for_an_already_visible_note() {
     for layout in [crate::state::EditorLayout::Vertical, crate::state::EditorLayout::Horizontal] {
         let mut f = Fixture::new();
         f.editor.layout = layout;
+        f.editor.pixels_per_second = 180.0;
         let mut note = f.app.chart.notes[0].clone();
         note.id = 101; note.time = 2.0; note.lane = 2;
         f.app.chart.notes.push(note);

@@ -25,12 +25,10 @@ pub fn draw_in(
     interactive: bool,
 ) {
     let painter = ui.painter();
-    // Band background blends with the workspace; the design's 10px scrubber
-    // sits near the top of it (`#2B2B2D`) with a 1px red start tick.
-    painter.rect_filled(rect, 0.0, crate::theme::BG_WINDOW);
+    painter.rect_filled(rect, 0.0, BG_OVERVIEW);
     let bar = egui::Rect::from_min_size(
-        egui::pos2(rect.left(), rect.top() + 3.0),
-        egui::vec2(rect.width(), 10.0),
+        rect.min,
+        egui::vec2(rect.width(), (rect.height() - 20.0).max(10.0)),
     );
     painter.rect_filled(bar, 0.0, BG_OVERVIEW);
     painter.vline(
@@ -70,28 +68,58 @@ pub fn draw_in(
         egui::Stroke::new(2.0_f32, ACCENT_RED),
     );
 
-    // Time read-out inside the bar (design shows "0.00" there).
+    let readout_y = bar.bottom() + 10.0;
     painter.text(
-        egui::pos2(bar.left() + 6.0, bar.center().y),
+        egui::pos2(bar.left() + 6.0, readout_y),
         egui::Align2::LEFT_CENTER,
         &format!("{:.2}s / {:.2}s", current_time.max(0.0), duration),
         egui::FontId::proportional(FONT_SMALL),
         TEXT,
     );
-    painter.text(
-        egui::pos2(bar.right() - 6.0, bar.center().y),
-        egui::Align2::RIGHT_CENTER,
-        &right_readout(editor, chart),
-        egui::FontId::proportional(FONT_SMALL),
-        TEXT_DIM,
-    );
+    if rect.width() > 320.0 {
+        painter.text(
+            egui::pos2(bar.right() - 6.0, readout_y),
+            egui::Align2::RIGHT_CENTER,
+            &right_readout(editor, chart),
+            egui::FontId::proportional(FONT_SMALL),
+            TEXT_DIM,
+        );
+    }
 
     let response = ui.interact(
         bar,
         ui.id().with("editor_overview"),
-        if interactive { egui::Sense::click_and_drag() } else { egui::Sense::hover() },
+        if interactive {
+            egui::Sense::click_and_drag()
+        } else {
+            egui::Sense::hover()
+        },
     );
-    if interactive && (response.clicked() || response.dragged()) {
+    let looping = loop_gesture(ui, &response, editor, interactive, |x| {
+        ((x - plot_left) / width).clamp(0.0, 1.0) * duration
+    });
+    if let Some((start, end)) = editor.loop_range {
+        let range = egui::Rect::from_min_max(
+            egui::pos2(x_of(start), bar.top()),
+            egui::pos2(x_of(end), bar.bottom()),
+        );
+        painter.rect_filled(
+            range,
+            0.0,
+            egui::Color32::from_rgba_unmultiplied(
+                98,
+                174,
+                211,
+                if editor.loop_enabled { 45 } else { 15 },
+            ),
+        );
+        painter.hline(
+            range.x_range(),
+            bar.bottom() - 1.0,
+            egui::Stroke::new(2.0_f32, crate::theme::ACCENT_BLUE),
+        );
+    }
+    if interactive && !looping && (response.clicked() || response.dragged()) {
         if let Some(pos) = response.interact_pointer_pos() {
             let frac = ((pos.x - plot_left) / width).clamp(0.0, 1.0);
             editor.pending_seek = Some(frac * duration);
@@ -102,6 +130,61 @@ pub fn draw_in(
     if response.drag_stopped() {
         editor.scrubbing = false;
     }
+}
+
+/// Capture a range gesture independently of seeking, including release outside.
+pub fn loop_gesture(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    editor: &mut EditorState,
+    interactive: bool,
+    time_at: impl Fn(f32) -> f32,
+) -> bool {
+    if interactive
+        && editor.loop_drag.is_none()
+        && response.is_pointer_button_down_on()
+        && ui.input(|i| i.pointer.primary_pressed() && i.modifiers.shift)
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        editor.loop_drag = Some(crate::state::LoopDrag {
+            owner: response.id,
+            anchor: time_at(pos.x),
+            previous: editor.loop_range,
+            was_enabled: editor.loop_enabled,
+            cancelled: false,
+        });
+    }
+    let Some(drag) = editor
+        .loop_drag
+        .as_mut()
+        .filter(|drag| drag.owner == response.id)
+    else {
+        return false;
+    };
+    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        || !ui.input(|i| i.focused)
+    {
+        editor.loop_range = drag.previous;
+        editor.loop_enabled = drag.was_enabled;
+        drag.cancelled = true;
+    }
+    if !drag.cancelled
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+    {
+        let time = time_at(pos.x);
+        let range = (drag.anchor.min(time), drag.anchor.max(time));
+        if range.1 - range.0 >= 0.01 {
+            editor.loop_range = Some(range);
+            editor.loop_enabled = true;
+        } else {
+            editor.loop_range = drag.previous;
+            editor.loop_enabled = drag.was_enabled;
+        }
+    }
+    if !ui.input(|i| i.pointer.primary_down()) {
+        editor.loop_drag = None;
+    }
+    true
 }
 
 /// Colour for a note's tick in the minimap.
@@ -135,6 +218,15 @@ mod tests {
     use super::*;
 
     fn frame(ctx: &egui::Context, editor: &mut EditorState, events: Vec<egui::Event>) {
+        frame_with_modifiers(ctx, editor, events, egui::Modifiers::NONE);
+    }
+
+    fn frame_with_modifiers(
+        ctx: &egui::Context,
+        editor: &mut EditorState,
+        events: Vec<egui::Event>,
+        modifiers: egui::Modifiers,
+    ) {
         let chart = ChartDoc {
             version: String::new(),
             title: String::new(),
@@ -154,6 +246,7 @@ mod tests {
                 egui::vec2(800.0, 600.0),
             )),
             events,
+            modifiers,
             ..Default::default()
         };
         let _ = ctx.run(input, |ctx| {
@@ -177,7 +270,11 @@ mod tests {
         let mut editor = EditorState::default();
         let pos = egui::pos2(300.0, 108.0);
         frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(pos)]);
-        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(pos), button(pos, true)]);
+        frame(
+            &ctx,
+            &mut editor,
+            vec![egui::Event::PointerMoved(pos), button(pos, true)],
+        );
         frame(&ctx, &mut editor, vec![button(pos, false)]);
         assert_eq!(editor.pending_seek, Some(4.0));
     }
@@ -224,5 +321,72 @@ mod tests {
             vec![egui::Event::PointerMoved(outside), button(outside, false)],
         );
         assert!(!editor.scrubbing, "release outside must resume playback");
+    }
+
+    #[test]
+    fn shift_drag_sets_loop_without_seeking_and_captures_release_outside() {
+        let ctx = egui::Context::default();
+        let mut editor = EditorState::default();
+        let start = egui::pos2(200.0, 108.0);
+        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(start)]);
+        frame_with_modifiers(
+            &ctx,
+            &mut editor,
+            vec![button(start, true)],
+            egui::Modifiers::SHIFT,
+        );
+        assert!(editor.loop_drag.is_some());
+        frame(
+            &ctx,
+            &mut editor,
+            vec![egui::Event::PointerMoved(egui::pos2(400.0, 108.0))],
+        );
+        assert_eq!(editor.loop_range, Some((2.0, 6.0)));
+        let outside = egui::pos2(600.0, 160.0);
+        frame(
+            &ctx,
+            &mut editor,
+            vec![egui::Event::PointerMoved(outside), button(outside, false)],
+        );
+        assert_eq!(editor.loop_range, Some((2.0, 8.0)));
+        assert!(editor.loop_enabled);
+        assert!(editor.loop_drag.is_none());
+        assert_eq!(editor.pending_seek, None);
+        assert!(!editor.scrubbing);
+    }
+
+    #[test]
+    fn cancelling_loop_restores_previous_range_and_does_not_seek_on_release() {
+        let ctx = egui::Context::default();
+        let mut editor = EditorState {
+            loop_range: Some((1.0, 3.0)),
+            ..Default::default()
+        };
+        let start = egui::pos2(200.0, 108.0);
+        let end = egui::pos2(400.0, 108.0);
+        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(start)]);
+        frame_with_modifiers(
+            &ctx,
+            &mut editor,
+            vec![button(start, true)],
+            egui::Modifiers::SHIFT,
+        );
+        frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(end)]);
+        frame(
+            &ctx,
+            &mut editor,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        frame(&ctx, &mut editor, vec![button(end, false)]);
+        assert_eq!(editor.loop_range, Some((1.0, 3.0)));
+        assert!(!editor.loop_enabled);
+        assert!(editor.loop_drag.is_none());
+        assert_eq!(editor.pending_seek, None);
     }
 }
