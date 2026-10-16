@@ -74,11 +74,7 @@ pub fn fit(editor: &mut EditorState, span: (f32, f32)) {
 
 pub fn toggle_follow(editor: &mut EditorState, now: f32) {
     if editor.workspace == Workspace::Autoplay {
-        if editor.autoplay_editor.follow {
-            editor.autoplay_editor.follow = false;
-        } else {
-            editor.autoplay_editor.return_current();
-        }
+        editor.autoplay_editor.toggle_follow();
     } else if editor.follow_playhead && !editor.keyboard.detached {
         editor.view_start = crate::keyboard::navigation::reference_time(editor, now);
         editor.follow_playhead = false;

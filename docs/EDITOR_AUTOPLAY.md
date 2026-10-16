@@ -32,14 +32,20 @@ display lane and does not change when groups are repacked.
 
 ## Overview And Sensor Detail
 
-- Click a clip to select it and expand its sensor detail without seeking.
-  Enter also opens detail for the selected clip. Only the relevant owners and
-  sensors are shown. Starting a drag does not open a collapsed detail panel.
+- Click a clip to select it without seeking or opening another panel.
+  The current event or interval exposes its handles inline in the main track;
+  clips with a single interval select it directly. Drag the clip background
+  to move the whole clip, or the inline body/endpoints to edit that interval.
+- Double-click a clip or press Enter to open optional sensor detail for its
+  owners. Closing detail retains the current selection and drawing mode,
+  which remain usable in the main timeline and Pad.
 - Matching Press/Release events form intervals within the same real owner
   and sensor. Drag the body to move both endpoints; drag an endpoint to
   change only that time. Ordering limits prevent crossing its paired end.
 - Endpoint hit areas stay 20 logical points wide. Close or zero-duration
-  endpoints are vertically separated without changing their timestamps.
+  endpoints are vertically separated without changing their timestamps,
+  leaving a draggable body between them. Nearby intervals on the same
+  sensor use separate subrows so their hit areas do not cover one another.
 - Clicks and unmatched events remain individual markers. A zero-duration
   pair stays a pair, not a Click. Events from different owners never pair.
 - G moves the selected clip, interval or event; Shift+D duplicates it and
@@ -47,7 +53,7 @@ display lane and does not change when groups are repacked.
   Shift+Left/Right uses a larger step. Enter or a click confirms; Esc cancels.
 - A mouse drag confirms on release, including outside the timeline. Each
   confirmed drag or duplicate is one undo step. Confirmation never also
-  creates a new event. Active edits temporarily suspend automatic centering
+  creates a new event. Active edits temporarily suspend automatic following
   without turning off follow.
 - Tab / Shift+Tab visits clips in the overview, or events/endpoints in detail.
   Holding the key repeats navigation.
@@ -58,18 +64,41 @@ G/Shift+D transforms. Switching modes exits interval drawing.
 
 ## Drawing And Selection
 
-- V selects; D enters drawing for an explicitly selected owner and opens
-  detail. Use the sensor picker to make another sensor row available.
-- In drawing mode, click an empty sensor row for a Click, or drag to create
-  Press/Release. Existing events remain selectable.
+- V selects; D enters drawing even without a selected clip. The main
+  timeline header contains Select, Draw, Click/Hold and Add controls.
+  Starting drawing or adding an event never forces sensor detail open.
+- In selection mode, Click/Hold converts the selected event or interval;
+  the highlighted type reflects that selection. Click to Hold preserves
+  the exact start time and sensor and adds Release one subdivision later.
+  Hold to Click retains the Press time and removes its paired Release,
+  even when the Release endpoint is selected. Choosing the current type
+  preserves its duration and adds no undo step. In drawing mode these
+  controls only choose the type of future events, not the last-created one.
+- Select an interval, then click a sensor in Pad to change its region. Both
+  Press and Release move to the new sensor without changing their times.
+  The eight K targets outside the ring select physical buttons; the Pad
+  itself selects A/B/C/D/E sensors. Raw mode changes only the selected event.
+- In drawing mode, choose Click or Hold. Clicking Pad adds that action at
+  the red playhead; Hold starts one subdivision long.
+  Clicking empty main-track space adds the chosen action at the snapped
+  pointer time; dragging draws a Press/Release interval. With no selection
+  when drawing starts, each action creates a standalone clip, even in an
+  empty chart. Selecting a clip before pressing D instead appends to that
+  explicit owner. The sensor is the last explicitly picked Pad sensor, not
+  the display lane under the pointer. The new interval
+  shows editable endpoints directly in the main track. Optional sensor
+  detail supports the same click/drag actions using its row's sensor.
+  Existing events remain selectable and selecting one exits drawing.
 - In selection mode, blank space clears selection and exits drawing, without
   creating an event. Visible detail may remain open, but it is not a hidden
-  owner for new events. Select an owner explicitly before drawing again.
+  owner for new events. Press D to create standalone clips from this state.
 - Esc first cancels an active draft; otherwise it exits drawing, then clears
   selection, then closes detail on successive presses.
-- Delete/Backspace removes the selected event or interval. With a whole clip
-  selected, it disables that clip's owned parts. Empty overrides leave a
-  dimmed span available for selection and restoration.
+- Delete/Backspace removes the selected interval, including when only its
+  Press or Release endpoint is selected. Raw mode deletes just one event. With a whole clip
+  selected, it disables that clip's note-owned parts. Empty note overrides
+  leave a dimmed span available for restoration; deleting the last event
+  of a standalone clip removes that clip entirely.
 - The clip context menu restores all parts in that clip. Properties restores
   only the real owner shown in its owner selector.
 - Primary+Z / Primary+Shift+Z undo/redo confirmed document edits, also through
@@ -83,10 +112,16 @@ contains multiple parts. Raw mode instead exposes each event's action, zone
 and time. Times retain microsecond precision, and field drags produce one
 undo step when finished.
 
-The independent new-sensor picker and plus button add at the red playhead.
-Normal mode creates a Press/Release pair one subdivision step long and
-selects it; raw mode adds the chosen Click, Press or Release. Existing event
-properties do not silently become the new-event defaults.
+Sensor labels select their interval for direct Pad editing and Click/Hold
+conversion; no sensor dropdown is required. Enter drawing mode or clear
+selection to choose a new-event type without converting an existing event.
+Choose Click/Hold, then use the plus button to add at
+the red playhead using the last explicitly picked sensor. Hold creates a Press/Release pair
+one subdivision long; raw mode adds the chosen Click, Press or Release.
+Selecting an existing event alone does not change the new-event sensor.
+Clicking Pad without an event selected only sets the new sensor unless
+drawing mode is active. Drawing and Add work without a selected owner;
+they create standalone clips instead of modifying an unrelated note.
 
 Properties also provides seek-to-note-head, sensor detail, owner reset and
 selected-event deletion. Playback settings expose simulated touch, direct
@@ -113,11 +148,19 @@ tracks. Zooming out progressively thins the grid to coarser subdivisions
 without changing the selected snap interval.
 
 The header offers follow and return-to-playhead controls; fit-selection and
-fit-song are in its menu and F3. Follow keeps the playing red line centered.
+fit-song are in its menu and F3. With follow enabled, playback leaves the view
+stationary while the red line is in the left half of the time plot. Only after
+it reaches the midpoint does the view ease into scrolling over about 200 ms,
+then track at playback speed with the red line centered. The threshold uses
+the usable plot width, excluding track labels, at every layout size and zoom.
 Manual browsing, fitting, zooming and editing leave the follow toggle enabled.
-While paused, the viewport stays where it was moved. During playback, active
-gestures hold the view; once they end, automatic centering resumes.
+Pausing stops the transition immediately. During playback, active gestures
+take priority and reset the transition; once they end, the same midpoint rule
+resumes from the current view without snapping back. A playhead beyond the
+midpoint, or offscreen to the left after a seek or loop wrap, is brought back
+smoothly. Enabling follow alone does not center the view.
 Return-to-playhead centers immediately at the existing scale and enables follow.
+Automatic following only moves the view, never the playback clock.
 Chart follow stays active while paused too: seeks update the view, and panning
 moves both the view and clock. Pointer zoom preserves its anchor without seeking.
 
@@ -129,15 +172,20 @@ across launches.
 
 Click or drag the ruler to seek. Holding the locator beyond either plot edge
 continues panning and seeking, even with the pointer stationary. Returning
-inside stops edge panning; releasing ends the seek. Autoplay resumes centering
-only during playback with follow enabled.
+inside stops edge panning; releasing ends the seek. Autoplay resumes midpoint
+following only during playback with follow enabled.
 Event dragging and ruler seeking respect the
 shared subdivision when snapping is enabled; snapping can be disabled for
 free timing. Properties' seek button jumps to the owning note head.
 
 Shift-drag the Autoplay ruler or Chart overview to set a loop without seeking.
+Drag either yellow boundary on the ruler to resize an existing loop. Dragging
+elsewhere still seeks. A translucent yellow background marks the same range in
+the chart, Simai text and all Autoplay lanes, including expanded sensor rows.
 Release confirms even outside the ruler; Esc restores the previous range.
 Playback provides the loop toggle, range fields and loop-selection command.
+Starting playback inside the enabled loop continues there; starting outside
+returns to its beginning. Reaching the end also returns to the beginning.
 Loop-selection adds 0.25 seconds before and 0.5 seconds after the selection.
 F3 also exposes loop-selection and clear-loop.
 
@@ -163,16 +211,21 @@ files keep their explicitly chosen inputs. Save Settings persists the switch.
 ## Remaining Design Targets
 
 Multi-clip marquee selection, transfer/copy to another owner, idle arrow-key
-sensor navigation, Pad drawing/recording and isolated playback of committed
+sensor navigation, real-time Pad recording and isolated playback of committed
 content while a draft remains open are not implemented. See the
 [interaction specification](EDITOR_INTERACTION_SPEC.md) for those proposals.
 
 ## Storage
 
-Only edited groups are stored in native JSON's autoplay_overrides. Ownership
+Edited groups and standalone clips are stored in native JSON's autoplay_overrides. Note ownership
 uses the stable Note ID, role, slide, segment and optional core track index.
 Event times are relative microseconds from the owning note head, so moving a
 note or template instance moves its authored sequence with it.
+
+Standalone keys reserve role = 18446744073709551615; note_id is a separate
+clip ID, not a chart note reference. Their event times are absolute
+microseconds, and their playback groups have no runtime-note dependency.
+They survive seeking and template cleanup without creating synthetic notes.
 
 The generated plan remains the default. Reset removes an override; an empty
 override explicitly disables its part. Simai export contains chart notes,

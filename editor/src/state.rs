@@ -222,7 +222,9 @@ pub struct EditorState {
     pub template_session: Option<Box<crate::templates::Session>>,
     pub template_action: Option<crate::templates::Action>,
     pub autoplay_editor: crate::autoplay_editor::AutoplayEditor,
+    pub simai_editor: crate::simai_editor::SimaiEditor,
     pub keyboard: crate::keyboard::KeyboardState,
+    pub keyboard_seek_on_navigation: bool,
     pub follow_playhead: bool,
     /// Playhead offset from the view reference after pointer-anchored zoom.
     pub follow_view_offset: Option<f32>,
@@ -231,6 +233,7 @@ pub struct EditorState {
     pub loop_drag: Option<LoopDrag>,
     pub pinned_note: Option<u64>,
     pub tool: Tool,
+    pub touch_zone: Option<u8>,
     pub layout: EditorLayout,
     /// Notes selected by id.
     pub selected: HashSet<u64>,
@@ -250,6 +253,7 @@ pub struct EditorState {
     /// whose OS "natural scrolling" setting feels backwards in the editor.
     pub scroll_invert: bool,
     pub dirty: bool,
+    pub auto_save: bool,
     pub undo: Vec<HistoryEntry>,
     pub redo: Vec<HistoryEntry>,
     /// Note currently being dragged, if any.
@@ -343,7 +347,9 @@ impl Default for EditorState {
             template_session: None,
             template_action: None,
             autoplay_editor: Default::default(),
+            simai_editor: Default::default(),
             keyboard: crate::keyboard::KeyboardState::default(),
+            keyboard_seek_on_navigation: false,
             follow_playhead: true,
             follow_view_offset: None,
             loop_range: None,
@@ -351,6 +357,7 @@ impl Default for EditorState {
             loop_drag: None,
             pinned_note: None,
             tool: Tool::Select,
+            touch_zone: None,
             layout: EditorLayout::Vertical,
             selected: HashSet::new(),
             hovered: None,
@@ -361,6 +368,7 @@ impl Default for EditorState {
             snap_enabled: true,
             scroll_invert: false,
             dirty: false,
+            auto_save: false,
             undo: Vec::new(),
             redo: Vec::new(),
             dragging: None,
@@ -442,12 +450,16 @@ impl EditorState {
     /// shows the confirm prompt instead of running it. Returns `true` when the
     /// action was deferred (the caller should NOT run it now).
     pub fn defer_if_dirty(&mut self, action: PendingAction) -> bool {
-        if self.dirty {
+        if self.has_unsaved_changes() {
             self.pending_action = Some(action);
             true
         } else {
             false
         }
+    }
+
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.dirty || self.simai_editor.modified()
     }
 }
 

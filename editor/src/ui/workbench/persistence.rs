@@ -7,7 +7,7 @@ const FILE: &str = "editor_workspaces.json";
 #[derive(Serialize, Deserialize)]
 struct Layouts {
     version: u32,
-    layouts: [Option<SavedNode>; 3],
+    layouts: Vec<Option<SavedNode>>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -120,6 +120,7 @@ impl Workbench {
             };
             let parsed = serde_json::from_str::<Layouts>(&text).ok().filter(|saved| {
                 saved.version == 1
+                    && saved.layouts.len() <= WORKSPACE_COUNT
                     && saved
                         .layouts
                         .iter()
@@ -154,11 +155,11 @@ impl Workbench {
     fn save_layouts(&self) -> Result<(), String> {
         let saved = Layouts {
             version: 1,
-            layouts: std::array::from_fn(|i| {
-                self.saved[i]
+            layouts: self.saved.iter().map(|layout| {
+                layout
                     .as_ref()
                     .and_then(|dock| SavedNode::capture(dock.main_surface(), NodeIndex::root()))
-            }),
+            }).collect(),
         };
         let text = serde_json::to_string_pretty(&saved).map_err(|e| e.to_string())?;
         let temp = platform::write_output_text("editor_workspaces.tmp", &text)?;
@@ -180,7 +181,7 @@ mod tests {
     #[test]
     fn layout_roundtrip_keeps_order_and_proportions() {
         let mut next = 0;
-        for index in 0..3 {
+        for index in 0..WORKSPACE_COUNT {
             let dock = preset(index, &mut next);
             let saved = SavedNode::capture(dock.main_surface(), NodeIndex::root()).unwrap();
             assert!(saved.valid(&mut Vec::new(), 0));

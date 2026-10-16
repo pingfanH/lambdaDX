@@ -324,7 +324,7 @@ impl EguiMq {
             self.egui_input.events.push(egui::Event::Copy);
         } else if modifiers.command && keycode == mq::KeyCode::V {
             if let Some(text) = self.get_clipboard() {
-                self.egui_input.events.push(egui::Event::Text(text));
+                self.egui_input.events.push(egui::Event::Paste(text));
             }
         } else if let Some(key) = input::egui_key_from_mq_key(keycode) {
             self.egui_input.events.push(egui::Event::Key {

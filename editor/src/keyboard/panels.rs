@@ -77,7 +77,7 @@ pub fn confirm_key(editor: &mut EditorState, chart: &mut ChartDoc, key: egui::Ke
         Key::ArrowLeft => editor.keyboard.confirm_choice = (editor.keyboard.confirm_choice + 2) % 3,
         Key::ArrowRight | Key::Tab => editor.keyboard.confirm_choice = (editor.keyboard.confirm_choice + 1) % 3,
         Key::Enter => match editor.keyboard.confirm_choice {
-            0 => { crate::io::save_chart(editor, chart); editor.pending_confirmed = !editor.dirty; }
+            0 => { crate::io::save_document(editor, chart); editor.pending_confirmed = !editor.has_unsaved_changes(); }
             1 => editor.pending_confirmed = true,
             _ => editor.cancel_file_action(),
         },
@@ -203,7 +203,7 @@ pub fn draw(ctx: &egui::Context, editor: &mut EditorState, chart: &mut ChartDoc)
                             "handles" => super::panels::open(editor, chart, DialogKind::Handles),
                             "jump" => super::panels::open(editor, chart, DialogKind::Jump),
                             "open" => editor.open_dialog = true,
-                            "save" => crate::io::save_chart(editor, chart),
+                            "save" => crate::io::save_document(editor, chart),
                             "save_as" => editor.save_as_request = true,
                             "export" => editor.export_request = true,
                             "fit_selection" => editor.keyboard.view_commands.push(ViewCommand::FitSelection),

@@ -17,6 +17,16 @@ use crate::player::state::PadPreviewState;
 /// never reports as hidden).
 const CORE_SLIDE_FALLBACK_GRACE: f32 = 0.35;
 
+pub fn is_visible(app: &PadPreviewState, note: &Note, t: &NoteTiming) -> bool {
+    if let Some((solo, _)) = app.edit_solo_slide { return note.id == solo; }
+    if app.hidden_notes.contains(&note.id) { return false; }
+    if note.note_type == NoteType::Slide && app.use_core() {
+        t.dt_scaled <= t.lead_time && t.slide_tail_dt >= -CORE_SLIDE_FALLBACK_GRACE
+    } else {
+        t.visible()
+    }
+}
+
 /// Draw all visible notes for `current_t` (seconds).
 ///
 /// Two passes so the stacking is type-aware:
@@ -134,14 +144,7 @@ fn draw_pass(
         // grace after the slide's end. Without an engine, use the local cull.
         // Editor solo view: render only the slide being edited (no time culling,
         // so its whole trail stays visible).
-        let is_visible = if let Some((solo, _)) = app.edit_solo_slide {
-            note.id == solo
-        } else if is_slide && app.use_core() {
-            t.dt_scaled <= t.lead_time && t.slide_tail_dt >= -CORE_SLIDE_FALLBACK_GRACE
-        } else {
-            t.visible()
-        };
-        if !is_visible {
+        if !is_visible(app, note, &t) {
             continue;
         }
         visible.push((note, t));

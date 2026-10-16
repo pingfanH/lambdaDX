@@ -184,20 +184,62 @@ pub fn follow_playhead(editor: &mut EditorState, current_time: f32) {
     }
 }
 
+pub fn loop_range(editor: &EditorState) -> Option<(f32, f32)> {
+    editor.loop_range.filter(|&(start, end)| editor.loop_enabled
+        && start.is_finite() && end.is_finite() && start >= 0.0 && end - start >= 0.01)
+}
+
+fn playback_start(editor: &EditorState, time: f32) -> f32 {
+    loop_range(editor).map_or(time, |(start, end)| {
+        if time < start || time >= end { start } else { time }
+    })
+}
+
+pub fn toggle_play(editor: &EditorState, app: &mut PadPreviewState) {
+    if !matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) {
+        let time = app.timeline_time();
+        let start = playback_start(editor, time);
+        if start != time { app.seek_to(start); }
+    }
+    app.toggle_play();
+}
+
+pub fn restart_playback(editor: &EditorState, app: &mut PadPreviewState) {
+    app.start_playback_at(loop_range(editor).map_or(0.0, |(start, _)| start));
+}
+
+pub fn rewind(editor: &EditorState, app: &mut PadPreviewState) {
+    let start = if matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) {
+        loop_range(editor).map_or(0.0, |(start, _)| start)
+    } else { 0.0 };
+    app.seek_to(start);
+}
+
 pub fn tick_loop(editor: &EditorState, app: &mut PadPreviewState) {
     if !editor.loop_enabled || editor.loop_drag.is_some() || editor.scrubbing || app.scrubbing
         || !matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) { return; }
-    if let Some((start, end)) = editor.loop_range
-        && start.is_finite() && end.is_finite() && end - start >= 0.01
-        && app.timeline_time() >= end {
-        let target = start + (app.timeline_time() - end).rem_euclid(end - start);
-        app.seek_to(target);
+    if let Some((start, end)) = loop_range(editor)
+        && (app.timeline_time() < start || app.timeline_time() >= end) {
+        app.seek_to(start);
     }
 }
 
 #[cfg(all(test, feature = "backend-lean"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loop_playback_starts_inside_the_range_and_preserves_inside_positions() {
+        let mut editor = EditorState { loop_range: Some((2.0, 6.0)), loop_enabled: true, ..Default::default() };
+        for (time, expected) in [(0.0, 2.0), (2.0, 2.0), (3.5, 3.5), (6.0, 2.0), (9.0, 2.0)] {
+            assert_eq!(playback_start(&editor, time), expected);
+        }
+        editor.loop_enabled = false;
+        assert_eq!(playback_start(&editor, 9.0), 9.0);
+        editor.loop_enabled = true;
+        editor.loop_range = Some((6.0, 2.0));
+        assert_eq!(playback_start(&editor, 9.0), 9.0);
+    }
 
     fn settle(sync: &mut ChartSync, pad: &mut PadPreviewState) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);

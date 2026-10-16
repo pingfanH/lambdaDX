@@ -77,6 +77,7 @@ pub fn set_lane(editor: &mut EditorState, lane: u8) {
 }
 
 pub fn follow_cursor(editor: &mut EditorState, chart: &ChartDoc) {
+    if !editor.keyboard_seek_on_navigation { return; }
     let time = measure_to_secs(editor.keyboard.cursor.measure, &chart.bpms);
     // A diagonal or several queued key events need only one native seek.
     if let Some(super::Transport::Cursor(pending)) = editor.keyboard.transport.last_mut() {

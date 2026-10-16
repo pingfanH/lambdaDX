@@ -1,4 +1,4 @@
-//! Clip overview and owner-scoped sensor intervals. Drafts never mutate the chart.
+//! Clip overview and sensor intervals. Drafts never mutate the chart.
 
 use super::*;
 use crate::theme::{ACCENT_BLUE, BG_CANVAS, TEXT, TEXT_DIM};
@@ -117,6 +117,7 @@ pub(super) struct Gesture {
     pub selection: Option<(usize, usize)>,
     pub pair: Option<usize>,
     pub row: Option<usize>,
+    pub created_row: Option<usize>,
     targets: Vec<(usize, usize, TimedInputEvent)>,
     origin_x: f32,
     anchor: i64,
@@ -178,6 +179,7 @@ fn begin(
         selection,
         pair,
         row,
+        created_row: None,
         targets: moved,
         origin_x,
         anchor,
@@ -375,6 +377,55 @@ fn paint_grid(p: &egui::Painter, plot: Rect, grid: &[(f32, bool)], play_x: f32) 
     );
 }
 
+fn begin_drawing(
+    state: &mut AutoplayEditor,
+    editor: &mut EditorState,
+    chart: &mut ChartDoc,
+    row: Option<usize>,
+    zone: &str,
+    origin: f32,
+    time: f32,
+) {
+    state.finish_inspector(editor, chart);
+    let previous_len = state.tracks.len();
+    let row = row.unwrap_or_else(|| state.creation_row(chart));
+    let original = state.tracks[row].events.clone();
+    let index = original.len();
+    let time = (snap_time(time, editor, chart) * 1e6).round() as i64;
+    state.tracks[row].events.push(make_event(zone, 1, time));
+    state.tracks[row].events.push(make_event(zone, 2, time));
+    begin(
+        state,
+        vec![(row, index + 1)],
+        origin,
+        false,
+        false,
+        (0, i64::MAX),
+    );
+    if let Some(draft) = &mut state.clip_drag {
+        draft.originals = vec![(row, original)];
+        draft.created_row = (row == previous_len).then_some(row);
+    }
+    state.selected = Some((row, index));
+    state.selected_row = Some(row);
+    state.selected_pair = Some(index + 1);
+    if row == previous_len {
+        state.clip_layout = Arc::new(ClipLayout::build(&state.tracks, state.lane_count, &state.clip_layout));
+    }
+}
+
+fn stable_events(state: &AutoplayEditor, row: usize) -> Vec<TimedInputEvent> {
+    let mut events = state.tracks[row].events.clone();
+    if let Some(draft) = &state.clip_drag {
+        for (r, index, original) in &draft.targets {
+            if *r == row {
+                events[*index] = original.clone();
+            }
+        }
+    }
+    events
+}
+
 pub(super) fn draw(
     ui: &mut egui::Ui,
     state: &mut AutoplayEditor,
@@ -393,6 +444,15 @@ pub(super) fn draw(
     finish_gesture(ui, state, editor, &mut app.chart);
     let layout = Arc::clone(&state.clip_layout);
     let detail = state.detail_row.filter(|row| *row < state.tracks.len());
+    let inline = state
+        .selected
+        .filter(|_| detail.is_none())
+        .and_then(|(row, index)| {
+            intervals(&stable_events(state, row))
+                .into_iter()
+                .find(|span| span.press == index || span.release == Some(index))
+                .map(|span| (row, span))
+        });
     let filter = state.filter.trim().to_lowercase();
     let visible_start = ((view - 8.0 / pps) * 1e6) as i64;
     let visible_end = ((view + (ruler.right() - left + 8.0) / pps) * 1e6) as i64;
@@ -409,7 +469,12 @@ pub(super) fn draw(
         .show(ui, |ui| {
             ui.set_min_height(height);
             for (lane, clips) in layout.lanes.iter().enumerate() {
-                let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 35.0), Sense::hover());
+                let inline = inline
+                    .filter(|(row, _)| clips.iter().any(|&i| layout.clips[i].rows.contains(row)));
+                let (rect, _) = ui.allocate_exact_size(
+                    Vec2::new(width, if inline.is_some() { 68.0 } else { 35.0 }),
+                    Sense::hover(),
+                );
                 if !ui.is_rect_visible(rect) {
                     continue;
                 }
@@ -431,19 +496,46 @@ pub(super) fn draw(
                     egui::FontId::monospace(11.0),
                     TEXT_DIM,
                 );
+                crate::timeline::overview::paint_loop(&p, plot, editor, |time| left + (time - view) * pps, false);
                 paint_grid(&p, plot, &grid, play_x);
                 let empty = ui.interact(
                     plot.intersect(ui.clip_rect()),
                     ui.id().with(("clip_empty", lane)),
-                    if editable && !captured {
-                        Sense::click()
+                    if editable && !captured && !state.pointer_dragging() {
+                        Sense::click_and_drag()
                     } else {
                         Sense::hover()
                     },
                 );
                 if empty.clicked() && editable && !captured {
                     state.finish_inspector(editor, &mut app.chart);
-                    state.clear_selection();
+                    if state.draw_mode {
+                        let time = view + (empty.interact_pointer_pos().unwrap().x - left) / pps;
+                        state.add_at_playhead(editor, &mut app.chart, time);
+                    } else {
+                        state.clear_selection();
+                    }
+                }
+                if empty.drag_started_by(egui::PointerButton::Primary)
+                    && editable
+                    && !captured
+                    && !state.pointer_dragging()
+                    && state.draw_mode
+                {
+                    let origin = ui
+                        .input(|i| i.pointer.press_origin())
+                        .unwrap_or_else(|| empty.interact_pointer_pos().unwrap())
+                        .x;
+                    let zone = state.new_zone.clone();
+                    begin_drawing(
+                        state,
+                        editor,
+                        &mut app.chart,
+                        None,
+                        &zone,
+                        origin,
+                        view + (origin - left) / pps,
+                    );
                 }
                 let visible = if captured {
                     clips.as_slice()
@@ -486,6 +578,7 @@ pub(super) fn draw(
                         continue;
                     }
                     let selected = state.selected_row.is_some_and(|r| clip.rows.contains(&r));
+                    let inline_clip = inline.is_some_and(|(r, _)| clip.rows.contains(&r));
                     let color = track.events.first().map(event_color).unwrap_or(TEXT_DIM);
                     p.rect_filled(
                         bounds,
@@ -513,7 +606,14 @@ pub(super) fn draw(
                     if bounds.width() > 48.0 {
                         p.with_clip_rect(bounds.shrink(4.0).intersect(p.clip_rect()))
                             .text(
-                                Pos2::new(bounds.left().max(left) + 5.0, bounds.center().y),
+                                Pos2::new(
+                                    bounds.left().max(left) + 5.0,
+                                    if inline_clip {
+                                        rect.top() + 12.0
+                                    } else {
+                                        bounds.center().y
+                                    },
+                                ),
                                 egui::Align2::LEFT_CENTER,
                                 &label,
                                 egui::FontId::proportional(11.0),
@@ -531,15 +631,23 @@ pub(super) fn draw(
                             },
                         )
                         .on_hover_text(format!("{label} / {} groups", clip.rows.len()));
-                    if response.clicked() || response.drag_started_by(egui::PointerButton::Primary) {
+                    if response.clicked() || response.drag_started_by(egui::PointerButton::Primary)
+                    {
                         state.finish_inspector(editor, &mut app.chart);
                         state.selected_row = Some(row);
-                        if state.detail_row.is_some() || response.clicked() {
+                        if state.detail_row.is_some() || response.double_clicked() {
                             state.detail_row = Some(row);
                         }
                         state.selected = None;
                         state.selected_pair = None;
                         state.draw_mode = false;
+                        if response.clicked() && clip.rows.len() == 1 {
+                            let spans = intervals(&state.tracks[row].events);
+                            if spans.len() == 1 {
+                                state.selected = Some((row, spans[0].press));
+                                state.selected_pair = spans[0].release;
+                            }
+                        }
                     }
                     if response.drag_started_by(egui::PointerButton::Primary) {
                         let targets = clip
@@ -560,9 +668,10 @@ pub(super) fn draw(
                                 state.detail_row = Some(row);
                                 state.selected = None;
                                 state.selected_pair = None;
+                                state.draw_mode = false;
                                 ui.close_menu();
                             }
-                            if ui.button("恢复默认事件").clicked() {
+                            if !state.tracks[row].key.is_standalone() && ui.button("恢复默认事件").clicked() {
                                 let edits = clip
                                     .rows
                                     .iter()
@@ -571,7 +680,7 @@ pub(super) fn draw(
                                 state.commit_many(editor, &mut app.chart, edits);
                                 ui.close_menu();
                             }
-                            if ui.button("停用片段").clicked() {
+                            if ui.button(if state.tracks[row].key.is_standalone() { "删除片段" } else { "停用片段" }).clicked() {
                                 state.commit_many(
                                     editor,
                                     &mut app.chart,
@@ -582,6 +691,23 @@ pub(super) fn draw(
                         });
                     }
                 }
+                if let Some((row, span)) = inline {
+                    let events = state.tracks[row].events.clone();
+                    ui.push_id("overview_interval", |ui| {
+                        draw_interval(
+                            ui,
+                            state,
+                            editor,
+                            &mut app.chart,
+                            row,
+                            &events,
+                            span,
+                            plot,
+                            rect.top() + 42.0,
+                            editable && !captured,
+                        );
+                    });
+                }
                 p.vline(
                     play_x,
                     plot.y_range(),
@@ -591,30 +717,15 @@ pub(super) fn draw(
         });
     if let Some(row) = detail {
         ui.separator();
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(glyph(Icon::AudioLines, 13.0));
             ui.add(egui::Label::new(&state.tracks[row].label).truncate());
             ui.add_enabled_ui(editable && !captured && !state.pointer_dragging(), |ui| {
-                if icon(ui, Icon::MousePointer2, "选择", !state.draw_mode).clicked() {
-                    state.draw_mode = false;
-                }
-                if icon(ui, Icon::Pencil, "绘制区间", state.draw_mode).clicked() {
-                    state.draw_mode = true;
-                    state.selected_row = Some(row);
-                }
-                egui::ComboBox::from_id_salt("detail_zone")
-                    .width(48.0)
-                    .selected_text(&state.new_zone)
-                    .show_ui(ui, |ui| {
-                        for zone in zone_names() {
-                            ui.selectable_value(&mut state.new_zone, zone.clone(), zone);
-                        }
-                    });
+                drawing_tools(ui, state, editor, app);
             });
             ui.add_enabled_ui(editable && !captured && !state.pointer_dragging(), |ui| {
                 if icon(ui, Icon::X, "关闭详情", false).clicked() {
                     state.finish_inspector(editor, &mut app.chart);
-                    state.clear_selection();
                     state.detail_row = None;
                 }
             });
@@ -646,6 +757,173 @@ pub(super) fn draw(
     }
 }
 
+fn sensor_layout(events: &[TimedInputEvent], zone: &str, pps: f32) -> Vec<Vec<Interval>> {
+    let indices: Vec<_> = (0..events.len())
+        .filter(|&i| event_zone(&events[i]) == zone)
+        .collect();
+    let sensor: Vec<_> = indices.iter().map(|&i| events[i].clone()).collect();
+    let layout = event_layout(&sensor, pps);
+    let mut rows = vec![Vec::new(); layout.count];
+    for span in intervals(&sensor) {
+        rows[layout.rows[span.press]].push(Interval {
+            press: indices[span.press],
+            release: span.release.map(|i| indices[i]),
+        });
+    }
+    rows
+}
+
+fn draw_interval(
+    ui: &mut egui::Ui,
+    state: &mut AutoplayEditor,
+    editor: &mut EditorState,
+    chart: &mut ChartDoc,
+    row: usize,
+    events: &[TimedInputEvent],
+    span: Interval,
+    plot: Rect,
+    y: f32,
+    editable: bool,
+) {
+    let Some(event) = events.get(span.press) else {
+        return;
+    };
+    if span.release.is_some_and(|i| i >= events.len()) {
+        return;
+    }
+    let start = timed_input_tp(event);
+    let end = span
+        .release
+        .map(|i| timed_input_tp(&events[i]))
+        .unwrap_or(start);
+    let x_of = |t: i64| plot.left() + (t as f32 / 1e6 - state.view_start) * state.pixels_per_second;
+    let x1 = x_of(start);
+    let x2 = x_of(end);
+    let body = Rect::from_min_max(
+        Pos2::new(x1 - 3.0, y - 6.0),
+        Pos2::new((x2 + 3.0).max(x1 + 9.0), y + 6.0),
+    );
+    if !body.expand(10.0).intersects(plot) {
+        return;
+    }
+    let p = ui.painter().with_clip_rect(plot.intersect(ui.clip_rect()));
+    let selected = state
+        .selected
+        .is_some_and(|(r, i)| r == row && (i == span.press || span.release == Some(i)));
+    let color = if selected {
+        ACCENT_BLUE
+    } else {
+        event_color(&events[span.press])
+    };
+    if span.release.is_some() {
+        p.rect_filled(body, 2.0, color.gamma_multiply(0.4));
+        p.rect_stroke(
+            body,
+            2.0,
+            Stroke::new(1.0_f32, color),
+            egui::StrokeKind::Inside,
+        );
+    } else {
+        p.circle_filled(Pos2::new(x1, y), 4.0, color);
+    }
+    let response = ui
+        .interact(
+            body.intersect(plot).intersect(ui.clip_rect()),
+            ui.id().with(("interval", row, span.press)),
+            if editable && !state.pointer_dragging() {
+                Sense::click_and_drag()
+            } else {
+                Sense::hover()
+            },
+        )
+        .on_hover_text(format!(
+            "{} / {} / {:.6} - {:.6} s",
+            state.tracks[row].label,
+            event_zone(&events[span.press]),
+            start as f64 / 1e6,
+            end as f64 / 1e6,
+        ));
+    if response.clicked() || response.drag_started_by(egui::PointerButton::Primary) {
+        state.finish_inspector(editor, chart);
+        state.selected = Some((row, span.press));
+        state.selected_row = Some(row);
+        state.selected_pair = span.release;
+        state.draw_mode = false;
+        if response.double_clicked() {
+            state.detail_row = Some(row);
+        }
+    }
+    if response.drag_started_by(egui::PointerButton::Primary) {
+        let mut targets = vec![(row, span.press)];
+        if let Some(release) = span.release {
+            targets.push((row, release));
+        }
+        begin(
+            state,
+            targets,
+            response.interact_pointer_pos().unwrap().x - response.drag_delta().x,
+            false,
+            false,
+            (i64::MIN, i64::MAX),
+        );
+    }
+    if let Some(release) = span.release {
+        for (index, x, press) in [(span.press, x1, true), (release, x2, false)] {
+            // Keep zero-width interval endpoints separately reachable.
+            let handle_y = if (x2 - x1).abs() < 28.0 {
+                y + if press { -16.0 } else { 16.0 }
+            } else {
+                y
+            };
+            let handle = Rect::from_center_size(Pos2::new(x, handle_y), Vec2::new(20.0, 18.0));
+            if handle_y != y {
+                p.line_segment(
+                    [Pos2::new(x, y), handle.center()],
+                    Stroke::new(1.0_f32, color),
+                );
+            }
+            p.rect_filled(
+                Rect::from_center_size(handle.center(), Vec2::new(5.0, 9.0)),
+                1.0,
+                color,
+            );
+            let response = ui
+                .interact(
+                    handle.intersect(plot).intersect(ui.clip_rect()),
+                    ui.id().with(("interval_end", row, index)),
+                    if editable && !state.pointer_dragging() {
+                        Sense::click_and_drag()
+                    } else {
+                        Sense::hover()
+                    },
+                )
+                .on_hover_text(if press { "Press" } else { "Release" });
+            if response.clicked() || response.drag_started_by(egui::PointerButton::Primary) {
+                state.finish_inspector(editor, chart);
+                state.selected = Some((row, index));
+                state.selected_row = Some(row);
+                state.selected_pair = None;
+                state.draw_mode = false;
+            }
+            if response.drag_started_by(egui::PointerButton::Primary) {
+                let limits = if press {
+                    (i64::MIN, end.saturating_sub(start))
+                } else {
+                    (start.saturating_sub(end), i64::MAX)
+                };
+                begin(
+                    state,
+                    vec![(row, index)],
+                    response.interact_pointer_pos().unwrap().x - response.drag_delta().x,
+                    false,
+                    false,
+                    limits,
+                );
+            }
+        }
+    }
+}
+
 fn sensor_rows(
     ui: &mut egui::Ui,
     state: &mut AutoplayEditor,
@@ -659,7 +937,8 @@ fn sensor_rows(
     editable: bool,
 ) {
     let events = state.tracks[row].events.clone();
-    let spans = intervals(&events);
+    // Keep interval pairing and row assignment fixed while an endpoint moves.
+    let layout_events = stable_events(state, row);
     let mut zones: Vec<_> = events.iter().map(event_zone).collect();
     if state.draw_mode && state.selected_row == Some(row) {
         zones.push(state.new_zone.clone());
@@ -668,214 +947,144 @@ fn sensor_rows(
     zones.dedup();
     let pps = state.pixels_per_second;
     let view = state.view_start;
-    let x_of = |t: i64| left + (t as f32 / 1e6 - view) * pps;
     for zone in zones {
-        let editable = editable && !state.pointer_dragging();
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 44.0), Sense::hover());
-        if !ui.is_rect_visible(rect) {
-            continue;
-        }
-        let plot = Rect::from_min_max(Pos2::new(left, rect.top()), rect.max);
-        let p = ui.painter().with_clip_rect(plot.intersect(ui.clip_rect()));
-        p.rect_filled(plot, 0.0, BG_CANVAS);
-        let label = if state.tracks[row].key.role == 2 {
-            format!("{} {zone}", state.tracks[row].key.segment + 1)
-        } else {
-            zone.clone()
-        };
-        let label_rect = Rect::from_min_max(rect.min, Pos2::new(left, rect.bottom()));
-        ui.painter()
-            .with_clip_rect(label_rect.intersect(ui.clip_rect()))
-            .text(
-                Pos2::new(rect.left() + 8.0, rect.center().y),
-                egui::Align2::LEFT_CENTER,
-                &label,
-                egui::FontId::monospace(11.0),
-                TEXT_DIM,
-            );
-        paint_grid(&p, plot, grid, play_x);
-        let can_draw = editable && state.draw_mode && state.selected_row.is_some();
-        let background = ui.interact(
-            plot.intersect(ui.clip_rect()),
-            ui.id().with(("sensor_empty", row, &zone)),
-            if editable {
-                Sense::click_and_drag()
-            } else {
-                Sense::hover()
-            },
-        );
-        if background.clicked() && editable {
-            state.finish_inspector(editor, &mut app.chart);
-            if can_draw {
-                let time = snap_time(
-                    view + (background.interact_pointer_pos().unwrap().x - left) / pps,
-                    editor,
-                    &app.chart,
-                );
-                let mut new = events.clone();
-                new.push(make_event(&zone, 0, (time * 1e6).round() as i64));
-                state.commit(editor, &mut app.chart, row, new);
-                state.selected = Some((row, events.len()));
-                state.selected_row = Some(row);
-                state.selected_pair = None;
-            } else {
-                state.clear_selection();
-            }
-        }
-        if background.drag_started_by(egui::PointerButton::Primary) && can_draw {
-            state.finish_inspector(editor, &mut app.chart);
-            let origin = background.interact_pointer_pos().unwrap().x - background.drag_delta().x;
-            let time =
-                (snap_time(view + (origin - left) / pps, editor, &app.chart) * 1e6).round() as i64;
-            state.tracks[row].events.push(make_event(&zone, 1, time));
-            state.tracks[row].events.push(make_event(&zone, 2, time));
-            begin(
-                state,
-                vec![(row, events.len() + 1)],
-                origin,
-                false,
-                false,
-                (0, i64::MAX),
-            );
-            if let Some(draft) = &mut state.clip_drag {
-                draft.originals = vec![(row, events.clone())];
-            }
-            state.selected = Some((row, events.len()));
-            state.selected_row = Some(row);
-            state.selected_pair = Some(events.len() + 1);
-        }
-        for span in spans
-            .iter()
-            .filter(|span| event_zone(&events[span.press]) == zone)
+        for (lane, spans) in sensor_layout(&layout_events, &zone, pps)
+            .into_iter()
+            .enumerate()
         {
-            let start = timed_input_tp(&events[span.press]);
-            let end = span
-                .release
-                .map(|i| timed_input_tp(&events[i]))
-                .unwrap_or(start);
-            let x1 = x_of(start);
-            let x2 = x_of(end);
-            let y = rect.center().y;
-            let body = Rect::from_min_max(
-                Pos2::new(x1 - 3.0, y - 7.0),
-                Pos2::new((x2 + 3.0).max(x1 + 9.0), y + 7.0),
-            );
-            if !body.intersects(plot) {
+            let editable = editable && !state.pointer_dragging();
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 52.0), Sense::hover());
+            if !ui.is_rect_visible(rect) {
                 continue;
             }
-            let selected = state.selected == Some((row, span.press));
-            let color = if selected {
-                ACCENT_BLUE
+            let plot = Rect::from_min_max(Pos2::new(left, rect.top()), rect.max);
+            let p = ui.painter().with_clip_rect(plot.intersect(ui.clip_rect()));
+            p.rect_filled(plot, 0.0, BG_CANVAS);
+            let label = if lane != 0 {
+                String::new()
+            } else if state.tracks[row].key.role == 2 {
+                format!("{} {zone}", state.tracks[row].key.segment + 1)
             } else {
-                event_color(&events[span.press])
+                zone.clone()
             };
-            if span.release.is_some() {
-                p.rect_filled(body, 2.0, color.gamma_multiply(0.4));
-                p.rect_stroke(
-                    body,
-                    2.0,
-                    Stroke::new(1.0_f32, color),
-                    egui::StrokeKind::Inside,
+            let label_rect = Rect::from_min_max(rect.min, Pos2::new(left, rect.bottom()));
+            ui.painter()
+                .with_clip_rect(label_rect.intersect(ui.clip_rect()))
+                .text(
+                    Pos2::new(rect.left() + 8.0, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    &label,
+                    egui::FontId::monospace(11.0),
+                    TEXT_DIM,
                 );
-            } else {
-                p.circle_filled(Pos2::new(x1, y), 4.0, color);
-            }
-            let response = ui
-                .interact(
-                    body.intersect(plot).intersect(ui.clip_rect()),
-                    ui.id().with(("interval", row, span.press)),
-                    if editable && !state.pointer_dragging() {
-                        Sense::click_and_drag()
-                    } else {
-                        Sense::hover()
-                    },
-                )
-                .on_hover_text(format!(
-                    "{} / {zone} / {:.6} - {:.6} s",
-                    state.tracks[row].label,
-                    start as f64 / 1e6,
-                    end as f64 / 1e6
-                ));
-            if response.clicked() || response.drag_started_by(egui::PointerButton::Primary) {
+            crate::timeline::overview::paint_loop(&p, plot, editor, |time| left + (time - view) * pps, false);
+            paint_grid(&p, plot, grid, play_x);
+            let can_draw = editable && state.draw_mode;
+            let background = ui.interact(
+                plot.intersect(ui.clip_rect()),
+                ui.id().with(("sensor_empty", row, &zone, lane)),
+                if editable {
+                    Sense::click_and_drag()
+                } else {
+                    Sense::hover()
+                },
+            );
+            if background.clicked() && editable {
                 state.finish_inspector(editor, &mut app.chart);
-                state.selected = Some((row, span.press));
-                state.selected_row = Some(row);
-                state.selected_pair = span.release;
-            }
-            if response.drag_started_by(egui::PointerButton::Primary) {
-                let mut targets = vec![(row, span.press)];
-                if let Some(release) = span.release {
-                    targets.push((row, release));
+                if can_draw {
+                    let time = snap_time(
+                        view + (background.interact_pointer_pos().unwrap().x - left) / pps,
+                        editor,
+                        &app.chart,
+                    );
+                    state.selected_row = Some(row);
+                    state.drawing_owner = Some(state.tracks[row].key.clone());
+                    state.new_zone = zone.clone();
+                    state.add_at_playhead(editor, &mut app.chart, time);
+                } else {
+                    state.clear_selection();
                 }
-                begin(
+            }
+            if background.drag_started_by(egui::PointerButton::Primary) && can_draw {
+                let origin = ui
+                    .input(|i| i.pointer.press_origin())
+                    .unwrap_or_else(|| background.interact_pointer_pos().unwrap())
+                    .x;
+                begin_drawing(
                     state,
-                    targets,
-                    response.interact_pointer_pos().unwrap().x - response.drag_delta().x,
-                    false,
-                    false,
-                    (i64::MIN, i64::MAX),
+                    editor,
+                    &mut app.chart,
+                    Some(row),
+                    &zone,
+                    origin,
+                    view + (origin - left) / pps,
                 );
             }
-            if let Some(release) = span.release {
-                for (index, x, press) in [(span.press, x1, true), (release, x2, false)] {
-                    // Vertically separated targets remain usable for zero-width intervals.
-                    let y = if (x2 - x1).abs() < 22.0 {
-                        y + if press { -11.0 } else { 11.0 }
-                    } else {
-                        y
-                    };
-                    let handle = Rect::from_center_size(Pos2::new(x, y), Vec2::splat(20.0));
-                    p.rect_filled(
-                        Rect::from_center_size(handle.center(), Vec2::new(5.0, 9.0)),
-                        1.0,
-                        color,
-                    );
-                    let response = ui
-                        .interact(
-                            handle.intersect(plot).intersect(ui.clip_rect()),
-                            ui.id().with(("interval_end", row, index)),
-                            if editable && !state.pointer_dragging() {
-                                Sense::click_and_drag()
-                            } else {
-                                Sense::hover()
-                            },
-                        )
-                        .on_hover_text(if press { "Press" } else { "Release" });
-                    if response.clicked() || response.drag_started_by(egui::PointerButton::Primary) {
-                        state.finish_inspector(editor, &mut app.chart);
-                        state.selected = Some((row, index));
-                        state.selected_row = Some(row);
-                        state.selected_pair = None;
-                    }
-                    if response.drag_started_by(egui::PointerButton::Primary) {
-                        let limits = if press {
-                            (i64::MIN, end.saturating_sub(start))
-                        } else {
-                            (start.saturating_sub(end), i64::MAX)
-                        };
-                        begin(
-                            state,
-                            vec![(row, index)],
-                            response.interact_pointer_pos().unwrap().x - response.drag_delta().x,
-                            false,
-                            false,
-                            limits,
-                        );
-                    }
-                }
+            for span in spans {
+                draw_interval(
+                    ui,
+                    state,
+                    editor,
+                    &mut app.chart,
+                    row,
+                    &events,
+                    span,
+                    plot,
+                    rect.center().y,
+                    editable,
+                );
             }
+            p.vline(
+                play_x,
+                plot.y_range(),
+                Stroke::new(1.5_f32, crate::theme::ACCENT_RED),
+            );
         }
-        p.vline(
-            play_x,
-            plot.y_range(),
-            Stroke::new(1.5_f32, crate::theme::ACCENT_RED),
-        );
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sensor_edit_detail_separates_close_intervals_without_splitting_pairs() {
+        let events = vec![
+            make_event("A1", 1, 0),
+            make_event("A1", 2, 0),
+            make_event("B1", 0, 0),
+            make_event("A1", 1, 10_000),
+            make_event("A1", 2, 20_000),
+            make_event("A1", 1, 1_000_000),
+            make_event("A1", 2, 1_100_000),
+        ];
+        let rows = sensor_layout(&events, "A1", 100.0);
+        assert_eq!(
+            rows,
+            vec![
+                vec![
+                    Interval {
+                        press: 0,
+                        release: Some(1)
+                    },
+                    Interval {
+                        press: 5,
+                        release: Some(6)
+                    }
+                ],
+                vec![Interval {
+                    press: 3,
+                    release: Some(4)
+                }],
+            ]
+        );
+        assert_eq!(
+            sensor_layout(&[], "C", 100.0).len(),
+            1,
+            "a new sensor keeps a drawable row"
+        );
+    }
+
     #[test]
     fn pairing_preserves_zero_duration_and_unmatched_events() {
         let events = vec![

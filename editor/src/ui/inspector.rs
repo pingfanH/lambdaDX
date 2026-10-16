@@ -2,7 +2,7 @@
 
 use egui_macroquad::egui;
 
-use crate::app::types::{BpmChange, ChartDoc, Note, NoteType};
+use crate::app::types::{BpmChange, ChartDoc, Note, NoteType, note_is_touch};
 use crate::state::EditorState;
 use crate::theme::{FONT_SMALL, TEXT_DIM};
 
@@ -198,6 +198,7 @@ fn note_properties(
     // Read the note out first so a single edit batches into one undo snapshot.
     let note = &chart.notes[idx];
     let note_type = note.note_type;
+    let touch = note_is_touch(note);
     let mut time = note.time;
     let mut lane = note.lane as i32;
     let mut dur = note.hold_duration;
@@ -205,6 +206,7 @@ fn note_properties(
     let mut ex_on = note.is_ex;
     let mut star_on = note.is_star;
     let mut tapless_on = note.is_tapless;
+    let mut hanabi_on = note.is_hanabi;
     let timing = slide_timing(note, sub);
     let (mut slide_delay, mut slide_dur) = timing.unwrap_or((0.0, 0.0));
     let mut timing_changed = false;
@@ -222,10 +224,22 @@ fn note_properties(
         .default_open(true)
         .show(ui, |ui| {
             changed |= drag_row(ui, "Time", &mut time, 0.01, 0.0..=1.0e6);
-            let mut lane_f = lane as f32;
-            if drag_row(ui, "Lane", &mut lane_f, 1.0, 1.0..=8.0) {
-                lane = lane_f.round() as i32;
-                changed = true;
+            if touch {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Sensor").color(TEXT_DIM));
+                    let response = ui.add(egui::DragValue::new(&mut lane)
+                        .speed(1.0).range(1..=33)
+                        .custom_formatter(|value, _| super::sensors::zone_label(value.round() as u8))
+                        .custom_parser(|text| super::sensors::parse_zone(text).map(f64::from)));
+                    changed |= response.changed();
+                    response.on_hover_text("Click a sensor in Pad, or enter A1-E8 / C");
+                });
+            } else {
+                let mut lane_f = lane as f32;
+                if drag_row(ui, "Lane", &mut lane_f, 1.0, 1.0..=8.0) {
+                    lane = lane_f.round() as i32;
+                    changed = true;
+                }
             }
             if matches!(note_type, NoteType::Hold | NoteType::TouchHold) {
                 changed |= drag_row(ui, "Duration", &mut dur, 0.01, 0.0..=1.0e6);
@@ -244,18 +258,26 @@ fn note_properties(
             changed |= toggle_chip(ui, "Star", &mut star_on);
             changed |= toggle_chip(ui, "Tapless", &mut tapless_on);
         }
+        if touch {
+            changed |= toggle_chip(ui, "Firework", &mut hanabi_on);
+        }
     });
 
     if changed && ui.is_enabled() {
         editor.push_history(chart);
         let n = &mut chart.notes[idx];
         n.time = time.max(0.0);
-        n.lane = lane.clamp(1, 8) as u8;
+        n.lane = lane.clamp(1, if touch { 33 } else { 8 }) as u8;
         n.hold_duration = dur.max(0.0);
         n.is_break = break_on;
         n.is_ex = ex_on;
         n.is_star = star_on;
         n.is_tapless = tapless_on;
+        n.is_hanabi = hanabi_on;
+        if touch {
+            editor.touch_zone = Some(n.lane);
+            if cursor_mode { editor.keyboard.cursor.zone = n.lane; }
+        }
         if timing_changed {
             set_slide_timing(n, sub, slide_delay, slide_dur);
         }

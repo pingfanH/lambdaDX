@@ -23,7 +23,15 @@ impl Default for EditCursor {
 pub enum Focus { #[default] Timeline, Tools, Properties, Playback, Settings }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Transport { Toggle, Seek(f32), Jump(f32), Cursor(f32), Speed(f32), Audio, Restart }
+pub enum Transport { Toggle, Seek(f32), Jump(f32), Cursor(f32), Speed(f32), Audio, Restart, Rewind }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorCommand { Jump, ToggleFollow }
+
+pub fn cursor_command(key: egui::Key, mods: egui::Modifiers) -> Option<CursorCommand> {
+    (key == egui::Key::Enter && mods.alt && !mods.command && !mods.ctrl && !mods.mac_cmd)
+        .then_some(if mods.shift { CursorCommand::ToggleFollow } else { CursorCommand::Jump })
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum ViewCommand {
@@ -96,7 +104,7 @@ fn activate(editor: &mut EditorState) {
 pub fn apply_transport(editor: &mut EditorState, app: &mut crate::player::state::PadPreviewState) {
     for command in std::mem::take(&mut editor.keyboard.transport) {
         match command {
-            Transport::Toggle => app.toggle_play(),
+            Transport::Toggle => crate::runtime::toggle_play(editor, app),
             Transport::Seek(time) => app.seek_to(time),
             Transport::Cursor(time) => {
                 if let Err(error) = app.try_seek_to(time) {
@@ -114,7 +122,8 @@ pub fn apply_transport(editor: &mut EditorState, app: &mut crate::player::state:
                 Err(error) => editor.status = Some(format!("Jump: {error}")),
             },
             Transport::Speed(delta) => app.nudge_play_speed(delta),
-            Transport::Restart => app.start_playback_at(0.0),
+            Transport::Restart => crate::runtime::restart_playback(editor, app),
+            Transport::Rewind => crate::runtime::rewind(editor, app),
             Transport::Audio => {
                 app.audio_enabled = !app.audio_enabled;
                 if !app.audio_enabled { app.stop_audio_if_any(); }
@@ -194,7 +203,7 @@ pub fn handle(ui: &egui::Ui, editor: &mut EditorState, chart: &mut ChartDoc, now
             continue;
         }
         let egui::Event::Key { key, pressed: true, repeat, modifiers, .. } = event else {
-            if let egui::Event::Text(text) = event {
+            if let egui::Event::Text(text) | egui::Event::Paste(text) = event {
                 if !was_modal && !text_focus && editor.selection_transform.is_some() && !editor.keyboard.ime {
                     if text.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
                         activate(editor);
@@ -304,7 +313,7 @@ fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui:
             "snap" => editor.snap_enabled = !editor.snap_enabled,
             "select" => { activate(editor); navigation::select(editor, chart, now, mods.shift); }
             "play" => editor.keyboard.transport.push(Transport::Toggle),
-            "save" => crate::io::save_chart(editor, chart),
+            "save" => crate::io::save_document(editor, chart),
             "save_as" => editor.save_as_request = true,
             "export" => editor.export_request = true,
             "open" => editor.open_dialog = true,
@@ -332,10 +341,15 @@ fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui:
         return;
     }
     if mods.alt && !mods.command && !mods.ctrl {
+        if cursor_command(key, mods) == Some(CursorCommand::ToggleFollow) {
+            editor.keyboard_seek_on_navigation = !editor.keyboard_seek_on_navigation;
+            navigation::follow_cursor(editor, chart);
+            return;
+        }
         let transport = match key {
             Key::Space => Some(Transport::Restart),
             Key::Enter => Some(Transport::Seek(measure_to_secs(editor.keyboard.cursor.measure, &chart.bpms))),
-            Key::Home => Some(Transport::Seek(0.0)),
+            Key::Home => Some(Transport::Rewind),
             Key::ArrowLeft => Some(Transport::Seek((now - 1.0).max(0.0))),
             Key::ArrowRight => Some(Transport::Seek(now + 1.0)),
             Key::ArrowUp => Some(Transport::Speed(0.1)), Key::ArrowDown => Some(Transport::Speed(-0.1)),

@@ -59,6 +59,36 @@ fn text_position(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
 }
 
 #[test]
+fn sensor_edit_touch_pad_and_properties_preserve_sensor_and_undo() {
+    let mut f = Fixture::new();
+    f.app.chart = crate::app::maidata::from_maidata("&inote_1=(120){4}B3,E", None).unwrap();
+    f.app.pad_svg = Some(crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg")).unwrap());
+    f.editor.tool = Tool::Touch;
+    f.editor.keyboard.active = false;
+    f.editor.selected.insert(f.app.chart.notes[0].id);
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "Firework"));
+    assert!(f.app.chart.notes[0].is_hanabi);
+    assert_eq!(f.app.chart.notes[0].lane, 11, "other property edits must not clamp B3 into A8");
+    let mut pad = f.ui.layout.pad;
+    pad.outer_r /= crate::app::params::pad_circle_scale().max(1.0);
+    let center = f.app.pad_svg.as_ref().unwrap().zone_screen_centroid(
+        crate::app::types::zone::id_to_zone(33).unwrap(), &pad).unwrap();
+    f.click(egui::pos2(center.x, center.y));
+    assert_eq!(f.app.chart.notes[0].lane, 33);
+    assert_eq!(f.editor.touch_zone, Some(33));
+    assert_eq!(f.editor.undo.len(), 2);
+    f.editor.undo(&mut f.app.chart);
+    assert_eq!(f.app.chart.notes[0].lane, 11);
+    assert!(f.app.chart.notes[0].is_hanabi);
+    f.editor.selected.clear();
+    f.click(egui::pos2(pad.cx, pad.cy));
+    assert_eq!(f.editor.touch_zone, Some(17), "without a target, Pad sets the next placement sensor");
+    assert_eq!(f.app.chart.notes[0].lane, 11);
+    assert_eq!(f.editor.undo.len(), 1);
+}
+
+#[test]
 fn timeline_regression_pane_switch_keeps_menu_and_canvas_interactive() {
     let mut f = Fixture::new();
     f.ui.workbench.reset_layout();
@@ -558,6 +588,95 @@ fn held_space_does_not_toggle_playback_repeatedly() {
 }
 
 #[test]
+fn simai_playback_space_blocks_separate_text_events_and_preserves_paste() {
+    let mut f = Fixture::new();
+    f.ui.workbench.set_visible(PaneKind::Simai, true);
+    assert!(f.editor.simai_editor.options.space_playback);
+    f.editor.simai_editor.options.live_apply = false;
+    f.frame(Vec::new());
+    let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+    f.ctx.memory_mut(|m| m.request_focus(id));
+    f.frame(Vec::new());
+    let text = f.editor.simai_editor.text.clone();
+    f.key(egui::Key::Space, egui::Modifiers::NONE);
+    assert_eq!(f.app.mode, Mode::Playing);
+    f.frame(vec![egui::Event::Text(" ".into())]);
+    assert_eq!(f.editor.simai_editor.text, text);
+    assert_eq!(f.app.mode, Mode::Playing);
+    f.frame(vec![egui::Event::Paste(" ".into())]);
+    assert_eq!(f.editor.simai_editor.text.len(), text.len() + 1);
+    f.editor.simai_editor.options.space_playback = false;
+    f.frame(vec![egui::Event::Text(" ".into())]);
+    assert_eq!(f.editor.simai_editor.text.len(), text.len() + 2);
+}
+
+#[test]
+fn cursor_shortcuts_seek_and_toggle_follow_in_chart_and_simai() {
+    let mut f = Fixture::new();
+    f.app.chart.notes[0].time = 6.0;
+    f.editor.keyboard.cursor.measure = 2.0;
+    f.key(egui::Key::Enter, egui::Modifiers::ALT | egui::Modifiers::SHIFT);
+    assert!(f.editor.keyboard_seek_on_navigation);
+    assert_eq!(f.app.timeline_view_time, 2.0);
+    f.key(egui::Key::Enter, egui::Modifiers::ALT | egui::Modifiers::SHIFT);
+    assert!(!f.editor.keyboard_seek_on_navigation);
+    f.key(egui::Key::ArrowUp, egui::Modifiers::NONE);
+    assert_eq!(f.app.timeline_view_time, 2.0);
+    f.key(egui::Key::Enter, egui::Modifiers::ALT);
+    assert_eq!(f.app.timeline_view_time, crate::app::types::measure_to_secs(f.editor.keyboard.cursor.measure, &f.app.chart.bpms));
+    assert_eq!(f.app.chart.notes.len(), 1);
+
+    f.ui.workbench.set_visible(PaneKind::Simai, true);
+    f.frame(Vec::new());
+    let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+    f.ctx.memory_mut(|m| m.request_focus(id));
+    let text = f.editor.simai_editor.text.clone();
+    let cells = crate::simai_editor::source::timeline(&text, f.app.chart.bpm).unwrap();
+    let (first, second) = (cells[0].chars.start, cells[1].chars.start);
+    let time = cells[1].time;
+    f.editor.simai_editor.playback.cells = cells;
+    let set_cursor = |f: &mut Fixture, index| {
+        let mut state = egui::text_edit::TextEditState::load(&f.ctx, id).unwrap();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(index))));
+        state.store(&f.ctx, id);
+    };
+    set_cursor(&mut f, second);
+    f.app.seek_to(0.0);
+    f.frame(Vec::new());
+    assert_eq!(f.app.timeline_view_time, 0.0);
+    f.key(egui::Key::Enter, egui::Modifiers::ALT);
+    assert_eq!(f.app.timeline_view_time, time);
+    assert_eq!(f.app.mode, Mode::Idle);
+    f.key(egui::Key::Enter, egui::Modifiers::ALT | egui::Modifiers::SHIFT);
+    assert!(f.editor.simai_editor.options.follow_cursor);
+    set_cursor(&mut f, first);
+    f.frame(Vec::new());
+    assert_eq!(f.app.timeline_view_time, 0.0);
+    f.app.seek_to(time);
+    f.frame(Vec::new());
+    assert_eq!(f.app.timeline_view_time, time, "stationary caret must not pull playback back");
+    assert_eq!(f.editor.simai_editor.text, text, "shortcuts must not insert newlines");
+}
+
+#[test]
+fn rewind_uses_loop_start_only_during_loop_playback() {
+    for mode in [Mode::Idle, Mode::Playing] {
+        for loop_enabled in [false, true] {
+            let mut f = Fixture::new();
+            f.app.chart.notes[0].time = 20.0;
+            f.editor.loop_range = Some((2.0, 6.0));
+            f.editor.loop_enabled = loop_enabled;
+            f.app.mode = mode;
+            f.app.seek_to(3.0);
+            f.key(egui::Key::Home, egui::Modifiers::ALT);
+            let expected = if loop_enabled && mode == Mode::Playing { 2.0 } else { 0.0 };
+            assert_eq!(f.app.timeline_view_time, expected);
+            assert_eq!(f.app.mode, mode);
+        }
+    }
+}
+
+#[test]
 fn jump_accepts_typing_and_releases_space_after_confirmation() {
     let mut f = Fixture::new();
     f.app.chart.notes[0].time = 10.0;
@@ -651,11 +770,11 @@ fn tab_visits_all_notes_in_time_order_and_wraps_without_selecting() {
     assert_eq!(f.editor.keyboard.candidate, Some(f.app.chart.notes[0].id));
     f.key(egui::Key::Tab, egui::Modifiers::SHIFT);
     assert_eq!(f.editor.keyboard.candidate, Some(101));
-    assert_eq!(f.app.timeline_view_time, crate::app::types::measure_to_secs(3.0, &f.app.chart.bpms));
+    assert_eq!(f.app.timeline_view_time, 0.0);
 }
 
 #[test]
-fn held_tab_continues_navigation_in_both_directions_and_keeps_playback_aligned() {
+fn held_tab_continues_navigation_in_both_directions_without_seeking() {
     let mut f = Fixture::new();
     let mut note = f.app.chart.notes[0].clone();
     for (id, time) in [(101, 2.0), (102, 3.0), (103, 4.0)] {
@@ -669,7 +788,7 @@ fn held_tab_continues_navigation_in_both_directions_and_keeps_playback_aligned()
         f.frame(vec![event(repeat, egui::Modifiers::NONE)]);
         assert_eq!(f.editor.keyboard.candidate, Some(id));
         let time = crate::app::types::measure_to_secs(f.editor.keyboard.cursor.measure, &f.app.chart.bpms);
-        assert_eq!(f.app.timeline_view_time, time);
+        assert_eq!(f.app.timeline_view_time, 0.0);
         let cursor = crate::keyboard::navigation::position(&f.editor, &f.app.chart, time, f.editor.keyboard.cursor);
         assert!(f.editor.keyboard.rect.expand(0.5).contains(cursor));
     }
@@ -741,7 +860,7 @@ fn held_diagonal_arrows_repeat_both_axes_and_release_independently() {
         f.frame(vec![event(lane_key, false, false), event(time_key, true, true)]);
         assert_eq!(f.editor.keyboard.cursor.measure, start.measure + 4.0 / f.editor.snap_division as f32);
         assert_eq!(f.editor.keyboard.cursor.zone, start.zone + 3);
-        assert_eq!(f.app.timeline_view_time, crate::app::types::measure_to_secs(f.editor.keyboard.cursor.measure, &f.app.chart.bpms));
+        assert_eq!(f.app.timeline_view_time, 0.0);
     }
 }
 
@@ -843,7 +962,7 @@ fn navigation_preserves_playback_and_can_edit_past_the_song_end() {
         let time = crate::app::types::measure_to_secs(2.0, &f.app.chart.bpms);
         assert_eq!(f.editor.view_start, 0.0, "editing beyond the song end still inside the viewport must not scroll");
         assert!(time > f.app.song_duration());
-        assert_eq!(f.app.timeline_view_time, f.app.song_duration());
+        assert_eq!(f.app.timeline_view_time, 0.0);
         f.editor.tool = Tool::Tap;
         f.key(egui::Key::Enter, egui::Modifiers::NONE);
         assert_eq!(f.app.chart.notes.last().unwrap().time, 2.0);
@@ -1195,7 +1314,7 @@ fn duplicate_confirmation_click_does_not_place_an_extra_tap() {
 }
 
 #[test]
-fn keyboard_navigation_seeks_playback_without_scrolling_a_visible_cursor() {
+fn keyboard_navigation_only_seeks_when_enabled_without_scrolling_a_visible_cursor() {
     for layout in [crate::state::EditorLayout::Vertical, crate::state::EditorLayout::Horizontal] {
         let mut f = Fixture::new();
         f.editor.layout = layout;
@@ -1216,7 +1335,7 @@ fn keyboard_navigation_seeks_playback_without_scrolling_a_visible_cursor() {
         crate::runtime::follow_playhead(&mut f.editor, 20.0);
         assert_eq!(f.editor.view_start, view);
         let time = crate::app::types::measure_to_secs(f.editor.keyboard.cursor.measure, &f.app.chart.bpms);
-        assert_eq!(f.app.timeline_view_time, time);
+        assert_eq!(f.app.timeline_view_time, 2.0);
         let cursor = crate::keyboard::navigation::position(&f.editor, &f.app.chart, time, f.editor.keyboard.cursor);
         assert!(f.editor.keyboard.rect.contains(cursor), "{layout:?}: {cursor:?}");
         let lane_key = if layout == crate::state::EditorLayout::Vertical { egui::Key::ArrowRight } else { egui::Key::ArrowDown };
@@ -1224,6 +1343,9 @@ fn keyboard_navigation_seeks_playback_without_scrolling_a_visible_cursor() {
         assert_eq!(f.editor.view_start, view, "lane movement must not scroll time");
         f.frame(Vec::new());
         assert_eq!(f.editor.view_start, view);
+        f.editor.keyboard_seek_on_navigation = true;
+        f.key(key, egui::Modifiers::NONE);
+        assert_eq!(f.app.timeline_view_time, crate::app::types::measure_to_secs(f.editor.keyboard.cursor.measure, &f.app.chart.bpms));
     }
 }
 
@@ -1292,7 +1414,7 @@ fn keyboard_navigation_scrolls_only_after_crossing_either_visible_time_edge() {
         assert!((f.editor.view_start - (time + bottom)).abs() < 1e-5);
         let position = crate::keyboard::navigation::position(&f.editor, &f.app.chart, time, f.editor.keyboard.cursor);
         assert!(f.editor.keyboard.rect.expand(0.5).contains(position));
-        assert_eq!(f.app.timeline_view_time, time);
+        assert_eq!(f.app.timeline_view_time, 0.0);
     }
 }
 
@@ -1307,7 +1429,8 @@ fn keyboard_tab_keeps_the_view_still_for_an_already_visible_note() {
         f.app.chart.notes.push(note);
         f.key(egui::Key::Tab, egui::Modifiers::NONE);
         assert_eq!(f.editor.view_start, 0.0);
-        assert_eq!(f.app.timeline_view_time, 2.0);
+        assert_eq!(f.editor.keyboard.candidate, Some(101));
+        assert_eq!(f.app.timeline_view_time, 0.0);
         f.key(egui::Key::Tab, egui::Modifiers::SHIFT);
         assert_eq!(f.editor.view_start, 0.0);
     }

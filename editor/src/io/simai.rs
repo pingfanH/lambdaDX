@@ -70,7 +70,15 @@ fn set_field(text: &mut String, key: &str, value: &str, newline: &str) {
     }
 }
 
-fn body(chart: &ChartDoc) -> Result<String, String> {
+pub(crate) fn body(chart: &ChartDoc) -> Result<String, String> {
+    serialize_body(chart, false)
+}
+
+pub(crate) fn editable_body(chart: &ChartDoc) -> Result<String, String> {
+    serialize_body(chart, true)
+}
+
+fn serialize_body(chart: &ChartDoc, multiline: bool) -> Result<String, String> {
     let default_bpms = [BpmChange { measure: 1.0, bpm: chart.bpm }];
     let bpms = if chart.bpms.is_empty() { &default_bpms[..] } else { &chart.bpms };
     let mut notes: Vec<_> = chart.notes.iter().collect();
@@ -86,13 +94,23 @@ fn body(chart: &ChartDoc) -> Result<String, String> {
     positions.sort_by(f64::total_cmp);
     positions.dedup();
     let mut out = String::new();
+    let mut line_start = 0;
     let mut divisor = 0;
     let mut speed = 1.0;
     let mut note_index = 0;
     let mut bpm_index = 0;
-    for pair in positions.windows(2) {
+    let mut written_position = 1.0;
+    for (index, pair) in positions.windows(2).enumerate() {
         let position = pair[0];
-        let steps = gap_steps(pair[1] - position)?;
+        let bpm = bpms[bpms.partition_point(|b| b.measure as f64 <= position).saturating_sub(1)].bpm;
+        // The core rounds to microseconds and the editor stores f32 measures.
+        // Bound rounding by adjacent events so distinct notes stay distinct.
+        let tolerance = (pair[1].abs() * f32::EPSILON as f64)
+            .max(bpm as f64 / 240_000_000.0)
+            .min((pair[1] - position) * 0.25)
+            .min(positions.get(index + 2).map_or(f64::INFINITY, |next| (next - pair[1]) * 0.25));
+        let steps = gap_steps(pair[1] - written_position, tolerance)?;
+        written_position += steps.iter().map(|d| 1.0 / *d as f64).sum::<f64>();
         // Directives must precede the note in a comma-delimited Simai segment.
         if let Some(&step) = steps.first() { subdivision(&mut out, &mut divisor, step); }
         while bpm_index < bpms.len() && bpms[bpm_index].measure as f64 == position {
@@ -133,6 +151,10 @@ fn body(chart: &ChartDoc) -> Result<String, String> {
             if index > 0 { subdivision(&mut out, &mut divisor, step); }
             out.push(',');
         }
+        if multiline && (pair[1].fract() == 0.0 || out.len() - line_start >= 100) {
+            out.push('\n');
+            line_start = out.len();
+        }
         if out.len() > 16 * 1024 * 1024 { return Err("Chart is too large for Simai export".into()); }
     }
     out.push('E');
@@ -146,20 +168,27 @@ fn subdivision(out: &mut String, current: &mut u64, divisor: u64) {
     }
 }
 
-/// f32 positions are binary fractions. Decompose a gap without quantizing the
-/// document to a fixed grid or substituting artificial BPM changes.
-fn gap_steps(mut gap: f64) -> Result<Vec<u64>, String> {
+/// Recover simple rhythmic fractions before encoding genuinely off-grid rests.
+/// The caller compensates against absolute positions, so rounding cannot drift.
+fn gap_steps(mut gap: f64, tolerance: f64) -> Result<Vec<u64>, String> {
     if gap <= 0.0 || !gap.is_finite() || gap > 100_000.0 { return Err("Invalid or excessive measure gap".into()); }
     let mut steps = vec![1; gap.floor() as usize];
     gap -= gap.floor();
-    let mut divisor = 2_u64;
-    while gap > 0.0 {
-        if gap >= 1.0 / divisor as f64 {
-            steps.push(divisor);
-            gap -= 1.0 / divisor as f64;
+    if gap <= tolerance && !steps.is_empty() { return Ok(steps); }
+    for divisor in 1..=192 {
+        let count = (gap * divisor as f64).round() as usize;
+        if count > 0 && (gap - count as f64 / divisor as f64).abs() <= tolerance {
+            steps.extend(std::iter::repeat_n(divisor, count));
+            return Ok(steps);
         }
-        if divisor >= (1_u64 << 40) { return Err("Measure gap is below Simai timing precision".into()); }
-        divisor *= 2;
+    }
+    while gap > tolerance || steps.is_empty() {
+        let reciprocal = 1.0 / gap;
+        let nearest = reciprocal.round().max(1.0);
+        let divisor = if (gap - 1.0 / nearest).abs() <= tolerance { nearest } else { reciprocal.ceil() };
+        if divisor >= (1_u64 << 40) as f64 { return Err("Measure gap is below Simai timing precision".into()); }
+        steps.push(divisor as u64);
+        gap -= 1.0 / divisor;
     }
     Ok(steps)
 }

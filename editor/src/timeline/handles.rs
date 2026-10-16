@@ -239,7 +239,9 @@ fn resize(editor: &mut EditorState, chart: &mut ChartDoc, grab: HandleGrab, curs
         editor.snap_enabled,
         editor.snap_division,
     );
-    let min_span = if editor.snap_enabled {
+    let min_span = if grab.slide_idx.is_none() {
+        0.0
+    } else if editor.snap_enabled {
         1.0 / editor.snap_division.max(1) as f32
     } else {
         0.0001
@@ -646,6 +648,25 @@ mod tests {
         editor.snap_enabled = false;
         resize(&mut editor, &mut chart, grab, 1.44);
         assert!((chart.notes[0].hold_duration - 0.44).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sensor_edit_hold_tail_can_return_to_zero_without_changing_zone() {
+        for source in ["1h[4:1]", "B3h[4:1]"] {
+            let mut chart = crate::app::maidata::from_maidata(
+                &format!("&inote_1=(120){{4}}{source},E"), None).unwrap();
+            let note = &chart.notes[0];
+            let zone = note.lane;
+            let grab = HandleGrab {
+                id: note.id, kind: DragHandle::Tail, slide_idx: None,
+                grab_measure: note.time + note.hold_duration, note_time: note.time,
+                start_delay: 0.0, duration: note.hold_duration,
+            };
+            let mut editor = EditorState::default();
+            resize(&mut editor, &mut chart, grab, grab.note_time);
+            assert_eq!(chart.notes[0].hold_duration, 0.0);
+            assert_eq!(chart.notes[0].lane, zone);
+        }
     }
 
     #[test]

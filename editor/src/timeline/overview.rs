@@ -49,6 +49,7 @@ pub fn draw_in(
 
     let duration = duration.max(1.0);
     let x_of = |t: f32| plot_left + t.clamp(0.0, duration) / duration * width;
+    paint_loop(painter, bar, editor, x_of, true);
 
     for note in &chart.notes {
         let x = x_of(note_secs(note, &chart.bpms));
@@ -97,28 +98,7 @@ pub fn draw_in(
     );
     let looping = loop_gesture(ui, &response, editor, interactive, |x| {
         ((x - plot_left) / width).clamp(0.0, 1.0) * duration
-    });
-    if let Some((start, end)) = editor.loop_range {
-        let range = egui::Rect::from_min_max(
-            egui::pos2(x_of(start), bar.top()),
-            egui::pos2(x_of(end), bar.bottom()),
-        );
-        painter.rect_filled(
-            range,
-            0.0,
-            egui::Color32::from_rgba_unmultiplied(
-                98,
-                174,
-                211,
-                if editor.loop_enabled { 45 } else { 15 },
-            ),
-        );
-        painter.hline(
-            range.x_range(),
-            bar.bottom() - 1.0,
-            egui::Stroke::new(2.0_f32, crate::theme::ACCENT_BLUE),
-        );
-    }
+    }, x_of);
     if interactive && !looping && (response.clicked() || response.dragged()) {
         if let Some(pos) = response.interact_pointer_pos() {
             let frac = ((pos.x - plot_left) / width).clamp(0.0, 1.0);
@@ -132,6 +112,27 @@ pub fn draw_in(
     }
 }
 
+pub fn paint_loop(
+    painter: &egui::Painter, plot: egui::Rect, editor: &EditorState,
+    position: impl Fn(f32) -> f32, handles: bool,
+) {
+    let Some((start, end)) = editor.loop_range.filter(|(a, b)| a.is_finite() && b.is_finite() && b > a) else { return; };
+    let (a, b) = (position(start), position(end));
+    let range = egui::Rect::from_min_max(egui::pos2(a, plot.top()), egui::pos2(b, plot.bottom())).intersect(plot);
+    if !range.is_positive() { return; }
+    let p = painter.with_clip_rect(plot.intersect(painter.clip_rect()));
+    p.rect_filled(range, 0.0, crate::theme::loop_fill(editor.loop_enabled));
+    let color = crate::theme::ACCENT_YELLOW.gamma_multiply(if editor.loop_enabled { 1.0 } else { 0.4 });
+    for x in [a, b] {
+        if x < plot.left() || x > plot.right() { continue; }
+        p.vline(x, plot.y_range(), egui::Stroke::new(1.0_f32, color));
+        if handles {
+            p.rect_filled(egui::Rect::from_center_size(egui::pos2(x, plot.center().y),
+                egui::vec2(4.0, plot.height().min(12.0))), 1.0, color);
+        }
+    }
+}
+
 /// Capture a range gesture independently of seeking, including release outside.
 pub fn loop_gesture(
     ui: &egui::Ui,
@@ -139,16 +140,26 @@ pub fn loop_gesture(
     editor: &mut EditorState,
     interactive: bool,
     time_at: impl Fn(f32) -> f32,
+    position: impl Fn(f32) -> f32,
 ) -> bool {
+    let boundary = response.hover_pos().and_then(|pos| {
+        let (a, b) = editor.loop_range?;
+        let da = (position(a) - pos.x).abs();
+        let db = (position(b) - pos.x).abs();
+        if da.min(db) > 6.0 { None } else { Some(if da <= db { b } else { a }) }
+    });
+    if interactive && (boundary.is_some() || editor.loop_drag.as_ref().is_some_and(|drag| drag.owner == response.id)) {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
     if interactive
         && editor.loop_drag.is_none()
         && response.is_pointer_button_down_on()
-        && ui.input(|i| i.pointer.primary_pressed() && i.modifiers.shift)
+        && ui.input(|i| i.pointer.primary_pressed() && (i.modifiers.shift || boundary.is_some()))
         && let Some(pos) = response.interact_pointer_pos()
     {
         editor.loop_drag = Some(crate::state::LoopDrag {
             owner: response.id,
-            anchor: time_at(pos.x),
+            anchor: if ui.input(|i| i.modifiers.shift) { time_at(pos.x) } else { boundary.unwrap_or(time_at(pos.x)) },
             previous: editor.loop_range,
             was_enabled: editor.loop_enabled,
             cancelled: false,
@@ -353,6 +364,25 @@ mod tests {
         assert!(editor.loop_drag.is_none());
         assert_eq!(editor.pending_seek, None);
         assert!(!editor.scrubbing);
+    }
+
+    #[test]
+    fn loop_boundary_drag_adjusts_existing_range_without_seeking() {
+        let ctx = egui::Context::default();
+        let mut editor = EditorState { loop_range: Some((2.0, 6.0)), loop_enabled: true, ..Default::default() };
+        for (start, end, expected) in [
+            (egui::pos2(200.0, 108.0), egui::pos2(250.0, 108.0), (3.0, 6.0)),
+            (egui::pos2(400.0, 108.0), egui::pos2(450.0, 108.0), (3.0, 7.0)),
+        ] {
+            frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(start)]);
+            frame(&ctx, &mut editor, vec![button(start, true)]);
+            assert!(editor.loop_drag.is_some());
+            frame(&ctx, &mut editor, vec![egui::Event::PointerMoved(end)]);
+            frame(&ctx, &mut editor, vec![button(end, false)]);
+            assert_eq!(editor.loop_range, Some(expected));
+            assert_eq!(editor.pending_seek, None);
+            assert!(editor.loop_drag.is_none());
+        }
     }
 
     #[test]

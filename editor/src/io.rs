@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use crate::app::types::ChartDoc;
 use super::state::EditorState;
 
-mod simai;
+pub(crate) mod simai;
+pub mod autosave;
 #[cfg(test)]
 mod tests;
 
@@ -31,6 +32,10 @@ impl ChartSource {
 
 /// Write back to the file/slot actually loaded, never to a global scratch file.
 pub fn save_chart(editor: &mut EditorState, chart: &ChartDoc) {
+    if let Err(error) = editor.simai_editor.check_applied() {
+        editor.status = Some(error);
+        return;
+    }
     let chart = crate::templates::document(editor, chart);
     let Some(source) = editor.source.as_ref() else {
         editor.save_as_request = true;
@@ -49,20 +54,32 @@ pub fn save_chart(editor: &mut EditorState, chart: &ChartDoc) {
     });
 }
 
+pub fn save_document(editor: &mut EditorState, chart: &mut ChartDoc) {
+    if let Err(error) = crate::simai_editor::apply(editor, chart) {
+        editor.status = Some(error);
+        return;
+    }
+    save_chart(editor, chart);
+}
+
 fn save_to_source(source: &ChartSource, chart: &ChartDoc) -> Result<PathBuf, String> {
     let original = std::fs::read_to_string(&source.path)
         .map_err(|error| format!("read {}: {error}", source.path.display()))?;
-    let text = if source.is_simai() {
+    let text = source_text(source, chart, &original)?;
+    atomic_write(&source.path, &text)?;
+    Ok(source.path.clone())
+}
+
+fn source_text(source: &ChartSource, chart: &ChartDoc, original: &str) -> Result<String, String> {
+    if source.is_simai() {
         let level = source.level.ok_or("No loaded Simai difficulty")?;
         if !crate::app::maidata::inote_keys(&original).contains(&level) {
             return Err(format!("Source no longer contains &inote_{level}; reload or Save As"));
         }
-        simai::document(chart, level, &original)?
+        simai::document(chart, level, original)
     } else {
-        native_json(chart, &original)?
-    };
-    atomic_write(&source.path, &text)?;
-    Ok(source.path.clone())
+        native_json(chart, original)
+    }
 }
 
 fn native_json(chart: &ChartDoc, original: &str) -> Result<String, String> {
@@ -82,6 +99,7 @@ fn native_json(chart: &ChartDoc, original: &str) -> Result<String, String> {
 }
 
 pub fn export_to(editor: &EditorState, chart: &ChartDoc, path: &Path) -> Result<PathBuf, String> {
+    editor.simai_editor.check_applied()?;
     if editor.source.as_ref().is_some_and(|source| same_path(&source.path, path)) {
         return Err("Export destination is the open source; use Save to update it".into());
     }
@@ -101,6 +119,7 @@ pub fn export_to(editor: &EditorState, chart: &ChartDoc, path: &Path) -> Result<
 }
 
 fn save_as_to(editor: &mut EditorState, chart: &ChartDoc, path: &Path) -> Result<(), String> {
+    editor.simai_editor.check_applied()?;
     let chart = crate::templates::document(editor, chart);
     if has_editor_data(&chart) && !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("json")) {
         return Err("Templates and Autoplay edits require .json; use Export for flattened Simai".into());
@@ -133,7 +152,11 @@ fn save_as_to(editor: &mut EditorState, chart: &ChartDoc, path: &Path) -> Result
     Ok(())
 }
 
-pub fn export_chart(editor: &mut EditorState, chart: &ChartDoc, save_as: bool) {
+pub fn export_chart(editor: &mut EditorState, chart: &mut ChartDoc, save_as: bool) {
+    if let Err(error) = crate::simai_editor::apply(editor, chart) {
+        editor.status = Some(error);
+        return;
+    }
     let result: Result<Option<PathBuf>, String> = (|| {
         let canonical = crate::templates::document(editor, chart);
         let native = has_editor_data(&canonical)
@@ -165,27 +188,49 @@ fn same_path(a: &Path, b: &Path) -> bool {
 
 /// Serialize fully before touching the destination; failed writes leave it intact.
 fn atomic_write(path: &Path, text: &str) -> Result<(), String> {
-    use std::io::Write;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    // Preserve a symlink instead of replacing it with a regular file.
-    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let parent = path.parent().ok_or("Destination has no parent")?;
-    let name = path.file_name().ok_or("Destination has no filename")?.to_string_lossy();
-    let temp = parent.join(format!(".{name}.{}-{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
-    let result = (|| -> std::io::Result<()> {
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
-        if let Ok(metadata) = std::fs::metadata(&path) { file.set_permissions(metadata.permissions())?; }
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&temp, &path)
-    })();
-    if result.is_err() { let _ = std::fs::remove_file(&temp); }
-    result.map_err(|error| format!("write {}: {error}", path.display()))
+    StagedWrite::new(path, text)?.commit()
 }
 
-fn validate(chart: &ChartDoc) -> Result<(), String> {
+/// An abandoned background save removes its temporary file without touching the source.
+struct StagedWrite {
+    path: PathBuf,
+    temp: PathBuf,
+}
+
+impl Drop for StagedWrite {
+    fn drop(&mut self) { let _ = std::fs::remove_file(&self.temp); }
+}
+
+impl StagedWrite {
+    fn new(path: &Path, text: &str) -> Result<Self, String> {
+        use std::io::Write;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        // Preserve a symlink instead of replacing it with a regular file.
+        let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let parent = path.parent().ok_or("Destination has no parent")?;
+        let name = path.file_name().ok_or("Destination has no filename")?.to_string_lossy();
+        let temp = parent.join(format!(".{name}.{}-{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        let result = (|| -> std::io::Result<()> {
+            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+            if let Ok(metadata) = std::fs::metadata(&path) { file.set_permissions(metadata.permissions())?; }
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+            drop(file);
+            Ok(())
+        })();
+        if result.is_err() { let _ = std::fs::remove_file(&temp); }
+        result.map_err(|error| format!("write {}: {error}", path.display()))?;
+        Ok(Self { path, temp })
+    }
+
+    fn commit(self) -> Result<(), String> {
+        std::fs::rename(&self.temp, &self.path)
+            .map_err(|error| format!("write {}: {error}", self.path.display()))
+    }
+}
+
+pub(crate) fn validate(chart: &ChartDoc) -> Result<(), String> {
     if !chart.bpm.is_finite() || chart.bpm <= 0.0 || !chart.audio_offset.is_finite() {
         return Err("Invalid BPM or audio offset".into());
     }

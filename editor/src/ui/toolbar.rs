@@ -35,7 +35,7 @@ pub fn draw(
                 .strong(),
         );
         ui.label(
-            egui::RichText::new(if editor.dirty { "●" } else { "·" }).color(if editor.dirty {
+            egui::RichText::new(if editor.has_unsaved_changes() { "●" } else { "·" }).color(if editor.has_unsaved_changes() {
                 ACCENT_RED
             } else {
                 TEXT_DIM
@@ -51,7 +51,7 @@ pub fn draw(
                     editor.reload_request = true;
                 }
                 if command(ui, "保存", true) {
-                    crate::io::save_chart(editor, &mut app.chart);
+                    crate::io::save_document(editor, &mut app.chart);
                 }
                 if command(ui, "另存为...", true) {
                     editor.save_as_request = true;
@@ -59,6 +59,7 @@ pub fn draw(
                 if command(ui, "导出 Simai...", true) {
                     editor.export_request = true;
                 }
+                ui.checkbox(&mut editor.auto_save, "自动保存");
                 if !editor.level_slots.is_empty() {
                     ui.separator();
                     ui.horizontal(|ui| draw_difficulty(ui, editor));
@@ -66,7 +67,7 @@ pub fn draw(
                 ui.separator();
                 if command(ui, "退出", true) {
                     editor.pending_action = Some(PendingAction::Quit);
-                    editor.pending_confirmed = !editor.dirty;
+                    editor.pending_confirmed = !editor.has_unsaved_changes();
                 }
             })
             .inner
@@ -144,10 +145,10 @@ pub fn draw(
         workspace = workbench.workspace_picker(ui, compact);
         owned |= workspace.is_some();
         ui.separator();
-        if icon(ui, Icon::SkipBack, "回到开头", false).clicked() { app.seek_to(0.0); }
+        if icon(ui, Icon::SkipBack, "回到开头", false).clicked() { crate::runtime::rewind(editor, app); }
         let playing = app.mode == crate::app::types::Mode::Playing;
         if icon(ui, if playing { Icon::Pause } else { Icon::Play }, "播放 / 暂停", playing).clicked() {
-            app.toggle_play();
+            crate::runtime::toggle_play(editor, app);
         }
         if icon(ui, Icon::Repeat2, "循环试听", editor.loop_enabled).clicked() {
             if editor.loop_range.is_none() {
@@ -170,13 +171,13 @@ pub fn draw(
                     },
                     true,
                 ) {
-                    app.toggle_play();
+                    crate::runtime::toggle_play(editor, app);
                 }
                 if command(ui, "从头播放", true) {
-                    app.start_playback_at(0.0);
+                    crate::runtime::restart_playback(editor, app);
                 }
                 if command(ui, "回到开头", true) {
-                    app.seek_to(0.0);
+                    crate::runtime::rewind(editor, app);
                 }
                 let audio = app.audio_enabled;
                 if ui.checkbox(&mut app.audio_enabled, "音乐").changed() {
@@ -295,19 +296,26 @@ pub fn draw_editor_settings(
         workbench.layout_menu(ui);
     });
     egui::CollapsingHeader::new("编辑与导航").default_open(true).show(ui, |ui| {
+        ui.checkbox(&mut editor.auto_save, "自动保存");
         draw_subdivision(ui, editor);
         ui.checkbox(&mut editor.scroll_invert, "反转滚轮方向");
+        ui.checkbox(&mut editor.keyboard_seek_on_navigation, "时间轴跟随谱面光标")
+            .on_hover_text("Alt+Shift+Enter 切换；Alt+Enter 单次跳转到光标");
         if ui.checkbox(&mut editor.follow_playhead, "谱面跟随播放").changed() {
             editor.keyboard.detached = !editor.follow_playhead;
             if editor.follow_playhead { editor.follow_view_offset = None; }
         }
-        if ui.checkbox(&mut editor.autoplay_editor.follow, "Autoplay 跟随播放").changed() && editor.autoplay_editor.follow {
-            editor.autoplay_editor.return_current();
+        let mut autoplay_follow = editor.autoplay_editor.follow;
+        if ui.checkbox(&mut autoplay_follow, "Autoplay 跟随播放").changed() {
+            editor.autoplay_editor.toggle_follow();
         }
     });
     egui::CollapsingHeader::new("预览与试听").show(ui, |ui| {
         ui.add(egui::Slider::new(pad_scale, 0.3..=2.0).text("预览缩放"));
         preview_options(ui, editor);
+    });
+    egui::CollapsingHeader::new("Simai 文本编辑").show(ui, |ui| {
+        super::simai::options(ui, &mut editor.simai_editor.options);
     });
 }
 
@@ -339,6 +347,10 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
                 draw_subdivision(ui, editor);
                 chart_zoom(ui, editor, app.timeline_time());
                 ui.checkbox(&mut editor.scroll_invert, "反转滚轮方向");
+                if ui.checkbox(&mut editor.keyboard_seek_on_navigation, "时间轴跟随谱面光标")
+                    .on_hover_text("Alt+Shift+Enter 切换；Alt+Enter 单次跳转到光标").changed() {
+                    crate::keyboard::navigation::follow_cursor(editor, &app.chart);
+                }
                 if ui.button("显示完整谱面").clicked() { super::navigation::fit_chart(editor, (0.0, app.song_duration())); ui.close_menu(); }
                 let span = super::navigation::chart_selection_span(editor, &app.chart);
                 if ui.add_enabled(span.is_some(), egui::Button::new("显示所选 Notes")).clicked() {
@@ -369,7 +381,8 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
                 ui.label(egui::RichText::new(crate::runtime::preview_mode_label(editor.autoplay_mode)).color(TEXT_DIM));
             }
         }
-        PaneKind::Autoplay => crate::autoplay_editor::header(ui, editor, app.song_duration()),
+        PaneKind::Autoplay => crate::autoplay_editor::header(ui, editor, app),
+        PaneKind::Simai => super::simai::header(ui, editor, &mut app.chart),
         PaneKind::Properties => {
             if ui.available_width() > 65.0 {
                 ui.label(egui::RichText::new(if editor.workspace == Workspace::Autoplay { "Autoplay" } else { "Note" }).color(TEXT_DIM));

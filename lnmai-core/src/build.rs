@@ -105,7 +105,7 @@ pub fn build() {
 fn find_lean_project() -> PathBuf {
     if let Ok(path) = env::var("LNMAI_CORE_LEAN_PROJECT") {
         let path = PathBuf::from(path);
-        if path.join("lakefile.toml").exists() {
+        if is_lake_project(&path) {
             return path;
         }
         panic!(
@@ -131,7 +131,7 @@ fn find_lean_project() -> PathBuf {
         workspace_root.join("../lnmai-core-lean"),
     ];
     for candidate in candidates {
-        if candidate.join("lakefile.toml").exists() {
+        if is_lake_project(&candidate) {
             return fs::canonicalize(&candidate).unwrap_or(candidate);
         }
     }
@@ -140,6 +140,10 @@ fn find_lean_project() -> PathBuf {
         "LNMAI_CORE_ARTIFACTS is not set and no local Lean project was found under {}; run through `nix build`/`nix run`, or set LNMAI_CORE_LEAN_PROJECT to a Lake checkout of Neuron-Group/lnmai-core",
         workspace_root.display()
     );
+}
+
+fn is_lake_project(path: &Path) -> bool {
+    path.join("lakefile.toml").exists() || path.join("lakefile.lean").exists()
 }
 
 fn workspace_root() -> PathBuf {
@@ -171,10 +175,12 @@ fn run_lake_build(lean_project: &Path) {
             lean_project.join(file).display()
         );
     }
-    println!(
-        "cargo:rerun-if-changed={}",
-        lean_project.join("lakefile.toml").display()
-    );
+    for file in ["lakefile.toml", "lakefile.lean"] {
+        let path = lean_project.join(file);
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
     println!(
         "cargo:rerun-if-changed={}",
         lean_project.join("lean-toolchain").display()

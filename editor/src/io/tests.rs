@@ -406,6 +406,25 @@ fn simai_round_trip_keeps_bpm_changes_off_grid_times_and_speeds() {
 
 #[cfg(feature = "backend-lean")]
 #[test]
+fn simai_export_restores_readable_subdivisions_at_210_bpm() {
+    for source in [
+        "(210){8},6,{16}5,4,{8}3,4,{16}5,E",
+        "(210){12}1,2,3,4,5,6,7,8,E",
+    ] {
+        let chart = parse(source);
+        let text = simai::editable_body(&chart).unwrap();
+        assert!(text.len() < 100, "{source} became:\n{text}");
+        let reopened = parse(&text);
+        assert_eq!(reopened.notes.len(), chart.notes.len());
+        for (expected, actual) in chart.notes.iter().zip(&reopened.notes) {
+            assert_eq!(expected.lane, actual.lane);
+            assert!((expected.time - actual.time).abs() < 0.00002);
+        }
+    }
+}
+
+#[cfg(feature = "backend-lean")]
+#[test]
 fn dense_triplets_do_not_accumulate_export_timing_drift() {
     use crate::app::types::{Note, note_secs};
     let mut chart = empty_chart();

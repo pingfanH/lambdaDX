@@ -12,6 +12,8 @@
 //! together and owns the per-session chrome state.
 
 pub mod inspector;
+pub mod sensors;
+mod simai;
 pub mod history;
 pub mod navigation;
 pub mod layout;
@@ -52,7 +54,7 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("Shift+Cmd+S / Shift+Cmd+E", "Save As / export Simai"),
     ("Shift+D", "Duplicate selection and move"),
     ("Shift+R", "Repeat last transform or latest two compatible placements"),
-    ("Arrows / Cmd+Arrows", "Move cursor and playback; scroll at view edge; hold two axes for diagonals"),
+    ("Arrows / Cmd+Arrows", "Move edit cursor; scroll at view edge; hold two axes for diagonals"),
     ("Shift+Arrows / 1-8", "Move one measure or four lanes / set lane"),
     ("Tab / Shift+Tab", "Next / previous note; hold to repeat (trajectory in Slide editing)"),
     ("Enter", "Place note / confirm Hold tail or Star stage"),
@@ -91,6 +93,7 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("P / O", "Cycle preview mode / toggle autoplay"),
     ("Space / Alt+Space", "Play-pause / restart playback"),
     ("Alt+Enter / Alt+Home", "Seek to edit cursor / seek to start"),
+    ("Alt+Shift+Enter", "Toggle playback following the edit cursor (Chart or Simai)"),
     ("Alt+Left / Right", "Seek backward / forward one second"),
     ("F12 / ?", "Toggle this help"),
 ];
@@ -100,8 +103,11 @@ const AUTOPLAY_SHORTCUTS: &[(&str, &str)] = &[
     ("Cmd+Z / ⇧Cmd+Z", "Undo / redo event edits"),
     ("Cmd+O / Cmd+S", "Open / save chart and authored events"),
     ("⇧Cmd+S / ⇧Cmd+E", "Save As / export Simai"),
-    ("Click clip / Enter", "Select and open sensor detail"),
+    ("Click clip", "Select; edit the current interval in its main track"),
+    ("Double-click clip / Enter", "Open optional sensor detail"),
+    ("Draw: click / drag empty track", "Add Click or Hold / draw a Hold"),
     ("Drag interval / endpoints", "Move interval / adjust Press or Release"),
+    ("Click Pad sensor", "Change selected interval region; in draw mode, add at playhead"),
     ("G / Shift+D", "Move / duplicate selection, then Enter or click to confirm"),
     ("Tab / Shift+Tab", "Next / previous clip or detail endpoint"),
     ("Enter / D / V", "Open sensor detail / draw / select"),
@@ -173,6 +179,7 @@ impl EditorUi {
             self.document_revision = Some(app.document_revision());
             self.templates = Default::default();
             editor.autoplay_editor = Default::default();
+            editor.simai_editor.reset();
             editor.pinned_note = None;
             editor.loop_range = None;
             editor.loop_enabled = false;
@@ -235,7 +242,7 @@ impl EditorUi {
             || editor.star_placement.is_some() || editor.hold_placement.is_some()
             || editor.pointer_press.is_some() || editor.marquee_start.is_some() || editor.scrubbing
             || editor.loop_drag.is_some();
-        if !transaction && !overlay_was_open && !self.menu_open && !ctx.memory(|m| m.any_popup_open()) {
+        if !transaction && !self.workbench.dragging() && !overlay_was_open && !self.menu_open && !ctx.memory(|m| m.any_popup_open()) {
             let workspace = self.workbench.active_workspace(ctx, editor.workspace);
             self.change_workspace(editor, app, workspace);
             if !ctx.wants_keyboard_input() && !editor.keyboard.ime {
@@ -269,7 +276,7 @@ impl EditorUi {
             .show(ctx, |ui| {
                 self.layout.toolbar = ui.max_rect();
                 let result = ui
-                    .add_enabled_ui(!transaction && !overlay_was_open, |ui| {
+                    .add_enabled_ui(!transaction && !overlay_was_open && !self.workbench.dragging(), |ui| {
                         toolbar::draw(ui, editor, app, &mut self.workbench)
                     })
                     .inner;
@@ -293,13 +300,14 @@ impl EditorUi {
         let chart_keys = editor.workspace == Workspace::Chart && self.workbench.focused(PaneKind::Chart);
         if !chart_keys { crate::keyboard::handle_modals(ctx, editor, &mut app.chart); }
         crate::autoplay_editor::prepare(ctx, editor, app, !chart_keys && !self.input_blocked
+            && !self.workbench.dragging() && !self.workbench.focused(PaneKind::Simai)
             && !editor.keyboard.owns_input() && (!transaction || editor.autoplay_editor.dragging()),
             self.workbench.focused(PaneKind::Autoplay));
         let mut regions = self.workbench.show(ctx, !self.input_blocked && !transaction, |ui, kind| {
             toolbar::pane_tools(ui, kind, editor, app, &mut self.pad_scale);
         });
         editor.template_panel = self.workbench.has(PaneKind::Templates);
-        self.input_blocked |= ctx.memory(|m| m.any_popup_open()) || editor.show_help || editor.pending_action.is_some();
+        self.input_blocked |= self.workbench.dragging() || ctx.memory(|m| m.any_popup_open()) || editor.show_help || editor.pending_action.is_some();
 
         // Egui assigns an unowned Tab to the first chrome widget during layout.
         // Return only that implicit focus to the canvas; existing fields keep Tab.
@@ -310,13 +318,26 @@ impl EditorUi {
         }
         let duration = app.song_duration();
         // Selection is resolved before Properties, regardless of pane placement.
-        regions.sort_by_key(|r| match r.kind { PaneKind::Chart | PaneKind::Autoplay => 0, _ => 1 });
+        regions.sort_by_key(|r| match r.kind { PaneKind::Simai => 0, PaneKind::Chart | PaneKind::Autoplay => 1, PaneKind::Pad => 2, _ => 3 });
         for region in regions {
             if region.rect.width() < 1.0 || region.rect.height() < 1.0 { continue; }
             let mut ui = region.ui(ctx);
             match region.kind {
+                PaneKind::Simai => simai::draw(&mut ui, editor, app, current_time,
+                    !self.input_blocked && !transaction, self.workbench.focused(PaneKind::Simai)),
                 PaneKind::Chart => self.central(&mut ui, editor, &mut app.chart, current_time, waveform, duration, raw_wheel),
-                PaneKind::Pad => { self.layout.preview = region.rect; }
+                PaneKind::Pad => {
+                    self.layout.preview = region.rect;
+                    self.layout.update_pad(self.pad_scale);
+                    let editable = !self.input_blocked && !editor.keyboard.owns_input() && !editor.keyboard.suppress_pointer
+                        && editor.selection_transform.is_none() && !self.templates.dragging()
+                        && !editor.autoplay_editor.pointer_dragging() && editor.dragging.is_none()
+                        && editor.handle_grab.is_none() && editor.timeline_pan.is_none()
+                        && editor.star_placement.is_none() && editor.hold_placement.is_none()
+                        && editor.pointer_press.is_none() && editor.marquee_start.is_none()
+                        && !editor.scrubbing && editor.loop_drag.is_none();
+                    sensors::draw(&mut ui, editor, app, self.layout.pad, editable);
+                }
                 PaneKind::Overview => {
                     self.layout.overview = region.rect;
                     crate::timeline::draw_overview(&mut ui, region.rect, editor, &app.chart, current_time, duration,
@@ -429,8 +450,8 @@ impl EditorUi {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button("Save").clicked() {
-                        crate::io::save_chart(editor, chart);
-                        editor.pending_confirmed = !editor.dirty;
+                        crate::io::save_document(editor, chart);
+                        editor.pending_confirmed = !editor.has_unsaved_changes();
                     }
                     if ui.button("Discard").clicked() {
                         editor.pending_confirmed = true;

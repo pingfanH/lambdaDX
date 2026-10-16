@@ -15,7 +15,7 @@ use crate::app::types::zone::PadZone;
 use crate::app::types::{
     ChartDoc, NoteType, mdur_to_secs, measure_to_secs, note_secs, secs_to_measure,
 };
-use crate::io::save_chart;
+use crate::io::save_document;
 use crate::state::{
     DragGrab, EditorLayout, EditorState, SelectionTransformKind, TimelinePress, Tool,
 };
@@ -98,7 +98,7 @@ pub fn handle_edit_shortcuts(
         editor.paste_at(chart, measure);
     }
     if cmd && pressed(egui::Key::S) {
-        save_chart(editor, chart);
+        save_document(editor, chart);
     }
     if cmd && pressed(egui::Key::A) {
         if shift {
@@ -533,7 +533,9 @@ fn interact(
                     if let Some(note) = chart.notes.iter_mut().find(|n| n.id == id) {
                         note.time =
                             snap(cur_measure, editor.snap_enabled, editor.snap_division).max(1.0);
-                        note.lane = cursor.lane.clamp(1, 8);
+                        if !crate::app::types::note_is_touch(note) {
+                            note.lane = cursor.lane.clamp(1, 8);
+                        }
                     }
                 }
             }

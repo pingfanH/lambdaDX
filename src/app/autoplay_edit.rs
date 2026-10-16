@@ -1,9 +1,12 @@
 //! Editor ownership keys do not depend on core allocation order or absolute time.
 
 use super::types::{ChartDoc, note_secs};
-use crate::core::types::{AutoplayPart, AutoplayPlan, TimedInputEvent};
+use crate::core::types::{AutoplayGroup, AutoplayPart, AutoplayPlan, TimedInputEvent};
 use crate::player::engine::{JudgeEngine, timed_input_tp};
 use serde::{Deserialize, Serialize};
+
+// Editor-only ownership namespace; note_id stores a clip ID and times are absolute.
+const STANDALONE_ROLE: u64 = u64::MAX;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AutoplayKey {
@@ -14,6 +17,16 @@ pub struct AutoplayKey {
     pub track: Option<u64>,
 }
 
+impl AutoplayKey {
+    pub fn standalone(id: u64) -> Self {
+        Self { note_id: id, role: STANDALONE_ROLE, slide: 0, segment: 0, track: None }
+    }
+
+    pub fn is_standalone(&self) -> bool {
+        self.role == STANDALONE_ROLE
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AutoplayOverride {
     pub key: AutoplayKey,
@@ -21,6 +34,9 @@ pub struct AutoplayOverride {
 }
 
 pub fn key(chart: &ChartDoc, engine: &JudgeEngine, part: &AutoplayPart) -> Option<AutoplayKey> {
+    if part.role == STANDALONE_ROLE {
+        return Some(AutoplayKey::standalone(part.runtime_note_index));
+    }
     let (note_id, slide, segment) = match part.role {
         1 => (engine.slide_head_note_id(chart, part.runtime_note_index)?, 0, 0),
         2 => {
@@ -78,6 +94,7 @@ pub fn generated_plan(
 }
 
 pub fn apply(chart: &ChartDoc, engine: &JudgeEngine, plan: &mut AutoplayPlan) {
+    plan.groups.retain(|group| group.kind != STANDALONE_ROLE);
     if chart.autoplay_overrides.is_empty() {
         return;
     }
@@ -106,5 +123,26 @@ pub fn apply(chart: &ChartDoc, engine: &JudgeEngine, plan: &mut AutoplayPlan) {
             .map(|event| with_time(event, timed_input_tp(event).saturating_add(*head)))
             .collect();
         part.events.sort_by_key(timed_input_tp);
+    }
+    let mut ids: std::collections::HashSet<_> = plan.groups.iter().map(|group| group.id).collect();
+    let mut next_id = 0;
+    for item in chart.autoplay_overrides.iter().filter(|item| item.key.is_standalone()) {
+        while ids.contains(&next_id) { next_id += 1; }
+        ids.insert(next_id);
+        let mut events = item.events.clone();
+        events.sort_by_key(timed_input_tp);
+        plan.groups.push(AutoplayGroup {
+            id: next_id,
+            kind: STANDALONE_ROLE,
+            // No note dependency: seeking must retain these explicit inputs.
+            runtime_note_indices: Vec::new(),
+            depends_on_group_ids: Vec::new(),
+            parts: vec![AutoplayPart {
+                runtime_note_index: item.key.note_id,
+                role: STANDALONE_ROLE,
+                track_index: None,
+                events,
+            }],
+        });
     }
 }

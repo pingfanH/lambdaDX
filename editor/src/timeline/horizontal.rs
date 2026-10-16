@@ -85,6 +85,11 @@ pub fn draw(
 
     let view_end = view + (plot_right - plot_left) / pps;
     waveform::draw_horizontal(waveform, plot_left, plot_right, lanes_top, lanes_h, view, pps, s, chart.audio_offset);
+    if let Some((start, end)) = crate::runtime::loop_range(editor) {
+        let a = (plot_left + (start - view) * pps).clamp(plot_left, plot_right);
+        let b = (plot_left + (end - view) * pps).clamp(plot_left, plot_right);
+        mq::draw_rectangle(a, rect.y, (b - a).max(0.0), rect.h, crate::theme::loop_fill_mq(true));
+    }
 
     draw_measure_grid(rect, plot_left, plot_right, lanes_top, lanes_bottom, view, view_end, bpms, pps, g, s, editor.snap_division);
     draw_lanes(rect, plot_left, plot_right, lanes_top, lanes_bottom, lane_h, g, s);

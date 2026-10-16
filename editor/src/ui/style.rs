@@ -24,6 +24,9 @@ fn install_fonts(ctx: &egui::Context) {
         ),
     };
     fonts.font_data.insert(name.into(), Arc::new(data));
+    let mut code_fonts = fonts.families[&egui::FontFamily::Monospace].clone();
+    code_fonts.push(name.into());
+    fonts.families.insert(egui::FontFamily::Name("editor_code".into()), code_fonts);
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         fonts
             .families

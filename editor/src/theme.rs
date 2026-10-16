@@ -50,6 +50,15 @@ pub const ACCENT_GREEN: egui::Color32 = rgb(107, 200, 175);
 pub const ACCENT_YELLOW: egui::Color32 = rgb(229, 195, 122);
 pub const ACCENT_BLUE: egui::Color32 = rgb(121, 184, 244);
 
+pub fn loop_fill(enabled: bool) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(229, 195, 92, if enabled { 42 } else { 12 })
+}
+
+pub fn loop_fill_mq(enabled: bool) -> macroquad::prelude::Color {
+    let [r, g, b, a] = loop_fill(enabled).to_srgba_unmultiplied();
+    macroquad::prelude::Color::from_rgba(r, g, b, a)
+}
+
 // ── Timeline grid ──────────────────────────────────────────────────────────
 pub const GRID_MINOR: egui::Color32 = rgb(45, 45, 45);
 pub const GRID_LINE: egui::Color32 = rgb(53, 53, 53);

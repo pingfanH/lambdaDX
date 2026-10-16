@@ -3,12 +3,15 @@
 use super::style::{dock_style, glyph, icon};
 use crate::state::Workspace;
 use crate::theme::*;
-use egui_dock::{DockArea, DockState, NodeIndex, Split, SurfaceIndex, TabIndex, TabViewer};
+use egui_dock::{DockArea, DockState, NodeIndex, Split, SurfaceIndex, TabDestination, TabIndex, TabInsert, TabViewer};
 use egui_macroquad::egui::*;
 use lucide_icons::Icon;
 use serde::{Deserialize, Serialize};
 
 mod persistence;
+mod dragging;
+
+const WORKSPACE_COUNT: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaneKind {
@@ -19,10 +22,11 @@ pub enum PaneKind {
     Autoplay,
     Templates,
     History,
+    Simai,
 }
 
 impl PaneKind {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Chart,
         Self::Pad,
         Self::Properties,
@@ -30,6 +34,7 @@ impl PaneKind {
         Self::Autoplay,
         Self::Templates,
         Self::History,
+        Self::Simai,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -40,6 +45,7 @@ impl PaneKind {
             Self::Autoplay => "Autoplay",
             Self::Templates => "模板 / Scene",
             Self::History => "历史",
+            Self::Simai => "Simai",
         }
     }
     fn icon(self) -> Icon {
@@ -51,11 +57,12 @@ impl PaneKind {
             Self::Autoplay => Icon::ListVideo,
             Self::Templates => Icon::Library,
             Self::History => Icon::History,
+            Self::Simai => Icon::FileCode2,
         }
     }
     fn workspace(self) -> Option<Workspace> {
         match self {
-            Self::Chart | Self::Templates => Some(Workspace::Chart),
+            Self::Chart | Self::Templates | Self::Simai => Some(Workspace::Chart),
             Self::Autoplay => Some(Workspace::Autoplay),
             _ => None,
         }
@@ -72,6 +79,7 @@ pub struct Region {
     pub kind: PaneKind,
     pub rect: Rect,
     id: Id,
+    pane_id: u64,
     layer: LayerId,
 }
 impl Region {
@@ -90,6 +98,7 @@ enum Action {
     Replace(u64, PaneKind),
     Split(u64, Split, PaneKind),
     Swap(u64, u64),
+    Move(u64, u64, Split),
     Close(u64),
     Maximize(u64),
     Restore,
@@ -106,14 +115,16 @@ pub struct Workbench {
     regions: Vec<(PaneKind, Rect)>,
     focused: PaneKind,
     message: Option<String>,
+    dragging: Option<u64>,
+    drag_owned: bool,
 }
 
 impl Default for Workbench {
     fn default() -> Self {
         let mut next_id = 0;
         Self {
-            docks: (0..3).map(|i| preset(i, &mut next_id)).collect(),
-            saved: vec![None; 3],
+            docks: (0..WORKSPACE_COUNT).map(|i| preset(i, &mut next_id)).collect(),
+            saved: vec![None; WORKSPACE_COUNT],
             workspace: 0,
             next_id,
             maximized: None,
@@ -122,6 +133,8 @@ impl Default for Workbench {
             regions: Vec::new(),
             focused: PaneKind::Chart,
             message: None,
+            dragging: None,
+            drag_owned: false,
         }
     }
 }
@@ -133,6 +146,8 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
     };
     let mut dock = DockState::new(vec![pane(if workspace == 1 {
         PaneKind::Pad
+    } else if workspace == 3 {
+        PaneKind::Simai
     } else {
         PaneKind::Chart
     })]);
@@ -150,9 +165,11 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
                 .split_right(NodeIndex::root(), 0.72, vec![pane(PaneKind::Pad)]);
         dock.main_surface_mut().split_below(
             main,
-            if workspace == 2 { 0.60 } else { 0.90 },
+            if workspace == 2 { 0.60 } else if workspace == 3 { 0.76 } else { 0.90 },
             vec![pane(if workspace == 2 {
                 PaneKind::Autoplay
+            } else if workspace == 3 {
+                PaneKind::Chart
             } else {
                 PaneKind::Overview
             })],
@@ -167,16 +184,14 @@ impl Workbench {
     pub fn initialize(&mut self, workspace: Workspace) {
         if !self.initialized {
             self.load_layouts();
-            self.workspace = if std::env::var("MAI2_EDITOR_WORKSPACE").as_deref() == Ok("combined")
-            {
-                2
-            } else if workspace == Workspace::Autoplay {
-                1
-            } else {
-                0
+            self.workspace = match std::env::var("MAI2_EDITOR_WORKSPACE").as_deref() {
+                Ok("simai") => 3,
+                Ok("combined") => 2,
+                _ if workspace == Workspace::Autoplay => 1,
+                _ => 0,
             };
             self.initialized = true;
-            self.focused = if self.workspace == 1 { PaneKind::Autoplay } else { PaneKind::Chart };
+            self.focused = self.default_focus();
         }
     }
     pub fn has(&self, kind: PaneKind) -> bool {
@@ -190,6 +205,12 @@ impl Workbench {
             .any(|(_, p)| p.kind == kind && self.maximized.is_none_or(|id| p.id == id))
     }
     pub fn focused(&self, kind: PaneKind) -> bool { self.focused == kind && self.visible(kind) }
+
+    fn default_focus(&self) -> PaneKind {
+        match self.workspace { 1 => PaneKind::Autoplay, 3 => PaneKind::Simai, _ => PaneKind::Chart }
+    }
+
+    pub fn dragging(&self) -> bool { self.dragging.is_some() || self.drag_owned }
 
     pub fn cycle_focus(&mut self, reverse: bool) -> Option<Workspace> {
         let mut regions = self.regions.clone();
@@ -234,7 +255,7 @@ impl Workbench {
     }
     pub fn workspace_picker(&mut self, ui: &mut Ui, compact: bool) -> Option<Workspace> {
         let old = self.workspace;
-        let labels = ["谱面", "Autoplay", "组合"];
+        let labels = ["谱面", "Autoplay", "组合", "Simai"];
         if compact {
             ComboBox::from_id_salt("workspace")
                 .width(80.0)
@@ -266,7 +287,8 @@ impl Workbench {
         } else {
             self.maximized = None;
             self.regions.clear();
-            self.focused = if self.workspace == 1 { PaneKind::Autoplay } else { PaneKind::Chart };
+            self.focused = self.default_focus();
+            self.dragging = None;
             Some(if self.workspace == 1 {
                 Workspace::Autoplay
             } else {
@@ -415,6 +437,14 @@ impl Workbench {
                             self.docks[self.workspace][sb][nb].tabs_mut().unwrap()[0] = first;
                         }
                     }
+                    Action::Move(source, target, direction) if source != target => {
+                        if let (Some((ss, sn)), Some((ts, tn))) = (self.location(source), self.location(target)) {
+                            self.docks[self.workspace].move_tab(
+                                (ss, sn, TabIndex(0)),
+                                TabDestination::Node(ts, tn, TabInsert::Split(direction)),
+                            );
+                        }
+                    }
                     Action::Close(id) if self.docks[self.workspace].iter_all_tabs().count() > 1 => {
                         if let Some((s, n)) = self.location(id) {
                             self.docks[self.workspace].remove_tab((s, n, TabIndex(0)));
@@ -437,6 +467,7 @@ impl Workbench {
             .collect();
         let mut actions = Vec::new();
         let mut regions = Vec::new();
+        self.drag_owned = self.dragging.is_some();
         // Transparent bodies let the macroquad chart and pad remain visible below egui.
         CentralPanel::default().frame(Frame::NONE).show(ctx, |ui| {
             if !enabled {
@@ -450,6 +481,7 @@ impl Workbench {
                 tools: &mut tools,
                 enabled,
                 focused: self.focused,
+                dragging: &mut self.dragging,
             };
             if let Some(id) = self.maximized {
                 if let Some((_, p)) = self.docks[self.workspace]
@@ -475,6 +507,7 @@ impl Workbench {
                     .show_inside(ui, &mut viewer);
             }
         });
+        self.finish_drag(ctx, &regions, enabled, &mut actions);
         self.regions = regions
             .iter()
             .map(|r| {
@@ -499,6 +532,7 @@ struct Viewer<'a, F> {
     tools: &'a mut F,
     enabled: bool,
     focused: PaneKind,
+    dragging: &'a mut Option<u64>,
 }
 impl<F: FnMut(&mut Ui, PaneKind)> Viewer<'_, F> {
     fn header(&mut self, pane: &Pane, response: &Response, maximized: bool) {
@@ -516,6 +550,9 @@ impl<F: FnMut(&mut Ui, PaneKind)> Viewer<'_, F> {
             ui.painter().hline(response.rect.x_range(), response.rect.bottom() - 1.0, Stroke::new(1.0_f32, ACCENT_BLUE.gamma_multiply(0.55)));
         }
         ui.spacing_mut().item_spacing.x = 3.0;
+        if !self.locked && !maximized && response.drag_started_by(PointerButton::Primary) {
+            *self.dragging = Some(pane.id);
+        }
         ui.add_enabled_ui(!self.locked, |ui| {
             ui.menu_button(glyph(pane.kind.icon(), 13.0), |ui| {
                 for kind in PaneKind::ALL {
@@ -536,7 +573,15 @@ impl<F: FnMut(&mut Ui, PaneKind)> Viewer<'_, F> {
             ui.set_min_size(size);
             ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
             if ui.available_width() > 105.0 {
-                ui.add(Label::new(RichText::new(pane.kind.title()).color(TEXT)).truncate());
+                let title = ui.add(Label::new(RichText::new(pane.kind.title()).color(TEXT))
+                    .truncate().sense(if self.locked || maximized { Sense::click() } else { Sense::click_and_drag() }));
+                if title.double_clicked() && self.enabled {
+                    self.actions.push(if maximized { Action::Restore } else { Action::Maximize(pane.id) });
+                }
+                if !self.locked && !maximized {
+                    if title.drag_started_by(PointerButton::Primary) { *self.dragging = Some(pane.id); }
+                    title.on_hover_cursor(CursorIcon::Grab).on_hover_text("拖动分区；边缘拆分，中央交换");
+                }
                 ui.add_space(6.0);
             }
             ui.add_enabled_ui(self.enabled, |ui| (self.tools)(ui, pane.kind));
@@ -596,6 +641,7 @@ impl<F: FnMut(&mut Ui, PaneKind)> TabViewer for Viewer<'_, F> {
             kind: pane.kind,
             rect,
             id: ui.id(),
+            pane_id: pane.id,
             layer: ui.layer_id(),
         });
         ui.allocate_rect(rect, Sense::hover());

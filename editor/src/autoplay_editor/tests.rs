@@ -16,6 +16,7 @@ impl NavigationFixture {
         let mut f = Self { ctx: egui::Context::default(), state: AutoplayEditor::default(),
             editor: EditorState::default(), app, time: 0.0 };
         f.editor.snap_enabled = false;
+        f.state.return_current();
         f.frame(Vec::new(), 0.0);
         f.frame(Vec::new(), 0.0);
         f
@@ -97,6 +98,9 @@ fn timeline_navigation_browsing_retains_follow_until_playback_resumes() {
     f.frame(Vec::new(), 0.0);
     assert_eq!(f.state.view_start, view, "paused browsing stays in place");
     f.app.mode = Mode::Playing;
+    f.frame(Vec::new(), 0.0);
+    assert_eq!(f.state.view_start, view, "playback leaves a visible left-half playhead alone");
+    for _ in 0..30 { f.frame(Vec::new(), 0.0); }
     let plot = f.frame(Vec::new(), 0.0);
     let play_x = (f.app.timeline_time() - f.state.view_start) * f.state.pixels_per_second;
     assert!((play_x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01);
@@ -127,8 +131,13 @@ fn timeline_navigation_zoom_keeps_pointer_time_during_playback() {
             } else if mode == Mode::Idle {
                 assert_eq!(f.state.view_start, old_view, "follow overwrote manual zoom");
             } else {
-                let x = (f.app.timeline_time() - f.state.view_start) * f.state.pixels_per_second;
-                assert!((x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01);
+                let target = f.app.timeline_time() - (plot.ruler.right() - plot.left) * 0.5 / f.state.pixels_per_second;
+                if f.app.timeline_time() >= old_view && target <= old_view {
+                    assert_eq!(f.state.view_start, old_view, "follow starts only at the midpoint");
+                } else {
+                    assert!(f.state.view_start >= old_view.min(target) - 0.0001);
+                    assert!(f.state.view_start <= old_view.max(target) + 0.0001);
+                }
             }
             assert!(f.state.follow);
             assert!(f.editor.pending_seek.is_none());
@@ -153,6 +162,38 @@ fn timeline_navigation_zoom_preserves_anchor_at_scale_limits() {
             assert!(state.follow && !state.center_requested);
         }
     }
+}
+
+#[test]
+fn timeline_navigation_midpoint_follow_eases_and_pauses_without_recentering() {
+    let mut f = NavigationFixture::new(Mode::Playing);
+    let span = f.state.plot_width / f.state.pixels_per_second;
+    f.state.view_start = f.app.timeline_time() - span * 0.25;
+    f.state.follow_motion.reset();
+    let view = f.state.view_start;
+    for _ in 0..10 { f.frame(Vec::new(), 0.0); }
+    assert_eq!(f.state.view_start, view);
+
+    f.state.view_start = f.app.timeline_time() - span * 0.8;
+    let view = f.state.view_start;
+    f.frame(Vec::new(), 0.0);
+    let target = f.app.timeline_time() - span * 0.5;
+    assert!(f.state.view_start > view && f.state.view_start < target);
+    f.app.mode = Mode::Idle;
+    let view = f.state.view_start;
+    for _ in 0..20 { f.frame(Vec::new(), 0.0); }
+    assert_eq!(f.state.view_start, view, "pause stops the transition immediately");
+
+    f.state.toggle_follow();
+    f.state.toggle_follow();
+    f.frame(Vec::new(), 0.0);
+    assert_eq!(f.state.view_start, view, "enabling follow is not return-to-playhead");
+    f.app.mode = Mode::Recording;
+    f.frame(Vec::new(), 0.0);
+    assert!(f.state.view_start < f.app.timeline_time() - span * 0.5);
+    for _ in 0..20 { f.frame(Vec::new(), 0.0); }
+    assert!((f.state.view_start - (f.app.timeline_time() - span * 0.5)).abs() < 0.0001);
+    assert!(f.editor.pending_seek.is_none());
 }
 
 #[test]
@@ -185,9 +226,10 @@ fn timeline_navigation_middle_rate_scroll_and_shift_wheel_do_not_seek() {
         f.button(outside, egui::PointerButton::Middle, false);
         assert!(!f.state.pointer_dragging() && f.state.follow);
         assert!(!f.editor.scrubbing && f.editor.pending_seek.is_none());
+        for _ in 0..20 { f.frame(Vec::new(), 0.0); }
         let plot = f.frame(Vec::new(), 0.0);
         let x = (f.app.timeline_time() - f.state.view_start) * pps;
-        assert!((x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01, "playback resumes following");
+        assert!(x >= 0.0 && x <= (plot.ruler.right() - plot.left) * 0.5 + 0.01, "playback resumes midpoint following");
         f.app.mode = Mode::Idle;
         let view = f.state.view_start;
         f.frame(vec![egui::Event::PointerMoved(pos), egui::Event::MouseWheel {
@@ -231,9 +273,10 @@ fn timeline_navigation_locator_keeps_panning_outside_until_release() {
         f.frame(vec![egui::Event::PointerMoved(outside)], 0.0);
         f.button(outside, egui::PointerButton::Primary, false);
         assert!(!f.editor.scrubbing && f.state.follow);
+        for _ in 0..20 { f.frame(Vec::new(), 0.0); }
         let plot = f.frame(Vec::new(), 0.0);
         let x = (f.app.timeline_time() - f.state.view_start) * f.state.pixels_per_second;
-        assert!((x - (plot.ruler.right() - plot.left) * 0.5).abs() < 0.01, "playback resumes following");
+        assert!(x >= 0.0 && x <= (plot.ruler.right() - plot.left) * 0.5 + 0.01, "playback resumes midpoint following");
     }
 }
 
@@ -508,6 +551,367 @@ fn inspector_transactions_cancel_or_commit_as_one_step() {
     state.tracks[0].events[0] = make_event("B3", 2, 400_000);
     state.cancel();
     assert_eq!(state.tracks[0].events, original);
+}
+
+#[test]
+fn sensor_edit_pad_changes_both_hold_ends_and_undo_restores_owner() {
+    let mut app = player(chart("1h[4:2],B3"));
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    let row = state.tracks.iter().position(|t| t.key.note_id == 100).unwrap();
+    let original = state.tracks[row].events.clone();
+    let others: Vec<_> = state.tracks.iter().enumerate().filter(|(r, _)| *r != row)
+        .map(|(_, track)| track.events.clone()).collect();
+    let span = clips::intervals(&original).into_iter().find(|s| s.release.is_some()).unwrap();
+    let release = span.release.unwrap();
+    state.selected_row = Some(row);
+    state.selected = Some((row, release));
+    let mut editor = EditorState::default();
+    state.pick_zone(&mut editor, &mut app.chart, "K2", 0.0);
+    for index in [span.press, release] {
+        assert_eq!(event_zone(&state.tracks[row].events[index]), "K2");
+        assert_eq!(timed_input_tp(&state.tracks[row].events[index]), timed_input_tp(&original[index]));
+        assert_eq!(event_kind(&state.tracks[row].events[index]), event_kind(&original[index]));
+    }
+    assert_eq!(state.pad_zone(), "K2", "explicit buttons survive the inner-screen default");
+    assert_eq!(editor.undo.len(), 1);
+    state.pick_zone(&mut editor, &mut app.chart, "K2", 0.0);
+    assert_eq!(editor.undo.len(), 1, "picking the same sensor is not an edit");
+    assert_eq!(state.tracks.iter().enumerate().filter(|(r, _)| *r != row)
+        .map(|(_, t)| t.events.clone()).collect::<Vec<_>>(), others);
+    let edited = state.tracks[row].events.clone();
+    state.delete(&mut editor, &mut app.chart);
+    assert_eq!(state.tracks[row].events.len(), original.len() - 2, "Release selection deletes the whole interval");
+    editor.undo(&mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks[row].events, edited);
+    editor.undo(&mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks[row].events, original);
+    assert!(app.chart.autoplay_overrides.is_empty());
+}
+
+#[test]
+fn event_type_toolbar_converts_selection_without_changing_drawing_events() {
+    let ctx = egui::Context::default();
+    crate::ui::style::apply(&ctx);
+    let mut time = 0.0;
+    let mut choose = |hold: bool, state: &mut AutoplayEditor, editor: &mut EditorState, app: &mut PadPreviewState| {
+        let mut pos = Pos2::ZERO;
+        for pressed in [None, Some(true), Some(false)] {
+            time += 1.0 / 60.0;
+            let mut events = vec![egui::Event::PointerMoved(pos)];
+            if let Some(pressed) = pressed {
+                events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary,
+                    pressed, modifiers: egui::Modifiers::NONE });
+            }
+            let _ = ctx.run(egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 200.0))),
+                time: Some(time), events, ..Default::default()
+            }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        pos = ui.cursor().min + Vec2::new(
+                            (22.0 + ui.spacing().item_spacing.x) * if hold { 3.0 } else { 2.0 } + 11.0, 11.0);
+                        drawing_tools(ui, state, editor, app);
+                    });
+                });
+            });
+        }
+        assert_eq!(state.new_hold, hold, "the toolbar button must receive the click");
+    };
+    for standalone in [false, true] {
+        let mut app = player(chart("1,2"));
+        let mut state = AutoplayEditor::default();
+        state.sync(&app);
+        let key = if standalone { AutoplayKey::standalone(1) } else { state.tracks[1].key.clone() };
+        let head = if standalone { 0 } else { state.tracks[1].head };
+        let zone = if standalone { "K2" } else { "B3" };
+        let start = head + 123_457;
+        let original = vec![make_event(zone, 2, start + 900_000), make_event(zone, 0, start),
+            make_event(zone, 1, start + 500_000)];
+        app.chart.autoplay_overrides.push(AutoplayOverride {
+            key: key.clone(), events: autoplay_edit::relative(&original, head),
+        });
+        state.sync(&app);
+        let row = state.tracks.iter().position(|track| track.key == key).unwrap();
+        let other_events = state.tracks[0].events.clone();
+        state.selected_row = Some(row);
+        state.selected = Some((row, 1));
+        state.new_hold = false;
+        let mut editor = EditorState::default();
+
+        choose(true, &mut state, &mut editor, &mut app);
+        let mut held = original.clone();
+        held[1] = make_event(zone, 1, start);
+        held.push(make_event(zone, 2, start + 125_000));
+        assert_eq!(state.tracks[row].events, held, "Click becomes a one-subdivision Hold without snapping its start");
+        assert_eq!(state.selected_pair, Some(3));
+        assert_eq!(editor.undo.len(), 1);
+        state.sync(&app);
+        assert_eq!(state.selected, Some((row, 1)));
+        assert_eq!(state.selected_pair, Some(3));
+        choose(true, &mut state, &mut editor, &mut app);
+        assert_eq!(editor.undo.len(), 1, "same type is not another edit");
+
+        state.selected = Some((row, 3));
+        state.selected_pair = None;
+        choose(false, &mut state, &mut editor, &mut app);
+        assert_eq!(state.tracks[row].events, original, "Release selection converts the whole Hold at its start");
+        assert_eq!(state.selected, Some((row, 1)));
+        assert_eq!(state.selected_pair, None);
+        assert_eq!(editor.undo.len(), 2);
+
+        state.selected = Some((row, 0));
+        choose(true, &mut state, &mut editor, &mut app);
+        assert_eq!(state.tracks[row].events, original, "existing custom duration is preserved");
+        assert_eq!(editor.undo.len(), 2);
+        choose(false, &mut state, &mut editor, &mut app);
+        assert_eq!(state.tracks[row].events, [make_event(zone, 0, start), make_event(zone, 0, start + 500_000)]);
+        assert_eq!(state.selected, Some((row, 1)), "selection survives removing an earlier vector index");
+        assert_eq!(editor.undo.len(), 3);
+        editor.undo(&mut app.chart);
+        state.sync(&app);
+        assert_eq!(state.tracks[row].events, original);
+        assert_eq!(app.chart.autoplay_overrides[0].key, key);
+        assert_eq!(app.chart.autoplay_overrides[0].events, autoplay_edit::relative(&original, head));
+        assert_eq!(state.tracks[0].events, other_events);
+
+        state.start_drawing();
+        state.new_hold = true;
+        state.pick_zone(&mut editor, &mut app.chart, zone, 2.0);
+        let drawn = state.tracks[row].events.clone();
+        let history = editor.undo.len();
+        choose(false, &mut state, &mut editor, &mut app);
+        assert_eq!(state.tracks[row].events, drawn, "drawing choice must not convert the last-created interval");
+        assert_eq!(editor.undo.len(), history);
+    }
+}
+
+#[test]
+fn sensor_edit_pad_draws_snapped_hold_or_click_as_one_undo_step() {
+    let mut app = player(chart("1"));
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    state.selected_row = Some(0);
+    state.selected = Some((0, 0));
+    state.start_drawing();
+    assert!(state.selected.is_none());
+    assert!(state.detail_row.is_none(), "drawing must not open a second timeline");
+    let original = state.tracks[0].events.clone();
+    let mut editor = EditorState::default();
+    state.pick_zone(&mut editor, &mut app.chart, "C", 0.19);
+    assert_eq!(&state.tracks[0].events[original.len()..],
+        &[make_event("C", 1, 250_000), make_event("C", 2, 375_000)]);
+    assert_eq!(state.selected_pair, Some(original.len() + 1));
+    assert!(state.detail_row.is_none(), "Pad additions stay in the main track");
+    assert_eq!(editor.undo.len(), 1);
+    state.new_hold = false;
+    state.pick_zone(&mut editor, &mut app.chart, "B8", 0.62);
+    assert_eq!(state.tracks[0].events.last(), Some(&make_event("B8", 0, 625_000)));
+    assert_eq!(state.selected_pair, None);
+    assert_eq!(editor.undo.len(), 2);
+    editor.undo(&mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks[0].events.len(), original.len() + 2);
+    state.suppress_pointer = true;
+    state.pick_zone(&mut editor, &mut app.chart, "D1", 0.0);
+    assert_eq!(editor.undo.len(), 1, "undo must not also create a Pad event");
+    assert_eq!(state.tracks[0].events.len(), original.len() + 2);
+}
+
+#[test]
+fn sensor_edit_blank_track_creates_without_selecting_a_note() {
+    let mut app = player(chart("1"));
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    state.follow = false;
+    state.view_start = 0.0;
+    state.pixels_per_second = 200.0;
+    state.new_zone = "B3".into();
+    state.start_drawing();
+    let original = app.chart.clone();
+    let mut editor = EditorState::default();
+    let ctx = egui::Context::default();
+    let mut time = 0.0;
+    let mut frame = |state: &mut AutoplayEditor, editor: &mut EditorState, app: &mut PadPreviewState,
+        pos: Pos2, pressed: Option<bool>| {
+        time += 1.0 / 60.0;
+        state.sync(app);
+        let mut events = vec![egui::Event::PointerMoved(pos)];
+        if let Some(pressed) = pressed {
+            events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary,
+                pressed, modifiers: egui::Modifiers::NONE });
+        }
+        let mut origin = Pos2::ZERO;
+        let _ = ctx.run(egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0))),
+            time: Some(time), events, ..Default::default()
+        }, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                origin = ui.cursor().min + Vec2::new(HEADER, 26.0 + ui.spacing().item_spacing.y);
+                clips::draw(ui, state, editor, app, true, 0.0);
+            });
+        });
+        origin
+    };
+    frame(&mut state, &mut editor, &mut app, Pos2::ZERO, None);
+    let origin = frame(&mut state, &mut editor, &mut app, Pos2::ZERO, None);
+    let point = |seconds: f32| origin + Vec2::new(seconds * 200.0, 17.0);
+    frame(&mut state, &mut editor, &mut app, point(0.5), Some(true));
+    frame(&mut state, &mut editor, &mut app, point(0.5), Some(false));
+    assert_eq!(app.chart.autoplay_overrides.len(), 1, "drawing on blank track requires no note selection");
+    assert_eq!(app.chart.notes, original.notes, "a standalone event must not create a chart note");
+    assert_eq!(app.chart.autoplay_overrides[0].events,
+        [make_event("B3", 1, 500_000), make_event("B3", 2, 625_000)]);
+    assert!(state.detail_row.is_none());
+    assert_eq!(editor.undo.len(), 1);
+
+    frame(&mut state, &mut editor, &mut app, point(1.0), None);
+    frame(&mut state, &mut editor, &mut app, point(1.0), Some(true));
+    frame(&mut state, &mut editor, &mut app, point(2.0), None);
+    let row = state.selected_row.unwrap();
+    assert!(state.tracks[row].key.is_standalone());
+    assert!(state.clip_layout.clips.iter().any(|clip| clip.rows.contains(&row)), "new interval is visible while drawing");
+    assert_eq!(app.chart.autoplay_overrides.len(), 1, "draft does not edit the document");
+    state.cancel();
+    frame(&mut state, &mut editor, &mut app, point(2.0), Some(false));
+    assert_eq!(state.tracks.len(), 2, "cancel removes the temporary standalone track");
+    assert_eq!(editor.undo.len(), 1);
+
+    frame(&mut state, &mut editor, &mut app, point(1.0), None);
+    frame(&mut state, &mut editor, &mut app, point(1.0), Some(true));
+    frame(&mut state, &mut editor, &mut app, point(2.0), None);
+    frame(&mut state, &mut editor, &mut app, point(2.0), Some(false));
+    assert_eq!(app.chart.autoplay_overrides.len(), 2);
+    assert_eq!(app.chart.autoplay_overrides[1].events,
+        [make_event("B3", 1, 1_000_000), make_event("B3", 2, 2_000_000)]);
+    assert_eq!(editor.undo.len(), 2, "release commits exactly one interval");
+}
+
+#[test]
+fn sensor_edit_standalone_events_persist_play_and_undo_without_notes() {
+    let mut app = player(chart(""));
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    let mut editor = EditorState::default();
+    state.start_drawing();
+    state.pick_zone(&mut editor, &mut app.chart, "B3", 0.5);
+    state.sync(&app);
+    state.new_hold = false;
+    state.pick_zone(&mut editor, &mut app.chart, "K2", 1.0);
+    state.sync(&app);
+    assert!(app.chart.notes.is_empty());
+    assert_eq!(state.tracks.len(), 2, "continuous drawing creates independent clips");
+    assert!(state.tracks.iter().all(|track| track.key.is_standalone()));
+    assert_eq!(editor.undo.len(), 2);
+
+    let saved = serde_json::to_string(&crate::templates::document(&editor, &app.chart)).unwrap();
+    let mut restored = player(serde_json::from_str(&saved).unwrap());
+    let mut reopened = AutoplayEditor::default();
+    reopened.sync(&restored);
+    assert_eq!(reopened.tracks.len(), 2);
+    let expected = vec![make_event("B3", 1, 500_000), make_event("B3", 2, 625_000), make_event("K2", 0, 1_000_000)];
+    assert_eq!(restored.autoplay_tactic, expected);
+    let mut plan = restored.autoplay_plan.clone().unwrap();
+    assert_eq!(plan.retained(&[]).events(), expected, "seek retains independent inputs");
+    autoplay_edit::apply(&restored.chart, restored.judge_engine.as_ref().unwrap(), &mut plan);
+    assert_eq!(plan.events(), expected, "reapplying overrides must not duplicate independent events");
+    assert_eq!(restored.song_duration(), 2.0, "standalone events extend silent preview");
+    restored.try_seek_to(1.5).unwrap();
+    assert_eq!(restored.mode_song_offset, 1.5, "seek is not clamped to the empty chart duration");
+    assert_eq!(restored.autoplay_tactic, expected);
+
+    state.delete(&mut editor, &mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks.len(), 1);
+    editor.undo(&mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks.len(), 2);
+    editor.undo(&mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks.len(), 1);
+    editor.redo(&mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks.len(), 2);
+    state.clear_selection();
+    state.add_at_playhead(&mut editor, &mut app.chart, 2.0);
+    editor.undo(&mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks.len(), 2, "undo before the next UI sync removes the draft track");
+}
+
+#[test]
+fn sensor_edit_main_track_adds_and_resizes_holds_without_detail() {
+    let mut app = player(chart("1"));
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    state.follow = false;
+    state.center_requested = false;
+    state.view_start = 0.0;
+    state.pixels_per_second = 200.0;
+    state.selected_row = Some(0);
+    state.new_zone = "B3".into();
+    state.start_drawing();
+    let original = state.tracks[0].events.clone();
+    let mut editor = EditorState::default();
+    let ctx = egui::Context::default();
+    let mut time = 0.0;
+    let mut frame = |state: &mut AutoplayEditor, editor: &mut EditorState, app: &mut PadPreviewState,
+        pos: Pos2, pressed: Option<bool>| {
+        time += 1.0 / 60.0;
+        state.sync(app);
+        let mut events = vec![egui::Event::PointerMoved(pos)];
+        if let Some(pressed) = pressed {
+            events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary,
+                pressed, modifiers: egui::Modifiers::NONE });
+        }
+        let mut origin = Pos2::ZERO;
+        let _ = ctx.run(egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0))),
+            time: Some(time), events, ..Default::default()
+        }, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                origin = ui.cursor().min + Vec2::new(HEADER, 26.0 + ui.spacing().item_spacing.y);
+                clips::draw(ui, state, editor, app, true, 0.0);
+            });
+        });
+        origin
+    };
+    frame(&mut state, &mut editor, &mut app, Pos2::ZERO, None);
+    let origin = frame(&mut state, &mut editor, &mut app, Pos2::ZERO, None);
+    let point = |seconds: f32, y: f32| origin + Vec2::new(seconds * 200.0, y);
+    let click = point(0.5, 17.0);
+    frame(&mut state, &mut editor, &mut app, click, Some(true));
+    frame(&mut state, &mut editor, &mut app, click, Some(false));
+    assert_eq!(&state.tracks[0].events[original.len()..],
+        &[make_event("B3", 1, 500_000), make_event("B3", 2, 625_000)]);
+    assert_eq!(editor.undo.len(), 1);
+    assert!(state.detail_row.is_none());
+
+    frame(&mut state, &mut editor, &mut app, point(1.0, 17.0), None);
+    frame(&mut state, &mut editor, &mut app, point(1.0, 17.0), Some(true));
+    frame(&mut state, &mut editor, &mut app, point(2.0, 17.0), None);
+    assert!(app.chart.autoplay_overrides[0].events.len() == original.len() + 2, "drag remains a draft");
+    frame(&mut state, &mut editor, &mut app, point(2.0, 17.0), Some(false));
+    assert_eq!(&state.tracks[0].events[original.len() + 2..],
+        &[make_event("B3", 1, 1_000_000), make_event("B3", 2, 2_000_000)]);
+    assert_eq!(editor.undo.len(), 2, "release commits once without adding an extra interval");
+    assert!(state.detail_row.is_none());
+
+    frame(&mut state, &mut editor, &mut app, point(2.0, 42.0), None);
+    frame(&mut state, &mut editor, &mut app, point(2.0, 42.0), Some(true));
+    frame(&mut state, &mut editor, &mut app, point(2.5, 42.0), None);
+    frame(&mut state, &mut editor, &mut app, point(2.5, 42.0), Some(false));
+    assert_eq!(&state.tracks[0].events[original.len() + 2..],
+        &[make_event("B3", 1, 1_000_000), make_event("B3", 2, 2_500_000)]);
+    assert_eq!(&state.tracks[0].events[..original.len()], original.as_slice());
+    assert_eq!(editor.undo.len(), 3);
+    assert!(state.detail_row.is_none());
+    frame(&mut state, &mut editor, &mut app, point(2.5, 42.0), None);
+    editor.undo(&mut app.chart);
+    state.sync(&app);
+    assert_eq!(state.tracks[0].events.last(), Some(&make_event("B3", 2, 2_000_000)));
 }
 
 #[test]

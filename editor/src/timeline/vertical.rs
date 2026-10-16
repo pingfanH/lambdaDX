@@ -98,6 +98,12 @@ pub fn draw(
     // earlier. `draw_measure_grid` needs these in *seconds* (not pixels).
     let t_top = now + (judge_y - plot_top) / pps;
     let t_bottom = now + (judge_y - plot_bottom) / pps;
+    if let Some((start, end)) = crate::runtime::loop_range(editor) {
+        let top = y_of(end).clamp(plot_top, plot_bottom);
+        let bottom = y_of(start).clamp(plot_top, plot_bottom);
+        mq::draw_rectangle(plot_left, top, plot_right - plot_left, (bottom - top).max(0.0),
+            theme::loop_fill_mq(true));
+    }
     draw_measure_grid(
         rect,
         plot_left,

@@ -29,6 +29,7 @@ mod core_chart;
 mod edit_ops;
 mod gesture;
 mod io;
+mod simai_editor;
 mod keyboard;
 mod runtime;
 mod state;
@@ -171,6 +172,7 @@ async fn run() {
         .unwrap_or(0.6);
     let start_time = get_time();
     let mut chart_sync = runtime::ChartSync::new(&mut app.chart);
+    let mut auto_save = io::autosave::AutoSave::default();
 
     // `MAI2_EDITOR_FPS=1` prints a once-per-second frame-time summary to stderr
     // (a lightweight perf read-out; no-op otherwise).
@@ -184,7 +186,7 @@ async fn run() {
         // OS close requests are deferred while there are unsaved changes: with a
         // dirty document we cancel the quit and raise a confirm action instead
         // (resolved by the Save / Discard / Cancel dialog).
-        if editor.dirty {
+        if editor.has_unsaved_changes() {
             macroquad::input::prevent_quit();
         }
         if macroquad::input::is_quit_requested() {
@@ -332,6 +334,12 @@ async fn run() {
         let gesture_active = editor.dragging.is_some() || editor.selection_transform.is_some()
             || editor.handle_grab.is_some() || editor.keyboard.transaction.is_some()
             || editor.autoplay_editor.dragging() || ui.templates.dragging();
+        let document_idle = !gesture_active && !ui.input_blocked && editor.pending_action.is_none()
+            && editor.pointer_press.is_none() && editor.star_placement.is_none()
+            && editor.hold_placement.is_none() && !editor.transform_pointer_down
+            && editor.keyboard.dialog.is_none() && editor.template_action.is_none();
+        simai_editor::tick(&mut editor, &mut app.chart, document_idle);
+        auto_save.tick(&mut editor, &app.chart, app.document_revision(), document_idle);
         let chart_current = match chart_sync.update(&mut app, gesture_active) {
             Ok(current) => current,
             Err(error) => {
@@ -474,11 +482,11 @@ fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState) {
     }
     if editor.export_request {
         editor.export_request = false;
-        io::export_chart(editor, &app.chart, false);
+        io::export_chart(editor, &mut app.chart, false);
     }
     if editor.save_as_request {
         editor.save_as_request = false;
-        io::export_chart(editor, &app.chart, true);
+        io::export_chart(editor, &mut app.chart, true);
     }
     if editor.reload_request {
         editor.reload_request = false;
@@ -541,6 +549,7 @@ fn load_editor_chart(editor: &mut EditorState, app: &mut PadPreviewState, path: 
     editor.selected_template = None;
     editor.selected_instance = None;
     editor.autoplay_editor = Default::default();
+    editor.simai_editor.reset();
     editor.view_start = 0.0;
     editor.dirty = false;
     editor.status = Some(format!("Loaded {}", editor.chart_dir));

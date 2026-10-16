@@ -681,7 +681,7 @@ impl PadPreviewState {
         }
     }
 
-    /// Song length from PCM, with a chart-duration fallback for silent preview.
+    /// Song length from PCM, with notes and standalone inputs as a silent-preview fallback.
     pub fn song_duration(&self) -> f32 {
         self.audio_wav_pcm
             .as_ref()
@@ -707,6 +707,10 @@ impl PadPreviewState {
                             _ => note_secs(n, &self.chart.bpms),
                         }) + 1.0
                     })
+                    .chain(self.playback_chart().autoplay_overrides.iter()
+                        .filter(|item| item.key.is_standalone())
+                        .flat_map(|item| &item.events)
+                        .map(|event| crate::player::engine::timed_input_tp(event) as f32 / 1e6 + 1.0))
                     .fold(1.0, f32::max)
             })
             .max(1.0)

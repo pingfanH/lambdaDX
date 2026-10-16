@@ -85,7 +85,7 @@ pub fn document(editor: &EditorState, chart: &ChartDoc) -> ChartDoc {
         .collect();
     parent
         .autoplay_overrides
-        .retain(|item| valid.contains(&item.key.note_id));
+        .retain(|item| item.key.is_standalone() || valid.contains(&item.key.note_id));
     parent
 }
 
@@ -208,6 +208,7 @@ fn execute(
                 let instance_id = insert(&mut app.chart, &id, anchor)?;
                 let expanded = crate::app::templates::expand(&app.chart);
                 for authored in &mut app.chart.autoplay_overrides {
+                    if authored.key.is_standalone() { continue; }
                     if let Some(index) = old.iter().position(|id| *id == authored.key.note_id) {
                         if let Some(note) = expanded.notes.iter().find(|note| {
                             note.template_source.as_ref().is_some_and(|s| {
@@ -281,7 +282,7 @@ fn execute(
             app.chart.template_instances.retain(|i| i.template_id != id);
             app.chart
                 .autoplay_overrides
-                .retain(|item| !ids.contains(&item.key.note_id));
+                .retain(|item| item.key.is_standalone() || !ids.contains(&item.key.note_id));
             editor.selected_instance = None;
         }
         Action::DeleteInstance(id) => {
@@ -308,7 +309,7 @@ fn execute(
             app.chart.template_instances.retain(|i| i.instance_id != id);
             app.chart
                 .autoplay_overrides
-                .retain(|item| !ids.contains(&item.key.note_id));
+                .retain(|item| item.key.is_standalone() || !ids.contains(&item.key.note_id));
             editor.selected_instance = None;
         }
         Action::Rename(id, name) => {

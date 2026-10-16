@@ -8,11 +8,12 @@ use crate::state::{EditorLayout, EditorState, Tool};
 use egui_macroquad::egui;
 
 pub fn note_for_tool(editor: &EditorState, time: f32, lane: u8) -> Note {
+    let touch = matches!(editor.tool, Tool::Touch | Tool::TouchHold);
     Note {
         time,
-        lane: lane.clamp(1, 8),
+        lane: if touch { editor.touch_zone.unwrap_or(lane.clamp(1, 8)) } else { lane.clamp(1, 8) },
         note_type: editor.selected_type(),
-        is_touch: matches!(editor.tool, Tool::Touch | Tool::TouchHold),
+        is_touch: touch,
         is_break: editor.tool == Tool::Break,
         ..Default::default()
     }

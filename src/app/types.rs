@@ -633,7 +633,7 @@ pub fn note_secs(note: &Note, bpms: &[BpmChange]) -> f32 {
     measure_to_secs(note.time, bpms)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChartDoc {
     pub version: String,
     pub title: String,

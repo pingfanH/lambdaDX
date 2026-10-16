@@ -1,4 +1,4 @@
-//! Reusable timeline lanes with note-owned event groups.
+//! Reusable timeline lanes with note-owned and standalone event groups.
 
 use crate::app::autoplay_edit::{self, AutoplayKey, AutoplayOverride};
 use crate::app::types::{ChartDoc, Mode, measure_to_secs, note_secs, secs_to_measure};
@@ -14,6 +14,7 @@ use std::{
 #[cfg(all(test, feature = "backend-lean"))]
 mod tests;
 mod clips;
+mod follow;
 mod inspector;
 
 const HEADER: f32 = 96.0;
@@ -29,6 +30,19 @@ pub struct Track {
     pub defaults: Vec<TimedInputEvent>,
     pub events: Vec<TimedInputEvent>,
     authored: bool,
+}
+
+impl Track {
+    fn standalone(key: AutoplayKey, events: Vec<TimedInputEvent>) -> Self {
+        Self {
+            label: format!("Event {}", key.note_id),
+            key,
+            head: 0,
+            defaults: Vec::new(),
+            authored: !events.is_empty(),
+            events,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +79,7 @@ pub struct AutoplayEditor {
     plan: Option<Arc<AutoplayPlan>>,
     inner_screen: bool,
     overrides: Vec<AutoplayOverride>,
+    edits_pending_sync: bool,
     pub selected: Option<(usize, usize)>,
     pub selected_row: Option<usize>,
     drag: Option<Drag>,
@@ -79,14 +94,17 @@ pub struct AutoplayEditor {
     lane_heights: Vec<f32>,
     new_zone: String,
     new_kind: u8,
+    new_hold: bool,
     pub view_start: f32,
     pub pixels_per_second: f32,
     center_requested: bool,
     view_changed: bool,
     plot_width: f32,
     pub follow: bool,
+    follow_motion: follow::PlayheadFollow,
     raw_events: bool,
     draw_mode: bool,
+    drawing_owner: Option<AutoplayKey>,
     clip_layout: Arc<clips::ClipLayout>,
     clip_drag: Option<clips::Gesture>,
     detail_row: Option<usize>,
@@ -102,6 +120,7 @@ impl Default for AutoplayEditor {
             plan: None,
             inner_screen: false,
             overrides: Vec::new(),
+            edits_pending_sync: false,
             selected: None,
             selected_row: None,
             drag: None,
@@ -116,14 +135,17 @@ impl Default for AutoplayEditor {
             lane_heights: Vec::new(),
             new_zone: "A1".into(),
             new_kind: 0,
+            new_hold: true,
             view_start: 0.0,
             pixels_per_second: crate::timeline::geometry::DEFAULT_PPS,
-            center_requested: true,
+            center_requested: false,
             view_changed: false,
             plot_width: 0.0,
             follow: true,
+            follow_motion: Default::default(),
             raw_events: false,
             draw_mode: false,
+            drawing_owner: None,
             clip_layout: Default::default(),
             clip_drag: None,
             detail_row: None,
@@ -150,7 +172,8 @@ impl AutoplayEditor {
         };
         let changed = self.plan.as_ref().is_none_or(|old| !Arc::ptr_eq(old, plan))
             || self.inner_screen != app.params.autoplay_inner_screen;
-        let refresh = changed || self.overrides != app.chart.autoplay_overrides;
+        let refresh = changed || self.edits_pending_sync || self.overrides != app.chart.autoplay_overrides;
+        let old_key = self.selected_row.and_then(|row| self.tracks.get(row)).map(|track| track.key.clone());
         let old_detail = refresh.then(|| self.detail_row.and_then(|row| self.tracks.get(row)).map(|track| track.key.clone())).flatten();
         let old_selection = refresh.then(|| self.selected.and_then(|(row, index)| {
             let track = self.tracks.get(row)?;
@@ -162,10 +185,6 @@ impl AutoplayEditor {
             let Some(engine) = &app.judge_engine else {
                 return;
             };
-            let old_key = self
-                .selected_row
-                .and_then(|row| self.tracks.get(row))
-                .map(|track| track.key.clone());
             let chart = app.playback_chart();
             let notes: HashMap<_, _> = chart.notes.iter().map(|note| (note.id, note)).collect();
             self.tracks.clear();
@@ -217,12 +236,14 @@ impl AutoplayEditor {
                     .then(a.key.segment.cmp(&b.key.segment))
                     .then(a.key.track.cmp(&b.key.track))
             });
-            self.selected_row =
-                old_key.and_then(|key| self.tracks.iter().position(|track| track.key == key));
             self.plan = Some(Arc::clone(plan));
             self.inner_screen = app.params.autoplay_inner_screen;
         }
         if refresh {
+            self.tracks.retain(|track| !track.key.is_standalone());
+            for item in app.chart.autoplay_overrides.iter().filter(|item| item.key.is_standalone()) {
+                self.tracks.push(Track::standalone(item.key.clone(), item.events.clone()));
+            }
             let authored: HashMap<_, _> = app
                 .chart
                 .autoplay_overrides
@@ -247,6 +268,8 @@ impl AutoplayEditor {
                     .unwrap_or_else(|| track.defaults.clone());
             }
             self.overrides.clone_from(&app.chart.autoplay_overrides);
+            self.edits_pending_sync = false;
+            self.selected_row = old_key.and_then(|key| self.tracks.iter().position(|track| track.key == key));
             self.detail_row = old_detail.and_then(|key| self.tracks.iter().position(|t| t.key == key));
             self.selected_pair = None;
             self.selected = old_selection.and_then(|(key, old_index, event, pair)| {
@@ -309,6 +332,129 @@ impl AutoplayEditor {
         self.selected_row = None;
         self.selected_pair = None;
         self.draw_mode = false;
+        self.drawing_owner = None;
+    }
+
+    fn start_drawing(&mut self) {
+        self.drawing_owner = self.selected_row.and_then(|row| self.tracks.get(row)).map(|track| track.key.clone());
+        self.selected = None;
+        self.selected_pair = None;
+        self.draw_mode = true;
+    }
+
+    fn selected_interval(&self) -> Option<(usize, clips::Interval)> {
+        let (row, index) = self.selected?;
+        let events = &self.tracks.get(row)?.events;
+        clips::intervals(events).into_iter()
+            .find(|span| span.press == index || span.release == Some(index))
+            .map(|span| (row, span))
+    }
+
+    fn choose_hold(&mut self, editor: &mut EditorState, chart: &mut ChartDoc, hold: bool) {
+        if !self.can_pick_zone() { return; }
+        self.new_hold = hold;
+        if self.draw_mode || self.raw_events { return; }
+        self.finish_inspector(editor, chart);
+        self.validate_selection();
+        let Some((row, span)) = self.selected_interval() else { return; };
+        let event = &self.tracks[row].events[span.press];
+        if (hold && span.release.is_some()) || (!hold && event_kind(event) == 0) { return; }
+        let start = timed_input_tp(event);
+        let zone = event_zone(event);
+        let mut events = self.tracks[row].events.clone();
+        let mut index = span.press;
+        let pair = if hold {
+            events[index] = make_event(&zone, 1, start);
+            let release = events.len();
+            events.push(make_event(&zone, 2, default_hold_end(start, editor, chart)));
+            Some(release)
+        } else {
+            events[index] = make_event(&zone, 0, start);
+            if let Some(release) = span.release {
+                events.remove(release);
+                if release < index { index -= 1; }
+            }
+            None
+        };
+        self.commit(editor, chart, row, events);
+        self.selected_row = Some(row);
+        self.selected = Some((row, index));
+        self.selected_pair = pair;
+    }
+
+    pub fn pad_zone(&self) -> String {
+        if !self.draw_mode {
+            if let Some(event) = self.selected.and_then(|(row, index)|
+                self.tracks.get(row).and_then(|t| t.events.get(index))) {
+                return event_zone(event);
+            }
+        }
+        self.new_zone.clone()
+    }
+
+    pub fn can_pick_zone(&self) -> bool {
+        !self.pointer_dragging() && !self.suppress_pointer
+    }
+
+    pub fn pick_zone(&mut self, editor: &mut EditorState, chart: &mut ChartDoc, zone: &str, time: f32) {
+        if !self.can_pick_zone() { return; }
+        self.finish_inspector(editor, chart);
+        self.validate_selection();
+        self.new_zone = zone.into();
+        if self.draw_mode {
+            self.add_at_playhead(editor, chart, time);
+            return;
+        }
+        let Some((row, index)) = self.selected else { return; };
+        let mut events = self.tracks[row].events.clone();
+        let indices = if self.raw_events { vec![index] } else {
+            self.selected_interval().map(|(_, span)|
+                std::iter::once(span.press).chain(span.release).collect())
+                .unwrap_or_else(|| vec![index])
+        };
+        for index in indices {
+            events[index] = make_event(&self.new_zone, event_kind(&events[index]), timed_input_tp(&events[index]));
+        }
+        self.commit(editor, chart, row, events);
+    }
+
+    fn add_at_playhead(&mut self, editor: &mut EditorState, chart: &mut ChartDoc, time: f32) {
+        self.finish_inspector(editor, chart);
+        let row = self.creation_row(chart);
+        let time = snap_time(time, editor, chart);
+        let start = (time * 1e6).round() as i64;
+        let mut events = self.tracks[row].events.clone();
+        let index = events.len();
+        let pair = if self.raw_events || !self.new_hold {
+            events.push(make_event(&self.new_zone, if self.raw_events { self.new_kind } else { 0 }, start));
+            None
+        } else {
+            events.push(make_event(&self.new_zone, 1, start));
+            events.push(make_event(&self.new_zone, 2, default_hold_end(start, editor, chart)));
+            Some(index + 1)
+        };
+        self.commit(editor, chart, row, events);
+        self.selected_row = Some(row);
+        self.selected = Some((row, index));
+        self.selected_pair = pair;
+        self.center_requested = false;
+    }
+
+    fn creation_row(&mut self, chart: &ChartDoc) -> usize {
+        let row = if self.draw_mode {
+            self.drawing_owner.as_ref().and_then(|key| self.tracks.iter().position(|track| &track.key == key))
+        } else {
+            self.selected_row.filter(|&row| row < self.tracks.len())
+        };
+        if let Some(row) = row { return row; }
+        let ids: HashSet<_> = chart.autoplay_overrides.iter().map(|item| &item.key)
+            .chain(self.tracks.iter().map(|track| &track.key))
+            .filter(|key| key.is_standalone()).map(|key| key.note_id).collect();
+        let id = (1..=u64::MAX).find(|id| !ids.contains(id)).expect("standalone clip IDs exhausted");
+        let row = self.tracks.len();
+        self.tracks.push(Track::standalone(AutoplayKey::standalone(id), Vec::new()));
+        self.lanes_dirty = true;
+        row
     }
 
     pub fn commit(
@@ -343,6 +489,7 @@ impl AutoplayEditor {
         }
         track.authored = events != track.defaults;
         track.events = events;
+        self.edits_pending_sync = true;
         self.lanes_dirty = true;
     }
 
@@ -367,6 +514,7 @@ impl AutoplayEditor {
             }
             track.events = events;
         }
+        self.edits_pending_sync = true;
         self.lanes_dirty = true;
     }
 
@@ -398,6 +546,12 @@ impl AutoplayEditor {
 
     pub fn return_current(&mut self) { self.follow = true; self.center_requested = true; }
 
+    pub fn toggle_follow(&mut self) {
+        self.follow = !self.follow;
+        self.center_requested = false;
+        self.follow_motion.reset();
+    }
+
     pub fn reset(&mut self, editor: &mut EditorState, chart: &mut ChartDoc, row: usize) {
         let Some(track) = self.tracks.get_mut(row) else {
             return;
@@ -415,6 +569,7 @@ impl AutoplayEditor {
             .retain(|item| item.key != track.key);
         track.events = track.defaults.clone();
         track.authored = false;
+        self.edits_pending_sync = true;
         self.selected = None;
         self.selected_pair = None;
         self.lanes_dirty = true;
@@ -422,10 +577,12 @@ impl AutoplayEditor {
 
     pub fn delete(&mut self, editor: &mut EditorState, chart: &mut ChartDoc) {
         if let Some((row, index)) = self.selected {
+            let span = (!self.raw_events).then(|| self.selected_interval()).flatten().map(|(_, span)| span);
+            let (index, pair) = span.map(|span| (span.press, span.release)).unwrap_or((index, self.selected_pair));
             if let Some(track) = self.tracks.get(row) {
                 let mut events = track.events.clone();
                 if index < events.len() {
-                    if let Some(pair) = self.selected_pair.take().filter(|pair| *pair < events.len() && *pair != index) {
+                    if let Some(pair) = pair.filter(|pair| *pair < events.len() && *pair != index) {
                         events.remove(index.max(pair));
                         events.remove(index.min(pair));
                     } else {
@@ -435,6 +592,7 @@ impl AutoplayEditor {
                 }
             }
             self.selected = None;
+            self.selected_pair = None;
         } else if let Some(row) = self.selected_row {
             let edits = self.clip_rows(row).into_iter().map(|row| (row, Vec::new())).collect();
             self.commit_many(editor, chart, edits);
@@ -449,6 +607,9 @@ impl AutoplayEditor {
             self.selected_row = gesture.row;
             for (row, events) in gesture.originals {
                 if let Some(track) = self.tracks.get_mut(row) { track.events = events; }
+            }
+            if let Some(row) = gesture.created_row {
+                self.tracks.remove(row);
             }
             self.lanes_dirty = true;
         }
@@ -626,9 +787,9 @@ pub fn prepare(
                 if repeat { continue; }
                 let mut handled = true;
                 match crate::keyboard::panels::bound_command(editor, key, modifiers) {
-                    Some("play") => app.toggle_play(),
+                    Some("play") => crate::runtime::toggle_play(editor, app),
                     Some("help") => editor.show_help = true,
-                    Some("save") => crate::io::save_chart(editor, &app.chart),
+                    Some("save") => crate::io::save_document(editor, &mut app.chart),
                     Some("save_as") => editor.save_as_request = true,
                     Some("export") => editor.export_request = true,
                     Some("open") => editor.open_dialog = true,
@@ -641,9 +802,8 @@ pub fn prepare(
                         egui::Key::D if event_commands && !state.raw_events && modifiers.shift => clips::begin_selected(&mut state, ctx, true),
                         egui::Key::V if event_commands => state.draw_mode = false,
                         egui::Key::Enter if event_commands && !state.raw_events => state.detail_row = state.selected_row,
-                        egui::Key::D if event_commands && state.selected_row.is_some() && !state.raw_events => {
-                            state.detail_row = state.selected_row;
-                            state.draw_mode = true;
+                        egui::Key::D if event_commands && !state.raw_events => {
+                            state.start_drawing();
                         }
                         egui::Key::Delete | egui::Key::Backspace if event_commands && !modifiers.shift => {
                             state.delete(editor, &mut app.chart);
@@ -691,11 +851,56 @@ pub fn inspector_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut Pa
     editor.autoplay_editor = state;
 }
 
-pub fn header(ui: &mut egui::Ui, editor: &mut EditorState, duration: f32) {
+fn drawing_tools(ui: &mut egui::Ui, state: &mut AutoplayEditor, editor: &mut EditorState, app: &mut PadPreviewState) {
+    use crate::ui::style::icon;
+    use lucide_icons::Icon;
+    if !state.raw_events && icon(ui, Icon::MousePointer2, "Select (V)", !state.draw_mode).clicked() {
+        state.finish_inspector(editor, &mut app.chart);
+        state.draw_mode = false;
+    }
+    ui.scope(|ui| {
+        if !state.raw_events {
+            if icon(ui, Icon::Pencil, "Draw in main timeline or Pad (D)", state.draw_mode).clicked() {
+                state.finish_inspector(editor, &mut app.chart);
+                if state.draw_mode { state.draw_mode = false; } else { state.start_drawing(); }
+            }
+            let selected = state.selected.filter(|_| !state.draw_mode)
+                .and_then(|(row, index)| state.tracks.get(row)?.events.get(index));
+            let hold = selected.map_or(state.new_hold, |event| event_kind(event) != 0);
+            let click_label = if selected.is_some() { "Convert selected event or interval to Click" } else { "Create Click events" };
+            let hold_label = if selected.is_some() { "Convert selected event or interval to Hold" } else { "Create Hold intervals" };
+            if icon(ui, Icon::CircleDot, click_label, !hold).clicked() {
+                state.choose_hold(editor, &mut app.chart, false);
+            }
+            if icon(ui, Icon::RectangleHorizontal, hold_label, hold).clicked() {
+                state.choose_hold(editor, &mut app.chart, true);
+            }
+        }
+        if icon(ui, Icon::Plus, "Add at playhead", false).clicked() {
+            let time = app.timeline_time();
+            state.add_at_playhead(editor, &mut app.chart, time);
+        }
+    });
+    if ui.available_width() > 45.0 {
+        ui.monospace(&state.new_zone).on_hover_text("Sensor for new events; choose directly in Pad");
+    }
+}
+
+pub fn header(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPreviewState) {
     use crate::ui::style::{glyph, icon};
     use lucide_icons::Icon;
-    let state = &mut editor.autoplay_editor;
-    if ui.available_width() > 350.0 {
+    let mut owned = std::mem::take(&mut editor.autoplay_editor);
+    let state = &mut owned;
+    ui.add_enabled_ui(app.has_engine() && !state.pointer_dragging() && !state.suppress_pointer, |ui| {
+        if ui.available_width() >= 210.0 {
+            drawing_tools(ui, state, editor, app);
+        } else {
+            ui.menu_button(glyph(Icon::Pencil, 14.0), |ui| {
+                ui.horizontal(|ui| drawing_tools(ui, state, editor, app));
+            }).response.on_hover_text("Event tools");
+        }
+    });
+    if ui.available_width() > 380.0 {
         ui.add(egui::TextEdit::singleline(&mut state.filter).desired_width(80.0).hint_text("Note ID"));
     }
     ui.menu_button(glyph(Icon::ListFilter, 14.0), |ui| {
@@ -724,14 +929,16 @@ pub fn header(ui: &mut egui::Ui, editor: &mut EditorState, duration: f32) {
                 set_anchored_zoom(state, zoom, state.plot_width * 0.5);
             }
         });
-        if ui.button("显示完整谱面").clicked() { state.locate(Some((0.0, duration))); ui.close_menu(); }
+        if ui.button("显示完整谱面").clicked() { state.locate(Some((0.0, app.song_duration()))); ui.close_menu(); }
         let selection = state.selection_span();
         if ui.add_enabled(selection.is_some(), egui::Button::new("显示所选片段")).clicked() {
             state.locate(selection); ui.close_menu();
         }
     }).response.on_hover_text("筛选与轨道");
-    if icon(ui, Icon::LocateFixed, "回到播放线", false).clicked() { state.center_requested = true; state.follow = true; }
-    if icon(ui, Icon::MoveRight, "跟随播放线", state.follow).clicked() { state.follow = !state.follow; if state.follow { state.center_requested = true; } }
+    if ui.available_width() > 75.0 {
+        if icon(ui, Icon::LocateFixed, "回到播放线", false).clicked() { state.return_current(); }
+        if icon(ui, Icon::MoveRight, "跟随播放线", state.follow).clicked() { state.toggle_follow(); }
+    }
     let mut zoom = state.pixels_per_second;
     if ui.available_width() > 140.0 {
         if ui.add(egui::DragValue::new(&mut zoom).range(crate::timeline::geometry::MIN_PPS..=crate::timeline::geometry::MAX_PPS)
@@ -740,6 +947,7 @@ pub fn header(ui: &mut egui::Ui, editor: &mut EditorState, duration: f32) {
         }
     }
     if ui.available_width() > 25.0 { crate::ui::toolbar::grid_controls(ui, editor); }
+    editor.autoplay_editor = owned;
 }
 
 
@@ -752,6 +960,7 @@ fn set_anchored_zoom(editor: &mut AutoplayEditor, pps: f32, offset: f32) {
     editor.view_start = time - offset / editor.pixels_per_second;
     editor.view_changed = true;
     editor.center_requested = false;
+    editor.follow_motion.reset();
 }
 
 struct Viewport {
@@ -824,6 +1033,7 @@ fn viewport(
             i.raw_scroll_delta = Vec2::ZERO;
         });
     }
+    let mut following = false;
     if !state.dragging() && !panning && editor.loop_drag.is_none() && !editor.scrubbing {
         let pan = if navigation && over_timeline && !command && pinch.abs() <= 1e-6 {
             ui.input(|i| {
@@ -849,15 +1059,24 @@ fn viewport(
                 i.smooth_scroll_delta.x = 0.0;
                 if shift { i.raw_scroll_delta.y = 0.0; i.smooth_scroll_delta.y = 0.0; }
             });
-        } else if !state.view_changed && !ui.input(|i| i.pointer.primary_down())
-            && (state.center_requested || state.follow && matches!(app.mode, Mode::Playing | Mode::Recording))
-        {
-            state.view_start = now - plot_width * 0.5 / state.pixels_per_second;
-            state.center_requested = false;
-        } else if state.plot_width > 0.0 && (plot_width - state.plot_width).abs() > 0.5 {
-            state.view_start += (state.plot_width - plot_width) * 0.5 / state.pixels_per_second;
+        } else if !state.view_changed {
+            if state.plot_width > 0.0 && (plot_width - state.plot_width).abs() > 0.5 {
+                state.view_start += (state.plot_width - plot_width) * 0.5 / state.pixels_per_second;
+                state.follow_motion.reset();
+            }
+            if !ui.input(|i| i.pointer.primary_down() || i.pointer.button_released(primary)) {
+                if state.center_requested {
+                    state.view_start = now - plot_width * 0.5 / state.pixels_per_second;
+                    state.center_requested = false;
+                } else if state.follow && matches!(app.mode, Mode::Playing | Mode::Recording) {
+                    state.view_start = state.follow_motion.advance(state.view_start, now,
+                        plot_width / state.pixels_per_second, ui.input(|i| i.stable_dt), app.play_speed);
+                    following = true;
+                }
+            }
         }
     }
+    if !following { state.follow_motion.reset(); }
     state.view_changed = false;
     state.plot_width = plot_width;
     state.repack();
@@ -872,7 +1091,7 @@ fn viewport(
                 let measure = (secs_to_measure(time, &app.chart.bpms) * division).round() / division;
                 measure_to_secs(measure, &app.chart.bpms).max(0.0)
             } else { time.max(0.0) }
-        });
+        }, |time| left + (time - state.view_start) * pps);
     if looping { state.center_requested = false; }
     let dragging = response.dragged_by(primary);
     let released = response.drag_stopped_by(primary);
@@ -897,6 +1116,7 @@ fn viewport(
     let x_of = |time: f32| left + (time - view) * pps;
     let painter = ui.painter().with_clip_rect(ruler);
     painter.rect_filled(ruler, 0.0, crate::theme::BG_OVERVIEW);
+    crate::timeline::overview::paint_loop(&painter, Rect::from_min_max(Pos2::new(left, ruler.top()), ruler.max), editor, x_of, true);
     let start = secs_to_measure(view, &app.chart.bpms).floor().max(1.0);
     let end = secs_to_measure(view + (ruler.right() - left) / pps, &app.chart.bpms)
         .ceil()
@@ -929,13 +1149,6 @@ fn viewport(
                 let height = if sub == 0 { 8.0 } else { 4.0 };
                 painter.vline(x, (ruler.bottom() - height)..=ruler.bottom(), grid_stroke(sub == 0));
             }
-        }
-    }
-    if let Some((a, b)) = editor.loop_range {
-        let range = Rect::from_min_max(Pos2::new(x_of(a).max(left), ruler.top()), Pos2::new(x_of(b).min(ruler.right()), ruler.bottom()));
-        if range.is_positive() {
-            painter.rect_filled(range, 0.0, Color32::from_rgba_unmultiplied(98, 174, 211, if editor.loop_enabled { 45 } else { 15 }));
-            painter.hline(range.x_range(), ruler.bottom() - 2.0, Stroke::new(2.0_f32, crate::theme::ACCENT_BLUE));
         }
     }
     Viewport { ruler, left, grid }
@@ -996,6 +1209,7 @@ fn tracks_ui(ui: &mut egui::Ui, state: &mut AutoplayEditor, editor: &mut EditorS
                     Stroke::new(1.0_f32, Color32::from_gray(55)),
                 );
                 let p = painter.with_clip_rect(plot.intersect(ui.clip_rect()));
+                crate::timeline::overview::paint_loop(&p, plot, editor, x_of, false);
                 paint_grid(&p, plot, &grid);
                 // Groups in a lane are ordered, disjoint spans; skip offscreen notes.
                 let groups = &state.lanes[lane];
@@ -1236,6 +1450,12 @@ fn snap_time(time: f32, editor: &EditorState, chart: &ChartDoc) -> f32 {
         ),
         &chart.bpms,
     )
+}
+
+fn default_hold_end(start: i64, editor: &EditorState, chart: &ChartDoc) -> i64 {
+    let measure = secs_to_measure(start as f32 / 1e6, &chart.bpms);
+    let end = (measure_to_secs(measure + 1.0 / editor.snap_division.max(1) as f32, &chart.bpms) * 1e6).round() as i64;
+    end.max(start.saturating_add(1))
 }
 
 fn event_kind(event: &TimedInputEvent) -> u8 {

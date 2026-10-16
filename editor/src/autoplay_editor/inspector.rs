@@ -53,12 +53,15 @@ pub(super) fn draw(
             }
         }
         let Some(row) = owner else {
+            drawing_tools(ui, state, editor, app);
             return;
         };
+        let standalone = state.tracks[row].key.is_standalone();
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new(format!(
-                    "Note {} / {} events",
+                    "{} {} / {} events",
+                    if standalone { "Clip" } else { "Note" },
                     state.tracks[row].key.note_id,
                     state.tracks[row].events.len()
                 ))
@@ -69,9 +72,10 @@ pub(super) fn draw(
             }
         });
         ui.horizontal(|ui| {
-            if icon(ui, Icon::LocateFixed, "Seek to note head", false).clicked() {
+            if icon(ui, Icon::LocateFixed, "Seek to start", false).clicked() {
                 state.finish_inspector(editor, &mut app.chart);
-                editor.pending_seek = Some(state.tracks[row].head as f32 / 1e6);
+                let time = if standalone { event_span(&state.tracks[row]).0 } else { state.tracks[row].head };
+                editor.pending_seek = Some(time as f32 / 1e6);
                 state.return_current();
             }
             if icon(
@@ -86,7 +90,7 @@ pub(super) fn draw(
                 state.raw_events = false;
                 state.detail_row = Some(row);
             }
-            if icon(
+            if !standalone && icon(
                 ui,
                 Icon::RotateCcw,
                 "Restore this owner's generated events",
@@ -115,7 +119,6 @@ pub(super) fn draw(
         }
         ui.separator();
         ui.horizontal_wrapped(|ui| {
-            zone_picker(ui, "new_sensor", &mut state.new_zone);
             if state.raw_events {
                 egui::ComboBox::from_id_salt("new_event_kind")
                     .width(65.0)
@@ -126,34 +129,7 @@ pub(super) fn draw(
                         }
                     });
             }
-            if icon(ui, Icon::Plus, "Add at playhead", false).clicked() {
-                state.finish_inspector(editor, &mut app.chart);
-                let time = snap_time(app.timeline_time(), editor, &app.chart);
-                let start = (time * 1e6).round() as i64;
-                let mut events = state.tracks[row].events.clone();
-                let index = events.len();
-                let pair = if state.raw_events {
-                    events.push(make_event(&state.new_zone, state.new_kind, start));
-                    None
-                } else {
-                    let measure = secs_to_measure(time, &app.chart.bpms);
-                    let end = (measure_to_secs(
-                        measure + 1.0 / editor.snap_division.max(1) as f32,
-                        &app.chart.bpms,
-                    ) * 1e6)
-                        .round() as i64;
-                    events.push(make_event(&state.new_zone, 1, start));
-                    events.push(make_event(&state.new_zone, 2, end.max(start)));
-                    Some(index + 1)
-                };
-                state.commit(editor, &mut app.chart, row, events);
-                state.selected = Some((row, index));
-                state.selected_pair = pair;
-                if !state.raw_events {
-                    state.detail_row = Some(row);
-                }
-                state.center_requested = false;
-            }
+            drawing_tools(ui, state, editor, app);
         });
     });
     egui::CollapsingHeader::new("Playback").show(ui, |ui| {
@@ -190,18 +166,6 @@ fn kind_label(kind: u8) -> &'static str {
         1 => "Press",
         _ => "Release",
     }
-}
-
-fn zone_picker(ui: &mut egui::Ui, id: impl std::hash::Hash, zone: &mut String) -> egui::Response {
-    egui::ComboBox::from_id_salt(id)
-        .width(45.0)
-        .selected_text(zone.as_str())
-        .show_ui(ui, |ui| {
-            for candidate in zone_names() {
-                ui.selectable_value(zone, candidate.clone(), candidate);
-            }
-        })
-        .response
 }
 
 fn stage(
@@ -267,8 +231,13 @@ fn intervals(
             ui.end_row();
             for span in clips::intervals(&events) {
                 let event = &events[span.press];
-                let mut zone = event_zone(event);
-                let sensor = zone_picker(ui, ("sensor", row, span.press), &mut zone);
+                let zone = event_zone(event);
+                let selected = state
+                    .selected
+                    .is_some_and(|(r, i)| r == row && (i == span.press || span.release == Some(i)));
+                let sensor = ui
+                    .selectable_label(selected, &zone)
+                    .on_hover_text("Select interval, then click a sensor in Pad");
                 let mut start = timed_input_tp(event) as f64 / 1e6;
                 let mut end = span
                     .release
@@ -311,6 +280,7 @@ fn intervals(
                 if changed || responses.iter().any(|r| r.clicked() || r.drag_started()) {
                     state.selected = Some((row, span.press));
                     state.selected_pair = span.release;
+                    state.draw_mode = false;
                 }
                 if changed {
                     let mut updated = state.tracks[row].events.clone();
@@ -362,6 +332,7 @@ fn raw(
         state.finish_inspector(editor, chart);
         state.selected = choice.map(|i| (row, i));
         state.selected_pair = None;
+        state.draw_mode = false;
     }
     let Some(index) = choice else {
         return false;
@@ -369,7 +340,7 @@ fn raw(
     let event = &state.tracks[row].events[index];
     let mut time = timed_input_tp(event) as f64 / 1e6;
     let mut kind = event_kind(event);
-    let mut zone = event_zone(event);
+    let zone = event_zone(event);
     let response = ui
         .horizontal(|ui| {
             ui.label("Time (s)");
@@ -377,7 +348,8 @@ fn raw(
         })
         .inner;
     ui.horizontal_wrapped(|ui| {
-        zone_picker(ui, "raw_sensor", &mut zone);
+        ui.monospace(&zone)
+            .on_hover_text("Click a sensor in Pad to change this event");
         for k in 0..=2 {
             ui.selectable_value(&mut kind, k, kind_label(k));
         }
