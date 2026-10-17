@@ -148,6 +148,8 @@ async fn run() {
     }
     editor.chart_dir = chart_dir.to_string_lossy().to_string();
     editor.source = source;
+    editor.snap_division = session.division.unwrap_or(32).clamp(1, 256);
+    editor.autoplay_snap_division = session.autoplay_division.unwrap_or(32).clamp(1, 256);
     editor.level_slots = app::chart::read_simai_source(&chart_dir)
         .map(|t| app::maidata::inote_keys(&t))
         .unwrap_or_default();

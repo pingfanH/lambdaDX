@@ -472,7 +472,27 @@ fn draw_difficulty(ui: &mut egui::Ui, editor: &mut EditorState) {
     let next = ui
         .add_enabled(n > 1, egui::Button::new(glyph(Icon::ChevronRight, 14.0)))
         .on_hover_text("下一难度");
-    if let Some(slot) = editor.level_slots.get(editor.level_index) {
+    // Pick a difficulty directly; the arrows stay for stepping through slots.
+    let slots = editor.level_slots.clone();
+    if slots.len() > 1 {
+        let current = slots
+            .get(editor.level_index)
+            .map(|slot| format!("Lv.{slot}"))
+            .unwrap_or_else(|| "Lv.-".into());
+        egui::ComboBox::from_id_salt("difficulty_select")
+            .width(70.0)
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                for (index, slot) in slots.iter().enumerate() {
+                    if ui
+                        .selectable_value(&mut editor.level_index, index, format!("Lv.{slot}"))
+                        .changed()
+                    {
+                        editor.reload_request = true;
+                    }
+                }
+            });
+    } else if let Some(slot) = slots.first() {
         ui.label(format!("Lv.{slot}"));
     }
     if prev.clicked() {

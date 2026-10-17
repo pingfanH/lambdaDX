@@ -13,6 +13,12 @@ pub struct Session {
     pub chart: Option<PathBuf>,
     /// Simai `inote` slot to reopen with it.
     pub level: Option<u32>,
+    /// Snap grid the editor last used (subdivisions per measure).
+    #[serde(default)]
+    pub division: Option<u32>,
+    /// Same for the autoplay timeline.
+    #[serde(default)]
+    pub autoplay_division: Option<u32>,
 }
 
 pub fn load() -> Session {
@@ -28,10 +34,21 @@ pub fn remembered_chart() -> Option<PathBuf> {
 }
 
 pub fn remember_chart(path: &Path, level: Option<u32>) {
-    let session = Session {
-        chart: Some(path.to_path_buf()),
-        level,
-    };
+    let mut session = load();
+    session.chart = Some(path.to_path_buf());
+    session.level = level;
+    write(&session);
+}
+
+/// Persist the snap subdivisions without touching the remembered chart.
+pub fn remember_divisions(division: u32, autoplay_division: u32) {
+    let mut session = load();
+    session.division = Some(division);
+    session.autoplay_division = Some(autoplay_division);
+    write(&session);
+}
+
+fn write(session: &Session) {
     let result = serde_json::to_string_pretty(&session)
         .map_err(|error| error.to_string())
         .and_then(|text| platform::write_cache_text(FILE, &text).map(|_| ()));

@@ -143,6 +143,8 @@ pub struct EditorUi {
     pub input_blocked: bool,
     pub templates: templates::TemplateUi,
     document_revision: Option<u64>,
+    /// Last subdivisions written to the session cache.
+    last_divisions: Option<(u32, u32)>,
 }
 
 impl Default for EditorUi {
@@ -165,6 +167,7 @@ impl EditorUi {
             input_blocked: false,
             templates: Default::default(),
             document_revision: None,
+            last_divisions: None,
         }
     }
 
@@ -323,6 +326,12 @@ impl EditorUi {
         });
         editor.template_panel = self.workbench.has(PaneKind::Templates);
         self.workbench.activate_views(editor, &mut self.pad_scale);
+        // Remember the snap grids even when no layout was saved.
+        let divisions = (editor.snap_division, editor.autoplay_snap_division);
+        if self.last_divisions != Some(divisions) {
+            self.last_divisions = Some(divisions);
+            crate::io::session::remember_divisions(divisions.0, divisions.1);
+        }
         self.input_blocked |= self.workbench.dragging() || ctx.memory(|m| m.any_popup_open()) || editor.show_help || editor.pending_action.is_some();
 
         // Egui assigns an unowned Tab to the first chrome widget during layout.

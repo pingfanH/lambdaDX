@@ -28,7 +28,7 @@ pub(super) struct PaneView {
 impl Default for PaneView {
     fn default() -> Self {
         Self { orientation: EditorLayout::Vertical, start: 0.0,
-            pps: crate::timeline::geometry::DEFAULT_PPS, snap: true, division: 16,
+            pps: crate::timeline::geometry::DEFAULT_PPS, snap: true, division: 32,
             follow: true, follow_offset: None, cursor_follow: false, detached: false,
             invert: false, pad_scale: 1.0, properties_autoplay: false, pad_preview_only: false,
             pad_surface: crate::state::PadSurface::FollowFocus,
@@ -131,13 +131,13 @@ mod tests {
         workbench.workspace = 2;
         workbench.activate_views(&mut editor, &mut scale);
         assert_eq!(editor.layout, EditorLayout::Vertical);
-        assert_eq!(editor.snap_division, 16);
+        assert_eq!(editor.snap_division, 32);
         assert_eq!(scale, 1.0);
         editor.autoplay_snap_division = 64;
         workbench.capture_views(&editor, scale);
         workbench.workspace = 1;
         workbench.activate_views(&mut editor, &mut scale);
-        assert_eq!(editor.autoplay_snap_division, 16);
+        assert_eq!(editor.autoplay_snap_division, 32);
         workbench.workspace = 0;
         workbench.activate_views(&mut editor, &mut scale);
         assert_eq!(editor.layout, EditorLayout::Horizontal);
