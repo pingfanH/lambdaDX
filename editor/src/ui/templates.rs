@@ -453,7 +453,12 @@ impl TemplateUi {
                 return true;
             }
             if let Some(pos) = pos {
-                if drag.before.is_some() && ui.input(|i| i.pointer.primary_down()) {
+                // Wait for egui's drag threshold: recomputing the anchor on the
+                // press frame snapped the instance to the pointer, which looked
+                // like a flash and was undone on release when nothing moved.
+                if drag.before.is_some()
+                    && ui.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
+                {
                     let measure = pointer_measure(pos, rect, editor, chart, now);
                     let anchor = snap(
                         drag.anchor + measure - drag.pointer_measure,
