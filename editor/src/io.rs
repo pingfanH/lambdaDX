@@ -21,9 +21,14 @@ pub struct ChartSource {
 impl ChartSource {
     pub fn resolve(path: &Path, level: Option<u32>) -> Self {
         let path = if path.is_dir() {
-            // An editable document in the workspace wins over the raw source.
+            // An editable document in the workspace wins over the raw source,
+            // unless it is empty or not JSON (a stray file must not hide the
+            // chart that still loads).
             let native = path.join("chart.json");
-            if native.is_file() { native } else { path.join("maidata.txt") }
+            let native_ok = std::fs::read(&native)
+                .ok()
+                .is_some_and(|bytes| bytes.iter().find(|byte| !byte.is_ascii_whitespace()) == Some(&b'{'));
+            if native_ok { native } else { path.join("maidata.txt") }
         } else { path.to_path_buf() };
         Self { path, level }
     }

@@ -137,9 +137,8 @@ async fn run() {
 
     let mut ui = EditorUi::new();
     ui.appearance.load();
-    // Both of these only appear a moment after launch otherwise: the style due
-    // to egui's discard pass and the background due to the decode worker.
-    app::egui_bridge::ui(|ctx| ui.warm_style(ctx));
+    // The background is decoded on a worker otherwise, so the window starts on
+    // a blank backdrop and swaps it in later.
     ui.appearance.warm_up();
     let mut editor = EditorState::default();
     // Trackpad pinch-to-zoom (macOS); a no-op elsewhere.
