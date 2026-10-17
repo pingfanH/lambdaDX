@@ -685,7 +685,19 @@ fn interact(
             editor.pending_seek = Some(cursor.time.max(0.0));
             return;
         }
-        if let Some(id) = hit {
+        // A note that only exists through a template instance cannot be edited
+        // there, so a placement tool may drop its note on the same cell instead
+        // of only selecting the derived note.
+        let placing_over_template = matches!(
+            editor.tool,
+            Tool::Tap | Tool::Hold | Tool::Touch | Tool::TouchHold | Tool::Slide | Tool::Break
+        ) && hit.is_some_and(|id| {
+            chart
+                .notes
+                .iter()
+                .any(|note| note.id == id && note.template_source.is_some())
+        });
+        if let Some(id) = hit.filter(|_| !placing_over_template) {
             if ui.input(|i| i.modifiers.command) {
                 if !editor.selected.remove(&id) {
                     editor.selected.insert(id);
