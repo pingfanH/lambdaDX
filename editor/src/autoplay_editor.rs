@@ -494,7 +494,11 @@ impl AutoplayEditor {
         } else {
             self.selected_row.filter(|&row| row < self.tracks.len())
         };
-        if let Some(row) = row { return row; }
+        row.unwrap_or_else(|| self.standalone_row(chart))
+    }
+
+    /// A fresh standalone clip, independent of whatever clip is selected.
+    fn standalone_row(&mut self, chart: &ChartDoc) -> usize {
         let ids: HashSet<_> = chart.autoplay_overrides.iter().map(|item| &item.key)
             .chain(self.tracks.iter().map(|track| &track.key))
             .filter(|key| key.is_standalone()).map(|key| key.note_id).collect();

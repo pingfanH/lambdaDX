@@ -347,6 +347,56 @@ pub(super) fn bake(curve: &AutoplayCurve, svg: &PadSvgDef) -> Result<Vec<TimedIn
     Ok(events)
 }
 
+/// Ring point of a lane, in the same space as `build_slide_path` output.
+fn wifi_ring(center: macroquad::prelude::Vec2, lane: u8) -> macroquad::prelude::Vec2 {
+    let angle = -std::f32::consts::FRAC_PI_2
+        + crate::app::types::PAD_ROTATION_RAD
+        + lane.saturating_sub(1) as f32 * std::f32::consts::TAU / 8.0;
+    center
+        + macroquad::prelude::vec2(angle.cos(), angle.sin())
+            * (RADIUS + crate::app::params::tap_target_offset())
+}
+
+/// The Wi-Fi fan spreads across three lanes starting three steps ahead of the
+/// head; the middle one is the endpoint the format declares.
+fn wifi_branch_lane(start: u8, branch: u8) -> u8 {
+    ((start as i32 - 1 + 3 + branch as i32).rem_euclid(8) + 1) as u8
+}
+
+/// Append the straight Wi-Fi legs and return the lane the fan continues from.
+fn append_wifi_legs(
+    points: &mut Vec<macroquad::prelude::Vec2>,
+    start: u8,
+    branch: Option<u8>,
+    center: macroquad::prelude::Vec2,
+) -> u8 {
+    let head = wifi_ring(center, start);
+    if let Some(branch) = branch {
+        points.push(head);
+        points.push(wifi_ring(center, wifi_branch_lane(start, branch)));
+    } else {
+        for branch in 0..3 {
+            points.push(head);
+            points.push(wifi_ring(center, wifi_branch_lane(start, branch)));
+        }
+    }
+    wifi_branch_lane(start, 1)
+}
+
+fn append_points(
+    points: &mut Vec<macroquad::prelude::Vec2>,
+    part: Vec<macroquad::prelude::Vec2>,
+) {
+    for point in part {
+        if points
+            .last()
+            .is_none_or(|last| last.distance(point) > 1e-4)
+        {
+            points.push(point);
+        }
+    }
+}
+
 pub(super) fn from_slide(
     key: &AutoplayKey,
     app: &PadPreviewState,
@@ -394,26 +444,32 @@ pub(super) fn from_slide(
         ];
         shape.runtime_parts = 1;
     }
-    let points = if shape.segments.len() == 1 && shape.segments[0].shape == SlideShape::Wifi {
-        let branch = key.track.filter(|b| *b < 3)
-            .ok_or("This Wifi owner combines all three branches; curve mapping is not supported. Sensor events are unchanged.")? as u8;
-        let ring = |lane: u8| {
-            let a = -std::f32::consts::FRAC_PI_2
-                + crate::app::types::PAD_ROTATION_RAD
-                + (lane - 1) as f32 * std::f32::consts::TAU / 8.0;
-            center
-                + macroquad::prelude::vec2(a.cos(), a.sin())
-                    * (RADIUS + crate::app::params::tap_target_offset())
-        };
-        vec![
-            ring(source.lane),
-            ring((source.lane - 1 + 3 + branch) % 8 + 1),
-        ]
-    } else if shape.segments.iter().any(|s| s.shape == SlideShape::Wifi) {
-        return Err(
-            "A chain containing Wifi cannot be mapped to one curve. Sensor events are unchanged."
-                .into(),
-        );
+    // Wi-Fi is straight legs from the head's ring point. A per-track owner
+    // keeps its own branch; a combined owner (the Lean core reports all three
+    // branches in one body) exposes the whole fan so the group stays editable.
+    let branch = key.track.filter(|b| *b < 3).map(|b| b as u8);
+    let points = if shape.segments.iter().any(|s| s.shape == SlideShape::Wifi) {
+        let mut points = Vec::new();
+        let mut lane = source.lane;
+        for segment in &shape.segments {
+            if segment.shape == SlideShape::Wifi {
+                lane = append_wifi_legs(&mut points, lane, branch, center);
+                continue;
+            }
+            let mut one = source.clone();
+            one.lane = lane;
+            let mut single = shape.clone();
+            single.segments = vec![segment.clone()];
+            single.runtime_parts = 1;
+            append_points(
+                &mut points,
+                crate::app::slide_render::build_slide_path(
+                    &one, &single, &pad, svg, 1.0, center, RADIUS,
+                ),
+            );
+            lane = segment.points.last().map(|p| p.zone.to_id()).unwrap_or(lane);
+        }
+        points
     } else {
         crate::app::slide_render::build_slide_path(&source, &shape, &pad, svg, 1.0, center, RADIUS)
     };

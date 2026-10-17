@@ -364,6 +364,59 @@ fn workspace_upgrade_curve_motion_and_sensor_bake() {
 }
 
 #[test]
+fn workspace_upgrade_new_curve_ignores_the_selected_clip() {
+    let mut app = player(chart("1-5-8[0.5##2]"));
+    app.pad_svg = Some(
+        crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg"))
+            .unwrap(),
+    );
+    let mut state = AutoplayEditor::default();
+    let mut editor = EditorState::default();
+    state.sync(&app);
+    let slide = state.tracks.iter().position(|track| track.key.role == 2).unwrap();
+    let before = state.tracks.len();
+    state.select_clip(slide, &app);
+    state.new_curve(&mut editor, &mut app);
+    assert!(state.curve_editing(), "the pen must start a draft");
+    let draft_row = state.selected_row.expect("the draft names its clip");
+    assert!(
+        state.tracks[draft_row].key.is_standalone(),
+        "a drawn curve must be its own clip, not the selected one"
+    );
+    assert_eq!(state.tracks.len(), before + 1);
+    let overrides = app.chart.autoplay_overrides.clone();
+    state.cancel_curve();
+    assert_eq!(state.tracks.len(), before, "cancelling drops only the new clip");
+    assert!(draft_row >= state.tracks.len() || !state.tracks[draft_row].key.is_standalone());
+    assert_eq!(state.tracks[slide].key.role, 2, "the selected group survives");
+    assert_eq!(app.chart.autoplay_overrides, overrides);
+}
+
+#[test]
+fn workspace_upgrade_wifi_curve_maps_three_straight_legs() {
+    let mut app = player(chart("1w5[0.25##1]"));
+    app.pad_svg = Some(
+        crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg"))
+            .unwrap(),
+    );
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    let rows: Vec<_> = state
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| track.key.role == 2)
+        .map(|(row, _)| row)
+        .collect();
+    assert_eq!(rows.len(), 1, "the core reports one combined Wi-Fi body");
+    let mapped = curve::from_slide(&state.tracks[rows[0]].key, &app).unwrap();
+    assert_eq!(mapped.points.len(), 6, "three straight legs through the head");
+    assert!(mapped.speed > 0.0 && mapped.duration > 0.0);
+    let events = curve::bake(&mapped, app.pad_svg.as_ref().unwrap()).unwrap();
+    assert!(!events.is_empty(), "the fan must press the sensors it crosses");
+}
+
+#[test]
 fn workspace_upgrade_curve_handles_and_shape_preserving_insertion() {
     use crate::app::autoplay_edit::AutoplayCurve;
     let source = AutoplayCurve { points: vec![[-0.8, 0.0], [0.0, 0.6], [0.8, 0.0]],

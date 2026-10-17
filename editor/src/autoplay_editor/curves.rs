@@ -156,7 +156,10 @@ impl AutoplayEditor {
         self.finish_inspector(editor, &mut app.chart);
         self.clear_selection();
         self.detail_row = None;
-        let row = self.creation_row(&app.chart);
+        // A drawn curve always becomes its own clip: reusing the selected
+        // owner would replace that note's events, and cancelling the draft
+        // would remove the selected group from the timeline.
+        let row = self.standalone_row(&app.chart);
         self.repack();
         if self.raw_events {
             self.layout_events(self.pixels_per_second);

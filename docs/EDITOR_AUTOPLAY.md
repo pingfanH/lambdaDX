@@ -239,9 +239,11 @@ files keep their explicitly chosen inputs. Save Settings persists the switch.
   also offers a segment selector. Double-click the row/path or use E / Enter
   from the timeline to edit the selected curve.
 - Use the pen-tool button in the timeline header or Properties to create a
-  standalone curve at the snapped playhead. Draw on Pad, then release to
-  switch to point editing. Hand-drawn and Slide-derived curves use the same
-  group and point editor. Keep Pad and Properties visible in the layout.
+  standalone curve at the snapped playhead. It always adds a new clip, even
+  when another group is selected; cancelling the draft removes only that new
+  clip. Draw on Pad, then release to switch to point editing. Hand-drawn and
+  Slide-derived curves use the same group and point editor. Keep Pad and
+  Properties visible in the layout.
 - Drag a control point to move it together with its two Bezier handles.
   Selecting a point reveals its handles; drag either handle to change the
   tangent. Aligned keeps their directions opposite while retaining their
@@ -272,13 +274,16 @@ files keep their explicitly chosen inputs. Save Settings persists the switch.
   Map Slide can deliberately replace those events with a fresh mapping.
   Restore default events removes both event and curve overrides.
 
+Wi-Fi maps to straight legs from the head's ring point, matching the Pad
+renderer: a per-track owner keeps the single leg for its branch, and an owner
+that combines all three branches maps to the full fan of three legs through
+the head. A chain containing Wi-Fi expands the fan in place and continues
+from its middle leg, which is the endpoint the format declares for Wi-Fi.
+
 Curve baking uses the loaded Pad sensor geometry and sends the resulting
 events through the existing core input path. It does not guarantee Perfect
 judgments: speed, start time, sensor coverage and the required sensor order
-still matter. Wi-Fi owners that combine all three branches, and chains
-containing an unsplit Wi-Fi part, are not convertible to one curve. Mapping
-reports this limitation without changing their events; use sensor editing
-for these groups.
+still matter.
 
 ## Remaining Design Targets
 
