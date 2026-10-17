@@ -14,6 +14,8 @@ pub enum Action {
     CreateSelection,
     New,
     Insert(String),
+    /// Insert an instance at an explicit measure anchor.
+    InsertAt(String, f32),
     EnterDefinition(String),
     EnterInstance(String),
     Exit,
@@ -251,6 +253,20 @@ fn execute(
             editor.selected.clear();
         }
         Action::EnterDefinition(id) => enter(editor, app, &id, None)?,
+        Action::InsertAt(id, measure) => {
+            if !app.chart.templates.iter().any(|t| t.id == id) {
+                return Err("Template not found".into());
+            }
+            let anchor = crate::timeline::geometry::snap(
+                measure,
+                editor.snap_enabled,
+                editor.snap_division,
+            )
+            .max(1.0);
+            editor.push_history(&app.chart);
+            editor.selected_instance = Some(insert(&mut app.chart, &id, anchor)?);
+            editor.selected.clear();
+        }
         Action::EnterInstance(id) => {
             let instance = app
                 .chart

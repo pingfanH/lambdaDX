@@ -606,6 +606,28 @@ fn interact(
                 ui.close_menu();
             }
         });
+        ui.separator();
+        if ui.button("在此新建音符").clicked() {
+            editor.push_history(chart);
+            editor.place_note(chart, cursor.time, cursor.lane);
+            reconcile_selection(editor);
+            ui.close_menu();
+        }
+        if !chart.templates.is_empty() {
+            ui.menu_button("在此添加模板", |ui| {
+                for template in &chart.templates {
+                    if ui.button(&template.name).clicked() {
+                        let measure =
+                            crate::app::types::secs_to_measure(cursor.time, &chart.bpms);
+                        editor.template_action = Some(crate::templates::Action::InsertAt(
+                            template.id.clone(),
+                            measure,
+                        ));
+                        ui.close_menu();
+                    }
+                }
+            });
+        }
     });
 
     // A double-click on a star head pulls out a new same-head trajectory.
