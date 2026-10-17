@@ -314,6 +314,7 @@ impl EditorUi {
         if !transaction {
             self.workbench.set_visible(PaneKind::Templates, editor.template_panel);
         }
+        let templates_before_show = self.workbench.has(PaneKind::Templates);
         // Focus decides the keyboard target; the workspace only chose the preset.
         let chart_keys = self.workbench.focused(PaneKind::Chart);
         if !chart_keys && !editor.file_dialog_active { crate::keyboard::handle_modals(ctx, editor, &mut app.chart); }
@@ -324,7 +325,12 @@ impl EditorUi {
         let mut regions = self.workbench.show(ctx, !self.input_blocked && !transaction, |ui, kind| {
             toolbar::pane_tools(ui, kind, editor, app, &mut self.pad_scale);
         });
-        editor.template_panel = self.workbench.has(PaneKind::Templates);
+        // Only a pane closed from its own header clears the request. Rewriting
+        // it from `has()` every frame dropped a deferred add (the pane was then
+        // removed again, flashing the neighbouring split panes).
+        if templates_before_show && !self.workbench.has(PaneKind::Templates) {
+            editor.template_panel = false;
+        }
         self.workbench.activate_views(editor, &mut self.pad_scale);
         // Remember the snap grids even when no layout was saved.
         let divisions = (editor.snap_division, editor.autoplay_snap_division);

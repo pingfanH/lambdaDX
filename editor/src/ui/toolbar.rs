@@ -326,7 +326,8 @@ fn pane_options(ui: &mut egui::Ui, editor: &mut EditorState, workbench: &mut Wor
             workbench.set_visible(kind, shown);
         }
     }
-    editor.template_panel = workbench.has(PaneKind::Templates);
+    // Do not mirror the dock back into the request here: a deferred add would
+    // be cancelled and the pane would be added and removed in a loop.
 }
 
 pub fn grid_controls(ui: &mut egui::Ui, editor: &mut EditorState) {
