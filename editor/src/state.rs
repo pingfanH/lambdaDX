@@ -247,6 +247,11 @@ pub struct EditorState {
     pub pixels_per_second: f32,
     /// Snap grid as subdivisions per measure (e.g. 16 = 16th notes).
     pub snap_division: u32,
+    /// Whether the focused Properties pane edits autoplay events instead of
+    /// notes. Pane behaviour is an option, not a property of the workspace.
+    pub pane_properties_autoplay: bool,
+    /// Whether the focused Pad pane only previews (no placing or dragging).
+    pub pane_pad_preview_only: bool,
     /// Whether placement/drag snaps to the grid (top-bar snap checkbox).
     pub snap_enabled: bool,
     pub autoplay_snap_enabled: bool,
@@ -369,6 +374,8 @@ impl Default for EditorState {
             timeline_pan: None,
             pixels_per_second: crate::timeline::geometry::DEFAULT_PPS,
             snap_division: 16,
+            pane_properties_autoplay: false,
+            pane_pad_preview_only: false,
             snap_enabled: true,
             autoplay_snap_enabled: true,
             autoplay_snap_division: 16,

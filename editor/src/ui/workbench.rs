@@ -149,6 +149,7 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
         *next_id += 1;
         Pane { id: *next_id, kind, view: PaneView::default() }
     };
+    let autoplay = workspace == 1;
     let mut dock = DockState::new(vec![pane(if workspace == 1 {
         PaneKind::Pad
     } else if workspace == 3 {
@@ -181,6 +182,13 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
         );
         dock.main_surface_mut()
             .split_below(right, 0.46, vec![pane(PaneKind::Properties)]);
+    }
+    // Presets only choose a layout and its options; the panes decide behaviour.
+    if let Some((_, pane)) = dock
+        .iter_all_tabs_mut()
+        .find(|(_, pane)| pane.kind == PaneKind::Properties)
+    {
+        pane.view.properties_autoplay = autoplay;
     }
     dock
 }

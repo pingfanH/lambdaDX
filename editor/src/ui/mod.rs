@@ -311,7 +311,8 @@ impl EditorUi {
         if !transaction {
             self.workbench.set_visible(PaneKind::Templates, editor.template_panel);
         }
-        let chart_keys = editor.workspace == Workspace::Chart && self.workbench.focused(PaneKind::Chart);
+        // Focus decides the keyboard target; the workspace only chose the preset.
+        let chart_keys = self.workbench.focused(PaneKind::Chart);
         if !chart_keys && !editor.file_dialog_active { crate::keyboard::handle_modals(ctx, editor, &mut app.chart); }
         crate::autoplay_editor::prepare(ctx, editor, app, !chart_keys && !self.input_blocked
             && !self.workbench.dragging() && !self.workbench.focused(PaneKind::Simai)
@@ -345,6 +346,7 @@ impl EditorUi {
                     self.layout.preview = region.rect;
                     self.layout.update_pad(self.pad_scale);
                     let editable = !self.input_blocked && !editor.keyboard.owns_input() && !editor.keyboard.suppress_pointer
+                        && !editor.pane_pad_preview_only
                         && editor.selection_transform.is_none() && !self.templates.dragging()
                         && !editor.autoplay_editor.pointer_dragging() && editor.dragging.is_none()
                         && editor.handle_grab.is_none() && editor.timeline_pan.is_none()
@@ -371,7 +373,7 @@ impl EditorUi {
                             match region.kind {
                                 PaneKind::History => { crate::ui::style::enabled_ui(ui, editable && !transaction, |ui| history::draw(ui, editor, &mut app.chart)); }
                                 PaneKind::Templates => self.templates.panel(ui, editor, &app.chart, editable && !editor.autoplay_editor.curve_editing()),
-                                _ if editor.workspace == Workspace::Autoplay => crate::autoplay_editor::inspector_panel(ui, editor, app, editable),
+                        _ if editor.pane_properties_autoplay => crate::autoplay_editor::inspector_panel(ui, editor, app, editable),
                                 _ => { crate::ui::style::enabled_ui(ui, editable, |ui| {
                                     inspector::object_header(ui, editor, &app.chart, &self.tool_textures);
                                     inspector::draw(ui, editor, &mut app.chart, &mut self.inspector_open);

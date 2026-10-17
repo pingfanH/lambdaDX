@@ -57,7 +57,8 @@ pub fn draw(
     mut pad: PadGeom,
     editable: bool,
 ) {
-    let autoplay = editor.workspace == Workspace::Autoplay;
+    // The Pad pane's own option decides whether it drives autoplay editing.
+    let autoplay = editor.pane_properties_autoplay;
     if autoplay && crate::autoplay_editor::curves::pad(ui, editor, app, pad, editable) { return; }
     let editable =
         editable && (!autoplay || app.has_engine() && editor.autoplay_editor.can_pick_zone());

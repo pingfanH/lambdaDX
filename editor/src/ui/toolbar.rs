@@ -379,6 +379,9 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
             ui.menu_button(glyph(Icon::SlidersHorizontal, 14.0), |ui| {
                 preview_options(ui, editor);
                 ui.separator();
+                ui.checkbox(&mut editor.pane_pad_preview_only, "仅预览 (不可绘制)")
+                    .on_hover_text("关闭后这块 Pad 可以放置音符和拖拽");
+                ui.separator();
                 ui.add(egui::Slider::new(pad_scale, 0.3..=2.0).text("预览缩放"));
                 crate::player::params_panel::judgment_option(ui, &mut app.params);
                 ui.checkbox(&mut app.params.hide_notes, "隐藏 Notes");
@@ -392,9 +395,9 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
         PaneKind::Autoplay => crate::autoplay_editor::header(ui, editor, app),
         PaneKind::Simai => super::simai::header(ui, editor, &mut app.chart),
         PaneKind::Properties => {
-            if ui.available_width() > 65.0 {
-                ui.label(egui::RichText::new(if editor.workspace == Workspace::Autoplay { "Autoplay" } else { "Note" }).color(TEXT_DIM));
-            }
+            // Which inspector this pane shows is an option, not a workspace.
+            ui.selectable_value(&mut editor.pane_properties_autoplay, false, "Note");
+            ui.selectable_value(&mut editor.pane_properties_autoplay, true, "Autoplay");
         }
         PaneKind::History => {
             ui.add_enabled_ui(!editor.undo.is_empty(), |ui| {

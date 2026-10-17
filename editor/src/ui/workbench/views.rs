@@ -16,6 +16,10 @@ pub(super) struct PaneView {
     detached: bool,
     invert: bool,
     pad_scale: f32,
+    /// Properties pane: edit autoplay events instead of notes.
+    pub(super) properties_autoplay: bool,
+    /// Pad pane: preview only, no placing or dragging.
+    pad_preview_only: bool,
     autoplay: crate::autoplay_editor::ViewOptions,
     simai: crate::simai_editor::Options,
 }
@@ -25,7 +29,8 @@ impl Default for PaneView {
         Self { orientation: EditorLayout::Vertical, start: 0.0,
             pps: crate::timeline::geometry::DEFAULT_PPS, snap: true, division: 16,
             follow: true, follow_offset: None, cursor_follow: false, detached: false,
-            invert: false, pad_scale: 1.0, autoplay: Default::default(), simai: Default::default() }
+            invert: false, pad_scale: 1.0, properties_autoplay: false, pad_preview_only: false,
+            autoplay: Default::default(), simai: Default::default() }
     }
 }
 
@@ -53,7 +58,13 @@ impl Workbench {
                         view.snap = editor.autoplay_snap_enabled;
                         view.division = editor.autoplay_snap_division;
                     }
-                    PaneKind::Pad => view.pad_scale = pad_scale,
+                    PaneKind::Pad => {
+                        view.pad_scale = pad_scale;
+                        view.pad_preview_only = editor.pane_pad_preview_only;
+                    }
+                    PaneKind::Properties => {
+                        view.properties_autoplay = editor.pane_properties_autoplay;
+                    }
                     PaneKind::Simai => view.simai = editor.simai_editor.options.clone(),
                     _ => {}
                 }
@@ -85,7 +96,11 @@ impl Workbench {
                     editor.autoplay_snap_enabled = v.snap;
                     editor.autoplay_snap_division = v.division.clamp(1, 256);
                 }
-                PaneKind::Pad => *pad_scale = v.pad_scale.clamp(0.3, 2.0),
+                PaneKind::Pad => {
+                    *pad_scale = v.pad_scale.clamp(0.3, 2.0);
+                    editor.pane_pad_preview_only = v.pad_preview_only;
+                }
+                PaneKind::Properties => editor.pane_properties_autoplay = v.properties_autoplay,
                 PaneKind::Simai => editor.simai_editor.options = v.simai.clone(),
                 _ => {}
             }
