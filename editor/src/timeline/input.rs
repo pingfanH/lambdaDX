@@ -642,6 +642,29 @@ fn interact(
         }
     }
 
+    // A middle click (three-finger tap where the system delivers one) on a star
+    // head edits that slide directly; double-click keeps pulling out a
+    // same-head trajectory.
+    if response.middle_clicked() {
+        let pos = response.interact_pointer_pos().unwrap_or_default();
+        if let Some(id) = nearest_marker(markers, pos) {
+            if chart
+                .notes
+                .iter()
+                .any(|note| note.id == id && !note.slide.is_empty())
+            {
+                editor.select_only(id);
+                editor.editing_slide = Some(id);
+                editor.editing_slide_idx = 0;
+                editor.pending_shape = None;
+                editor.status = Some(
+                    "Slide edit: click pad/lane zones to add · shape key + 1-8 · Backspace=undo · Esc=exit"
+                        .to_string(),
+                );
+                return;
+            }
+        }
+    }
     if response.middle_clicked() || response.double_clicked() {
         if nearest_marker(markers, response.interact_pointer_pos().unwrap_or_default()).is_none() {
             if let Some((id, sub)) = slide_trail_at_pointer(
