@@ -568,10 +568,36 @@ fn interact(
             }
         }
     }
+    let hit_id = context_pos.and_then(|pos| nearest_marker(markers, pos));
+    // A note that came from a template carries its instance, so the same menu
+    // can offer the instance actions.
+    let hit_source = hit_id
+        .and_then(|id| chart.notes.iter().find(|note| note.id == id))
+        .and_then(|note| note.template_source.clone());
     response.context_menu(|ui| {
-        let hit = context_pos.and_then(|pos| nearest_marker(markers, pos));
-        if let Some(id) = hit {
+        if let Some(id) = hit_id {
             ui.label(format!("Note {id}"));
+        }
+        if let Some(source) = &hit_source {
+            if ui.button("编辑对应模板").clicked() {
+                editor.template_action =
+                    Some(crate::templates::Action::EnterDefinition(source.template_id.clone()));
+                ui.close_menu();
+            }
+            if ui.button("隐藏此实例").clicked() {
+                editor.template_action = Some(crate::templates::Action::SetInstanceHidden(
+                    source.instance_id.clone(),
+                    true,
+                ));
+                ui.close_menu();
+            }
+            if ui.button("删除此实例").clicked() {
+                editor.template_action = Some(crate::templates::Action::DeleteInstance(
+                    source.instance_id.clone(),
+                ));
+                ui.close_menu();
+            }
+            ui.separator();
         }
         ui.add_enabled_ui(!editor.selected.is_empty(), |ui| {
             if ui.button("删除").clicked() {

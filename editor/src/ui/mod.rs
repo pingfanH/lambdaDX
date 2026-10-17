@@ -353,7 +353,13 @@ impl EditorUi {
                         && editor.star_placement.is_none() && editor.hold_placement.is_none()
                         && editor.pointer_press.is_none() && editor.marquee_start.is_none()
                         && !editor.scrubbing && editor.loop_drag.is_none();
-                    sensors::draw(&mut ui, editor, app, self.layout.pad, editable);
+                    // The Pad becomes the autoplay surface while autoplay work
+                    // is in front of the user, not because of the workspace.
+                    let autoplay_pad = editor.autoplay_editor.pad_active()
+                        || self.workbench.focused(PaneKind::Autoplay)
+                        || (editor.pane_properties_autoplay
+                            && self.workbench.focused(PaneKind::Properties));
+                    sensors::draw(&mut ui, editor, app, self.layout.pad, editable, autoplay_pad);
                 }
                 PaneKind::Overview => {
                     self.layout.overview = region.rect;

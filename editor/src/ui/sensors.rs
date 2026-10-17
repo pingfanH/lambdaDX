@@ -56,10 +56,8 @@ pub fn draw(
     app: &mut PadPreviewState,
     mut pad: PadGeom,
     editable: bool,
+    autoplay: bool,
 ) {
-    // The autoplay editor's own state decides whether this Pad drives autoplay
-    // editing: picking an element (or drafting a curve) switches it over.
-    let autoplay = editor.autoplay_editor.pad_active();
     if autoplay && crate::autoplay_editor::curves::pad(ui, editor, app, pad, editable) { return; }
     let editable =
         editable && (!autoplay || app.has_engine() && editor.autoplay_editor.can_pick_zone());
