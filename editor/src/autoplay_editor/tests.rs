@@ -466,6 +466,54 @@ fn workspace_upgrade_elements_stay_separate_and_resize_by_band() {
 }
 
 #[test]
+fn workspace_upgrade_curve_element_follows_a_live_drag() {
+    let mut app = player(chart("1-5-8[0.5##2]"));
+    app.pad_svg = Some(
+        crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg"))
+            .unwrap(),
+    );
+    let mut state = AutoplayEditor::default();
+    let mut editor = EditorState::default();
+    editor.autoplay_snap_enabled = false;
+    state.sync(&app);
+    let row = state
+        .tracks
+        .iter()
+        .position(|track| track.key.role == 2)
+        .unwrap();
+    state.select_clip(row, &app);
+    let (start, _) = state.element_span(row, &app);
+    let curve = state
+        .element_curve(row, &app)
+        .expect("a Slide element shows a curve");
+    let index = state.tracks[row]
+        .events
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, event)| timed_input_tp(event))
+        .map(|(index, _)| index)
+        .unwrap();
+    state.selected = Some((row, index));
+    state.selected_pair = None;
+    clips::begin_selected(&mut state, &egui::Context::default(), false);
+    assert!(state.clip_drag.is_some(), "the press starts an element drag");
+    // The frame loop moves the dragged events; the box and its band must
+    // follow immediately instead of waiting for the confirming release.
+    let shift = 500_000;
+    for event in state.tracks[row].events.iter_mut() {
+        *event = autoplay_edit::with_time(event, timed_input_tp(event) + shift);
+    }
+    let (moved, _) = state.element_span(row, &app);
+    assert!((moved - start - 0.5).abs() < 1e-4, "{moved} vs {start}");
+    assert!(
+        (state.element_curve(row, &app).unwrap().start - curve.start - 0.5).abs() < 1e-6,
+        "the previewed curve must shift with the drag"
+    );
+    state.clip_drag = None;
+    assert!((state.element_curve(row, &app).unwrap().start - curve.start).abs() < 1e-9);
+}
+
+#[test]
 fn workspace_upgrade_multi_selection_deletes_every_picked_element() {
     let mut app = player(chart("1-5-8[0.5##2]"));
     let mut state = AutoplayEditor::default();

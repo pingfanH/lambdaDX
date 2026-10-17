@@ -457,7 +457,21 @@ impl AutoplayEditor {
     pub(super) fn element_curve(&mut self, row: usize, app: &PadPreviewState) -> Option<crate::app::autoplay_edit::AutoplayCurve> {
         if let Some(curve) = self.band_curve(row) { return Some(curve); }
         if !self.curve_candidate(row, &app.chart) { return None; }
-        self.curve_for(row, app).ok()
+        let mut curve = self.curve_for(row, app).ok()?;
+        // A saved curve only catches up on release, so follow the live drag:
+        // otherwise the box and its band stay put until the drag confirms.
+        if let Some(offset) = self.drag_offset(row) { curve.start += offset; }
+        Some(curve)
+    }
+
+    /// How far a live element drag has moved one row, in seconds.
+    fn drag_offset(&self, row: usize) -> Option<f64> {
+        let drag = self.clip_drag.as_ref()?;
+        let (_, original) = drag.originals.iter().find(|(r, _)| *r == row)?;
+        let live = &self.tracks.get(row)?.events;
+        let before = original.iter().map(timed_input_tp).min()?;
+        let after = live.iter().map(timed_input_tp).min()?;
+        Some((after - before) as f64 / 1e6)
     }
 
     /// One element's span in seconds: the curve timing when the element is a
