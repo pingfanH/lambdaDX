@@ -557,16 +557,30 @@ fn interact(
         editor.pointer_press = None;
     }
 
-    // Right-click removes the nearest note (the count of markers is small, so a
-    // straight linear scan is fine).
+    // Right-click picks the note under the pointer and opens its menu; the
+    // marker count is small, so a straight linear scan is fine.
+    let context_pos = response.interact_pointer_pos();
     if response.secondary_clicked() {
-        if let Some(id) =
-            nearest_marker(markers, response.interact_pointer_pos().unwrap_or_default())
-        {
-            editor.delete_note(chart, id);
-            reconcile_selection(editor);
+        if let Some(id) = context_pos.and_then(|pos| nearest_marker(markers, pos)) {
+            if !editor.selected.contains(&id) {
+                editor.select_only(id);
+                reconcile_selection(editor);
+            }
         }
     }
+    response.context_menu(|ui| {
+        let hit = context_pos.and_then(|pos| nearest_marker(markers, pos));
+        if let Some(id) = hit {
+            ui.label(format!("Note {id}"));
+        }
+        ui.add_enabled_ui(!editor.selected.is_empty(), |ui| {
+            if ui.button("删除").clicked() {
+                editor.delete_selection(chart);
+                reconcile_selection(editor);
+                ui.close_menu();
+            }
+        });
+    });
 
     // A double-click on a star head pulls out a new same-head trajectory.
     // Single head clicks select; middle/double trail clicks edit that trail.
