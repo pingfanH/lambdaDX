@@ -86,3 +86,46 @@ pub fn read_output_text(name: &str) -> Result<String, String> {
     let path = output_dir()?.join(name);
     fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))
 }
+
+const CACHE_DIR_ENV: &str = "MAI2_CACHE_DIR";
+
+/// Per-user cache root (`~/.lambdadx`): settings, saved layouts and the last
+/// opened chart live here, outside the repository. Override with
+/// `MAI2_CACHE_DIR`; falls back to a temp directory when there is no home.
+pub fn cache_dir() -> Result<PathBuf, String> {
+    let root = std::env::var_os(CACHE_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home_dir().map(|home| home.join(".lambdadx")))
+        .unwrap_or_else(|| std::env::temp_dir().join("lambdadx"));
+    fs::create_dir_all(&root).map_err(|e| format!("create cache dir {}: {e}", root.display()))?;
+    Ok(root)
+}
+
+fn home_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("HOME").filter(|value| !value.is_empty()).map(PathBuf::from)
+    }
+}
+
+pub fn write_cache_text(name: &str, content: &str) -> Result<PathBuf, String> {
+    let path = cache_dir()?.join(name);
+    fs::write(&path, content).map_err(|e| format!("write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
+/// Reads a cached file, falling back to the legacy `output/` copy so settings
+/// written before the cache existed are still picked up once.
+pub fn read_cache_text(name: &str) -> Result<String, String> {
+    let path = cache_dir()?.join(name);
+    match fs::read_to_string(&path) {
+        Ok(text) => Ok(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => read_output_text(name),
+        Err(error) => Err(format!("read {}: {e}", path.display(), e = error)),
+    }
+}

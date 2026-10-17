@@ -89,13 +89,15 @@ async fn run() {
 
     // Load a chart *folder* (Simai source + track) so the judgment engine and
     // autoplay modes work. Override with `MAI2_EDITOR_CHART`.
+    let session = crate::io::session::load();
     let chart_dir = std::env::var("MAI2_EDITOR_CHART")
         .ok()
         .filter(|p| !p.trim().is_empty())
         .map(std::path::PathBuf::from)
+        .or_else(crate::io::session::remembered_chart)
         .unwrap_or_else(|| app::platform::asset_dir().join("charts/jack_ripper"));
 
-    let bundle = runtime::load_chart_bundle(&chart_dir, None);
+    let bundle = runtime::load_chart_bundle(&chart_dir, session.level);
     let source = bundle.source.clone();
     mark("chart load");
     let mut app = runtime::initialize_player(
@@ -149,7 +151,11 @@ async fn run() {
     editor.level_slots = app::chart::read_simai_source(&chart_dir)
         .map(|t| app::maidata::inote_keys(&t))
         .unwrap_or_default();
-    editor.level_index = editor.level_slots.len().saturating_sub(1);
+    editor.level_index = session
+        .level
+        .and_then(|level| editor.level_slots.iter().position(|slot| *slot == level))
+        .unwrap_or_else(|| editor.level_slots.len().saturating_sub(1));
+    crate::io::session::remember_chart(&chart_dir, session.level);
     if std::env::var("MAI2_EDITOR_WORKSPACE").is_ok_and(|v| v.eq_ignore_ascii_case("autoplay")) {
         editor.workspace = Workspace::Autoplay;
         editor.autoplay_mode = 2;
@@ -582,6 +588,7 @@ fn load_editor_chart(editor: &mut EditorState, app: &mut PadPreviewState, path: 
     };
     editor.chart_dir = path.to_string_lossy().into_owned();
     editor.source = Some(source.clone());
+    crate::io::session::remember_chart(path, source.level);
     editor.level_slots = app::chart::read_simai_source(path)
         .map(|t| app::maidata::inote_keys(&t))
         .unwrap_or_default();

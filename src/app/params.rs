@@ -735,9 +735,9 @@ pub fn bg_video_path() -> String {
     PARAMS.with(|p| p.borrow().bg_video_path.clone())
 }
 
-/// Load parameters: override file, then bundled asset, then defaults.
+/// Load parameters: cached override, legacy override, bundled asset, defaults.
 pub fn load() -> Params {
-    if let Ok(s) = platform::read_output_text(PARAMS_OVERRIDE) {
+    if let Ok(s) = platform::read_cache_text(PARAMS_OVERRIDE) {
         if let Ok(p) = serde_json::from_str::<Params>(&s) {
             return p;
         }
@@ -751,10 +751,10 @@ pub fn load() -> Params {
     Params::default()
 }
 
-/// Save parameters as pretty JSON to the writable override path.
+/// Save parameters as pretty JSON into the per-user cache.
 pub fn save(p: &Params) -> Result<PathBuf, String> {
     let json = serde_json::to_string_pretty(p).map_err(|e| e.to_string())?;
-    platform::write_output_text(PARAMS_OVERRIDE, &json)
+    platform::write_cache_text(PARAMS_OVERRIDE, &json)
 }
 
 #[cfg(test)]

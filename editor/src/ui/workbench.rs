@@ -320,14 +320,18 @@ impl Workbench {
             ui.close_menu();
         }
         ui.separator();
-        if ui.button("记住当前布局").clicked() {
+        if ui
+            .button("保存当前工作区布局")
+            .on_hover_text("每个工作区各自保存")
+            .clicked()
+        {
             self.remember_layout();
             ui.close_menu();
         }
         if ui
             .add_enabled(
                 !self.locked && self.saved[self.workspace].is_some(),
-                Button::new("恢复已记住布局"),
+                Button::new("恢复已保存布局"),
             )
             .clicked()
         {
@@ -335,7 +339,7 @@ impl Workbench {
             ui.close_menu();
         }
         if ui
-            .add_enabled(!self.locked, Button::new("重置当前工作区"))
+            .add_enabled(!self.locked, Button::new("恢复默认布局"))
             .clicked()
         {
             self.reset_layout();
@@ -356,6 +360,13 @@ impl Workbench {
     pub fn reset_layout(&mut self) {
         if self.locked { return; }
         self.docks[self.workspace] = preset(self.workspace, &mut self.next_id);
+        // Restoring the default also forgets this workspace's saved layout, so
+        // the reset survives a restart instead of being undone by the file.
+        self.saved[self.workspace] = None;
+        self.message = Some(match self.save_layouts() {
+            Ok(()) => "已恢复默认布局".into(),
+            Err(error) => format!("恢复默认布局失败: {error}"),
+        });
         self.applied_views.clear();
         self.maximized = None;
         self.regions.clear();

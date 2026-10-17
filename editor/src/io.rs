@@ -7,6 +7,7 @@ use super::state::EditorState;
 pub(crate) mod simai;
 pub mod autosave;
 pub mod dialogs;
+pub mod session;
 #[cfg(test)]
 mod tests;
 
@@ -149,6 +150,7 @@ fn save_as_to(editor: &mut EditorState, chart: &ChartDoc, path: &Path) -> Result
     editor.level_index = source.level.and_then(|level| editor.level_slots.iter().position(|s| *s == level)).unwrap_or(0);
     editor.chart_dir = path.to_string_lossy().into_owned();
     editor.source = Some(source);
+    session::remember_chart(path, editor.source.as_ref().and_then(|source| source.level));
     crate::templates::mark_saved(editor);
     Ok(())
 }

@@ -119,12 +119,13 @@ impl SavedNode {
 impl Workbench {
     pub(super) fn load_layouts(&mut self) {
         let result = (|| -> Result<Option<Layouts>, String> {
-            let path = platform::output_dir()?.join(FILE);
-            let text = match std::fs::read_to_string(&path) {
+            // The cache is the live copy; `read_cache_text` also picks up the
+            // legacy `output/` file once for installs from before the cache.
+            let text = match platform::read_cache_text(FILE) {
                 Ok(text) => text,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(error) => return Err(error.to_string()),
+                Err(_) => return Ok(None),
             };
+            let path = platform::cache_dir()?.join(FILE);
             let parsed = serde_json::from_str::<Layouts>(&text).ok().filter(|saved| {
                 saved.version == 1
                     && saved.layouts.len() <= WORKSPACE_COUNT
@@ -159,7 +160,7 @@ impl Workbench {
         }
     }
 
-    fn save_layouts(&self) -> Result<(), String> {
+    pub(super) fn save_layouts(&self) -> Result<(), String> {
         let saved = Layouts {
             version: 1,
             layouts: self.saved.iter().map(|layout| {
@@ -169,7 +170,7 @@ impl Workbench {
             }).collect(),
         };
         let text = serde_json::to_string_pretty(&saved).map_err(|e| e.to_string())?;
-        let temp = platform::write_output_text("editor_workspaces.tmp", &text)?;
+        let temp = platform::write_cache_text("editor_workspaces.tmp", &text)?;
         std::fs::rename(&temp, temp.with_file_name(FILE)).map_err(|e| e.to_string())
     }
 

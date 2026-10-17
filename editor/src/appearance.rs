@@ -86,7 +86,7 @@ impl Default for Appearance {
 
 impl Appearance {
     pub fn load(&mut self) {
-        match platform::read_output_text(FILE).and_then(|text| {
+        match platform::read_cache_text(FILE).and_then(|text| {
             serde_json::from_str::<Settings>(&text).map_err(|error| error.to_string())
         }) {
             Ok(mut settings) => {
@@ -185,7 +185,7 @@ impl Appearance {
     fn save(&mut self) {
         let result = (|| {
             let text = serde_json::to_string_pretty(&self.settings).map_err(|e| e.to_string())?;
-            let temp = platform::write_output_text("editor_appearance.tmp", &text)?;
+            let temp = platform::write_cache_text("editor_appearance.tmp", &text)?;
             std::fs::rename(&temp, temp.with_file_name(FILE)).map_err(|e| e.to_string())
         })();
         match result {
