@@ -238,13 +238,18 @@ impl TemplateUi {
                                         label,
                                     );
                                     if response.clicked() {
-                                        editor.selected_instance =
-                                            Some(instance.instance_id.clone());
-                                        editor.selected.clear();
-                                        let time =
-                                            measure_to_secs(instance.anchor_time, &library.bpms);
-                                        editor.pending_seek = Some(time);
-                                        editor.view_start = time;
+                                        // Clicking the selected instance clears
+                                        // it again; selecting never seeks (the
+                                        // jump/reset read as a flicker).
+                                        if editor.selected_instance.as_ref()
+                                            == Some(&instance.instance_id)
+                                        {
+                                            editor.selected_instance = None;
+                                        } else {
+                                            editor.selected_instance =
+                                                Some(instance.instance_id.clone());
+                                            editor.selected.clear();
+                                        }
                                     }
                                     if response.double_clicked() {
                                         editor.template_action = Some(Action::EnterInstance(
@@ -522,8 +527,14 @@ impl TemplateUi {
                     before: shift.then(|| chart.clone()),
                     isolate_on_click: shift,
                 });
-                editor.selected_instance = Some(id);
-                editor.selected.clear();
+                // A plain click on the selected instance clears it; Shift keeps
+                // the isolate-on-click path.
+                if !shift && editor.selected_instance.as_ref() == Some(&id) {
+                    editor.selected_instance = None;
+                } else {
+                    editor.selected_instance = Some(id);
+                    editor.selected.clear();
+                }
                 return true;
             }
             if !pos.is_some_and(|pos| canonical_head_at(pos, rect, editor, chart, now)) {
