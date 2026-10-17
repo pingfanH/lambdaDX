@@ -355,10 +355,16 @@ impl EditorUi {
                         && !editor.scrubbing && editor.loop_drag.is_none();
                     // The Pad becomes the autoplay surface while autoplay work
                     // is in front of the user, not because of the workspace.
-                    let autoplay_pad = editor.autoplay_editor.pad_active()
-                        || self.workbench.focused(PaneKind::Autoplay)
-                        || (editor.pane_properties_autoplay
-                            && self.workbench.focused(PaneKind::Properties));
+                    let autoplay_pad = match editor.pane_pad_surface {
+                        crate::state::PadSurface::Autoplay => true,
+                        crate::state::PadSurface::Chart => false,
+                        crate::state::PadSurface::FollowFocus => {
+                            editor.autoplay_editor.pad_active()
+                                || self.workbench.focused(PaneKind::Autoplay)
+                                || (editor.pane_properties_autoplay
+                                    && self.workbench.focused(PaneKind::Properties))
+                        }
+                    };
                     sensors::draw(&mut ui, editor, app, self.layout.pad, editable, autoplay_pad);
                 }
                 PaneKind::Overview => {

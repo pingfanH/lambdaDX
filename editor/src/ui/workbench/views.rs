@@ -20,6 +20,7 @@ pub(super) struct PaneView {
     pub(super) properties_autoplay: bool,
     /// Pad pane: preview only, no placing or dragging.
     pad_preview_only: bool,
+    pad_surface: crate::state::PadSurface,
     autoplay: crate::autoplay_editor::ViewOptions,
     simai: crate::simai_editor::Options,
 }
@@ -30,6 +31,7 @@ impl Default for PaneView {
             pps: crate::timeline::geometry::DEFAULT_PPS, snap: true, division: 16,
             follow: true, follow_offset: None, cursor_follow: false, detached: false,
             invert: false, pad_scale: 1.0, properties_autoplay: false, pad_preview_only: false,
+            pad_surface: crate::state::PadSurface::FollowFocus,
             autoplay: Default::default(), simai: Default::default() }
     }
 }
@@ -61,6 +63,7 @@ impl Workbench {
                     PaneKind::Pad => {
                         view.pad_scale = pad_scale;
                         view.pad_preview_only = editor.pane_pad_preview_only;
+                        view.pad_surface = editor.pane_pad_surface;
                     }
                     PaneKind::Properties => {
                         view.properties_autoplay = editor.pane_properties_autoplay;
@@ -99,6 +102,7 @@ impl Workbench {
                 PaneKind::Pad => {
                     *pad_scale = v.pad_scale.clamp(0.3, 2.0);
                     editor.pane_pad_preview_only = v.pad_preview_only;
+                    editor.pane_pad_surface = v.pad_surface;
                 }
                 PaneKind::Properties => editor.pane_properties_autoplay = v.properties_autoplay,
                 PaneKind::Simai => editor.simai_editor.options = v.simai.clone(),

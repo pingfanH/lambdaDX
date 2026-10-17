@@ -64,6 +64,16 @@ pub enum EditorLayout {
     Horizontal,
 }
 
+/// What a Pad pane is for. `FollowFocus` hands it to autoplay while autoplay
+/// panes are in front and back to the chart pad otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum PadSurface {
+    #[default]
+    FollowFocus,
+    Chart,
+    Autoplay,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Workspace {
     #[default]
@@ -252,6 +262,8 @@ pub struct EditorState {
     pub pane_properties_autoplay: bool,
     /// Whether the focused Pad pane only previews (no placing or dragging).
     pub pane_pad_preview_only: bool,
+    /// Which surface the focused Pad pane shows.
+    pub pane_pad_surface: PadSurface,
     /// Whether placement/drag snaps to the grid (top-bar snap checkbox).
     pub snap_enabled: bool,
     pub autoplay_snap_enabled: bool,
@@ -376,6 +388,7 @@ impl Default for EditorState {
             snap_division: 16,
             pane_properties_autoplay: false,
             pane_pad_preview_only: false,
+            pane_pad_surface: PadSurface::FollowFocus,
             snap_enabled: true,
             autoplay_snap_enabled: true,
             autoplay_snap_division: 16,

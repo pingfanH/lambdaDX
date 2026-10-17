@@ -381,6 +381,16 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
                 ui.separator();
                 ui.checkbox(&mut editor.pane_pad_preview_only, "仅预览 (不可绘制)")
                     .on_hover_text("关闭后这块 Pad 可以放置音符和拖拽");
+                ui.horizontal(|ui| {
+                    ui.label("内容");
+                    for (surface, label) in [
+                        (crate::state::PadSurface::FollowFocus, "跟随聚焦"),
+                        (crate::state::PadSurface::Chart, "谱面"),
+                        (crate::state::PadSurface::Autoplay, "Autoplay"),
+                    ] {
+                        ui.selectable_value(&mut editor.pane_pad_surface, surface, label);
+                    }
+                });
                 ui.separator();
                 ui.add(egui::Slider::new(pad_scale, 0.3..=2.0).text("预览缩放"));
                 crate::player::params_panel::judgment_option(ui, &mut app.params);
