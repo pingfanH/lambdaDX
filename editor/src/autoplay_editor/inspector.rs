@@ -12,7 +12,11 @@ pub(super) fn draw(
     editable: bool,
 ) {
     state.validate_selection();
-    ui.add_enabled_ui(editable, |ui| {
+    if state.curve_editing() {
+        crate::ui::style::enabled_ui(ui, editable, |ui| curves::controls(ui, state, editor, app));
+        return;
+    }
+    crate::ui::style::enabled_ui(ui, editable, |ui| {
         let mut owner = state.selected_row;
         ui.horizontal(|ui| {
             let width = (ui.available_width() - 30.0).max(60.0);
@@ -48,14 +52,18 @@ pub(super) fn draw(
             state.finish_inspector(editor, &mut app.chart);
             state.clear_selection();
             state.selected_row = owner;
+            if let Some(row) = owner { state.select_clip(row, app); }
             if state.detail_row.is_some() && owner.is_some() {
                 state.detail_row = owner;
             }
         }
+        curves::controls(ui, state, editor, app);
+        if state.curve_editing() { return; }
         let Some(row) = owner else {
             drawing_tools(ui, state, editor, app);
             return;
         };
+        if state.curve_view(row, &app.chart) { return; }
         let standalone = state.tracks[row].key.is_standalone();
         ui.horizontal_wrapped(|ui| {
             ui.label(
@@ -88,6 +96,7 @@ pub(super) fn draw(
             {
                 state.finish_inspector(editor, &mut app.chart);
                 state.raw_events = false;
+                state.sensor_detail = true;
                 state.detail_row = Some(row);
             }
             if !standalone && icon(
@@ -101,7 +110,7 @@ pub(super) fn draw(
                 state.finish_inspector(editor, &mut app.chart);
                 state.reset(editor, &mut app.chart, row);
             }
-            ui.add_enabled_ui(state.selected.is_some(), |ui| {
+            crate::ui::style::enabled_ui(ui, state.selected.is_some(), |ui| {
                 if icon(ui, Icon::Trash2, "Delete selected event or interval", false).clicked() {
                     state.finish_inspector(editor, &mut app.chart);
                     state.delete(editor, &mut app.chart);

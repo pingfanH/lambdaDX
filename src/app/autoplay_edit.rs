@@ -31,6 +31,52 @@ impl AutoplayKey {
 pub struct AutoplayOverride {
     pub key: AutoplayKey,
     pub events: Vec<TimedInputEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curve: Option<AutoplayCurve>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CurveTiming { ConstantSpeed, FixedDuration }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CurveHandles {
+    pub incoming: [f32; 2],
+    pub outgoing: [f32; 2],
+    pub aligned: bool,
+}
+
+/// Pad-radius coordinates; start uses the same relative anchor as events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutoplayCurve {
+    pub points: Vec<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handles: Vec<CurveHandles>,
+    pub smooth: bool,
+    pub start: f64,
+    pub timing: CurveTiming,
+    pub speed: f64,
+    pub duration: f64,
+    pub radius: f32,
+}
+
+impl Default for AutoplayCurve {
+    fn default() -> Self {
+        Self { points: Vec::new(), handles: Vec::new(), smooth: true, start: 0.0,
+            timing: CurveTiming::ConstantSpeed, speed: 2.0, duration: 1.0, radius: 0.025 }
+    }
+}
+
+/// A whole-track time translation preserves the editable curve; other raw
+/// event edits deliberately detach it so stale geometry cannot overwrite them.
+pub fn translated_curve(item: &AutoplayOverride, events: &[TimedInputEvent]) -> Option<AutoplayCurve> {
+    let mut curve = item.curve.clone()?;
+    if events.len() != item.events.len() { return None; }
+    let delta = timed_input_tp(events.first()?).checked_sub(timed_input_tp(item.events.first()?))?;
+    if !events.iter().zip(&item.events).all(|(a, b)| {
+        timed_input_tp(b).checked_add(delta).is_some_and(|tp| *a == with_time(b, tp))
+    }) { return None; }
+    curve.start += delta as f64 / 1e6;
+    Some(curve)
 }
 
 pub fn key(chart: &ChartDoc, engine: &JudgeEngine, part: &AutoplayPart) -> Option<AutoplayKey> {

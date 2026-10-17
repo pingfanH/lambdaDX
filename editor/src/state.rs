@@ -58,7 +58,7 @@ impl Tool {
 ///   flows upward toward the judgment line at the bottom) with the pad/inspector
 ///   panel on the right.
 /// * `Horizontal` — the legacy ported layout (time flows to the right).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum EditorLayout {
     Vertical,
     Horizontal,
@@ -249,6 +249,8 @@ pub struct EditorState {
     pub snap_division: u32,
     /// Whether placement/drag snaps to the grid (top-bar snap checkbox).
     pub snap_enabled: bool,
+    pub autoplay_snap_enabled: bool,
+    pub autoplay_snap_division: u32,
     /// Invert the wheel scroll direction (top-bar `Wheel ↕` toggle), for users
     /// whose OS "natural scrolling" setting feels backwards in the editor.
     pub scroll_invert: bool,
@@ -368,6 +370,8 @@ impl Default for EditorState {
             pixels_per_second: crate::timeline::geometry::DEFAULT_PPS,
             snap_division: 16,
             snap_enabled: true,
+            autoplay_snap_enabled: true,
+            autoplay_snap_division: 16,
             scroll_invert: false,
             dirty: false,
             auto_save: false,

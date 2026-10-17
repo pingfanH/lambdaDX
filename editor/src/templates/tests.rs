@@ -38,6 +38,7 @@ fn fixture() -> (EditorState, PadPreviewState) {
 
 fn authored(note_id: u64) -> AutoplayOverride {
     AutoplayOverride {
+        curve: None,
         key: AutoplayKey {
             note_id,
             role: 0,

@@ -59,6 +59,39 @@ fn text_position(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
 }
 
 #[test]
+fn workspace_upgrade_song_rails_seek_without_placing_or_sticking() {
+    for orientation in [crate::state::EditorLayout::Vertical, crate::state::EditorLayout::Horizontal] {
+        let mut f = Fixture::new();
+        f.ui.workbench.reset_layout();
+        f.frame(Vec::new());
+        f.editor.layout = orientation;
+        f.editor.tool = Tool::Tap;
+        f.editor.pixels_per_second = 1200.0;
+        f.frame(Vec::new());
+        let rect = f.ui.layout.timeline;
+        let at = if orientation == crate::state::EditorLayout::Vertical {
+            egui::pos2(rect.left() - 5.0, rect.center().y)
+        } else { egui::pos2(rect.center().x, rect.top() - 5.0) };
+        let count = f.app.chart.notes.len();
+        let duration = f.app.song_duration();
+        f.click(at);
+        assert!((f.editor.pending_seek.unwrap() - duration * 0.5).abs() < 0.001);
+        assert!(!f.editor.scrubbing);
+        f.frame(vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE }]);
+        let outside = if orientation == crate::state::EditorLayout::Vertical {
+            egui::pos2(at.x, rect.top() - 50.0)
+        } else { egui::pos2(rect.right() + 50.0, at.y) };
+        f.frame(vec![egui::Event::PointerMoved(outside)]);
+        assert!(f.editor.scrubbing);
+        assert!((f.editor.pending_seek.unwrap() - duration).abs() < 0.001);
+        f.frame(vec![egui::Event::PointerButton { pos: outside, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE }]);
+        f.frame(Vec::new());
+        assert!(!f.editor.scrubbing);
+        assert_eq!(f.app.chart.notes.len(), count);
+    }
+}
+
+#[test]
 fn sensor_edit_touch_pad_and_properties_preserve_sensor_and_undo() {
     let mut f = Fixture::new();
     f.app.chart = crate::app::maidata::from_maidata("&inote_1=(120){4}B3,E", None).unwrap();
@@ -1083,6 +1116,17 @@ mod autoplay {
         }).expect("event marker must be visible")
     }
 
+    fn raw_fixture() -> Fixture {
+        let mut f = fixture();
+        let output = f.frame(Vec::new());
+        f.click(text_position(&output, &char::from(lucide_icons::Icon::ListFilter).to_string()));
+        let menu = f.frame(Vec::new());
+        f.click(text_position(&menu, "原始事件视图"));
+        f.key(egui::Key::Escape, egui::Modifiers::NONE);
+        f.frame(Vec::new());
+        f
+    }
+
     #[test]
     fn timeline_regression_slide_group_click_draws_sensor_details() {
         let mut f = fixture();
@@ -1106,6 +1150,7 @@ mod autoplay {
             _ => None,
         }).expect("slide must have sensor events");
         f.click(text_position(&output, &label));
+        f.key(egui::Key::Enter, egui::Modifiers::NONE);
         let output = f.frame(Vec::new());
         assert!(f.editor.autoplay_editor.selected_row.is_some(), "group click was ignored");
         text_position(&output, &sensor);
@@ -1116,13 +1161,15 @@ mod autoplay {
         let mut f = fixture();
         f.ui.workbench.reset_layout();
         f.editor.snap_division = 16;
+        f.editor.autoplay_snap_division = 16;
         let output = f.frame(Vec::new());
         f.click(text_position(&output, "1/16"));
         let menu = f.frame(Vec::new());
         f.click(text_position(&menu, "细分 1/16"));
         let menu = f.frame(Vec::new());
         f.click(text_position(&menu, "1/8"));
-        assert_eq!(f.editor.snap_division, 8, "subdivision popup disabled itself");
+        assert_eq!(f.editor.autoplay_snap_division, 8, "subdivision popup disabled itself");
+        assert_eq!(f.editor.snap_division, 16, "autoplay subdivision changed the chart pane");
         f.frame(Vec::new());
         let output = f.frame(Vec::new());
         assert!(!f.ctx.memory(|m| m.any_popup_open()), "subdivision popup stayed open");
@@ -1162,8 +1209,8 @@ mod autoplay {
 
     #[test]
     fn event_click_drag_release_outside_and_undo_are_one_transaction() {
-        let mut f = fixture();
-        f.editor.snap_enabled = false;
+        let mut f = raw_fixture();
+        f.editor.autoplay_snap_enabled = false;
         let output = f.frame(Vec::new());
         let position = marker(&output);
         f.click(position);
@@ -1188,7 +1235,7 @@ mod autoplay {
 
     #[test]
     fn escape_cancels_marker_drag_without_recording_an_edit() {
-        let mut f = fixture();
+        let mut f = raw_fixture();
         let output = f.frame(Vec::new());
         let position = marker(&output);
         let original = f.editor.autoplay_editor.tracks[0].events.clone();
@@ -1219,7 +1266,7 @@ mod autoplay {
         f.key(egui::Key::F12, egui::Modifiers::NONE);
         assert!(f.editor.show_help);
         let help = f.frame(Vec::new());
-        text_position(&help, "Select / move event in its track");
+        text_position(&help, "Edit curve / open sensor detail");
         f.key(egui::Key::F9, egui::Modifiers::NONE);
         assert_eq!(f.app.mode, Mode::Playing, "modal help owns transport keys");
         f.key(egui::Key::Escape, egui::Modifiers::NONE);

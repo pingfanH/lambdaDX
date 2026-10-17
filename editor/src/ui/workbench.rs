@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 
 mod persistence;
 mod dragging;
+mod views;
+use views::PaneView;
 
 const WORKSPACE_COUNT: usize = 4;
 
@@ -73,6 +75,7 @@ impl PaneKind {
 struct Pane {
     id: u64,
     kind: PaneKind,
+    view: PaneView,
 }
 
 pub struct Region {
@@ -117,6 +120,7 @@ pub struct Workbench {
     message: Option<String>,
     dragging: Option<u64>,
     drag_owned: bool,
+    applied_views: Vec<(PaneKind, u64)>,
 }
 
 impl Default for Workbench {
@@ -135,6 +139,7 @@ impl Default for Workbench {
             message: None,
             dragging: None,
             drag_owned: false,
+            applied_views: Vec::new(),
         }
     }
 }
@@ -142,7 +147,7 @@ impl Default for Workbench {
 fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
     let mut pane = |kind| {
         *next_id += 1;
-        Pane { id: *next_id, kind }
+        Pane { id: *next_id, kind, view: PaneView::default() }
     };
     let mut dock = DockState::new(vec![pane(if workspace == 1 {
         PaneKind::Pad
@@ -297,7 +302,7 @@ impl Workbench {
         }
     }
     pub fn layout_menu(&mut self, ui: &mut Ui) {
-        ui.add_enabled_ui(!self.locked, |ui| {
+        crate::ui::style::enabled_ui(ui, !self.locked, |ui| {
             ui.menu_button("添加分区", |ui| {
                 for kind in PaneKind::ALL {
                     if ui
@@ -343,6 +348,7 @@ impl Workbench {
         if self.locked { return; }
         if let Some(saved) = &self.saved[self.workspace] {
             self.docks[self.workspace] = saved.clone();
+            self.applied_views.clear();
             self.maximized = None;
             self.regions.clear();
         } else { self.message = Some("当前工作区没有已保存的布局".into()); }
@@ -350,6 +356,7 @@ impl Workbench {
     pub fn reset_layout(&mut self) {
         if self.locked { return; }
         self.docks[self.workspace] = preset(self.workspace, &mut self.next_id);
+        self.applied_views.clear();
         self.maximized = None;
         self.regions.clear();
     }
@@ -409,6 +416,7 @@ impl Workbench {
                             .find(|(_, p)| p.id == id)
                         {
                             p.kind = kind;
+                            p.view = PaneView::default();
                         }
                     }
                     Action::Split(id, split, kind) if !self.has(kind) => {
@@ -421,6 +429,7 @@ impl Workbench {
                                 vec![Pane {
                                     id: self.next_id,
                                     kind,
+                                    view: PaneView::default(),
                                 }],
                             );
                         }
@@ -470,9 +479,9 @@ impl Workbench {
         self.drag_owned = self.dragging.is_some();
         // Transparent bodies let the macroquad chart and pad remain visible below egui.
         CentralPanel::default().frame(Frame::NONE).show(ctx, |ui| {
-            if !enabled {
-                ui.disable();
-            }
+            // Headers own independent UIs on this layer and handle their own
+            // disabled appearance; do not post-process their shapes twice.
+            ui.add_enabled_ui(enabled, |ui| {
             let mut viewer = Viewer {
                 regions: &mut regions,
                 actions: &mut actions,
@@ -506,6 +515,7 @@ impl Workbench {
                     .tab_context_menus(false)
                     .show_inside(ui, &mut viewer);
             }
+            });
         });
         self.finish_drag(ctx, &regions, enabled, &mut actions);
         self.regions = regions
@@ -553,7 +563,7 @@ impl<F: FnMut(&mut Ui, PaneKind)> Viewer<'_, F> {
         if !self.locked && !maximized && response.drag_started_by(PointerButton::Primary) {
             *self.dragging = Some(pane.id);
         }
-        ui.add_enabled_ui(!self.locked, |ui| {
+        crate::ui::style::enabled_ui(&mut ui, !self.locked, |ui| {
             ui.menu_button(glyph(pane.kind.icon(), 13.0), |ui| {
                 for kind in PaneKind::ALL {
                     if ui
@@ -584,9 +594,9 @@ impl<F: FnMut(&mut Ui, PaneKind)> Viewer<'_, F> {
                 }
                 ui.add_space(6.0);
             }
-            ui.add_enabled_ui(self.enabled, |ui| (self.tools)(ui, pane.kind));
+            crate::ui::style::enabled_ui(ui, self.enabled, |ui| (self.tools)(ui, pane.kind));
         });
-        ui.add_enabled_ui(self.enabled, |ui| {
+        crate::ui::style::enabled_ui(&mut ui, self.enabled, |ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.menu_button(glyph(Icon::Ellipsis, 14.0), |ui| {
                     area_menu(ui, pane, self.actions, self.areas, self.locked, maximized)
@@ -668,7 +678,7 @@ fn area_menu(
     locked: bool,
     maximized: bool,
 ) {
-    ui.add_enabled_ui(!locked, |ui| {
+    crate::ui::style::enabled_ui(ui, !locked, |ui| {
         for (label, direction) in [("向右拆分", Split::Right), ("向下拆分", Split::Below)] {
             ui.menu_button(label, |ui| {
                 for kind in PaneKind::ALL {

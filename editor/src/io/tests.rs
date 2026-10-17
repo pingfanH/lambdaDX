@@ -239,6 +239,7 @@ fn saving_inside_template_isolation_folds_the_parent_and_preserves_autoplay_edit
     let mut chart = empty_chart();
     chart.notes = vec![Note { id: 11, time: 3.0, lane: 1, ..Default::default() }];
     chart.autoplay_overrides = vec![AutoplayOverride {
+        curve: None,
         key: AutoplayKey { note_id: 11, role: 0, slide: 0, segment: 0, track: None },
         events: vec![TimedInputEvent::SensorClick { tp: 1234, area: SensorArea::A1 }],
     }];

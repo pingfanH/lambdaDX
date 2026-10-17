@@ -16,6 +16,7 @@ pub mod sensors;
 mod simai;
 pub mod history;
 pub mod navigation;
+mod progress;
 pub mod layout;
 pub mod style;
 pub mod toolbar;
@@ -104,13 +105,13 @@ const AUTOPLAY_SHORTCUTS: &[(&str, &str)] = &[
     ("Cmd+O / Cmd+S", "Open / save chart and authored events"),
     ("⇧Cmd+S / ⇧Cmd+E", "Save As / export Simai"),
     ("Click clip", "Select; edit the current interval in its main track"),
-    ("Double-click clip / Enter", "Open optional sensor detail"),
+    ("Double-click clip / E / Enter", "Edit curve / open sensor detail"),
     ("Draw: click / drag empty track", "Add Click or Hold / draw a Hold"),
     ("Drag interval / endpoints", "Move interval / adjust Press or Release"),
     ("Click Pad sensor", "Change selected interval region; in draw mode, add at playhead"),
     ("G / Shift+D", "Move / duplicate selection, then Enter or click to confirm"),
     ("Tab / Shift+Tab", "Next / previous clip or detail endpoint"),
-    ("Enter / D / V", "Open sensor detail / draw / select"),
+    ("D / V", "Draw sensor events / select"),
     ("Del / Backspace", "Delete selected event, interval or clip"),
     ("Esc", "Cancel draft / leave drawing / clear selection / close detail"),
     ("F8", "Toggle grid snapping"),
@@ -180,7 +181,9 @@ impl EditorUi {
         if self.document_revision != Some(app.document_revision()) {
             self.document_revision = Some(app.document_revision());
             self.templates = Default::default();
+            let view = editor.autoplay_editor.view_options();
             editor.autoplay_editor = Default::default();
+            editor.autoplay_editor.restore_view(&view);
             editor.simai_editor.reset();
             editor.pinned_note = None;
             editor.loop_range = None;
@@ -239,6 +242,8 @@ impl EditorUi {
             }
         }
         self.workbench.initialize(editor.workspace);
+        self.workbench.capture_views(editor, self.pad_scale);
+        self.workbench.activate_views(editor, &mut self.pad_scale);
         self.layout = Layout { pad: self.layout.pad, ..Default::default() };
         let transaction = editor.selection_transform.is_some() || editor.keyboard.owns_input()
             || editor.autoplay_editor.dragging() || self.templates.dragging()
@@ -246,6 +251,7 @@ impl EditorUi {
             || editor.star_placement.is_some() || editor.hold_placement.is_some()
             || editor.pointer_press.is_some() || editor.marquee_start.is_some() || editor.scrubbing
             || editor.loop_drag.is_some();
+        style::quiet_disabled(ctx, transaction && !self.appearance.dim_inactive_during_edit());
         if !transaction && !self.workbench.dragging() && !overlay_was_open && !self.menu_open && !ctx.memory(|m| m.any_popup_open()) {
             let workspace = self.workbench.active_workspace(ctx, editor.workspace);
             self.change_workspace(editor, app, workspace);
@@ -279,18 +285,19 @@ impl EditorUi {
             )
             .show(ctx, |ui| {
                 self.layout.toolbar = ui.max_rect();
-                let result = ui
-                    .add_enabled_ui(!transaction && !overlay_was_open && !self.workbench.dragging(), |ui| {
+                let result = style::enabled_ui(ui, !transaction && !overlay_was_open && !self.workbench.dragging(), |ui| {
                         toolbar::draw(ui, editor, app, &mut self.workbench)
                     })
                     .inner;
                 self.menu_open = result.0;
                 workspace = result.1;
             });
+        self.workbench.capture_views(editor, self.pad_scale);
         if let Some(workspace) = workspace {
             self.change_workspace(editor, app, workspace);
             editor.template_panel = self.workbench.has(PaneKind::Templates);
         }
+        self.workbench.activate_views(editor, &mut self.pad_scale);
         crate::player::params_panel::draw_embedded_with(ctx, app, |ui| {
             egui::CollapsingHeader::new("外观与背景").default_open(true).show(ui, |ui| {
                 self.appearance.controls(ui);
@@ -314,6 +321,7 @@ impl EditorUi {
             toolbar::pane_tools(ui, kind, editor, app, &mut self.pad_scale);
         });
         editor.template_panel = self.workbench.has(PaneKind::Templates);
+        self.workbench.activate_views(editor, &mut self.pad_scale);
         self.input_blocked |= self.workbench.dragging() || ctx.memory(|m| m.any_popup_open()) || editor.show_help || editor.pending_action.is_some();
 
         // Egui assigns an unowned Tab to the first chrome widget during layout.
@@ -361,10 +369,10 @@ impl EditorUi {
                                 && editor.selection_transform.is_none() && !self.templates.dragging()
                                 && !editor.autoplay_editor.pointer_dragging() && editor.timeline_pan.is_none();
                             match region.kind {
-                                PaneKind::History => { ui.add_enabled_ui(editable && !transaction, |ui| history::draw(ui, editor, &mut app.chart)); }
-                                PaneKind::Templates => self.templates.panel(ui, editor, &app.chart, editable),
+                                PaneKind::History => { crate::ui::style::enabled_ui(ui, editable && !transaction, |ui| history::draw(ui, editor, &mut app.chart)); }
+                                PaneKind::Templates => self.templates.panel(ui, editor, &app.chart, editable && !editor.autoplay_editor.curve_editing()),
                                 _ if editor.workspace == Workspace::Autoplay => crate::autoplay_editor::inspector_panel(ui, editor, app, editable),
-                                _ => { ui.add_enabled_ui(editable, |ui| {
+                                _ => { crate::ui::style::enabled_ui(ui, editable, |ui| {
                                     inspector::object_header(ui, editor, &app.chart, &self.tool_textures);
                                     inspector::draw(ui, editor, &mut app.chart, &mut self.inspector_open);
                                 }); }
@@ -388,6 +396,7 @@ impl EditorUi {
             self.draw_confirm(ctx, editor, &mut app.chart);
         }
         self.appearance.flush(ctx.input(|i| i.pointer.any_down()));
+        self.workbench.capture_views(editor, self.pad_scale);
     }
 
     fn apply_view_commands(&mut self, editor: &mut EditorState, app: &mut PadPreviewState) {
@@ -406,7 +415,10 @@ impl EditorUi {
                 ViewCommand::Settings => app.show_params = true,
                 ViewCommand::History => self.workbench.set_visible(PaneKind::History, true),
                 ViewCommand::Maximize => self.workbench.maximize_focused(),
-                ViewCommand::SaveLayout => self.workbench.remember_layout(),
+                ViewCommand::SaveLayout => {
+                    self.workbench.capture_views(editor, self.pad_scale);
+                    self.workbench.remember_layout();
+                }
                 ViewCommand::RestoreLayout => self.workbench.restore_layout(),
                 ViewCommand::ResetLayout => self.workbench.reset_layout(),
             }
@@ -511,10 +523,17 @@ impl EditorUi {
         chart: &mut crate::app::types::ChartDoc,
         current_time: f32,
         waveform: &WaveformPyramid,
-        _duration: f32,
+        duration: f32,
         raw_wheel: f32,
     ) {
-        let timeline_rect = ui.max_rect();
+        let progress_enabled = !self.input_blocked && editor.workspace == Workspace::Chart
+            && !editor.keyboard.owns_input() && editor.selection_transform.is_none()
+            && !editor.autoplay_editor.dragging() && !self.templates.dragging()
+            && editor.dragging.is_none() && editor.handle_grab.is_none()
+            && editor.timeline_pan.is_none() && editor.star_placement.is_none()
+            && editor.hold_placement.is_none() && editor.pointer_press.is_none()
+            && editor.marquee_start.is_none() && editor.loop_drag.is_none();
+        let (timeline_rect, progress_owned) = progress::draw(ui, editor, current_time, duration, progress_enabled);
         self.layout.timeline = timeline_rect;
         editor.keyboard.rect = timeline_rect;
 
@@ -530,7 +549,8 @@ impl EditorUi {
             ),
         );
         self.layout.tools = tools_rect;
-        if editor.workspace != Workspace::Chart || editor.loop_drag.is_some() {
+        if editor.workspace != Workspace::Chart || editor.loop_drag.is_some()
+            || editor.autoplay_editor.dragging() || progress_owned {
             tools::draw(ui, tools_rect, editor, &self.tool_textures, false);
             return;
         }

@@ -58,6 +58,7 @@ pub fn draw(
     editable: bool,
 ) {
     let autoplay = editor.workspace == Workspace::Autoplay;
+    if autoplay && crate::autoplay_editor::curves::pad(ui, editor, app, pad, editable) { return; }
     let editable =
         editable && (!autoplay || app.has_engine() && editor.autoplay_editor.can_pick_zone());
     let target = touch_target(editor, &app.chart);

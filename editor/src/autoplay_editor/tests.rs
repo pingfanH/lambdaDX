@@ -15,7 +15,7 @@ impl NavigationFixture {
         app.mode = mode;
         let mut f = Self { ctx: egui::Context::default(), state: AutoplayEditor::default(),
             editor: EditorState::default(), app, time: 0.0 };
-        f.editor.snap_enabled = false;
+        f.editor.autoplay_snap_enabled = false;
         f.state.return_current();
         f.frame(Vec::new(), 0.0);
         f.frame(Vec::new(), 0.0);
@@ -79,7 +79,7 @@ fn timeline_grid_zoom_out_keeps_coarser_subdivisions() {
     let mut f = NavigationFixture::new(Mode::Idle);
     f.state.pixels_per_second = 30.0;
     for division in [16, 32, 48, 192] {
-        f.editor.snap_division = division;
+        f.editor.autoplay_snap_division = division;
         let plot = f.frame(Vec::new(), 0.0);
         assert!(plot.grid.iter().any(|(_, major)| !major), "1/{division} dropped every subdivision");
     }
@@ -332,6 +332,152 @@ fn player(chart: ChartDoc) -> PadPreviewState {
     app.forced_time = Some(0.0);
     assert!(app.has_engine(), "{}", app.status);
     app
+}
+
+#[test]
+fn workspace_upgrade_curve_motion_and_sensor_bake() {
+    use crate::app::autoplay_edit::{AutoplayCurve, CurveTiming};
+    let mut source = AutoplayCurve { points: vec![[-0.8, 0.0], [-0.7, 0.0], [0.8, 0.0]],
+        smooth: false, speed: 2.0, ..Default::default() };
+    let path = curve::Path::new(&source);
+    assert!(path.at(0.5).distance(Pos2::ZERO) < 1e-5, "motion must use arc length");
+    assert!((path.duration(&source) - 0.8).abs() < 1e-5);
+    source.points.push([1.6, 0.0]);
+    assert!((curve::Path::new(&source).duration(&source) - 1.2).abs() < 1e-5);
+    source.timing = CurveTiming::FixedDuration;
+    source.duration = 0.8;
+    assert_eq!(curve::Path::new(&source).duration(&source), 0.8);
+    source.points.pop();
+    let svg = crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg")).unwrap();
+    let events = curve::bake(&source, &svg).unwrap();
+    let mut held = HashSet::new();
+    for event in &events {
+        match event_kind(event) {
+            1 => assert!(held.insert(event_zone(event))),
+            2 => assert!(held.remove(&event_zone(event))),
+            _ => panic!("curve must bake paired sensor holds"),
+        }
+        assert!((0..=800_000).contains(&timed_input_tp(event)));
+    }
+    assert!(held.is_empty());
+    assert!(events.windows(2).all(|pair| timed_input_tp(&pair[0]) <= timed_input_tp(&pair[1])));
+}
+
+#[test]
+fn workspace_upgrade_curve_handles_and_shape_preserving_insertion() {
+    use crate::app::autoplay_edit::AutoplayCurve;
+    let source = AutoplayCurve { points: vec![[-0.8, 0.0], [0.0, 0.6], [0.8, 0.0]],
+        ..Default::default() };
+    let legacy = serde_json::to_value(&source).unwrap();
+    assert!(legacy.get("handles").is_none());
+    let mut source: AutoplayCurve = serde_json::from_value(legacy).unwrap();
+    curve::ensure_handles(&mut source);
+    let old = source.handles[1].clone();
+    curve::move_point(&mut source, 1, [0.1, 0.7]);
+    for (before, after) in [(old.incoming, source.handles[1].incoming),
+        (old.outgoing, source.handles[1].outgoing)] {
+        assert!((Pos2::from(after) - Pos2::from(before) - Vec2::splat(0.1)).length() < 1e-6);
+    }
+    let center = Pos2::from(source.points[1]);
+    let opposite_length = center.distance(Pos2::from(source.handles[1].incoming));
+    curve::move_handle(&mut source, 1, false, [0.4, 1.0], false);
+    let incoming = Pos2::from(source.handles[1].incoming) - center;
+    let outgoing = Pos2::from(source.handles[1].outgoing) - center;
+    assert!((incoming.length() - opposite_length).abs() < 1e-6);
+    assert!(incoming.normalized().dot(outgoing.normalized()) < -0.9999);
+    let opposite = source.handles[1].incoming;
+    curve::move_handle(&mut source, 1, false, [0.5, 0.5], true);
+    assert_eq!(source.handles[1].incoming, opposite);
+    assert!(!source.handles[1].aligned);
+    let before = curve::Path::new(&source);
+    let count = source.points.len();
+    let inserted = curve::insert_nearest(&mut source, before.at(0.3), 0.003).unwrap();
+    assert_eq!(source.points.len(), count + 1);
+    assert_eq!(source.handles.len(), source.points.len());
+    let after = curve::Path::new(&source);
+    assert!((after.length - before.length).abs() < 0.003);
+    for i in 0..=100 {
+        assert!(before.at(i as f32 / 100.0).distance(after.at(i as f32 / 100.0)) < 0.003);
+    }
+    let roundtrip: AutoplayCurve = serde_json::from_str(&serde_json::to_string(&source).unwrap()).unwrap();
+    assert_eq!(roundtrip, source);
+    curve::remove_point(&mut source, inserted);
+    assert_eq!(source.handles.len(), count);
+}
+
+#[test]
+fn workspace_upgrade_slide_curve_commit_save_move_and_undo() {
+    let mut app = player(chart("1-5-8[0.5##2]"));
+    app.pad_svg = Some(crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg")).unwrap());
+    let mut state = AutoplayEditor::default();
+    let mut editor = EditorState::default();
+    state.sync(&app);
+    let rows: Vec<_> = state.tracks.iter().enumerate().filter(|(_, t)| t.key.role == 2).map(|(r, _)| r).collect();
+    assert!(!rows.is_empty());
+    for &row in &rows {
+        let mapped = curve::from_slide(&state.tracks[row].key, &app).unwrap();
+        assert!(mapped.duration > 0.0 && mapped.points.len() >= 2);
+        assert!(!curve::bake(&mapped, app.pad_svg.as_ref().unwrap()).unwrap().is_empty());
+    }
+    let row = rows[0];
+    let before = app.chart.autoplay_overrides.clone();
+    let generated = state.tracks[row].events.clone();
+    state.select_clip(row, &app);
+    assert!(state.curve_view(row, &app.chart));
+    assert_eq!(state.detail_row, Some(row));
+    assert_eq!(app.chart.autoplay_overrides, before, "selection must not author events");
+    assert_eq!(state.tracks[row].events, generated);
+    state.raw_events = true;
+    state.edit_curve(&mut editor, &mut app, row, false);
+    assert!(state.curve_editing());
+    assert!(!state.raw_events);
+    state.apply_curve(&mut editor, &mut app);
+    assert!(!state.curve_editing());
+    let saved = app.chart.autoplay_overrides[0].clone();
+    assert!(!saved.curve.as_ref().unwrap().handles.is_empty());
+    assert!(state.curve_view(row, &app.chart));
+    let json = serde_json::to_string(&app.chart).unwrap();
+    let reopened: ChartDoc = serde_json::from_str(&json).unwrap();
+    assert_eq!(reopened.autoplay_overrides, app.chart.autoplay_overrides);
+    state.edit_curve(&mut editor, &mut app, row, false);
+    assert_eq!(state.curve_for(row, &app).unwrap(), saved.curve.clone().unwrap());
+    state.cancel_curve();
+    let translated: Vec<_> = state.tracks[row].events.iter().map(|event|
+        autoplay_edit::with_time(event, timed_input_tp(event) + 250_000)).collect();
+    state.commit(&mut editor, &mut app.chart, row, translated);
+    let moved = app.chart.autoplay_overrides[0].clone();
+    assert!((moved.curve.as_ref().unwrap().start - saved.curve.as_ref().unwrap().start - 0.25).abs() < 1e-9);
+    let mut raw = state.tracks[row].events.clone();
+    raw[0] = autoplay_edit::with_time(&raw[0], timed_input_tp(&raw[0]) + 1);
+    state.commit(&mut editor, &mut app.chart, row, raw);
+    assert!(app.chart.autoplay_overrides[0].curve.is_none());
+    editor.undo(&mut app.chart);
+    assert_eq!(app.chart.autoplay_overrides, vec![moved]);
+    editor.undo(&mut app.chart);
+    assert_eq!(app.chart.autoplay_overrides, vec![saved]);
+    editor.undo(&mut app.chart);
+    assert_eq!(app.chart.autoplay_overrides, before);
+    state.sync(&app);
+    state.raw_events = true;
+    let track_count = state.tracks.len();
+    state.new_curve(&mut editor, &mut app);
+    assert_eq!(state.tracks.len(), track_count + 1);
+    assert_eq!(state.layouts.len(), state.tracks.len(), "draft must have a raw-view layout");
+    state.cancel_curve();
+    assert_eq!(state.tracks.len(), track_count);
+    assert_eq!(app.chart.autoplay_overrides, before);
+    state.raw_events = false;
+    state.select_clip(row, &app);
+    let translated = generated.iter().map(|event|
+        autoplay_edit::with_time(event, timed_input_tp(event) + 250_000)).collect();
+    state.commit(&mut editor, &mut app.chart, row, translated);
+    let moved = app.chart.autoplay_overrides.clone();
+    assert!(moved[0].curve.is_some(), "moving a generated curve keeps its geometry");
+    state.reset_rows(&mut editor, &mut app.chart, &rows);
+    assert!(app.chart.autoplay_overrides.is_empty(), "reset removes the curve override as well");
+    assert_eq!(state.tracks[row].events, generated);
+    editor.undo(&mut app.chart);
+    assert_eq!(app.chart.autoplay_overrides, moved);
 }
 
 #[test]
@@ -631,6 +777,7 @@ fn event_type_toolbar_converts_selection_without_changing_drawing_events() {
         let original = vec![make_event(zone, 2, start + 900_000), make_event(zone, 0, start),
             make_event(zone, 1, start + 500_000)];
         app.chart.autoplay_overrides.push(AutoplayOverride {
+            curve: None,
             key: key.clone(), events: autoplay_edit::relative(&original, head),
         });
         state.sync(&app);
@@ -980,8 +1127,8 @@ fn event_zone_and_action_roundtrip_all_input_channels() {
 fn event_snap_uses_chart_measures_and_can_be_disabled() {
     let chart = chart("1");
     let mut editor = EditorState::default();
-    editor.snap_division = 16;
+    editor.autoplay_snap_division = 16;
     assert_eq!(snap_time(0.19, &editor, &chart), 0.25);
-    editor.snap_enabled = false;
+    editor.autoplay_snap_enabled = false;
     assert!((snap_time(0.19, &editor, &chart) - 0.19).abs() < 1e-6);
 }

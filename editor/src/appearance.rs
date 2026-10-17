@@ -20,6 +20,7 @@ struct Settings {
     background: bool,
     brightness: f32,
     image: String,
+    dim_inactive_during_edit: bool,
 }
 
 impl Default for Settings {
@@ -30,6 +31,7 @@ impl Default for Settings {
             background: true,
             brightness: 55.0,
             image: DEFAULT_IMAGE.into(),
+            dim_inactive_during_edit: false,
         }
     }
 }
@@ -108,11 +110,16 @@ impl Appearance {
         }
     }
 
+    pub fn dim_inactive_during_edit(&self) -> bool {
+        self.settings.dim_inactive_during_edit
+    }
+
     pub fn controls(&mut self, ui: &mut egui::Ui) {
         use crate::ui::style::icon;
         use lucide_icons::Icon;
 
         ui.checkbox(&mut self.settings.transparent, "透明界面");
+        ui.checkbox(&mut self.settings.dim_inactive_during_edit, "操作时淡化其他分区");
         ui.add_enabled(
             self.settings.transparent,
             egui::Slider::new(&mut self.settings.opacity, 0.0..=100.0)

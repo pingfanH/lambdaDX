@@ -13,6 +13,7 @@ struct Layouts {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 enum SavedNode {
     Pane(PaneKind),
+    ConfiguredPane { kind: PaneKind, view: PaneView },
     Split {
         vertical: bool,
         fraction: f32,
@@ -24,7 +25,7 @@ enum SavedNode {
 impl SavedNode {
     fn capture(tree: &Tree<Pane>, at: NodeIndex) -> Option<Self> {
         match &tree[at] {
-            Node::Leaf { tabs, .. } => tabs.first().map(|pane| Self::Pane(pane.kind)),
+            Node::Leaf { tabs, .. } => tabs.first().map(|pane| Self::ConfiguredPane { kind: pane.kind, view: pane.view.clone() }),
             Node::Vertical { fraction, .. } | Node::Horizontal { fraction, .. } => {
                 Some(Self::Split {
                     vertical: matches!(tree[at], Node::Vertical { .. }),
@@ -42,7 +43,7 @@ impl SavedNode {
             return false;
         }
         match self {
-            Self::Pane(kind) => {
+            Self::Pane(kind) | Self::ConfiguredPane { kind, .. } => {
                 if seen.contains(kind) {
                     return false;
                 }
@@ -66,7 +67,7 @@ impl SavedNode {
 
     fn first(&self) -> PaneKind {
         match self {
-            Self::Pane(kind) => *kind,
+            Self::Pane(kind) | Self::ConfiguredPane { kind, .. } => *kind,
             Self::Split { first, .. } => first.first(),
         }
     }
@@ -91,10 +92,15 @@ impl SavedNode {
                 vec![Pane {
                     id: *next_id,
                     kind: second.first(),
+                    view: PaneView::default(),
                 }],
             );
             first.fill(tree, a, next_id);
             second.fill(tree, b, next_id);
+        } else if let Self::ConfiguredPane { view, .. } = self {
+            if let Some(pane) = tree[at].tabs_mut().and_then(|tabs| tabs.first_mut()) {
+                pane.view = view.clone();
+            }
         }
     }
 
@@ -103,6 +109,7 @@ impl SavedNode {
         let mut dock = DockState::new(vec![Pane {
             id: *next_id,
             kind: self.first(),
+            view: PaneView::default(),
         }]);
         self.fill(dock.main_surface_mut(), NodeIndex::root(), next_id);
         dock

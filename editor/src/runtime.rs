@@ -382,7 +382,7 @@ mod tests {
                 TimedInputEvent::SensorHold { tp: 100_000, area: SensorArea::A1, is_down: true },
                 TimedInputEvent::SensorHold { tp: 1_500_000, area: SensorArea::A1, is_down: false },
             ];
-            pad.chart.autoplay_overrides.push(AutoplayOverride { key, events: events.clone() });
+            pad.chart.autoplay_overrides.push(AutoplayOverride { key, events: events.clone(), curve: None });
             settle(&mut sync, &mut pad);
             assert!(pad.external_autoplay);
             assert_eq!(pad.autoplay_plan.as_ref().unwrap().events(), events);

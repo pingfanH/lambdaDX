@@ -127,6 +127,43 @@ fn style() -> egui::Style {
     style
 }
 
+pub fn quiet_disabled(ctx: &egui::Context, quiet: bool) {
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("quiet_disabled_panes"), quiet));
+}
+
+pub fn enabled_ui<R>(ui: &mut egui::Ui, enabled: bool, draw: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
+    let quiet = !enabled && ui.is_enabled() && ui.ctx().data(|data|
+        data.get_temp::<bool>(egui::Id::new("quiet_disabled_panes"))).unwrap_or(false);
+    if !quiet { return ui.add_enabled_ui(enabled, draw); }
+    ui.scope(|ui| {
+        // egui 0.31 couples input blocking to a half-color tint. Neutralize that
+        // tint in this scope's paint list, keeping real disabled widget semantics.
+        let tint = ui.visuals().fade_out_to_color();
+        ui.disable();
+        let layer = ui.layer_id();
+        let begin = ui.ctx().graphics_mut(|g| g.entry(layer).next_idx().0);
+        let result = draw(ui);
+        ui.ctx().graphics_mut(|g| {
+            let list = g.entry(layer);
+            for index in begin..list.next_idx().0 {
+                list.mutate_shape(egui::layers::ShapeIdx(index), |clipped| {
+                    egui::epaint::shape_transform::adjust_colors(&mut clipped.shape, move |color| {
+                        if *color == egui::Color32::PLACEHOLDER { return; }
+                        let [r, g, b, a] = color.to_array();
+                        let alpha = if a < 85 { a.saturating_mul(2) } else { a };
+                        let div = if alpha == 0 { 1 } else if alpha < 170 { (510 / alpha as u32) as u8 } else { 2 };
+                        let restore = |value: u8, target: u8| value.saturating_sub(
+                            if alpha == 0 { 0 } else { target / div }).saturating_mul(2);
+                        *color = egui::Color32::from_rgba_premultiplied(
+                            restore(r, tint.r()), restore(g, tint.g()), restore(b, tint.b()), alpha);
+                    });
+                });
+            }
+        });
+        result
+    })
+}
+
 pub fn glyph(icon: Icon, size: f32) -> egui::RichText {
     egui::RichText::new(char::from(icon).to_string()).font(egui::FontId::new(
         size,

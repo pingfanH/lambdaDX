@@ -33,7 +33,7 @@ impl TemplateUi {
         chart: &ChartDoc,
         enabled: bool,
     ) {
-                ui.add_enabled_ui(enabled, |ui| {
+                crate::ui::style::enabled_ui(ui, enabled, |ui| {
                     if let Some(session) = &editor.template_session {
                         let name = session
                             .parent
@@ -68,7 +68,7 @@ impl TemplateUi {
                     {
                         editor.selected_template = library.templates.first().map(|t| t.id.clone());
                     }
-                    ui.add_enabled_ui(!isolated, |ui| {
+                    crate::ui::style::enabled_ui(ui, !isolated, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut editor.template_name)
                                 .desired_width(f32::INFINITY)
@@ -139,7 +139,7 @@ impl TemplateUi {
                             }
                         });
                     if let Some(id) = editor.selected_template.clone() {
-                        ui.add_enabled_ui(!isolated, |ui| {
+                        crate::ui::style::enabled_ui(ui, !isolated, |ui| {
                             ui.horizontal(|ui| {
                                 if ui
                                     .button("Insert")
@@ -199,7 +199,7 @@ impl TemplateUi {
                                     .map(|t| t.name.as_str())
                                     .unwrap_or("?");
                                 let label = format!("{}  ·  {:.3}", name, instance.anchor_time);
-                                ui.add_enabled_ui(!isolated, |ui| {
+                                crate::ui::style::enabled_ui(ui, !isolated, |ui| {
                                     let response = ui.selectable_label(
                                         editor.selected_instance.as_ref()
                                             == Some(&instance.instance_id),

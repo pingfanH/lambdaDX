@@ -237,7 +237,7 @@ pub(super) fn endpoint_limits(events: &[TimedInputEvent], index: usize) -> (i64,
 }
 
 pub(super) fn navigate(state: &mut AutoplayEditor, reverse: bool) {
-    if let Some(row) = state.detail_row {
+    if let Some(row) = state.detail_row.filter(|_| state.sensor_detail) {
         let mut ends: Vec<_> = state
             .clip_rows(row)
             .into_iter()
@@ -282,6 +282,9 @@ pub(super) fn navigate(state: &mut AutoplayEditor, reverse: bool) {
         None => 0,
     };
     state.selected_row = Some(clips[index].rows[0]);
+    state.curve_source = None;
+    state.sensor_detail = false;
+    if state.detail_row.is_some() { state.detail_row = state.selected_row; }
     state.selected = None;
     state.selected_pair = None;
     let time = clips[index].start as f32 / 1e6;
@@ -307,7 +310,7 @@ fn finish_gesture(
         if gesture.keyboard {
             let step = measure_to_secs(
                 secs_to_measure(gesture.anchor as f32 / 1e6, &chart.bpms)
-                    + 1.0 / editor.snap_division.max(1) as f32,
+                    + 1.0 / editor.autoplay_snap_division.max(1) as f32,
                 &chart.bpms,
             ) - gesture.anchor as f32 / 1e6;
             i.events.retain(|event| {
@@ -628,19 +631,23 @@ pub(super) fn draw(
                     if response.clicked() || response.drag_started_by(egui::PointerButton::Primary)
                     {
                         state.finish_inspector(editor, &mut app.chart);
-                        state.selected_row = Some(row);
+                        state.select_clip(row, app);
                         if state.detail_row.is_some() || response.double_clicked() {
                             state.detail_row = Some(row);
                         }
                         state.selected = None;
                         state.selected_pair = None;
                         state.draw_mode = false;
-                        if response.clicked() && clip.rows.len() == 1 {
+                        if response.clicked() && clip.rows.len() == 1 && !state.curve_view(row, &app.chart) {
                             let spans = intervals(&state.tracks[row].events);
                             if spans.len() == 1 {
                                 state.selected = Some((row, spans[0].press));
                                 state.selected_pair = spans[0].release;
                             }
+                        }
+                        if response.double_clicked() && state.curve_view(row, &app.chart) {
+                            let source = state.selected_curve_row().unwrap_or(row);
+                            state.edit_curve(editor, app, source, false);
                         }
                     }
                     if response.drag_started_by(egui::PointerButton::Primary) {
@@ -657,7 +664,12 @@ pub(super) fn draw(
                     }
                     if editable && !captured && !state.pointer_dragging() {
                         response.context_menu(|ui| {
+                            if state.curve_candidate(row, &app.chart) && ui.button("Edit curve").clicked() {
+                                state.edit_curve(editor, app, row, false);
+                                ui.close_menu();
+                            }
                             if ui.button("展开传感器").clicked() {
+                                state.sensor_detail = true;
                                 state.selected_row = Some(row);
                                 state.detail_row = Some(row);
                                 state.selected = None;
@@ -666,12 +678,7 @@ pub(super) fn draw(
                                 ui.close_menu();
                             }
                             if !state.tracks[row].key.is_standalone() && ui.button("恢复默认事件").clicked() {
-                                let edits = clip
-                                    .rows
-                                    .iter()
-                                    .map(|&row| (row, state.tracks[row].defaults.clone()))
-                                    .collect();
-                                state.commit_many(editor, &mut app.chart, edits);
+                                state.reset_rows(editor, &mut app.chart, &clip.rows);
                                 ui.close_menu();
                             }
                             if ui.button(if state.tracks[row].key.is_standalone() { "删除片段" } else { "停用片段" }).clicked() {
@@ -712,10 +719,21 @@ pub(super) fn draw(
     if let Some(row) = detail {
         ui.separator();
         ui.horizontal_wrapped(|ui| {
-            ui.label(glyph(Icon::AudioLines, 13.0));
+            ui.label(glyph(if state.curve_view(row, &app.chart) { Icon::Spline } else { Icon::AudioLines }, 13.0));
             ui.add(egui::Label::new(&state.tracks[row].label).truncate());
             ui.add_enabled_ui(editable && !captured && !state.pointer_dragging(), |ui| {
-                drawing_tools(ui, state, editor, app);
+                let has_curve = state.clip_rows(row).iter().any(|&r| state.curve_candidate(r, &app.chart));
+                if has_curve {
+                    if icon(ui, Icon::Spline, "Curve detail", !state.sensor_detail).clicked() {
+                        state.sensor_detail = false; state.selected = None; state.selected_pair = None;
+                    }
+                    if icon(ui, Icon::AudioLines, "Sensor detail", state.sensor_detail).clicked() { state.sensor_detail = true; }
+                    if !state.sensor_detail && icon(ui, Icon::MousePointer2, "Edit curve points (E / Enter)", state.curve_editing()).clicked() {
+                        let row = state.selected_curve_row().unwrap_or(row);
+                        state.edit_curve(editor, app, row, false);
+                    }
+                }
+                if !state.curve_view(row, &app.chart) { drawing_tools(ui, state, editor, app); }
             });
             ui.add_enabled_ui(editable && !captured && !state.pointer_dragging(), |ui| {
                 if icon(ui, Icon::X, "关闭详情", false).clicked() {
@@ -730,6 +748,11 @@ pub(super) fn draw(
             .drag_to_scroll(state.pan_x.is_none())
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                if state.curve_view(row, &app.chart) {
+                    curves::details(ui, state, editor, app, &rows, left, width, &grid, play_x,
+                        editable && !captured && !state.pointer_dragging() && !state.curve_editing());
+                    return;
+                }
                 for row in rows {
                     sensor_rows(
                         ui,

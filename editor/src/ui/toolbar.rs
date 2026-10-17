@@ -330,11 +330,19 @@ fn pane_options(ui: &mut egui::Ui, editor: &mut EditorState, workbench: &mut Wor
 }
 
 pub fn grid_controls(ui: &mut egui::Ui, editor: &mut EditorState) {
-    if icon(ui, Icon::Magnet, "网格吸附", editor.snap_enabled).clicked() {
-        editor.snap_enabled = !editor.snap_enabled;
+    grid(ui, &mut editor.snap_enabled, &mut editor.snap_division);
+}
+
+pub fn autoplay_grid_controls(ui: &mut egui::Ui, editor: &mut EditorState) {
+    grid(ui, &mut editor.autoplay_snap_enabled, &mut editor.autoplay_snap_division);
+}
+
+fn grid(ui: &mut egui::Ui, enabled: &mut bool, division: &mut u32) {
+    if icon(ui, Icon::Magnet, "网格吸附", *enabled).clicked() {
+        *enabled = !*enabled;
     }
     if ui.available_width() >= 55.0 {
-        ui.menu_button(format!("1/{}", editor.snap_division), |ui| draw_subdivision(ui, editor))
+        ui.menu_button(format!("1/{}", division), |ui| subdivision(ui, enabled, division))
             .response.on_hover_text("网格细分");
     }
 }
@@ -415,20 +423,28 @@ fn chart_zoom(ui: &mut egui::Ui, editor: &mut EditorState, now: f32) {
 }
 
 fn draw_subdivision(ui: &mut egui::Ui, editor: &mut EditorState) {
-    ui.checkbox(&mut editor.snap_enabled, "吸附");
+    if editor.workspace == Workspace::Autoplay {
+        subdivision(ui, &mut editor.autoplay_snap_enabled, &mut editor.autoplay_snap_division);
+    } else {
+        subdivision(ui, &mut editor.snap_enabled, &mut editor.snap_division);
+    }
+}
+
+fn subdivision(ui: &mut egui::Ui, enabled: &mut bool, division: &mut u32) {
+    ui.checkbox(enabled, "吸附");
     // Keep nested choices in the same menu tree so closing a parent cannot orphan a popup.
-    ui.menu_button(format!("细分 1/{}", editor.snap_division), |ui| {
+    ui.menu_button(format!("细分 1/{}", division), |ui| {
         ui.horizontal(|ui| {
             ui.label("自定义 1/");
             ui.add(
-                egui::DragValue::new(&mut editor.snap_division)
+                egui::DragValue::new(division)
                     .range(1..=256)
                     .speed(1),
             );
         });
         ui.separator();
-        for division in [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256] {
-            if ui.selectable_value(&mut editor.snap_division, division, format!("1/{division}")).clicked() {
+        for value in [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256] {
+            if ui.selectable_value(division, value, format!("1/{value}")).clicked() {
                 ui.close_menu();
             }
         }

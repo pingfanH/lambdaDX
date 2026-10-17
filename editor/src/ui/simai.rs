@@ -142,7 +142,7 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
         if let Some(error) = &editor.simai_editor.playback.error {
             ui.colored_label(TEXT_DIM, error);
         }
-        ui.add_enabled_ui(enabled && !template, |ui| {
+        crate::ui::style::enabled_ui(ui, enabled && !template, |ui| {
             let height = ui.available_height();
             ScrollArea::both().id_salt("simai-text-scroll").auto_shrink([false, false]).show(ui, |ui| {
                 let width = ui.available_width();
