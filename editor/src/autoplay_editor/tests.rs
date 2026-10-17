@@ -364,6 +364,38 @@ fn workspace_upgrade_curve_motion_and_sensor_bake() {
 }
 
 #[test]
+fn workspace_upgrade_conslide_groups_until_split() {
+    let mut app = player(chart("1-5-8[0.5##2]"));
+    app.pad_svg = Some(
+        crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg"))
+            .unwrap(),
+    );
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    let slide_clips = |state: &AutoplayEditor| {
+        state
+            .clip_layout
+            .clips
+            .iter()
+            .filter(|clip| clip.key.role == 2)
+            .count()
+    };
+    assert_eq!(slide_clips(&state), 1, "a conslide is one element by default");
+    let merged = state
+        .clip_layout
+        .clips
+        .iter()
+        .find(|clip| clip.key.role == 2)
+        .unwrap()
+        .clone();
+    assert!(merged.rows.len() >= 2, "its parts share the element");
+    state.set_slide_split(merged.key.note_id, merged.key.slide, true);
+    assert!(slide_clips(&state) >= 2, "splitting shows one element per segment");
+    state.set_slide_split(merged.key.note_id, merged.key.slide, false);
+    assert_eq!(slide_clips(&state), 1, "merging groups the segments again");
+}
+
+#[test]
 fn workspace_upgrade_conslide_maps_one_segment_per_part() {
     let mut app = player(chart("1-5-8[0.5##2]"));
     app.pad_svg = Some(
@@ -465,11 +497,15 @@ fn workspace_upgrade_elements_stay_separate_and_resize_by_band() {
     editor.autoplay_snap_enabled = false;
     state.sync(&app);
     assert_eq!(
-        state.clip_layout.clips.len(),
-        state.tracks.len(),
-        "every real owner is its own element by default"
+        state.clip_layout.clips.iter().filter(|clip| clip.key.role != 2).count(),
+        state.tracks.iter().filter(|track| track.key.role != 2).count(),
+        "every non-slide owner is its own element by default"
     );
-    assert!(state.clip_layout.clips.iter().all(|clip| clip.rows.len() == 1));
+    assert!(state
+        .clip_layout
+        .clips
+        .iter()
+        .all(|clip| clip.key.role == 2 || clip.rows.len() == 1));
     let row = state
         .tracks
         .iter()
@@ -609,9 +645,23 @@ fn workspace_upgrade_multi_selection_deletes_every_picked_element() {
         .collect();
     assert!(rows.len() >= 2, "conslide segments stay apart");
     state.select_clip(rows[0], &app);
-    assert_eq!(state.selected_elements(), vec![rows[0]], "a plain click picks one element");
-    state.toggle_row(rows[1]);
-    assert_eq!(state.selected_elements(), rows[..2].to_vec());
+    assert_eq!(
+        state.selected_elements(),
+        rows[..2].to_vec(),
+        "a conslide is one element, so both parts are picked"
+    );
+    let head = state
+        .tracks
+        .iter()
+        .position(|track| track.key.role == 1)
+        .expect("slide head");
+    state.toggle_row(head);
+    assert_eq!(state.selected_elements(), {
+        let mut picked = rows[..2].to_vec();
+        picked.push(head);
+        picked.sort_unstable();
+        picked
+    });
     state.delete_elements(&mut editor, &mut app.chart);
     assert!(state.selection.is_empty());
     for row in &rows[..2] {

@@ -294,6 +294,19 @@ impl AutoplayEditor {
         row: usize,
         curve: AutoplayCurve,
     ) -> Result<(), String> {
+        self.store_curve_with(editor, app, row, curve, true)
+    }
+
+    /// `history` lets one gesture over a grouped conslide record a single undo
+    /// step for all of its parts.
+    pub(super) fn store_curve_with(
+        &mut self,
+        editor: &mut EditorState,
+        app: &mut PadPreviewState,
+        row: usize,
+        curve: AutoplayCurve,
+        history: bool,
+    ) -> Result<(), String> {
         let events = match app.pad_svg.as_ref() {
             Some(svg) => curve::bake(&curve, svg)?,
             None => return Err("Pad geometry is not loaded".into()),
@@ -310,7 +323,9 @@ impl AutoplayEditor {
         if app.chart.autoplay_overrides.iter().any(|o| *o == item) {
             return Ok(());
         }
-        editor.push_history(&app.chart);
+        if history {
+            editor.push_history(&app.chart);
+        }
         app.chart.autoplay_overrides.retain(|o| o.key != track.key);
         track.events = item
             .events
@@ -397,6 +412,21 @@ pub(super) fn controls(
                 });
         }
         state.curve_source = row.map(|r| state.tracks[r].key.clone());
+        // A conslide is one element by default; these two commands change the
+        // editing granularity between the whole slide and its single segments.
+        if let Some(row) = row.filter(|&row| state.tracks[row].key.role == 2) {
+            let key = state.tracks[row].key.clone();
+            let split = state.slide_is_split(key.note_id, key.slide);
+            ui.horizontal_wrapped(|ui| {
+                if split {
+                    if ui.button("合并各段").clicked() {
+                        state.set_slide_split(key.note_id, key.slide, false);
+                    }
+                } else if state.clip_rows(row).len() > 1 && ui.button("分离为单段").clicked() {
+                    state.set_slide_split(key.note_id, key.slide, true);
+                }
+            });
+        }
         ui.horizontal_wrapped(|ui| {
             if icon(ui, Icon::PenTool, "New Pad curve", false).clicked() {
                 state.new_curve(editor, app);

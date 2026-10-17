@@ -7,7 +7,7 @@ use lucide_icons::Icon;
 
 #[derive(Debug, Clone)]
 pub(super) struct Clip {
-    key: AutoplayKey,
+    pub key: AutoplayKey,
     pub rows: Vec<usize>,
     start: i64,
     end: i64,
@@ -28,18 +28,39 @@ pub(super) struct LaneOptions<'a> {
     pub slide_new_lane: bool,
     /// Rows the user pinned to a lane with a vertical drag.
     pub pins: &'a HashMap<AutoplayKey, usize>,
+    /// Conslide (note id, slide) pairs the user split into per-segment rows.
+    pub split_slides: &'a [(u64, usize)],
 }
 
 impl ClipLayout {
     /// One clip per real owner by default; `grouped` folds the parts of one
     /// Slide or note back into a single clip.
     pub fn build(tracks: &[Track], minimum: usize, previous: &Self, options: LaneOptions<'_>) -> Self {
-        let LaneOptions { grouped, slide_new_lane, pins } = options;
+        let LaneOptions { grouped, slide_new_lane, pins, split_slides } = options;
         let mut groups = HashMap::new();
+        let mut slide_groups: HashMap<(u64, usize), usize> = HashMap::new();
         let mut clips: Vec<Clip> = Vec::new();
         for (row, track) in tracks.iter().enumerate() {
             let (start, end) = event_span(track);
             if !grouped {
+                // A conslide is one element by default: its judged parts share
+                // one box until the user splits that slide.
+                if track.key.role == 2 {
+                    let pair = (track.key.note_id, track.key.slide);
+                    if !split_slides.contains(&pair) {
+                        let index = *slide_groups.entry(pair).or_insert_with(|| {
+                            let mut key = track.key.clone();
+                            key.segment = 0;
+                            clips.push(Clip { key, rows: Vec::new(), start: i64::MAX, end: i64::MIN });
+                            clips.len() - 1
+                        });
+                        let clip = &mut clips[index];
+                        clip.rows.push(row);
+                        clip.start = clip.start.min(start);
+                        clip.end = clip.end.max(end);
+                        continue;
+                    }
+                }
                 clips.push(Clip {
                     key: track.key.clone(),
                     rows: vec![row],
@@ -853,6 +874,21 @@ pub(super) fn draw(
                                 state.hide_elements(editor, &mut app.chart);
                                 ui.close_menu();
                             }
+                            if clip.key.role == 2 {
+                                if clip.rows.len() > 1 {
+                                    if ui.button("分离为单段").clicked() {
+                                        state.set_slide_split(
+                                            clip.key.note_id,
+                                            clip.key.slide,
+                                            true,
+                                        );
+                                        ui.close_menu();
+                                    }
+                                } else if ui.button("合并该 Slide 各段").clicked() {
+                                    state.set_slide_split(clip.key.note_id, clip.key.slide, false);
+                                    ui.close_menu();
+                                }
+                            }
                             if ui
                                 .button("自动排轨")
                                 .on_hover_text("取消手动指定的轨道")
@@ -1168,8 +1204,11 @@ pub(super) fn finish_band(
     if !edits.is_empty() {
         state.commit_many(editor, &mut app.chart, edits);
     }
+    if !curves.is_empty() {
+        editor.push_history(&app.chart);
+    }
     for (row, curve) in curves {
-        if let Err(error) = state.store_curve(editor, app, row, curve) {
+        if let Err(error) = state.store_curve_with(editor, app, row, curve, false) {
             editor.status = Some(error);
         }
     }

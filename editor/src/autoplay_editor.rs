@@ -39,11 +39,15 @@ pub struct ViewOptions {
     /// Element rows pinned to a lane by a vertical drag.
     #[serde(default)]
     lane_pins: Vec<(AutoplayKey, usize)>,
+    /// Conslides shown as one element by default; these are the ones split
+    /// back into per-segment elements.
+    #[serde(default)]
+    split_slides: Vec<(u64, usize)>,
 }
 impl Default for ViewOptions {
     fn default() -> Self { Self { start: 0.0, pps: crate::timeline::geometry::DEFAULT_PPS,
         follow: true, lanes: DEFAULT_LANES, raw: false, filter: String::new(),
-        slide_new_lane: false, lane_pins: Vec::new() } }
+        slide_new_lane: false, lane_pins: Vec::new(), split_slides: Vec::new() } }
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +142,8 @@ pub struct AutoplayEditor {
     grouped: bool,
     slide_new_lane: bool,
     lane_pins: HashMap<AutoplayKey, usize>,
+    /// (note id, slide index) pairs the user split back into per-segment rows.
+    split_slides: Vec<(u64, usize)>,
     /// Set while an element drag may also choose its lane.
     lane_drag: bool,
     detail_row: Option<usize>,
@@ -191,6 +197,7 @@ impl Default for AutoplayEditor {
             grouped: false,
             slide_new_lane: false,
             lane_pins: HashMap::new(),
+            split_slides: Vec::new(),
             lane_drag: false,
             detail_row: None,
             selected_pair: None,
@@ -209,7 +216,8 @@ impl AutoplayEditor {
         ViewOptions { start: self.view_start, pps: self.pixels_per_second, follow: self.follow,
             lanes: self.lane_count, raw: self.raw_events, filter: self.filter.clone(),
             slide_new_lane: self.slide_new_lane, lane_pins: self.lane_pins.iter()
-                .map(|(key, lane)| (key.clone(), *lane)).collect() }
+                .map(|(key, lane)| (key.clone(), *lane)).collect(),
+            split_slides: self.split_slides.clone() }
     }
 
     pub fn restore_view(&mut self, view: &ViewOptions) {
@@ -221,6 +229,7 @@ impl AutoplayEditor {
         self.filter.clone_from(&view.filter);
         self.slide_new_lane = view.slide_new_lane;
         self.lane_pins = view.lane_pins.iter().cloned().collect();
+        self.split_slides.clone_from(&view.split_slides);
         self.follow_motion.reset();
         self.center_requested = false;
         self.lanes_dirty = true;
@@ -395,7 +404,22 @@ impl AutoplayEditor {
 
     fn lane_options(&self) -> clips::LaneOptions<'_> {
         clips::LaneOptions { grouped: self.grouped, slide_new_lane: self.slide_new_lane,
-            pins: &self.lane_pins }
+            pins: &self.lane_pins, split_slides: &self.split_slides }
+    }
+
+    /// Splits one conslide back into a row per segment (or merges it again).
+    pub(super) fn set_slide_split(&mut self, note_id: u64, slide: usize, split: bool) {
+        let pair = (note_id, slide);
+        let before = self.split_slides.len();
+        self.split_slides.retain(|other| *other != pair);
+        if split { self.split_slides.push(pair); }
+        if self.split_slides.len() == before && !split { return; }
+        self.lanes_dirty = true;
+        self.repack_now();
+    }
+
+    pub(super) fn slide_is_split(&self, note_id: u64, slide: usize) -> bool {
+        self.split_slides.contains(&(note_id, slide))
     }
 
     /// Repack even while a drag is active, so a vertical element drag shows the
