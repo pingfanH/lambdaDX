@@ -604,6 +604,13 @@ impl AutoplayEditor {
         !self.pointer_dragging() && !self.curve_editing() && !self.suppress_pointer
     }
 
+    /// Whether the Pad should act as the autoplay surface: an autoplay element
+    /// is picked for sensor editing, or a curve draft is open. This follows the
+    /// autoplay editor's own state, not the workspace or another pane's option.
+    pub fn pad_active(&self) -> bool {
+        self.selected_row.is_some() || self.curve_editing()
+    }
+
     pub fn pick_zone(&mut self, editor: &mut EditorState, chart: &mut ChartDoc, zone: &str, time: f32) {
         if !self.can_pick_zone() { return; }
         self.finish_inspector(editor, chart);
