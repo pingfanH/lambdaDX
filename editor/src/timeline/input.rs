@@ -630,29 +630,19 @@ fn interact(
         }
     });
 
-    // A double-click on a star head pulls out a new same-head trajectory.
+    // Double-clicking a star head edits that slide; Alt+double-click pulls out a
+    // same-head trajectory instead (E enters the edit from the keyboard).
     // Single head clicks select; middle/double trail clicks edit that trail.
     if response.double_clicked() && editor.tool != Tool::Eraser {
         if let Some(id) =
             nearest_marker(markers, response.interact_pointer_pos().unwrap_or_default())
         {
-            if editor.begin_same_head_placement(chart, id) {
-                return;
-            }
-        }
-    }
-
-    // A middle click (three-finger tap where the system delivers one) on a star
-    // head edits that slide directly; double-click keeps pulling out a
-    // same-head trajectory.
-    if response.middle_clicked() {
-        let pos = response.interact_pointer_pos().unwrap_or_default();
-        if let Some(id) = nearest_marker(markers, pos) {
-            if chart
+            let is_slide = chart
                 .notes
                 .iter()
-                .any(|note| note.id == id && !note.slide.is_empty())
-            {
+                .any(|note| note.id == id && !note.slide.is_empty());
+            let alt = ui.input(|i| i.modifiers.alt);
+            if is_slide && !alt {
                 editor.select_only(id);
                 editor.editing_slide = Some(id);
                 editor.editing_slide_idx = 0;
@@ -661,6 +651,9 @@ fn interact(
                     "Slide edit: click pad/lane zones to add · shape key + 1-8 · Backspace=undo · Esc=exit"
                         .to_string(),
                 );
+                return;
+            }
+            if editor.begin_same_head_placement(chart, id) {
                 return;
             }
         }
