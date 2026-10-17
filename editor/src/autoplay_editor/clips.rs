@@ -563,6 +563,36 @@ pub(super) fn draw(
                     left,
                     pps,
                 );
+                if editable && !captured && !state.pointer_dragging() {
+                    let at = empty
+                        .interact_pointer_pos()
+                        .map(|pos| view + (pos.x - left) / pps);
+                    empty.context_menu(|ui| {
+                        let Some(time) = at else { return };
+                        ui.label(format!("{:.3} s", time));
+                        if ui.button("新建点击").clicked() {
+                            state.new_hold = false;
+                            state.clear_selection();
+                            state.add_at_playhead(editor, &mut app.chart, time);
+                            ui.close_menu();
+                        }
+                        if ui.button("新建长按").clicked() {
+                            state.new_hold = true;
+                            state.clear_selection();
+                            state.add_at_playhead(editor, &mut app.chart, time);
+                            ui.close_menu();
+                        }
+                        if ui.button("新建曲线").clicked() {
+                            state.new_curve_at(editor, app, time);
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button("把播放头移到这里").clicked() {
+                            editor.pending_seek = Some(snap_time(time, editor, &app.chart));
+                            ui.close_menu();
+                        }
+                    });
+                }
                 let visible = if captured {
                     clips.as_slice()
                 } else {
@@ -772,21 +802,37 @@ pub(super) fn draw(
                             }
                         }
                     }
+                    if response.secondary_clicked() && !state.row_selected(row) {
+                        // The menu acts on the element it was opened on.
+                        state.finish_inspector(editor, &mut app.chart);
+                        state.select_clip(row, app);
+                    }
                     if editable && !captured && !state.pointer_dragging() {
                         response.context_menu(|ui| {
                             if state.curve_candidate(row, &app.chart)
-                                && ui.button("Edit curve").clicked()
+                                && ui.button("编辑曲线 (E / 双击)").clicked()
                             {
                                 state.edit_curve(editor, app, row, false);
                                 ui.close_menu();
                             }
-                            if ui.button("展开传感器").clicked() {
-                                state.sensor_detail = true;
+                            if ui
+                                .button(if state.sensor_detail {
+                                    "收起传感器"
+                                } else {
+                                    "展开传感器"
+                                })
+                                .clicked()
+                            {
+                                state.sensor_detail = !state.sensor_detail;
                                 state.selected_row = Some(row);
                                 state.detail_row = Some(row);
                                 state.selected = None;
                                 state.selected_pair = None;
                                 state.draw_mode = false;
+                                ui.close_menu();
+                            }
+                            if ui.button("隐藏所选元素").clicked() {
+                                state.hide_elements(editor, &mut app.chart);
                                 ui.close_menu();
                             }
                             if !state.tracks[row].key.is_standalone()
@@ -795,19 +841,16 @@ pub(super) fn draw(
                                 state.reset_rows(editor, &mut app.chart, &clip.rows);
                                 ui.close_menu();
                             }
+                            ui.separator();
                             if ui
                                 .button(if state.tracks[row].key.is_standalone() {
                                     "删除片段"
                                 } else {
-                                    "停用片段"
+                                    "删除所选元素"
                                 })
                                 .clicked()
                             {
-                                state.commit_many(
-                                    editor,
-                                    &mut app.chart,
-                                    clip.rows.iter().map(|&row| (row, Vec::new())).collect(),
-                                );
+                                state.delete_elements(editor, &mut app.chart);
                                 ui.close_menu();
                             }
                         });

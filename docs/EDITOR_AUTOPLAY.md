@@ -53,6 +53,12 @@ display lane and does not change when groups are repacked.
 - Double-click a curve element or press E / Enter to edit its points and
   handles on Pad. For other elements these commands open the sensor
   expansion. The selection and drawing mode survive that switch.
+- Right-click an element for 编辑曲线, 展开/收起传感器, 隐藏所选元素,
+  恢复默认事件 and 删除. The menu first picks the element it was opened on
+  unless that element is already part of the multi-selection.
+- Right-click empty lane space to create a Click, a Hold or a curve at that
+  time, or to move the playhead there. Menu creations start their own
+  standalone clip instead of appending to whatever was selected.
 - Matching Press/Release events form intervals within the same real owner
   and sensor. Drag the body to move both endpoints; drag an endpoint to
   change only that time. Ordering limits prevent crossing its paired end.
@@ -140,9 +146,11 @@ Clicking Pad without an event selected only sets the new sensor unless
 drawing mode is active. Drawing and Add work without a selected owner;
 they create standalone clips instead of modifying an unrelated note.
 
-Properties also provides seek-to-note-head, sensor detail, owner reset and
-selected-event deletion. Playback settings expose simulated touch, direct
-core and the inner-screen mapping.
+Properties also provides seek-to-note-head, the sensor expansion, owner
+reset, hiding the picked elements (an explicit empty input that keeps a
+restorable span) and deletion, which removes the selected event or interval
+when one is selected and otherwise removes the picked elements. Playback
+settings expose simulated touch, direct core and the inner-screen mapping.
 
 ## Navigation And Preview
 

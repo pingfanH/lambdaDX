@@ -413,7 +413,7 @@ impl AutoplayEditor {
     }
 
     pub fn row_selected(&self, row: usize) -> bool {
-        self.selection.contains(&row)
+        self.selection.contains(&row) || self.selected_row == Some(row)
     }
 
     /// Every real owner behind the current selection, deduplicated and ordered.
@@ -437,6 +437,19 @@ impl AutoplayEditor {
         self.selection.clear();
         self.selected = None;
         self.selected_pair = None;
+    }
+
+    /// Hides the picked elements without dropping the pick, so the same
+    /// element can still be restored or deleted afterwards. A note-owned part
+    /// keeps a dimmed, restorable span; a standalone clip disappears.
+    pub fn hide_elements(&mut self, editor: &mut EditorState, chart: &mut ChartDoc) {
+        let rows = self.selected_elements();
+        if rows.is_empty() { return; }
+        self.commit_many(editor, chart, rows.into_iter().map(|row| (row, Vec::new())).collect());
+        self.selected = None;
+        self.selected_pair = None;
+        self.draw_mode = false;
+        self.detail_row = self.selected_row;
     }
 
     /// The editable curve behind one element: the in-progress band preview,

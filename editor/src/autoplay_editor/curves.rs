@@ -176,6 +176,17 @@ impl AutoplayEditor {
     }
 
     pub(super) fn new_curve(&mut self, editor: &mut EditorState, app: &mut PadPreviewState) {
+        let time = app.timeline_time();
+        self.new_curve_at(editor, app, time);
+    }
+
+    /// A hand-drawn curve whose start is the given time, not the playhead.
+    pub(super) fn new_curve_at(
+        &mut self,
+        editor: &mut EditorState,
+        app: &mut PadPreviewState,
+        time: f32,
+    ) {
         self.finish_inspector(editor, &mut app.chart);
         self.clear_selection();
         self.detail_row = None;
@@ -192,7 +203,7 @@ impl AutoplayEditor {
             row,
             created: true,
             curve: AutoplayCurve {
-                start: snap_time(app.timeline_time(), editor, &app.chart) as f64,
+                start: snap_time(time, editor, &app.chart) as f64,
                 ..Default::default()
             },
             selected: None,

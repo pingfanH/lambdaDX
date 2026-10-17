@@ -110,10 +110,20 @@ pub(super) fn draw(
                 state.finish_inspector(editor, &mut app.chart);
                 state.reset(editor, &mut app.chart, row);
             }
-            crate::ui::style::enabled_ui(ui, state.selected.is_some(), |ui| {
-                if icon(ui, Icon::Trash2, "Delete selected event or interval", false).clicked() {
+            crate::ui::style::enabled_ui(ui,
+                state.selected.is_some() || !state.selection.is_empty(), |ui| {
+                if icon(ui, Icon::EyeOff, "隐藏所选元素", false).clicked() {
                     state.finish_inspector(editor, &mut app.chart);
-                    state.delete(editor, &mut app.chart);
+                    state.hide_elements(editor, &mut app.chart);
+                }
+                if icon(ui, Icon::Trash2, if state.selected.is_some() {
+                    "删除所选事件或区间"
+                } else {
+                    "删除所选元素"
+                }, false).clicked() {
+                    state.finish_inspector(editor, &mut app.chart);
+                    if state.selected.is_some() { state.delete(editor, &mut app.chart); }
+                    else { state.delete_elements(editor, &mut app.chart); }
                 }
             });
         });
