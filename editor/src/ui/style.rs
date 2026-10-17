@@ -212,7 +212,10 @@ pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
     s.separator.width = 3.0;
     s.separator.extra_interact_width = 7.0;
     s.separator.extra = 90.0;
-    s.separator.color_idle = surface(BG_WINDOW);
+    // Opaque on purpose: a translucent gutter takes its brightness from
+    // whatever was painted behind it, which made the gaps between split panes
+    // change shade as focus and content moved.
+    s.separator.color_idle = BG_WINDOW;
     s.separator.color_hovered = ACCENT_BLUE;
     s.separator.color_dragged = ACCENT_BLUE;
     s
