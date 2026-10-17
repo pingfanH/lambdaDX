@@ -90,6 +90,7 @@ fn native_save_retains_precision_ids_speeds_templates_and_recording_metadata() {
     chart.template_instances.push(TemplateInstance {
         instance_id: "instance".into(), template_id: "pattern".into(),
         template_version: 2, anchor_time: 2.1234567,
+        hidden: false,
     });
     let recording = serde_json::json!({
         "created_at_epoch_ms": 123, "source": "keep", "hits": [{"time": 0.2, "lane": 5}],
@@ -218,6 +219,7 @@ fn simai_export_flattens_instances_without_changing_the_native_document() {
     });
     chart.template_instances.push(TemplateInstance {
         instance_id: "instance".into(), template_id: "pattern".into(), template_version: 1, anchor_time: 2.0,
+        hidden: false,
     });
     export_to(&EditorState::default(), &chart, &path).unwrap();
     let reopened = crate::app::chart::load_chart_from_path(&path, None).unwrap();

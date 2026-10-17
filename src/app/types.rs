@@ -945,6 +945,9 @@ pub struct TemplateInstance {
     pub template_version: u32,
     /// Measure position in parent scene where this instance is anchored.
     pub anchor_time: f32,
+    /// Hidden instances keep their placement but contribute no notes.
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 #[cfg(test)]

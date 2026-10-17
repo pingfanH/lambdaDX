@@ -37,6 +37,9 @@ pub fn expand(chart: &ChartDoc) -> ChartDoc {
     let mut result = chart.clone();
     let mut used: HashSet<_> = chart.notes.iter().map(|note| note.id).collect();
     for instance in &chart.template_instances {
+        if instance.hidden {
+            continue;
+        }
         let Some(template) = chart
             .templates
             .iter()
@@ -99,6 +102,7 @@ mod tests {
                 template_id: "t".into(),
                 template_version: 1,
                 anchor_time: 2.0 + i as f32,
+                hidden: false,
             });
         }
         let first = expand(&chart);

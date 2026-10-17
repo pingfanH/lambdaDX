@@ -19,6 +19,10 @@ pub enum Action {
     Exit,
     DeleteDefinition(String),
     DeleteInstance(String),
+    /// Hide or show every instance of one template.
+    SetInstancesHidden(String, bool),
+    /// Hide or show one instance.
+    SetInstanceHidden(String, bool),
     Rename(String, String),
 }
 
@@ -312,6 +316,45 @@ fn execute(
                 .retain(|item| item.key.is_standalone() || !ids.contains(&item.key.note_id));
             editor.selected_instance = None;
         }
+        // Hidden instances keep their placement and their autoplay edits (the
+        // note ids are derived from the instance), they just contribute no
+        // notes until they are shown again.
+        Action::SetInstancesHidden(template_id, hidden) => {
+            if !app
+                .chart
+                .template_instances
+                .iter()
+                .any(|instance| instance.template_id == template_id && instance.hidden != hidden)
+            {
+                return Ok(());
+            }
+            editor.push_history(&app.chart);
+            for instance in &mut app.chart.template_instances {
+                if instance.template_id == template_id {
+                    instance.hidden = hidden;
+                }
+            }
+        }
+        Action::SetInstanceHidden(instance_id, hidden) => {
+            let current = app
+                .chart
+                .template_instances
+                .iter()
+                .find(|instance| instance.instance_id == instance_id)
+                .map(|instance| instance.hidden);
+            if current.is_none() || current == Some(hidden) {
+                return Ok(());
+            }
+            editor.push_history(&app.chart);
+            if let Some(instance) = app
+                .chart
+                .template_instances
+                .iter_mut()
+                .find(|instance| instance.instance_id == instance_id)
+            {
+                instance.hidden = hidden;
+            }
+        }
         Action::Rename(id, name) => {
             let name = name.trim();
             if name.is_empty() {
@@ -357,6 +400,7 @@ fn insert(chart: &mut ChartDoc, id: &str, anchor: f32) -> Result<String, String>
         template_id: id.into(),
         template_version: template.version,
         anchor_time: anchor,
+        hidden: false,
     });
     Ok(instance_id)
 }

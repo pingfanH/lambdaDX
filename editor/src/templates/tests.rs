@@ -103,6 +103,7 @@ fn isolation_uses_definition_or_instance_offset_and_propagates_one_undo_step() {
             template_id: "tpl_1".into(),
             template_version: 1,
             anchor_time: 6.0,
+            hidden: false,
         });
         app.refresh_playback_chart();
         let parent = app.chart.clone();
@@ -216,6 +217,7 @@ fn deleting_instance_prunes_only_its_authored_events_and_is_undoable() {
         template_id: "tpl_1".into(),
         template_version: 1,
         anchor_time: 6.0,
+        hidden: false,
     });
     app.refresh_playback_chart();
     let ids: Vec<_> = app

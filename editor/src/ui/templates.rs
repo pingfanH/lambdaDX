@@ -108,6 +108,34 @@ impl TemplateUi {
                                 if response.clicked() {
                                     editor.selected_template = Some(template.id.clone());
                                 }
+                                response.context_menu(|ui| {
+                                    if ui.button("实例化到主场景").clicked() {
+                                        editor.template_action =
+                                            Some(Action::Insert(template.id.clone()));
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("隐藏实例").clicked() {
+                                        editor.template_action = Some(Action::SetInstancesHidden(
+                                            template.id.clone(),
+                                            true,
+                                        ));
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("显示实例").clicked() {
+                                        editor.template_action = Some(Action::SetInstancesHidden(
+                                            template.id.clone(),
+                                            false,
+                                        ));
+                                        ui.close_menu();
+                                    }
+                                    ui.separator();
+                                    if ui.button("删除模板及实例").clicked() {
+                                        editor.template_action = Some(Action::DeleteDefinition(
+                                            template.id.clone(),
+                                        ));
+                                        ui.close_menu();
+                                    }
+                                });
                                 if response.double_clicked() && !isolated {
                                     editor.template_action =
                                         Some(Action::EnterDefinition(template.id.clone()));
@@ -198,7 +226,11 @@ impl TemplateUi {
                                     .find(|t| t.id == instance.template_id)
                                     .map(|t| t.name.as_str())
                                     .unwrap_or("?");
-                                let label = format!("{}  ·  {:.3}", name, instance.anchor_time);
+                                let label = if instance.hidden {
+                                    format!("{}  ·  {:.3}  · 已隐藏", name, instance.anchor_time)
+                                } else {
+                                    format!("{}  ·  {:.3}", name, instance.anchor_time)
+                                };
                                 crate::ui::style::enabled_ui(ui, !isolated, |ui| {
                                     let response = ui.selectable_label(
                                         editor.selected_instance.as_ref()
@@ -224,6 +256,22 @@ impl TemplateUi {
                                             editor.template_action = Some(Action::EnterInstance(
                                                 instance.instance_id.clone(),
                                             ));
+                                            ui.close_menu();
+                                        }
+                                        if ui
+                                            .button(if instance.hidden {
+                                                "显示实例"
+                                            } else {
+                                                "隐藏实例"
+                                            })
+                                            .clicked()
+                                        {
+                                            editor.template_action = Some(
+                                                Action::SetInstanceHidden(
+                                                    instance.instance_id.clone(),
+                                                    !instance.hidden,
+                                                ),
+                                            );
                                             ui.close_menu();
                                         }
                                         if ui.button("删除实例").clicked() {
