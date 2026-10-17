@@ -237,8 +237,11 @@ fn preprocess_tactic_frame_with_holds(
     due: impl IntoIterator<Item = TimedInputEvent>,
 ) -> Vec<TimedInputEvent> {
     let due: Vec<_> = due.into_iter().collect();
-    let has_due = !due.is_empty();
     let mut events = Vec::new();
+    // A synthesized click holds for exactly one frame. Lift the previous
+    // frame's areas before this frame's events: gating this on an empty frame
+    // leaves the sensor stuck down whenever the tactic fills every frame.
+    events.extend(release_click_holds(click_held, now));
     for event in due {
         match event {
             TimedInputEvent::SensorClick { tp, area } => {
@@ -299,9 +302,6 @@ fn preprocess_tactic_frame_with_holds(
             }
             _ => events.push(event),
         }
-    }
-    if !has_due {
-        events.extend(release_click_holds(click_held, now));
     }
     events
 }
@@ -454,6 +454,177 @@ mod tests {
         assert!(pad.autoplay_direct_held.is_empty());
     }
 
+    /// The core's own plan is a perfect replay, so the editor must hand it
+    /// over without dropping inputs at any frame rate or after a mid-play seek.
+    #[cfg(feature = "backend-lean")]
+    #[test]
+    fn plan_replay_keeps_every_note_at_any_frame_rate_and_after_a_seek() {
+        let text =
+            "&inote_1=(120){4}1,2,3,4,5,6,7,8,1/2,3/4,1-5[4:1],2-6[4:1],3/4h[4:1],E";
+        for direct in [false, true] {
+            for fps in [8.0_f32, 15.0, 30.0, 60.0, 144.0] {
+                for seek_at in [None, Some(0.75_f32)] {
+                let chart = crate::app::maidata::from_maidata(text, None).unwrap();
+                let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+                pad.load_engine(text, 1).unwrap();
+                pad.mode = Mode::Playing;
+                pad.forced_time = Some(0.0);
+                set_on(&mut pad, true);
+                set_direct_core(&mut pad, direct);
+                let duration = pad.song_duration().max(1.0);
+                let frames = (duration * fps).ceil() as usize + 2;
+                let mut seeked = false;
+                for frame in 0..frames {
+                    let t = (frame as f32 / fps).min(duration);
+                    pad.forced_time = Some(t);
+                    if let Some(at) = seek_at.filter(|_| !seeked && t >= seek_at.unwrap()) {
+                        seeked = true;
+                        pad.try_seek_to(at).unwrap();
+                    }
+                    tick(&mut pad);
+                    crate::player::engine::step_judge_engine(&mut pad);
+                }
+                let score = pad.core_score.as_ref().unwrap();
+                assert_eq!(
+                    score.lost_base, 0,
+                    "direct={direct} fps={fps} seek={seek_at:?}: lost {}/{} base notes",
+                    score.lost_base, score.total_base
+                );
+                }
+            }
+        }
+    }
+
+    /// A dense tactic has events in every frame; a synthesized click still has
+    /// to lift on the next frame or the sensor stays pressed and the next note
+    /// on that area is missed.
+    #[test]
+    fn click_hold_lifts_on_the_next_frame_even_when_it_carries_events() {
+        let mut click_held = Vec::new();
+        let mut explicit_held = Vec::new();
+        let first = preprocess_tactic_frame_with_holds(
+            &mut click_held,
+            &mut explicit_held,
+            100,
+            [TimedInputEvent::SensorClick {
+                tp: 100,
+                area: SensorArea::A1,
+            }],
+        );
+        assert!(first.iter().any(|event| matches!(
+            event,
+            TimedInputEvent::SensorHold {
+                area: SensorArea::A1,
+                is_down: true,
+                ..
+            }
+        )));
+        let next = preprocess_tactic_frame_with_holds(
+            &mut click_held,
+            &mut explicit_held,
+            120,
+            [TimedInputEvent::SensorClick {
+                tp: 120,
+                area: SensorArea::A2,
+            }],
+        );
+        assert!(
+            next.iter().any(|event| matches!(
+                event,
+                TimedInputEvent::SensorHold {
+                    area: SensorArea::A1,
+                    is_down: false,
+                    ..
+                }
+            )),
+            "A1 must not stay stuck down: {next:?}"
+        );
+        assert_eq!(click_held, vec![SensorArea::A2]);
+    }
+
+    /// The same bug end to end: a stream fast enough to fill every frame in
+    /// touch mode used to leave sensors held, which the core judges as misses.
+    #[cfg(feature = "backend-lean")]
+    #[test]
+    fn plan_replay_matrix_stays_perfect() {
+        use crate::core::types::JudgeGrade;
+        let charts = [
+            ("taps", "1,2,3,4,5,6,7,8,1/2,3/4"),
+            ("dense", "{16}1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2"),
+            ("holds", "1h[4:1],2h[4:1],3/4h[4:1]"),
+            ("slides", "1-5[4:1],2-6[4:1],3-7[4:1],4-8[4:1]"),
+            ("conslide", "1-5-8[4:2]*-7[4:1],8-4-1[4:2]*-2[4:1]"),
+            ("mixed", "1,1-5[4:1],2h[4:1],3/4,1-5-8[4:2]*-7[4:1],5,{32}1,2,3,4"),
+        ];
+        let mut failures = Vec::new();
+        for (name, body) in charts {
+            let text = format!("&inote_1=(150){{4}}{body},E");
+            for direct in [false, true] {
+                for fps in [15.0_f32, 20.0, 30.0, 45.0, 60.0, 144.0] {
+                    let chart = crate::app::maidata::from_maidata(&text, None).unwrap();
+                    let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+                    pad.load_engine(&text, 1).unwrap();
+                    pad.mode = Mode::Playing;
+                    pad.forced_time = Some(0.0);
+                    set_on(&mut pad, true);
+                    set_direct_core(&mut pad, direct);
+                    let duration = pad.song_duration().max(1.0);
+                    let step = 1.0 / fps;
+                    let mut t = 0.0_f32;
+                    let mut index = 0usize;
+                    while t < duration {
+                        // A hitch every seventh frame keeps the timing irregular.
+                        let frame = if index % 7 == 3 { step * 3.0 } else { step };
+                        pad.forced_time = Some(t);
+                        tick(&mut pad);
+                        crate::player::engine::step_judge_engine(&mut pad);
+                        t += frame;
+                        index += 1;
+                    }
+                    pad.forced_time = Some(duration);
+                    tick(&mut pad);
+                    crate::player::engine::step_judge_engine(&mut pad);
+                    let score = pad.core_score.as_ref().unwrap();
+                    let misses = score.counts.grade_count(JudgeGrade::Miss);
+                    let lost_extra = score.lost_extra + score.lost_classic_extra;
+                    if score.lost_base != 0 || lost_extra != 0 || misses != 0 {
+                        failures.push(format!(
+                            "{name} direct={direct} fps={fps}: lost={}/{}+{} misses={misses}",
+                            score.lost_base, score.total_base, lost_extra
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    #[cfg(feature = "backend-lean")]
+    #[test]
+    fn dense_tap_stream_survives_touch_simulation() {
+        let text = format!("&inote_1=(400){{16}}{}E", "1,2,1,2,".repeat(16));
+        let chart = crate::app::maidata::from_maidata(&text, None).unwrap();
+        let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        pad.load_engine(&text, 1).unwrap();
+        pad.mode = Mode::Playing;
+        pad.forced_time = Some(0.0);
+        set_on(&mut pad, true);
+        set_direct_core(&mut pad, false);
+        let fps = 30.0_f32;
+        let duration = pad.song_duration().max(1.0);
+        for frame in 0..((duration * fps).ceil() as usize + 2) {
+            pad.forced_time = Some((frame as f32 / fps).min(duration));
+            tick(&mut pad);
+            crate::player::engine::step_judge_engine(&mut pad);
+        }
+        let score = pad.core_score.as_ref().unwrap();
+        assert_eq!(
+            score.lost_base, 0,
+            "touch simulation lost {}/{} base notes",
+            score.lost_base, score.total_base
+        );
+    }
+
     #[test]
     fn sensor_click_holds_a_sensor_for_one_frame() {
         let mut held = Vec::new();
@@ -604,8 +775,10 @@ mod tests {
         assert_eq!(
             next,
             vec![
+                // The lift belongs to the frame it happens in, not to the new
+                // click's timestamp; the core sorts by time either way.
                 TimedInputEvent::SensorHold {
-                    tp: 140,
+                    tp: 150,
                     area: SensorArea::A1,
                     is_down: false,
                 },

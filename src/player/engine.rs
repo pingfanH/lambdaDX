@@ -845,8 +845,14 @@ pub(crate) fn step_engine_events(
     } else if force_batch() {
         false
     } else {
-        let span = timed_input_tp(events.last().unwrap()) - timed_input_tp(&events[0]);
+        let oldest = timed_input_tp(&events[0]);
+        let span = timed_input_tp(events.last().unwrap()) - oldest;
+        // Batch only what belongs to the current frame. A frame that carried no
+        // events for longer than that (a hitch) must still judge each event at
+        // its own time: stepping the batch at `now` would judge it late, which
+        // costs score for a short hitch and misses the note for a long one.
         span > FRAME_INPUT_BATCH_SPAN_US
+            || (now.max(0.0) * 1e6) as i64 - oldest > FRAME_INPUT_BATCH_SPAN_US
     };
     if !per_event {
         return vec![engine.step(now, events)];

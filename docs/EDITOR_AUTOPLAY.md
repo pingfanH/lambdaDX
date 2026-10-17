@@ -226,6 +226,10 @@ shows commands for the active workspace.
 
 The inspector offers simulated-touch and direct-core playback. Both use the
 authored event sequence, including restoration of active inputs after seek.
+Due events keep their own timestamps even when the frame that carries them is
+late, so a frame hitch neither pushes an autoplay hit into a late judgment nor
+misses the note. A synthesized touch also lifts on the next frame rather than
+waiting for a frame without events.
 Confirmed changes rebuild the core in the background; event editing is
 temporarily disabled until the matching core is ready. Timeline browsing,
 zooming and ruler seeking remain available during that synchronization.
