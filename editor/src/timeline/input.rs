@@ -423,6 +423,16 @@ fn interact(
         editor.drag_grab = None;
         editor.drag_multi_orig.clear();
         editor.drag_orig_notes.clear();
+        // Template-instance notes are derived: grabbing one cannot move
+        // anything, and starting a drag on it only showed a drag state that
+        // vanished on release.
+        if editor
+            .dragging
+            .is_some_and(|id| chart.notes.iter().any(|n| n.id == id && n.template_source.is_some()))
+        {
+            editor.dragging = None;
+            editor.pointer_press = None;
+        }
         if let Some(id) = editor.dragging {
             // Grabbing a note that is already part of a multi-selection keeps
             // that selection and moves the whole group (matching the original
