@@ -33,10 +33,17 @@ pub struct ViewOptions {
     lanes: usize,
     raw: bool,
     filter: String,
+    /// Slides start on the second lane even when nothing blocks them.
+    #[serde(default)]
+    slide_new_lane: bool,
+    /// Element rows pinned to a lane by a vertical drag.
+    #[serde(default)]
+    lane_pins: Vec<(AutoplayKey, usize)>,
 }
 impl Default for ViewOptions {
     fn default() -> Self { Self { start: 0.0, pps: crate::timeline::geometry::DEFAULT_PPS,
-        follow: true, lanes: DEFAULT_LANES, raw: false, filter: String::new() } }
+        follow: true, lanes: DEFAULT_LANES, raw: false, filter: String::new(),
+        slide_new_lane: false, lane_pins: Vec::new() } }
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +136,10 @@ pub struct AutoplayEditor {
     band_drag: Option<clips::Band>,
     marquee: Option<(f32, f32)>,
     grouped: bool,
+    slide_new_lane: bool,
+    lane_pins: HashMap<AutoplayKey, usize>,
+    /// Set while an element drag may also choose its lane.
+    lane_drag: bool,
     detail_row: Option<usize>,
     selected_pair: Option<usize>,
     fit_requested: Option<(f32, f32)>,
@@ -178,6 +189,9 @@ impl Default for AutoplayEditor {
             band_drag: None,
             marquee: None,
             grouped: false,
+            slide_new_lane: false,
+            lane_pins: HashMap::new(),
+            lane_drag: false,
             detail_row: None,
             selected_pair: None,
             fit_requested: None,
@@ -193,7 +207,9 @@ impl Default for AutoplayEditor {
 impl AutoplayEditor {
     pub fn view_options(&self) -> ViewOptions {
         ViewOptions { start: self.view_start, pps: self.pixels_per_second, follow: self.follow,
-            lanes: self.lane_count, raw: self.raw_events, filter: self.filter.clone() }
+            lanes: self.lane_count, raw: self.raw_events, filter: self.filter.clone(),
+            slide_new_lane: self.slide_new_lane, lane_pins: self.lane_pins.iter()
+                .map(|(key, lane)| (key.clone(), *lane)).collect() }
     }
 
     pub fn restore_view(&mut self, view: &ViewOptions) {
@@ -203,6 +219,8 @@ impl AutoplayEditor {
         self.lane_count = view.lanes.clamp(1, 32);
         self.raw_events = view.raw;
         self.filter.clone_from(&view.filter);
+        self.slide_new_lane = view.slide_new_lane;
+        self.lane_pins = view.lane_pins.iter().cloned().collect();
         self.follow_motion.reset();
         self.center_requested = false;
         self.lanes_dirty = true;
@@ -369,10 +387,48 @@ impl AutoplayEditor {
     fn repack(&mut self) {
         if self.lanes_dirty && !self.dragging() {
             self.lanes = pack_lanes(&self.tracks, self.lane_count);
-            self.clip_layout = Arc::new(clips::ClipLayout::build(&self.tracks, self.lane_count, &self.clip_layout, self.grouped));
+            self.clip_layout = Arc::new(clips::ClipLayout::build(&self.tracks, self.lane_count, &self.clip_layout, self.lane_options()));
             self.lanes_dirty = false;
             self.layout_pps = 0.0;
         }
+    }
+
+    fn lane_options(&self) -> clips::LaneOptions<'_> {
+        clips::LaneOptions { grouped: self.grouped, slide_new_lane: self.slide_new_lane,
+            pins: &self.lane_pins }
+    }
+
+    /// Repack even while a drag is active, so a vertical element drag shows the
+    /// new lane immediately instead of after the release.
+    fn repack_now(&mut self) {
+        if !self.lanes_dirty { return; }
+        self.lanes = pack_lanes(&self.tracks, self.lane_count);
+        self.clip_layout = Arc::new(clips::ClipLayout::build(&self.tracks, self.lane_count, &self.clip_layout, self.lane_options()));
+        self.lanes_dirty = false;
+        self.layout_pps = 0.0;
+    }
+
+    /// Pins one element to a lane (a vertical drag).
+    pub(super) fn pin_lane(&mut self, row: usize, lane: usize) {
+        let Some(key) = self.tracks.get(row).map(|track| track.key.clone()) else { return; };
+        if self.lane_pins.get(&key) == Some(&lane) { return; }
+        self.lane_pins.insert(key, lane);
+        self.lanes_dirty = true;
+        self.repack_now();
+    }
+
+    /// Returns the picked elements to automatic lane placement.
+    pub(super) fn clear_lane_pins(&mut self) {
+        for row in self.selected_elements() {
+            if let Some(key) = self.tracks.get(row).map(|track| track.key.clone()) {
+                self.lane_pins.remove(&key);
+            }
+        }
+        // The packer keeps elements on their previous lane, so drop that memory
+        // as well: otherwise a freed element stays where it was pinned.
+        self.clip_layout = Default::default();
+        self.lanes_dirty = true;
+        self.repack_now();
     }
 
     fn layout_events(&mut self, pps: f32) {
@@ -1097,6 +1153,12 @@ pub fn header(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPreviewS
         {
             state.lanes_dirty = true;
             state.selected = None;
+        }
+        if ui.checkbox(&mut state.slide_new_lane, "Slide 从第二行开始")
+            .on_hover_text("即使没有被挡住,Slide 也从第二行轨道开始")
+            .changed()
+        {
+            state.lanes_dirty = true;
         }
         ui.add(egui::TextEdit::singleline(&mut state.filter).desired_width(120.0).hint_text("Note ID"));
         ui.horizontal(|ui| {

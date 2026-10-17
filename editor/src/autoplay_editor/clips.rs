@@ -16,13 +16,25 @@ pub(super) struct Clip {
 #[derive(Debug, Clone, Default)]
 pub(super) struct ClipLayout {
     pub clips: Vec<Clip>,
-    lanes: Vec<Vec<usize>>,
+    pub lanes: Vec<Vec<usize>>,
+}
+
+/// How the pane's view settings place elements on lanes.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct LaneOptions<'a> {
+    /// Fold the parts of one Slide or note back into a single clip.
+    pub grouped: bool,
+    /// Start Slide bodies on the second lane even when nothing blocks them.
+    pub slide_new_lane: bool,
+    /// Rows the user pinned to a lane with a vertical drag.
+    pub pins: &'a HashMap<AutoplayKey, usize>,
 }
 
 impl ClipLayout {
     /// One clip per real owner by default; `grouped` folds the parts of one
     /// Slide or note back into a single clip.
-    pub fn build(tracks: &[Track], minimum: usize, previous: &Self, grouped: bool) -> Self {
+    pub fn build(tracks: &[Track], minimum: usize, previous: &Self, options: LaneOptions<'_>) -> Self {
+        let LaneOptions { grouped, slide_new_lane, pins } = options;
         let mut groups = HashMap::new();
         let mut clips: Vec<Clip> = Vec::new();
         for (row, track) in tracks.iter().enumerate() {
@@ -71,12 +83,30 @@ impl ClipLayout {
             .collect();
         let mut lanes = vec![Vec::new(); minimum.max(1).max(previous.lanes.len())];
         let mut ends = vec![i64::MIN; lanes.len()];
-        for (index, clip) in clips.iter().enumerate() {
-            let lane = preferred
+        // Everything that is not a Slide body is placed first, so a Slide that
+        // shares time with a tap ends up on the lower lane.
+        let mut order: Vec<usize> = (0..clips.len()).collect();
+        order.sort_by_key(|&index| {
+            (
+                clips[index].key.role == 2,
+                clips[index].start,
+                clips[index].rows.first().copied().unwrap_or(0),
+            )
+        });
+        for index in order {
+            let clip = &clips[index];
+            let first = usize::from(slide_new_lane && clip.key.role == 2).min(ends.len() - 1);
+            let lane = pins
                 .get(&clip.key)
                 .copied()
-                .filter(|&lane| ends[lane] < clip.start)
-                .or_else(|| ends.iter().position(|end| *end < clip.start))
+                .filter(|&lane| lane < ends.len() && ends[lane] < clip.start)
+                .or_else(|| {
+                    preferred
+                        .get(&clip.key)
+                        .copied()
+                        .filter(|&lane| lane >= first && ends[lane] < clip.start)
+                })
+                .or_else(|| (first..ends.len()).find(|&lane| ends[lane] < clip.start))
                 .unwrap_or_else(|| {
                     lanes.push(Vec::new());
                     ends.push(i64::MIN);
@@ -318,6 +348,7 @@ fn finish_gesture(
     let Some(mut gesture) = state.clip_drag.take() else {
         return;
     };
+    state.lane_drag = false;
     let mut confirm = false;
     ui.input_mut(|i| {
         if gesture.keyboard {
@@ -430,7 +461,7 @@ fn begin_drawing(
             &state.tracks,
             state.lane_count,
             &state.clip_layout,
-            state.grouped,
+            state.lane_options(),
         ));
     }
 }
@@ -600,6 +631,18 @@ pub(super) fn draw(
                     let last = clips.partition_point(|&i| layout.clips[i].start <= visible_end);
                     &clips[first..last]
                 };
+                // A vertical element drag picks the lane under the pointer.
+                if state.lane_drag {
+                    if let (Some(row), Some(pos)) = (
+                        state.clip_drag.as_ref().and_then(|drag| drag.row),
+                        ui.input(|i| i.pointer.latest_pos()),
+                    ) {
+                        if rect.contains(pos) {
+                            state.pin_lane(row, lane);
+                        }
+                    }
+                }
+                let mut grips = Vec::new();
                 for &index in visible {
                     let clip = &layout.clips[index];
                     let row = clip.rows[0];
@@ -630,10 +673,21 @@ pub(super) fn draw(
                     };
                     let curve = state.element_curve(row, app);
                     let (start, end) = state.element_span(row, app);
+                    // A Slide sharing its time with a tap drops a little, so
+                    // both boxes stay readable and their edges stay reachable.
+                    let (start_us, end_us) = ((start as f64 * 1e6) as i64, (end as f64 * 1e6) as i64);
+                    let lowered = curve.is_some()
+                        && clips.iter().any(|&other| {
+                            other != index
+                                && layout.clips[other].key.role != 2
+                                && layout.clips[other].end > start_us
+                                && layout.clips[other].start < end_us
+                        });
                     let x1 = left + (start - view) * pps;
                     let x2 = left + (end - view) * pps;
+                    let top = rect.top() + 4.0 + if lowered { SLIDE_ROW_OFFSET } else { 0.0 };
                     let bounds = Rect::from_min_max(
-                        Pos2::new(x1 - 3.0, rect.top() + 4.0),
+                        Pos2::new(x1 - 3.0, top),
                         Pos2::new((x2 + 3.0).max(x1 + 14.0), rect.bottom() - 4.0),
                     );
                     if !bounds.intersects(plot) {
@@ -735,6 +789,7 @@ pub(super) fn draw(
                         state.draw_mode = false;
                         let origin =
                             response.interact_pointer_pos().unwrap().x - response.drag_delta().x;
+                        state.lane_drag = true;
                         begin(state, targets, origin, false, false, (i64::MIN, i64::MAX));
                     } else if response.clicked() {
                         let additive = ui.input(|i| i.modifiers.shift || i.modifiers.command);
@@ -764,44 +819,7 @@ pub(super) fn draw(
                     }
                     // Resizing: the left grip shifts the element, the right one
                     // changes how long it lasts.
-                    if editable && !captured && !state.pointer_dragging() {
-                        for (edge, grip_x) in [
-                            (BandEdge::Start, bounds.left()),
-                            (BandEdge::End, bounds.right()),
-                        ] {
-                            let grip = Rect::from_min_max(
-                                Pos2::new(grip_x - 4.0, bounds.top()),
-                                Pos2::new(grip_x + 4.0, bounds.bottom()),
-                            );
-                            let response = ui
-                                .interact(
-                                    grip.intersect(plot).intersect(ui.clip_rect()),
-                                    ui.id().with(("band_grip", row, edge == BandEdge::End)),
-                                    Sense::click_and_drag(),
-                                )
-                                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
-                                .on_hover_text(if edge == BandEdge::Start {
-                                    "拖动起点"
-                                } else {
-                                    "拖动时长"
-                                });
-                            if response.drag_started_by(egui::PointerButton::Primary) {
-                                let origin = ui
-                                    .input(|i| i.pointer.press_origin())
-                                    .or(response.interact_pointer_pos())
-                                    .map_or(grip_x, |p| p.x);
-                                begin_band(
-                                    state,
-                                    editor,
-                                    app,
-                                    row,
-                                    edge,
-                                    origin,
-                                    view + (origin - left) / pps,
-                                );
-                            }
-                        }
-                    }
+                    grips.push((row, bounds));
                     if response.secondary_clicked() && !state.row_selected(row) {
                         // The menu acts on the element it was opened on.
                         state.finish_inspector(editor, &mut app.chart);
@@ -833,6 +851,14 @@ pub(super) fn draw(
                             }
                             if ui.button("隐藏所选元素").clicked() {
                                 state.hide_elements(editor, &mut app.chart);
+                                ui.close_menu();
+                            }
+                            if ui
+                                .button("自动排轨")
+                                .on_hover_text("取消手动指定的轨道")
+                                .clicked()
+                            {
+                                state.clear_lane_pins();
                                 ui.close_menu();
                             }
                             if !state.tracks[row].key.is_standalone()
@@ -878,6 +904,49 @@ pub(super) fn draw(
                     plot.y_range(),
                     Stroke::new(1.5_f32, crate::theme::ACCENT_RED),
                 );
+                // Grips are registered after every box in this lane, so an
+                // element that sits next to another cannot swallow its edge
+                // drag with its own box hit area.
+                if editable && !captured && !state.pointer_dragging() {
+                    for (row, bounds) in grips {
+                        for (edge, grip_x) in [
+                            (BandEdge::Start, bounds.left()),
+                            (BandEdge::End, bounds.right()),
+                        ] {
+                            let grip = Rect::from_min_max(
+                                Pos2::new(grip_x - 4.0, bounds.top()),
+                                Pos2::new(grip_x + 4.0, bounds.bottom()),
+                            );
+                            let response = ui
+                                .interact(
+                                    grip.intersect(plot).intersect(ui.clip_rect()),
+                                    ui.id().with(("band_grip", row, edge == BandEdge::End)),
+                                    Sense::click_and_drag(),
+                                )
+                                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
+                                .on_hover_text(if edge == BandEdge::Start {
+                                    "拖动起点"
+                                } else {
+                                    "拖动时长"
+                                });
+                            if response.drag_started_by(egui::PointerButton::Primary) {
+                                let origin = ui
+                                    .input(|i| i.pointer.press_origin())
+                                    .or(response.interact_pointer_pos())
+                                    .map_or(grip_x, |p| p.x);
+                                begin_band(
+                                    state,
+                                    editor,
+                                    app,
+                                    row,
+                                    edge,
+                                    origin,
+                                    view + (origin - left) / pps,
+                                );
+                            }
+                        }
+                    }
+                }
                 // An explicit sensor expansion stays in this lane instead of
                 // opening a separate view under the timeline.
                 let expand = clips
@@ -911,6 +980,9 @@ pub(super) fn draw(
 
 /// Height of one element row in the overview.
 const ELEMENT_ROW: f32 = 48.0;
+
+/// How far a Slide drops inside its lane when it shares time with a tap.
+const SLIDE_ROW_OFFSET: f32 = 6.0;
 
 /// Which end of an element box is being dragged: the left end moves the whole
 /// element, the right end changes how long it lasts.

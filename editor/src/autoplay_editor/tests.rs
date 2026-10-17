@@ -514,6 +514,50 @@ fn workspace_upgrade_curve_element_follows_a_live_drag() {
 }
 
 #[test]
+fn workspace_upgrade_slide_lanes_follow_taps_and_view_options() {
+    let lane_of = |state: &AutoplayEditor, row: usize| {
+        state
+            .clip_layout
+            .lanes
+            .iter()
+            .position(|lane| {
+                lane.iter()
+                    .any(|&index| state.clip_layout.clips[index].rows.contains(&row))
+            })
+            .expect("every element has a lane")
+    };
+    // The tap sits inside the slide's travel, so their boxes really overlap.
+    let app = player(chart("1-5[4:2],2"));
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    let tap = state
+        .tracks
+        .iter()
+        .position(|track| track.key.role == 0)
+        .expect("tap");
+    let slide = state
+        .tracks
+        .iter()
+        .position(|track| track.key.role == 2)
+        .expect("slide body");
+    assert!(
+        lane_of(&state, tap) < lane_of(&state, slide),
+        "a Slide sharing time with a tap must stay on the lower lane"
+    );
+    state.slide_new_lane = true;
+    state.lanes_dirty = true;
+    state.repack();
+    assert!(lane_of(&state, slide) >= 1, "the option lifts every slide");
+    let auto = lane_of(&state, slide);
+    state.pin_lane(slide, 2);
+    assert_eq!(lane_of(&state, slide), 2, "a vertical drag pins the lane");
+    state.slide_new_lane = false;
+    state.selected_row = Some(slide);
+    state.clear_lane_pins();
+    assert_eq!(lane_of(&state, slide), auto, "auto placement takes the pin back");
+}
+
+#[test]
 fn workspace_upgrade_multi_selection_deletes_every_picked_element() {
     let mut app = player(chart("1-5-8[0.5##2]"));
     let mut state = AutoplayEditor::default();
