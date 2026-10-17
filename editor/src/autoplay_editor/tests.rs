@@ -364,6 +364,43 @@ fn workspace_upgrade_curve_motion_and_sensor_bake() {
 }
 
 #[test]
+fn workspace_upgrade_conslide_maps_one_segment_per_part() {
+    let mut app = player(chart("1-5-8[0.5##2]"));
+    app.pad_svg = Some(
+        crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg"))
+            .unwrap(),
+    );
+    let mut state = AutoplayEditor::default();
+    state.sync(&app);
+    let rows: Vec<_> = state
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| track.key.role == 2)
+        .map(|(row, _)| row)
+        .collect();
+    assert!(rows.len() >= 2, "a conslide has one part per segment");
+    let mut curves: Vec<_> = rows
+        .iter()
+        .map(|&row| {
+            let curve = curve::from_slide(&state.tracks[row].key, &app).unwrap();
+            (state.tracks[row].key.segment, curve)
+        })
+        .collect();
+    curves.sort_by_key(|(segment, _)| *segment);
+    assert_ne!(
+        curves[0].1.points, curves[1].1.points,
+        "each part must draw only its own segment"
+    );
+    let joint = Pos2::from(*curves[0].1.points.last().unwrap());
+    let start = Pos2::from(curves[1].1.points[0]);
+    assert!(
+        joint.distance(start) < 0.01,
+        "consecutive segments meet at the joint: {joint:?} vs {start:?}"
+    );
+}
+
+#[test]
 fn workspace_upgrade_new_curve_ignores_the_selected_clip() {
     let mut app = player(chart("1-5-8[0.5##2]"));
     app.pad_svg = Some(

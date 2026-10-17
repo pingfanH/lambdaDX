@@ -411,26 +411,29 @@ pub(super) fn from_slide(
     let svg = app.pad_svg.as_ref().ok_or("Pad geometry is not loaded")?;
     let engine = app.judge_engine.as_ref().ok_or("Core is updating")?;
     let spec = engine.chart_spec()?;
-    let runtime = spec
-        .slides
-        .iter()
-        .enumerate()
-        .find(|(i, _)| {
-            engine
-                .slide_position(chart, *i)
-                .is_some_and(|(id, s, part, _)| {
-                    id == key.note_id && s == key.slide && part == key.segment
-                })
-        })
-        .map(|(_, slide)| slide)
-        .ok_or("Slide timing is not ready")?;
+    // The core reports one runtime slide per judged part. Counting them tells
+    // us whether this owner is a piece of a conslide, which decides if the
+    // curve is built from one segment or from the whole chain.
+    let mut parts = 0usize;
+    let mut runtime = None;
+    for (index, candidate) in spec.slides.iter().enumerate() {
+        if let Some((id, slide_index, part, _)) = engine.slide_position(chart, index) {
+            if id == key.note_id && slide_index == key.slide {
+                parts = parts.max(part + 1);
+                if part == key.segment {
+                    runtime = Some(candidate);
+                }
+            }
+        }
+    }
+    let runtime = runtime.ok_or("Slide timing is not ready")?;
     let pad = canonical_pad();
     let center = svg
         .pad_visual_center(&pad)
         .unwrap_or(macroquad::prelude::Vec2::ZERO);
     let mut source = note.clone();
     let mut shape = slide.clone();
-    if slide.runtime_parts > 1 {
+    if parts > 1 {
         let starts = crate::app::slide_render::segment_start_lanes(note, slide);
         source.lane = *starts
             .get(key.segment)
