@@ -246,6 +246,32 @@ impl Appearance {
         }
     }
 
+    /// Load the configured background once before the first visible frame, so
+    /// the window does not start on a blank background and swap it in later.
+    /// Later image changes keep using the worker thread.
+    pub fn warm_up(&mut self) {
+        if !self.settings.background || self.texture.is_some() {
+            return;
+        }
+        let path = self.settings.image.clone();
+        match decode(&path) {
+            Ok(image) => self.install(path, image),
+            Err(error) => self.error = Some(format!("背景图片: {error}")),
+        }
+    }
+
+    fn install(&mut self, path: String, image: image::RgbaImage) {
+        let texture = mq::Texture2D::from_rgba8(
+            image.width() as u16,
+            image.height() as u16,
+            image.as_raw(),
+        );
+        texture.set_filter(mq::FilterMode::Linear);
+        self.texture = Some(texture);
+        self.draft_path = path.clone();
+        self.settings.image = path;
+    }
+
     pub fn draw(&self) {
         if !self.settings.background {
             return;

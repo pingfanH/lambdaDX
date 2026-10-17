@@ -154,6 +154,13 @@ impl Default for EditorUi {
 }
 
 impl EditorUi {
+    /// Apply the editor's style (and its font families) once before the first
+    /// visible frame, so the window does not open with egui's default look.
+    pub fn warm_style(&mut self, ctx: &egui::Context) {
+        style::apply(ctx);
+        self.style_applied = true;
+    }
+
     pub fn new() -> Self {
         Self {
             appearance: Default::default(),
