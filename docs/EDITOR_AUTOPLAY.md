@@ -18,18 +18,18 @@ orientation, zoom, scrolling, follow and snapping. Chart and Autoplay have
 independent subdivisions. Saving a workspace layout now saves these view
 settings too; the document and playback clock remain shared.
 
-The timeline shows clips on four reusable lanes by default, not a permanent
-row for every note. Sequential actions reuse lanes; simultaneous or
-overlapping actions occupy subsequent lanes. The header's filter menu sets
-the base lane count from 1 to 32; extra lanes appear when needed. Assignment
-stays fixed during edits, and confirmation prefers existing lanes where they
-remain available.
+The timeline shows one element per real owner: a note head, each Slide
+segment and each standalone clip is its own row, styled like the clip boxes.
+Elements share reusable lanes, so sequential actions sit on one lane and
+overlapping ones occupy later lanes. The filter menu keeps the base lane
+count from 1 to 32 and adds `按分组聚合`, which folds the parts of one Slide
+or note back into a single box. Assignment stays fixed during edits, and
+confirmation prefers existing lanes where they remain available.
 
-Overview clips aggregate related core parts by Note ID, role, slide and
-optional track. Same-head slide trails remain separate. Selecting a Slide
-reveals its editable paths by real owner; sensor rows are an explicit alternate
-detail view. Editing never merges segment
-ownership. Tooltips and Properties expose the Note ID and owner.
+Curve elements paint their path thumbnail, duration band and timing inside
+the box; sensor elements paint their intervals there. An explicit sensor
+expansion grows in the element's own lane instead of opening a second view
+below the timeline. Tooltips and Properties expose the Note ID and owner.
 
 Wi-Fi currently has one body group containing its sensor events, matching the
 Lean core's ownership. Separate branch groups are only possible when the core
@@ -38,16 +38,21 @@ display lane and does not change when groups are repacked.
 
 ## Overview And Sensor Detail
 
-- Click a clip to select it without seeking. Slide and saved-curve groups
-  open curve detail and show their paths on Pad. Other clips retain sensor
-  editing: the current event or interval exposes its handles inline in the main track;
-  clips with a single interval select it directly. Drag the clip background
-  to move the whole clip, or the inline body/endpoints to edit that interval.
-- Double-click a curve clip or press E / Enter to edit its points and handles
-  on Pad. For other clips these commands open sensor detail for their
-  owners. The detail toolbar switches between curves and sensors.
-  Closing detail retains the current selection and drawing mode,
-  which remain usable in the main timeline and Pad.
+- Click an element to select it without seeking. Curve elements show their
+  path on Pad and stay untouched; sensor elements select their only interval
+  directly. Drag the box body to move the element, or an inline interval
+  body/endpoint to edit that interval alone.
+- Drag the box's left grip to move its start, or its right grip to change its
+  length. For a curve the right grip sets the duration, or the speed in
+  constant-speed mode; for a sensor element it scales that element's event
+  times. Each resize is one undo step and snaps like other time edits.
+- Shift-click or Command-click adds or removes an element from the pick, and
+  dragging empty lane space rubber-bands a time range across all lanes.
+  Delete disables every picked note-owned element and removes standalone
+  clips, all in one undo step; G and Shift+D transform the whole pick.
+- Double-click a curve element or press E / Enter to edit its points and
+  handles on Pad. For other elements these commands open the sensor
+  expansion. The selection and drawing mode survive that switch.
 - Matching Press/Release events form intervals within the same real owner
   and sensor. Drag the body to move both endpoints; drag an endpoint to
   change only that time. Ordering limits prevent crossing its paired end.

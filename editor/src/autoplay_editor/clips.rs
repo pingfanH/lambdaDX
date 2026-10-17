@@ -20,10 +20,22 @@ pub(super) struct ClipLayout {
 }
 
 impl ClipLayout {
-    pub fn build(tracks: &[Track], minimum: usize, previous: &Self) -> Self {
+    /// One clip per real owner by default; `grouped` folds the parts of one
+    /// Slide or note back into a single clip.
+    pub fn build(tracks: &[Track], minimum: usize, previous: &Self, grouped: bool) -> Self {
         let mut groups = HashMap::new();
         let mut clips: Vec<Clip> = Vec::new();
         for (row, track) in tracks.iter().enumerate() {
+            let (start, end) = event_span(track);
+            if !grouped {
+                clips.push(Clip {
+                    key: track.key.clone(),
+                    rows: vec![row],
+                    start,
+                    end,
+                });
+                continue;
+            }
             let key = (
                 track.key.note_id,
                 track.key.role,
@@ -41,7 +53,6 @@ impl ClipLayout {
                 });
                 clips.len() - 1
             });
-            let (start, end) = event_span(track);
             let clip = &mut clips[index];
             clip.rows.push(row);
             clip.start = clip.start.min(start);
@@ -207,9 +218,9 @@ pub(super) fn begin_selected(state: &mut AutoplayEditor, ctx: &egui::Context, du
             targets.push((row, pair));
         }
         targets
-    } else if let Some(row) = state.selected_row {
+    } else if state.selected_row.is_some() || !state.selection.is_empty() {
         state
-            .clip_rows(row)
+            .selected_elements()
             .into_iter()
             .flat_map(|row| (0..state.tracks[row].events.len()).map(move |i| (row, i)))
             .collect()
@@ -284,7 +295,9 @@ pub(super) fn navigate(state: &mut AutoplayEditor, reverse: bool) {
     state.selected_row = Some(clips[index].rows[0]);
     state.curve_source = None;
     state.sensor_detail = false;
-    if state.detail_row.is_some() { state.detail_row = state.selected_row; }
+    if state.detail_row.is_some() {
+        state.detail_row = state.selected_row;
+    }
     state.selected = None;
     state.selected_pair = None;
     let time = clips[index].start as f32 / 1e6;
@@ -413,7 +426,12 @@ fn begin_drawing(
     state.selected_row = Some(row);
     state.selected_pair = Some(index + 1);
     if row == previous_len {
-        state.clip_layout = Arc::new(ClipLayout::build(&state.tracks, state.lane_count, &state.clip_layout));
+        state.clip_layout = Arc::new(ClipLayout::build(
+            &state.tracks,
+            state.lane_count,
+            &state.clip_layout,
+            state.grouped,
+        ));
     }
 }
 
@@ -443,27 +461,20 @@ pub(super) fn draw(
     let view = state.view_start;
     let x_of = |t: i64| left + (t as f32 / 1e6 - view) * pps;
     let play_x = left + (editor.pending_seek.unwrap_or_else(|| app.timeline_time()) - view) * pps;
-    let captured = state.clip_drag.is_some();
+    let captured = state.clip_drag.is_some() || state.band_drag.is_some();
     finish_gesture(ui, state, editor, &mut app.chart);
+    drag_band(ui, state, editor, app);
     let layout = Arc::clone(&state.clip_layout);
-    let detail = state.detail_row.filter(|row| *row < state.tracks.len());
-    let inline = state
-        .selected
-        .filter(|_| detail.is_none())
-        .and_then(|(row, index)| {
-            intervals(&stable_events(state, row))
-                .into_iter()
-                .find(|span| span.press == index || span.release == Some(index))
-                .map(|span| (row, span))
-        });
+    let inline = state.selected.and_then(|(row, index)| {
+        intervals(&stable_events(state, row))
+            .into_iter()
+            .find(|span| span.press == index || span.release == Some(index))
+            .map(|span| (row, span))
+    });
     let filter = state.filter.trim().to_lowercase();
     let visible_start = ((view - 8.0 / pps) * 1e6) as i64;
     let visible_end = ((view + (ruler.right() - left + 8.0) / pps) * 1e6) as i64;
-    let height = if detail.is_some() {
-        (ui.available_height() * 0.43).max(45.0)
-    } else {
-        ui.available_height()
-    };
+    let height = ui.available_height();
     egui::ScrollArea::vertical()
         .id_salt("autoplay_clips")
         .drag_to_scroll(state.pan_x.is_none())
@@ -474,17 +485,19 @@ pub(super) fn draw(
             for (lane, clips) in layout.lanes.iter().enumerate() {
                 let inline = inline
                     .filter(|(row, _)| clips.iter().any(|&i| layout.clips[i].rows.contains(row)));
-                let (rect, _) = ui.allocate_exact_size(
-                    Vec2::new(width, if inline.is_some() { 68.0 } else { 35.0 }),
-                    Sense::hover(),
-                );
+                let (rect, _) =
+                    ui.allocate_exact_size(Vec2::new(width, ELEMENT_ROW), Sense::hover());
                 if !ui.is_rect_visible(rect) {
                     continue;
                 }
                 let plot = Rect::from_min_max(Pos2::new(left, rect.top()), rect.max);
                 let p = ui.painter().with_clip_rect(plot.intersect(ui.clip_rect()));
                 if lane % 2 != 0 {
-                    p.rect_filled(plot, 0.0, crate::theme::surface(Color32::from_white_alpha(3)));
+                    p.rect_filled(
+                        plot,
+                        0.0,
+                        crate::theme::surface(Color32::from_white_alpha(3)),
+                    );
                 }
                 ui.painter().text(
                     Pos2::new(rect.left() + 9.0, rect.center().y),
@@ -493,7 +506,13 @@ pub(super) fn draw(
                     egui::FontId::monospace(11.0),
                     TEXT_DIM,
                 );
-                crate::timeline::overview::paint_loop(&p, plot, editor, |time| left + (time - view) * pps, false);
+                crate::timeline::overview::paint_loop(
+                    &p,
+                    plot,
+                    editor,
+                    |time| left + (time - view) * pps,
+                    false,
+                );
                 paint_grid(&p, plot, &grid, play_x);
                 let empty = ui.interact(
                     plot.intersect(ui.clip_rect()),
@@ -534,6 +553,16 @@ pub(super) fn draw(
                         view + (origin - left) / pps,
                     );
                 }
+                marquee(
+                    ui,
+                    &empty,
+                    state,
+                    app,
+                    editable && !captured,
+                    view,
+                    left,
+                    pps,
+                );
                 let visible = if captured {
                     clips.as_slice()
                 } else {
@@ -544,7 +573,6 @@ pub(super) fn draw(
                 for &index in visible {
                     let clip = &layout.clips[index];
                     let row = clip.rows[0];
-                    let track = &state.tracks[row];
                     if !filter.is_empty()
                         && !clip
                             .rows
@@ -553,30 +581,35 @@ pub(super) fn draw(
                     {
                         continue;
                     }
-                    let (start, end) = if captured {
-                        clip.rows
-                            .iter()
-                            .map(|&r| event_span(&state.tracks[r]))
-                            .fold((i64::MAX, i64::MIN), |(a, b), (s, e)| (a.min(s), b.max(e)))
-                    } else {
-                        (clip.start, clip.end)
+                    let (label, color) = {
+                        let track = &state.tracks[row];
+                        let label = if track.key.role == 2 {
+                            format!(
+                                "#{} Slide {}.{}",
+                                track.key.note_id,
+                                track.key.slide + 1,
+                                track.key.segment + 1
+                            )
+                        } else {
+                            track.label.clone()
+                        };
+                        (
+                            label,
+                            track.events.first().map(event_color).unwrap_or(TEXT_DIM),
+                        )
                     };
-                    let x1 = x_of(start);
-                    let x2 = if end == i64::MAX {
-                        plot.right()
-                    } else {
-                        x_of(end)
-                    };
+                    let curve = state.element_curve(row, app);
+                    let (start, end) = state.element_span(row, app);
+                    let x1 = left + (start - view) * pps;
+                    let x2 = left + (end - view) * pps;
                     let bounds = Rect::from_min_max(
-                        Pos2::new(x1 - 3.0, rect.top() + 5.0),
-                        Pos2::new((x2 + 3.0).max(x1 + 10.0), rect.bottom() - 5.0),
+                        Pos2::new(x1 - 3.0, rect.top() + 4.0),
+                        Pos2::new((x2 + 3.0).max(x1 + 14.0), rect.bottom() - 4.0),
                     );
                     if !bounds.intersects(plot) {
                         continue;
                     }
-                    let selected = state.selected_row.is_some_and(|r| clip.rows.contains(&r));
-                    let inline_clip = inline.is_some_and(|(r, _)| clip.rows.contains(&r));
-                    let color = track.events.first().map(event_color).unwrap_or(TEXT_DIM);
+                    let selected = state.row_selected(row);
                     p.rect_filled(
                         bounds,
                         3.0,
@@ -591,31 +624,55 @@ pub(super) fn draw(
                         p.rect_stroke(
                             bounds,
                             3.0,
-                            Stroke::new(1.0_f32, ACCENT_BLUE),
+                            Stroke::new(
+                                if state.selected_row == Some(row) {
+                                    1.4_f32
+                                } else {
+                                    1.0_f32
+                                },
+                                ACCENT_BLUE,
+                            ),
                             egui::StrokeKind::Inside,
                         );
                     }
-                    let label = if track.key.role == 2 {
-                        format!("#{} Slide {}", track.key.note_id, track.key.slide + 1)
+                    if let Some(curve) = &curve {
+                        curves::band(ui, state, editor, app, row, curve, bounds.shrink(2.0), left);
+                        if bounds.width() > 88.0 {
+                            p.with_clip_rect(bounds.shrink(4.0).intersect(p.clip_rect()))
+                                .text(
+                                    Pos2::new(bounds.left() + 42.0, bounds.center().y - 8.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    &label,
+                                    egui::FontId::proportional(11.0),
+                                    TEXT,
+                                );
+                        }
                     } else {
-                        track.label.clone()
-                    };
-                    if bounds.width() > 48.0 {
-                        p.with_clip_rect(bounds.shrink(4.0).intersect(p.clip_rect()))
-                            .text(
-                                Pos2::new(
-                                    bounds.left().max(left) + 5.0,
-                                    if inline_clip {
-                                        rect.top() + 12.0
-                                    } else {
-                                        bounds.center().y
-                                    },
-                                ),
-                                egui::Align2::LEFT_CENTER,
-                                &label,
-                                egui::FontId::proportional(11.0),
-                                TEXT,
+                        // Sensor elements keep their inline intervals; the
+                        // selected one additionally exposes its endpoints.
+                        for span in intervals(&state.tracks[row].events) {
+                            let events = &state.tracks[row].events;
+                            let a = x_of(timed_input_tp(&events[span.press]));
+                            let b = span
+                                .release
+                                .map(|i| x_of(timed_input_tp(&events[i])))
+                                .unwrap_or(a);
+                            let bar = Rect::from_min_max(
+                                Pos2::new(a, bounds.center().y - 3.0),
+                                Pos2::new(b.max(a + 1.0), bounds.center().y + 3.0),
                             );
+                            p.rect_filled(bar, 1.0, event_color(&events[span.press]));
+                        }
+                        if bounds.width() > 48.0 {
+                            p.with_clip_rect(bounds.shrink(4.0).intersect(p.clip_rect()))
+                                .text(
+                                    Pos2::new(bounds.left().max(left) + 5.0, bounds.center().y),
+                                    egui::Align2::LEFT_CENTER,
+                                    &label,
+                                    egui::FontId::proportional(11.0),
+                                    TEXT,
+                                );
+                        }
                     }
                     let response = ui
                         .interact(
@@ -627,29 +684,10 @@ pub(super) fn draw(
                                 Sense::hover()
                             },
                         )
-                        .on_hover_text(format!("{label} / {} groups", clip.rows.len()));
-                    if response.clicked() || response.drag_started_by(egui::PointerButton::Primary)
-                    {
-                        state.finish_inspector(editor, &mut app.chart);
-                        state.select_clip(row, app);
-                        if state.detail_row.is_some() || response.double_clicked() {
-                            state.detail_row = Some(row);
-                        }
-                        state.selected = None;
-                        state.selected_pair = None;
-                        state.draw_mode = false;
-                        if response.clicked() && clip.rows.len() == 1 && !state.curve_view(row, &app.chart) {
-                            let spans = intervals(&state.tracks[row].events);
-                            if spans.len() == 1 {
-                                state.selected = Some((row, spans[0].press));
-                                state.selected_pair = spans[0].release;
-                            }
-                        }
-                        if response.double_clicked() && state.curve_view(row, &app.chart) {
-                            let source = state.selected_curve_row().unwrap_or(row);
-                            state.edit_curve(editor, app, source, false);
-                        }
-                    }
+                        .on_hover_text(format!(
+                            "{label} / {} events",
+                            state.tracks[row].events.len()
+                        ));
                     if response.drag_started_by(egui::PointerButton::Primary) {
                         let targets = clip
                             .rows
@@ -658,13 +696,87 @@ pub(super) fn draw(
                                 (0..state.tracks[row].events.len()).map(move |i| (row, i))
                             })
                             .collect();
+                        state.finish_inspector(editor, &mut app.chart);
+                        if !state.row_selected(row) {
+                            state.select_clip(row, app);
+                        }
+                        state.selected = None;
+                        state.selected_pair = None;
+                        state.draw_mode = false;
                         let origin =
                             response.interact_pointer_pos().unwrap().x - response.drag_delta().x;
                         begin(state, targets, origin, false, false, (i64::MIN, i64::MAX));
+                    } else if response.clicked() {
+                        let additive = ui.input(|i| i.modifiers.shift || i.modifiers.command);
+                        state.finish_inspector(editor, &mut app.chart);
+                        if additive {
+                            state.toggle_clip(editor, row, app);
+                        } else {
+                            state.select_clip(row, app);
+                            if state.detail_row.is_some() {
+                                state.detail_row = Some(row);
+                            }
+                            state.selected = None;
+                            state.selected_pair = None;
+                            state.draw_mode = false;
+                            if clip.rows.len() == 1 && !state.curve_view(row, &app.chart) {
+                                let spans = intervals(&state.tracks[row].events);
+                                if spans.len() == 1 {
+                                    state.selected = Some((row, spans[0].press));
+                                    state.selected_pair = spans[0].release;
+                                }
+                            }
+                            if response.double_clicked() && state.curve_view(row, &app.chart) {
+                                let source = state.selected_curve_row().unwrap_or(row);
+                                state.edit_curve(editor, app, source, false);
+                            }
+                        }
+                    }
+                    // Resizing: the left grip shifts the element, the right one
+                    // changes how long it lasts.
+                    if editable && !captured && !state.pointer_dragging() {
+                        for (edge, grip_x) in [
+                            (BandEdge::Start, bounds.left()),
+                            (BandEdge::End, bounds.right()),
+                        ] {
+                            let grip = Rect::from_min_max(
+                                Pos2::new(grip_x - 4.0, bounds.top()),
+                                Pos2::new(grip_x + 4.0, bounds.bottom()),
+                            );
+                            let response = ui
+                                .interact(
+                                    grip.intersect(plot).intersect(ui.clip_rect()),
+                                    ui.id().with(("band_grip", row, edge == BandEdge::End)),
+                                    Sense::click_and_drag(),
+                                )
+                                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
+                                .on_hover_text(if edge == BandEdge::Start {
+                                    "拖动起点"
+                                } else {
+                                    "拖动时长"
+                                });
+                            if response.drag_started_by(egui::PointerButton::Primary) {
+                                let origin = ui
+                                    .input(|i| i.pointer.press_origin())
+                                    .or(response.interact_pointer_pos())
+                                    .map_or(grip_x, |p| p.x);
+                                begin_band(
+                                    state,
+                                    editor,
+                                    app,
+                                    row,
+                                    edge,
+                                    origin,
+                                    view + (origin - left) / pps,
+                                );
+                            }
+                        }
                     }
                     if editable && !captured && !state.pointer_dragging() {
                         response.context_menu(|ui| {
-                            if state.curve_candidate(row, &app.chart) && ui.button("Edit curve").clicked() {
+                            if state.curve_candidate(row, &app.chart)
+                                && ui.button("Edit curve").clicked()
+                            {
                                 state.edit_curve(editor, app, row, false);
                                 ui.close_menu();
                             }
@@ -677,11 +789,20 @@ pub(super) fn draw(
                                 state.draw_mode = false;
                                 ui.close_menu();
                             }
-                            if !state.tracks[row].key.is_standalone() && ui.button("恢复默认事件").clicked() {
+                            if !state.tracks[row].key.is_standalone()
+                                && ui.button("恢复默认事件").clicked()
+                            {
                                 state.reset_rows(editor, &mut app.chart, &clip.rows);
                                 ui.close_menu();
                             }
-                            if ui.button(if state.tracks[row].key.is_standalone() { "删除片段" } else { "停用片段" }).clicked() {
+                            if ui
+                                .button(if state.tracks[row].key.is_standalone() {
+                                    "删除片段"
+                                } else {
+                                    "停用片段"
+                                })
+                                .clicked()
+                            {
                                 state.commit_many(
                                     editor,
                                     &mut app.chart,
@@ -704,7 +825,7 @@ pub(super) fn draw(
                             &events,
                             span,
                             plot,
-                            rect.top() + 42.0,
+                            rect.center().y,
                             editable && !captured,
                         );
                     });
@@ -714,46 +835,17 @@ pub(super) fn draw(
                     plot.y_range(),
                     Stroke::new(1.5_f32, crate::theme::ACCENT_RED),
                 );
-            }
-        });
-    if let Some(row) = detail {
-        ui.separator();
-        ui.horizontal_wrapped(|ui| {
-            ui.label(glyph(if state.curve_view(row, &app.chart) { Icon::Spline } else { Icon::AudioLines }, 13.0));
-            ui.add(egui::Label::new(&state.tracks[row].label).truncate());
-            ui.add_enabled_ui(editable && !captured && !state.pointer_dragging(), |ui| {
-                let has_curve = state.clip_rows(row).iter().any(|&r| state.curve_candidate(r, &app.chart));
-                if has_curve {
-                    if icon(ui, Icon::Spline, "Curve detail", !state.sensor_detail).clicked() {
-                        state.sensor_detail = false; state.selected = None; state.selected_pair = None;
-                    }
-                    if icon(ui, Icon::AudioLines, "Sensor detail", state.sensor_detail).clicked() { state.sensor_detail = true; }
-                    if !state.sensor_detail && icon(ui, Icon::MousePointer2, "Edit curve points (E / Enter)", state.curve_editing()).clicked() {
-                        let row = state.selected_curve_row().unwrap_or(row);
-                        state.edit_curve(editor, app, row, false);
-                    }
-                }
-                if !state.curve_view(row, &app.chart) { drawing_tools(ui, state, editor, app); }
-            });
-            ui.add_enabled_ui(editable && !captured && !state.pointer_dragging(), |ui| {
-                if icon(ui, Icon::X, "关闭详情", false).clicked() {
-                    state.finish_inspector(editor, &mut app.chart);
-                    state.detail_row = None;
-                }
-            });
-        });
-        let rows = state.clip_rows(row);
-        egui::ScrollArea::vertical()
-            .id_salt("autoplay_sensors")
-            .drag_to_scroll(state.pan_x.is_none())
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                if state.curve_view(row, &app.chart) {
-                    curves::details(ui, state, editor, app, &rows, left, width, &grid, play_x,
-                        editable && !captured && !state.pointer_dragging() && !state.curve_editing());
-                    return;
-                }
-                for row in rows {
+                // An explicit sensor expansion stays in this lane instead of
+                // opening a separate view under the timeline.
+                let expand = clips
+                    .iter()
+                    .map(|&index| layout.clips[index].rows[0])
+                    .find(|&row| {
+                        state.detail_row == Some(row)
+                            && state.sensor_detail
+                            && !state.curve_view(row, &app.chart)
+                    });
+                if let Some(row) = expand {
                     sensor_rows(
                         ui,
                         state,
@@ -764,14 +856,292 @@ pub(super) fn draw(
                         width,
                         &grid,
                         play_x,
-                        editable && !captured && !state.pointer_dragging(),
+                        editable && !captured,
                     );
                 }
-            });
-    }
+            }
+        });
     if !captured {
         finish_gesture(ui, state, editor, &mut app.chart);
     }
+}
+
+/// Height of one element row in the overview.
+const ELEMENT_ROW: f32 = 48.0;
+
+/// Which end of an element box is being dragged: the left end moves the whole
+/// element, the right end changes how long it lasts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BandEdge {
+    Start,
+    End,
+}
+
+#[derive(Debug, Clone)]
+struct BandRow {
+    row: usize,
+    events: Vec<TimedInputEvent>,
+    curve: Option<autoplay_edit::AutoplayCurve>,
+    start: f64,
+    end: f64,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct Band {
+    edge: BandEdge,
+    origin_x: f32,
+    anchor: f64,
+    rows: Vec<BandRow>,
+}
+
+impl AutoplayEditor {
+    /// The in-progress curve of an element that is being resized.
+    pub(super) fn band_curve(&self, row: usize) -> Option<autoplay_edit::AutoplayCurve> {
+        self.band_drag
+            .as_ref()?
+            .rows
+            .iter()
+            .find(|band| band.row == row)?
+            .curve
+            .clone()
+    }
+}
+
+fn moved_events(events: &[TimedInputEvent], offset: i64) -> Vec<TimedInputEvent> {
+    events
+        .iter()
+        .map(|event| autoplay_edit::with_time(event, timed_input_tp(event).saturating_add(offset)))
+        .collect()
+}
+
+fn scaled_events(events: &[TimedInputEvent], start: i64, ratio: f64) -> Vec<TimedInputEvent> {
+    events
+        .iter()
+        .map(|event| {
+            let tp = timed_input_tp(event);
+            let scaled = start as f64 + (tp - start) as f64 * ratio;
+            autoplay_edit::with_time(event, (scaled.round() as i64).max(0))
+        })
+        .collect()
+}
+
+/// Starts a resize gesture on the picked elements. The left edge moves them;
+/// the right edge changes their length.
+pub(super) fn begin_band(
+    state: &mut AutoplayEditor,
+    editor: &mut EditorState,
+    app: &mut PadPreviewState,
+    row: usize,
+    edge: BandEdge,
+    origin_x: f32,
+    anchor: f32,
+) {
+    if state.band_drag.is_some() {
+        return;
+    }
+    let mut picks = state.selected_elements();
+    if !picks.contains(&row) {
+        picks = vec![row];
+    }
+    let mut rows = Vec::new();
+    for row in picks {
+        let (start, end) = state.element_span(row, app);
+        if end <= start {
+            continue;
+        }
+        rows.push(BandRow {
+            row,
+            events: state.tracks[row].events.clone(),
+            curve: state.element_curve(row, app),
+            start: start as f64,
+            end: end as f64,
+        });
+    }
+    if rows.is_empty() {
+        return;
+    }
+    state.finish_inspector(editor, &mut app.chart);
+    state.band_drag = Some(Band {
+        edge,
+        origin_x,
+        anchor: anchor as f64,
+        rows,
+    });
+}
+
+pub(super) fn update_band(
+    state: &mut AutoplayEditor,
+    editor: &EditorState,
+    app: &PadPreviewState,
+    x: f32,
+) {
+    let Some(mut band) = state.band_drag.take() else {
+        return;
+    };
+    let offset = (x - band.origin_x) / state.pixels_per_second;
+    let snapped = snap_time((band.anchor + offset as f64) as f32, editor, &app.chart) as f64;
+    let delta = snapped - band.anchor;
+    let mut preview = Vec::new();
+    for entry in &mut band.rows {
+        let head = state.tracks[entry.row].head as f64 / 1e6;
+        match band.edge {
+            BandEdge::Start => {
+                let start = (entry.start + delta).max(0.0);
+                match &mut entry.curve {
+                    Some(curve) => curve.start = start - head,
+                    None => preview.push((
+                        entry.row,
+                        moved_events(&entry.events, ((start - entry.start) * 1e6).round() as i64),
+                    )),
+                }
+            }
+            BandEdge::End => {
+                let duration = ((entry.end + delta) - entry.start).max(0.01);
+                match &mut entry.curve {
+                    Some(curve) => {
+                        let length = curve::Path::new(curve).length as f64;
+                        match curve.timing {
+                            autoplay_edit::CurveTiming::FixedDuration => curve.duration = duration,
+                            autoplay_edit::CurveTiming::ConstantSpeed => {
+                                curve.speed = (length / duration).max(0.001);
+                            }
+                        }
+                    }
+                    None => {
+                        let ratio = duration / (entry.end - entry.start).max(0.001);
+                        preview.push((
+                            entry.row,
+                            scaled_events(&entry.events, (entry.start * 1e6).round() as i64, ratio),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    for (row, events) in preview {
+        state.tracks[row].events = events;
+    }
+    state.band_drag = Some(band);
+}
+
+pub(super) fn finish_band(
+    state: &mut AutoplayEditor,
+    editor: &mut EditorState,
+    app: &mut PadPreviewState,
+    confirm: bool,
+) {
+    let Some(band) = state.band_drag.take() else {
+        return;
+    };
+    if !confirm {
+        for entry in &band.rows {
+            if entry.curve.is_none() {
+                state.tracks[entry.row].events = entry.events.clone();
+            }
+        }
+        state.lanes_dirty = true;
+        return;
+    }
+    let mut edits = Vec::new();
+    let mut curves = Vec::new();
+    for entry in &band.rows {
+        match &entry.curve {
+            Some(curve) => curves.push((entry.row, curve.clone())),
+            None => edits.push((entry.row, state.tracks[entry.row].events.clone())),
+        }
+    }
+    if !edits.is_empty() {
+        state.commit_many(editor, &mut app.chart, edits);
+    }
+    for (row, curve) in curves {
+        if let Err(error) = state.store_curve(editor, app, row, curve) {
+            editor.status = Some(error);
+        }
+    }
+    state.lanes_dirty = true;
+}
+
+fn drag_band(
+    ui: &egui::Ui,
+    state: &mut AutoplayEditor,
+    editor: &mut EditorState,
+    app: &mut PadPreviewState,
+) {
+    if state.band_drag.is_none() {
+        return;
+    }
+    let (pointer, down) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down()));
+    if let Some(pos) = pointer {
+        update_band(state, editor, app, pos.x);
+    }
+    if !down {
+        finish_band(state, editor, app, true);
+    }
+}
+
+/// Rubber-band selection over the shared time axis.
+fn marquee(
+    ui: &egui::Ui,
+    empty: &egui::Response,
+    state: &mut AutoplayEditor,
+    app: &PadPreviewState,
+    active: bool,
+    view: f32,
+    left: f32,
+    pps: f32,
+) {
+    if !active {
+        state.marquee = None;
+        return;
+    }
+    let time_of = |x: f32| view + (x - left) / pps;
+    if empty.drag_started_by(egui::PointerButton::Primary) && !state.draw_mode {
+        let start = ui
+            .input(|i| i.pointer.press_origin())
+            .or_else(|| ui.input(|i| i.pointer.latest_pos()))
+            .map_or(view, |p| time_of(p.x));
+        state.marquee = Some((start, start));
+    }
+    let Some((start, _)) = state.marquee else {
+        return;
+    };
+    let pointer = ui.input(|i| i.pointer.latest_pos()).map(|p| time_of(p.x));
+    if let Some(now) = pointer {
+        state.marquee = Some((start, now));
+        let p = ui.painter().with_clip_rect(ui.clip_rect());
+        let (from, to) = (start.min(now), start.max(now));
+        p.rect_filled(
+            Rect::from_min_max(
+                Pos2::new(left + (from - view) * pps, empty.rect.top()),
+                Pos2::new(left + (to - view) * pps, empty.rect.bottom()),
+            ),
+            0.0,
+            ACCENT_BLUE.gamma_multiply(0.15),
+        );
+    }
+    if !ui.input(|i| i.pointer.primary_down()) {
+        let (a, b) = state.marquee.unwrap_or((start, start));
+        select_range(state, app, a.min(b), a.max(b));
+        state.marquee = None;
+    }
+}
+
+fn select_range(state: &mut AutoplayEditor, app: &PadPreviewState, from: f32, to: f32) {
+    let layout = Arc::clone(&state.clip_layout);
+    let mut rows = Vec::new();
+    for clip in &layout.clips {
+        let row = clip.rows[0];
+        let (start, end) = state.element_span(row, app);
+        if end >= from && start <= to {
+            rows.push(row);
+        }
+    }
+    state.selection = rows.clone();
+    state.selected_row = rows.first().copied();
+    state.selected = None;
+    state.selected_pair = None;
+    state.draw_mode = false;
+    state.prepare_selected_curves(app);
 }
 
 fn sensor_layout(events: &[TimedInputEvent], zone: &str, pps: f32) -> Vec<Vec<Interval>> {
@@ -993,7 +1363,13 @@ fn sensor_rows(
                     egui::FontId::monospace(11.0),
                     TEXT_DIM,
                 );
-            crate::timeline::overview::paint_loop(&p, plot, editor, |time| left + (time - view) * pps, false);
+            crate::timeline::overview::paint_loop(
+                &p,
+                plot,
+                editor,
+                |time| left + (time - view) * pps,
+                false,
+            );
             paint_grid(&p, plot, grid, play_x);
             let can_draw = editable && state.draw_mode;
             let background = ui.interact(

@@ -137,17 +137,40 @@ impl AutoplayEditor {
             self.sensor_detail = false;
         }
         self.selected_row = Some(row);
+        self.select_only(row);
         self.selected = None;
         self.selected_pair = None;
         self.draw_mode = false;
+        // Elements are compact by default; the sensor rows are an explicit
+        // expansion (context menu / Properties) shown in the element's lane.
+        self.sensor_detail = false;
         if self.curve_view(row, &app.chart) {
             self.detail_row = Some(row);
-        } else if !self
-            .clip_rows(row)
-            .iter()
-            .any(|&r| self.curve_candidate(r, &app.chart))
-        {
-            self.sensor_detail = true;
+        }
+        self.prepare_selected_curves(app);
+    }
+
+    /// Shift/Cmd click: keep the rest of the pick; the clicked element becomes
+    /// active, and dropping it hands the active role back to the last pick.
+    pub(super) fn toggle_clip(
+        &mut self,
+        editor: &mut EditorState,
+        row: usize,
+        app: &mut PadPreviewState,
+    ) {
+        self.finish_inspector(editor, &mut app.chart);
+        let was_selected = self.selection.contains(&row);
+        self.toggle_row(row);
+        self.selected = None;
+        self.selected_pair = None;
+        self.draw_mode = false;
+        if was_selected {
+            if self.selected_row == Some(row) {
+                self.selected_row = self.selection.last().copied();
+                self.curve_source = None;
+            }
+        } else {
+            self.selected_row = Some(row);
         }
         self.prepare_selected_curves(app);
     }
@@ -231,51 +254,66 @@ impl AutoplayEditor {
     }
 
     pub(super) fn apply_curve(&mut self, editor: &mut EditorState, app: &mut PadPreviewState) {
-        let Some(draft) = &mut self.curve_draft else {
+        let Some(draft) = &self.curve_draft else {
             return;
         };
-        let Some(svg) = &app.pad_svg else {
-            draft.error = Some("Pad geometry is not loaded".into());
-            return;
-        };
-        let events = match curve::bake(&draft.curve, svg) {
-            Ok(events) => events,
-            Err(error) => {
+        let (row, curve) = (draft.row, draft.curve.clone());
+        if let Err(error) = self.store_curve(editor, app, row, curve) {
+            if let Some(draft) = &mut self.curve_draft {
                 draft.error = Some(error);
-                return;
             }
+            return;
+        }
+        self.selected_row = Some(row);
+        self.select_only(row);
+        self.selected = None;
+        self.selected_pair = None;
+        self.detail_row = Some(row);
+        self.sensor_detail = false;
+        self.raw_events = false;
+        self.curve_source = self.tracks.get(row).map(|track| track.key.clone());
+        self.curve_draft = None;
+    }
+
+    /// Bake a curve into sensor events while keeping the curve itself editable.
+    pub(super) fn store_curve(
+        &mut self,
+        editor: &mut EditorState,
+        app: &mut PadPreviewState,
+        row: usize,
+        curve: AutoplayCurve,
+    ) -> Result<(), String> {
+        let events = match app.pad_svg.as_ref() {
+            Some(svg) => curve::bake(&curve, svg)?,
+            None => return Err("Pad geometry is not loaded".into()),
         };
-        let track = &mut self.tracks[draft.row];
+        let track = self
+            .tracks
+            .get_mut(row)
+            .ok_or("Curve owner no longer exists")?;
         let item = AutoplayOverride {
             key: track.key.clone(),
             events,
-            curve: Some(draft.curve.clone()),
+            curve: Some(curve),
         };
-        let same = app.chart.autoplay_overrides.iter().any(|o| *o == item);
-        if !same {
-            editor.push_history(&app.chart);
-            app.chart.autoplay_overrides.retain(|o| o.key != track.key);
-            track.events = item
-                .events
-                .iter()
-                .map(|e| autoplay_edit::with_time(e, timed_input_tp(e).saturating_add(track.head)))
-                .collect();
-            track.authored = true;
-            if track.key.is_standalone() {
-                track.label = format!("Curve {}", track.key.note_id);
-            }
-            app.chart.autoplay_overrides.push(item);
-            self.edits_pending_sync = true;
-            self.lanes_dirty = true;
+        if app.chart.autoplay_overrides.iter().any(|o| *o == item) {
+            return Ok(());
         }
-        self.selected_row = Some(draft.row);
-        self.selected = None;
-        self.selected_pair = None;
-        self.detail_row = Some(draft.row);
-        self.sensor_detail = false;
-        self.raw_events = false;
-        self.curve_source = Some(track.key.clone());
-        self.curve_draft = None;
+        editor.push_history(&app.chart);
+        app.chart.autoplay_overrides.retain(|o| o.key != track.key);
+        track.events = item
+            .events
+            .iter()
+            .map(|e| autoplay_edit::with_time(e, timed_input_tp(e).saturating_add(track.head)))
+            .collect();
+        track.authored = true;
+        if track.key.is_standalone() {
+            track.label = format!("Curve {}", track.key.note_id);
+        }
+        app.chart.autoplay_overrides.push(item);
+        self.edits_pending_sync = true;
+        self.lanes_dirty = true;
+        Ok(())
     }
 
     pub(super) fn curve_keys(
@@ -580,143 +618,94 @@ pub(super) fn controls(
     });
 }
 
-pub(super) fn details(
+/// Arc-length duration of one curve, shared with the element painting.
+pub(super) fn path_duration(curve: &AutoplayCurve) -> f64 {
+    curve::Path::new(curve).duration(curve)
+}
+
+/// Paint one curve element inside its timeline row: the path thumbnail, the
+/// duration band with its start/end grips, and the timing label.
+pub(super) fn band(
     ui: &mut egui::Ui,
     state: &mut AutoplayEditor,
     editor: &mut EditorState,
     app: &mut PadPreviewState,
-    rows: &[usize],
+    row: usize,
+    curve: &AutoplayCurve,
+    rect: Rect,
     left: f32,
-    width: f32,
-    grid: &[(f32, bool)],
-    play_x: f32,
-    editable: bool,
 ) {
-    for &row in rows {
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 64.0), Sense::hover());
-        if !ui.is_rect_visible(rect) {
-            continue;
-        }
-        let plot = Rect::from_min_max(Pos2::new(left, rect.top()), rect.max);
-        let p = ui.painter().with_clip_rect(plot.intersect(ui.clip_rect()));
-        let x_of = |time: f64| left + (time as f32 - state.view_start) * state.pixels_per_second;
-        super::paint_grid(&p, plot, grid);
-        crate::timeline::overview::paint_loop(&p, plot, editor, |time| x_of(time as f64), false);
-        let source = state
-            .curve_draft
-            .as_ref()
-            .filter(|d| d.row == row)
-            .map(|d| d.curve.clone());
-        let source = source.map(Ok).unwrap_or_else(|| state.curve_for(row, app));
-        let curve = match source {
-            Ok(curve) => curve,
-            Err(error) => {
-                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect.shrink(4.0)), |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(&state.tracks[row].label);
-                        ui.label(egui::RichText::new(error).color(crate::theme::TEXT_DIM));
-                        if icon(ui, Icon::AudioLines, "Open sensor detail", false).clicked() {
-                            state.sensor_detail = true;
-                        }
-                    });
-                });
-                continue;
-            }
-        };
-        let path = curve::Path::new(&curve);
-        let start = state.tracks[row].head as f64 / 1e6 + curve.start;
-        let end = start + path.duration(&curve);
-        let selected = state.selected_curve_row() == Some(row);
-        let color = if selected {
-            crate::theme::ACCENT_BLUE
-        } else {
-            crate::theme::TEXT_DIM
-        };
-        let thumbnail = Rect::from_center_size(
-            Pos2::new(rect.left() + 32.0, rect.center().y),
-            Vec2::splat(46.0),
-        );
-        if path.points.len() >= 2 {
-            let radius = path
-                .points
-                .iter()
-                .map(|p| p.to_vec2().length())
-                .fold(1.0_f32, f32::max);
-            ui.painter()
-                .with_clip_rect(thumbnail)
-                .add(egui::Shape::line(
-                    path.points
-                        .iter()
-                        .map(|p| thumbnail.center() + p.to_vec2() * (20.0 / radius))
-                        .collect(),
-                    Stroke::new(1.5_f32, color),
-                ));
-        }
-        ui.painter().text(
-            Pos2::new(rect.left() + 62.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            format!("{}", state.tracks[row].key.segment + 1),
-            egui::FontId::monospace(11.0),
-            color,
-        );
-        let x_of = |time: f64| left + (time as f32 - state.view_start) * state.pixels_per_second;
-        let band = Rect::from_min_max(
-            Pos2::new(x_of(start), rect.center().y - 10.0),
-            Pos2::new(x_of(end).max(x_of(start) + 8.0), rect.center().y + 10.0),
-        );
-        p.rect_filled(band, 2.0, color.gamma_multiply(0.2));
-        p.line_segment(
-            [
-                Pos2::new(band.left(), band.center().y),
-                Pos2::new(band.right(), band.center().y),
-            ],
-            Stroke::new(1.5_f32, color),
-        );
-        p.circle_filled(Pos2::new(band.left(), band.center().y), 3.0, color);
-        p.circle_stroke(
-            Pos2::new(band.right(), band.center().y),
-            3.0,
-            Stroke::new(1.0_f32, color),
-        );
-        p.text(
-            Pos2::new(band.left().max(left) + 4.0, rect.top() + 4.0),
-            egui::Align2::LEFT_TOP,
-            format!(
-                "{:.3} s  /  {:.3} R/s",
-                end - start,
-                path.length as f64 / (end - start).max(0.001)
-            ),
-            egui::FontId::monospace(10.0),
-            color,
-        );
-        p.vline(
-            play_x,
-            plot.y_range(),
-            Stroke::new(1.5_f32, crate::theme::ACCENT_RED),
-        );
-        let response = ui
-            .interact(
-                rect.intersect(ui.clip_rect()),
-                ui.id().with(("curve_detail", row)),
-                if editable {
-                    Sense::click()
-                } else {
-                    Sense::hover()
-                },
-            )
-            .on_hover_text(format!(
-                "{} / {:.6} - {:.6} s / double-click to edit curve",
-                state.tracks[row].label, start, end
-            ));
-        if response.clicked() {
-            state.curve_source = Some(state.tracks[row].key.clone());
-            state.selected = None;
-            state.selected_pair = None;
-        }
-        if response.double_clicked() {
-            state.edit_curve(editor, app, row, false);
-        }
+    if !ui.is_rect_visible(rect) {
+        return;
     }
+    let p = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    let path = curve::Path::new(curve);
+    let start = state.tracks[row].head as f64 / 1e6 + curve.start;
+    let end = start + path.duration(curve);
+    let selected = state.selected_curve_row() == Some(row);
+    let color = if selected {
+        crate::theme::ACCENT_BLUE
+    } else {
+        crate::theme::TEXT_DIM
+    };
+    let thumbnail = Rect::from_center_size(
+        Pos2::new(rect.left() + 23.0, rect.center().y),
+        Vec2::splat(34.0),
+    );
+    if path.points.len() >= 2 {
+        let radius = path
+            .points
+            .iter()
+            .map(|p| p.to_vec2().length())
+            .fold(1.0_f32, f32::max);
+        ui.painter()
+            .with_clip_rect(thumbnail)
+            .add(egui::Shape::line(
+                path.points
+                    .iter()
+                    .map(|p| thumbnail.center() + p.to_vec2() * (14.0 / radius))
+                    .collect(),
+                Stroke::new(1.5_f32, color),
+            ));
+    }
+    ui.painter().text(
+        Pos2::new(rect.left() + 44.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        format!("{}", state.tracks[row].key.segment + 1),
+        egui::FontId::monospace(11.0),
+        color,
+    );
+    let x_of = |time: f64| left + (time as f32 - state.view_start) * state.pixels_per_second;
+    // The band is the element's own span, so its ends are the drag grips.
+    let band = Rect::from_min_max(
+        Pos2::new(x_of(start), rect.center().y - 9.0),
+        Pos2::new(x_of(end).max(x_of(start) + 8.0), rect.center().y + 9.0),
+    );
+    p.rect_filled(band, 2.0, color.gamma_multiply(0.2));
+    p.line_segment(
+        [
+            Pos2::new(band.left(), band.center().y),
+            Pos2::new(band.right(), band.center().y),
+        ],
+        Stroke::new(1.5_f32, color),
+    );
+    p.circle_filled(Pos2::new(band.left(), band.center().y), 3.0, color);
+    p.circle_stroke(
+        Pos2::new(band.right(), band.center().y),
+        3.0,
+        Stroke::new(1.0_f32, color),
+    );
+    p.text(
+        Pos2::new(band.left().max(left) + 4.0, rect.bottom() - 2.0),
+        egui::Align2::LEFT_BOTTOM,
+        format!(
+            "{:.3} s  /  {:.3} R/s",
+            end - start,
+            path.length as f64 / (end - start).max(0.001)
+        ),
+        egui::FontId::monospace(10.0),
+        color,
+    );
 }
 
 fn hit_target(draft: &Draft, point: Pos2, screen: impl Fn(Pos2) -> Pos2) -> Option<Target> {

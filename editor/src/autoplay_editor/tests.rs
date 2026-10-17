@@ -417,6 +417,88 @@ fn workspace_upgrade_wifi_curve_maps_three_straight_legs() {
 }
 
 #[test]
+fn workspace_upgrade_elements_stay_separate_and_resize_by_band() {
+    let mut app = player(chart("1-5-8[0.5##2]"));
+    app.pad_svg = Some(
+        crate::app::pad_svg::PadSvgDef::from_svg_str(include_str!("../../../assets/pad.svg"))
+            .unwrap(),
+    );
+    let mut state = AutoplayEditor::default();
+    let mut editor = EditorState::default();
+    editor.autoplay_snap_enabled = false;
+    state.sync(&app);
+    assert_eq!(
+        state.clip_layout.clips.len(),
+        state.tracks.len(),
+        "every real owner is its own element by default"
+    );
+    assert!(state.clip_layout.clips.iter().all(|clip| clip.rows.len() == 1));
+    let row = state
+        .tracks
+        .iter()
+        .position(|track| track.key.role == 2)
+        .unwrap();
+    state.select_clip(row, &app);
+    assert!(
+        state.element_curve(row, &app).is_some(),
+        "a Slide element shows its curve without mapping it"
+    );
+    assert!(app.chart.autoplay_overrides.is_empty(), "showing a curve authors nothing");
+    let (start, end) = state.element_span(row, &app);
+    let duration = end - start;
+    assert!(duration > 0.05, "the element spans its own duration: {duration}");
+    clips::begin_band(&mut state, &mut editor, &mut app, row, clips::BandEdge::End, 0.0, end);
+    let pps = state.pixels_per_second;
+    clips::update_band(&mut state, &editor, &app, duration * pps);
+    let (_, stretched) = state.element_span(row, &app);
+    assert!(stretched > end + 0.05, "the right grip lengthens the element: {stretched} vs {end}");
+    clips::finish_band(&mut state, &mut editor, &mut app, true);
+    let saved = app.chart.autoplay_overrides[0]
+        .curve
+        .clone()
+        .expect("resizing authors the curve");
+    assert!(
+        saved.duration > duration as f64 * 1.5,
+        "the saved duration follows the grip: {:?} vs {duration}",
+        saved.duration
+    );
+    assert_eq!(editor.undo.len(), 1, "one step per resize");
+}
+
+#[test]
+fn workspace_upgrade_multi_selection_deletes_every_picked_element() {
+    let mut app = player(chart("1-5-8[0.5##2]"));
+    let mut state = AutoplayEditor::default();
+    let mut editor = EditorState::default();
+    state.sync(&app);
+    let rows: Vec<_> = state
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| track.key.role == 2)
+        .map(|(row, _)| row)
+        .collect();
+    assert!(rows.len() >= 2, "conslide segments stay apart");
+    state.select_clip(rows[0], &app);
+    assert_eq!(state.selected_elements(), vec![rows[0]], "a plain click picks one element");
+    state.toggle_row(rows[1]);
+    assert_eq!(state.selected_elements(), rows[..2].to_vec());
+    state.delete_elements(&mut editor, &mut app.chart);
+    assert!(state.selection.is_empty());
+    for row in &rows[..2] {
+        let key = state.tracks[*row].key.clone();
+        let item = app
+            .chart
+            .autoplay_overrides
+            .iter()
+            .find(|item| item.key == key)
+            .expect("a disabled element keeps its explicit empty override");
+        assert!(item.events.is_empty());
+    }
+    assert_eq!(editor.undo.len(), 1, "the whole pick is one undo step");
+}
+
+#[test]
 fn workspace_upgrade_curve_handles_and_shape_preserving_insertion() {
     use crate::app::autoplay_edit::AutoplayCurve;
     let source = AutoplayCurve { points: vec![[-0.8, 0.0], [0.0, 0.6], [0.8, 0.0]],

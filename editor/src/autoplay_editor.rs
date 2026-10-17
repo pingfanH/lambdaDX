@@ -99,6 +99,8 @@ pub struct AutoplayEditor {
     edits_pending_sync: bool,
     pub selected: Option<(usize, usize)>,
     pub selected_row: Option<usize>,
+    /// Every row the user has picked, including `selected_row` (the active one).
+    selection: Vec<usize>,
     drag: Option<Drag>,
     pan_x: Option<f32>,
     inspector_edit: Option<InspectorEdit>,
@@ -124,6 +126,9 @@ pub struct AutoplayEditor {
     drawing_owner: Option<AutoplayKey>,
     clip_layout: Arc<clips::ClipLayout>,
     clip_drag: Option<clips::Gesture>,
+    band_drag: Option<clips::Band>,
+    marquee: Option<(f32, f32)>,
+    grouped: bool,
     detail_row: Option<usize>,
     selected_pair: Option<usize>,
     fit_requested: Option<(f32, f32)>,
@@ -144,6 +149,7 @@ impl Default for AutoplayEditor {
             edits_pending_sync: false,
             selected: None,
             selected_row: None,
+            selection: Vec::new(),
             drag: None,
             pan_x: None,
             inspector_edit: None,
@@ -169,6 +175,9 @@ impl Default for AutoplayEditor {
             drawing_owner: None,
             clip_layout: Default::default(),
             clip_drag: None,
+            band_drag: None,
+            marquee: None,
+            grouped: false,
             detail_row: None,
             selected_pair: None,
             fit_requested: None,
@@ -199,7 +208,8 @@ impl AutoplayEditor {
         self.lanes_dirty = true;
     }
 
-    pub fn pointer_dragging(&self) -> bool { self.drag.is_some() || self.clip_drag.is_some() || self.pan_x.is_some() }
+    pub fn pointer_dragging(&self) -> bool { self.drag.is_some() || self.clip_drag.is_some()
+        || self.band_drag.is_some() || self.pan_x.is_some() }
 
     pub fn dragging(&self) -> bool {
         self.pointer_dragging() || self.inspector_edit.is_some() || self.curve_editing()
@@ -216,6 +226,8 @@ impl AutoplayEditor {
             || self.inner_screen != app.params.autoplay_inner_screen;
         let refresh = changed || self.edits_pending_sync || self.overrides != app.chart.autoplay_overrides;
         let old_key = self.selected_row.and_then(|row| self.tracks.get(row)).map(|track| track.key.clone());
+        let old_multi: Vec<_> = refresh.then(|| self.selection.iter()
+            .filter_map(|&row| self.tracks.get(row)).map(|track| track.key.clone()).collect::<Vec<_>>()).unwrap_or_default();
         let old_detail = refresh.then(|| self.detail_row.and_then(|row| self.tracks.get(row)).map(|track| track.key.clone())).flatten();
         let old_selection = refresh.then(|| self.selected.and_then(|(row, index)| {
             let track = self.tracks.get(row)?;
@@ -315,6 +327,8 @@ impl AutoplayEditor {
             self.overrides.clone_from(&app.chart.autoplay_overrides);
             self.edits_pending_sync = false;
             self.selected_row = old_key.and_then(|key| self.tracks.iter().position(|track| track.key == key));
+            self.selection = old_multi.iter()
+                .filter_map(|key| self.tracks.iter().position(|track| &track.key == key)).collect();
             self.detail_row = old_detail.and_then(|key| self.tracks.iter().position(|t| t.key == key));
             self.selected_pair = None;
             self.selected = old_selection.and_then(|(key, old_index, event, pair)| {
@@ -337,6 +351,7 @@ impl AutoplayEditor {
 
     fn validate_selection(&mut self) {
         if self.selected_row.is_some_and(|row| row >= self.tracks.len()) { self.selected_row = None; }
+        self.selection.retain(|&row| row < self.tracks.len());
         if self.detail_row.is_some_and(|row| row >= self.tracks.len()) { self.detail_row = None; }
         if self.selected.is_some_and(|(r, i)| {
             self.tracks
@@ -354,7 +369,7 @@ impl AutoplayEditor {
     fn repack(&mut self) {
         if self.lanes_dirty && !self.dragging() {
             self.lanes = pack_lanes(&self.tracks, self.lane_count);
-            self.clip_layout = Arc::new(clips::ClipLayout::build(&self.tracks, self.lane_count, &self.clip_layout));
+            self.clip_layout = Arc::new(clips::ClipLayout::build(&self.tracks, self.lane_count, &self.clip_layout, self.grouped));
             self.lanes_dirty = false;
             self.layout_pps = 0.0;
         }
@@ -375,11 +390,73 @@ impl AutoplayEditor {
     pub fn clear_selection(&mut self) {
         self.selected = None;
         self.selected_row = None;
+        self.selection.clear();
         self.selected_pair = None;
         self.draw_mode = false;
         self.drawing_owner = None;
         self.curve_source = None;
         self.sensor_detail = false;
+    }
+
+    /// Replace the multi-selection with a single element.
+    pub(super) fn select_only(&mut self, row: usize) {
+        self.selection.clear();
+        self.selection.push(row);
+    }
+
+    /// Add or remove one element without disturbing the rest of the selection.
+    pub(super) fn toggle_row(&mut self, row: usize) {
+        match self.selection.iter().position(|&r| r == row) {
+            Some(index) => { self.selection.remove(index); }
+            None => self.selection.push(row),
+        }
+    }
+
+    pub fn row_selected(&self, row: usize) -> bool {
+        self.selection.contains(&row)
+    }
+
+    /// Every real owner behind the current selection, deduplicated and ordered.
+    pub(super) fn selected_elements(&self) -> Vec<usize> {
+        let rows: Vec<usize> = if self.selection.is_empty() {
+            self.selected_row.into_iter().collect()
+        } else {
+            self.selection.clone()
+        };
+        let mut rows: Vec<usize> = rows.into_iter().flat_map(|row| self.clip_rows(row)).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        rows
+    }
+
+    /// Note-owned elements are disabled; standalone clips are removed.
+    pub fn delete_elements(&mut self, editor: &mut EditorState, chart: &mut ChartDoc) {
+        let rows = self.selected_elements();
+        if rows.is_empty() { return; }
+        self.commit_many(editor, chart, rows.into_iter().map(|row| (row, Vec::new())).collect());
+        self.selection.clear();
+        self.selected = None;
+        self.selected_pair = None;
+    }
+
+    /// The editable curve behind one element: the in-progress band preview,
+    /// a saved curve, or the geometry generated from a Slide segment.
+    pub(super) fn element_curve(&mut self, row: usize, app: &PadPreviewState) -> Option<crate::app::autoplay_edit::AutoplayCurve> {
+        if let Some(curve) = self.band_curve(row) { return Some(curve); }
+        if !self.curve_candidate(row, &app.chart) { return None; }
+        self.curve_for(row, app).ok()
+    }
+
+    /// One element's span in seconds: the curve timing when the element is a
+    /// curve, otherwise the baked event span.
+    pub(super) fn element_span(&mut self, row: usize, app: &PadPreviewState) -> (f32, f32) {
+        let head = self.tracks.get(row).map_or(0.0, |track| track.head as f64 / 1e6);
+        if let Some(curve) = self.element_curve(row, app) {
+            let duration = curves::path_duration(&curve);
+            return ((head + curve.start) as f32, (head + curve.start + duration) as f32);
+        }
+        let (start, end) = self.tracks.get(row).map(event_span).unwrap_or((0, 0));
+        (start as f32 / 1e6, end as f32 / 1e6)
     }
 
     fn start_drawing(&mut self) {
@@ -878,7 +955,8 @@ pub fn prepare(
                             state.start_drawing();
                         }
                         egui::Key::Delete | egui::Key::Backspace if event_commands && !modifiers.shift => {
-                            state.delete(editor, &mut app.chart);
+                            if state.selected.is_some() { state.delete(editor, &mut app.chart); }
+                            else { state.delete_elements(editor, &mut app.chart); }
                             state.suppress_pointer = true;
                         }
                         egui::Key::Questionmark | egui::Key::Slash
@@ -985,6 +1063,13 @@ pub fn header(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPreviewS
         if ui.checkbox(&mut state.raw_events, "原始事件视图").changed() {
             state.selected_pair = None;
             state.draw_mode = false;
+        }
+        if ui.checkbox(&mut state.grouped, "按分组聚合")
+            .on_hover_text("合并同一个 Slide / note 的所有部分;关闭时每个判定主体各占一行")
+            .changed()
+        {
+            state.lanes_dirty = true;
+            state.selected = None;
         }
         ui.add(egui::TextEdit::singleline(&mut state.filter).desired_width(120.0).hint_text("Note ID"));
         ui.horizontal(|ui| {
