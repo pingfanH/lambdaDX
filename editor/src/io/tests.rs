@@ -38,12 +38,19 @@ fn source_editor(path: &Path, level: Option<u32>) -> EditorState {
 }
 
 #[test]
-fn saving_without_a_source_requests_save_as_and_stays_dirty() {
-    let mut editor = EditorState { dirty: true, ..Default::default() };
+fn saving_without_a_source_writes_a_workspace_document() {
+    let folder = ChartFolder::new();
+    let mut editor = EditorState {
+        dirty: true,
+        chart_dir: folder.path().to_string_lossy().into_owned(),
+        ..Default::default()
+    };
     save_chart(&mut editor, &empty_chart());
-    assert!(editor.save_as_request);
-    assert!(editor.dirty);
-    assert!(editor.source.is_none());
+    assert!(!editor.save_as_request, "plain save never asks for a location");
+    assert!(!editor.dirty);
+    let path = folder.path().join("chart.json");
+    assert!(path.is_file(), "the document lands in the workspace");
+    assert_eq!(editor.source.as_ref().unwrap().path, path);
 }
 
 #[test]
@@ -272,7 +279,7 @@ fn saving_inside_template_isolation_folds_the_parent_and_preserves_autoplay_edit
 }
 
 #[test]
-fn simai_save_with_editor_metadata_requests_json_and_leaves_source_intact() {
+fn simai_save_with_editor_metadata_writes_a_workspace_json_and_keeps_the_source() {
     use crate::app::types::TemplateDef;
     let folder = ChartFolder::new();
     let path = folder.path().join("maidata.txt");
@@ -284,11 +291,16 @@ fn simai_save_with_editor_metadata_requests_json_and_leaves_source_intact() {
     });
     let mut editor = source_editor(&path, Some(6));
     save_chart(&mut editor, &chart);
-    assert!(editor.save_as_request);
-    assert!(editor.dirty);
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
-    assert!(save_as_to(&mut editor, &chart, &folder.path().join("other.txt")).is_err());
-    assert!(!folder.path().join("other.txt").exists());
+    assert!(!editor.save_as_request);
+    assert!(!editor.dirty);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        text,
+        "the Simai source stays untouched"
+    );
+    let native = folder.path().join("chart.json");
+    assert!(native.is_file(), "the editable document lands next to it");
+    assert_eq!(editor.source.as_ref().unwrap().path, native);
 }
 
 #[cfg(unix)]

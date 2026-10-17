@@ -21,8 +21,9 @@ pub struct ChartSource {
 impl ChartSource {
     pub fn resolve(path: &Path, level: Option<u32>) -> Self {
         let path = if path.is_dir() {
-            let simai = path.join("maidata.txt");
-            if simai.is_file() { simai } else { path.join("chart.json") }
+            // An editable document in the workspace wins over the raw source.
+            let native = path.join("chart.json");
+            if native.is_file() { native } else { path.join("maidata.txt") }
         } else { path.to_path_buf() };
         Self { path, level }
     }
@@ -39,21 +40,63 @@ pub fn save_chart(editor: &mut EditorState, chart: &ChartDoc) {
         return;
     }
     let chart = crate::templates::document(editor, chart);
-    let Some(source) = editor.source.as_ref() else {
-        editor.save_as_request = true;
-        return;
+    // Plain Save never asks for a location: a document without a native
+    // source (or a Simai source that now carries templates or autoplay edits)
+    // is written as `chart.json` inside the current workspace folder.
+    let workspace = match editor.source.as_ref() {
+        None => true,
+        Some(source) => source.is_simai() && has_editor_data(&chart),
     };
-    if source.is_simai() && has_editor_data(&chart) {
-        editor.save_as_request = true;
-        editor.status = Some("Save As JSON to preserve templates and Autoplay events".into());
+    if workspace {
+        save_workspace_document(editor, &chart);
         return;
     }
+    let Some(source) = editor.source.as_ref() else {
+        return;
+    };
     let result = save_to_source(source, &chart);
     if result.is_ok() { crate::templates::mark_saved(editor); }
     editor.status = Some(match result {
         Ok(path) => format!("Saved {}", path.display()),
         Err(error) => format!("Save failed: {error}"),
     });
+}
+
+fn save_workspace_document(editor: &mut EditorState, chart: &ChartDoc) {
+    let result = (|| -> Result<PathBuf, String> {
+        let folder = workspace_folder(editor)?;
+        std::fs::create_dir_all(&folder)
+            .map_err(|error| format!("create {}: {error}", folder.display()))?;
+        let path = folder.join("chart.json");
+        atomic_write(&path, &native_json(chart, "{}")?)?;
+        Ok(path)
+    })();
+    match result {
+        Ok(path) => {
+            editor.chart_dir = path
+                .parent()
+                .map(|dir| dir.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            editor.source = Some(ChartSource { path: path.clone(), level: None });
+            editor.level_slots.clear();
+            editor.level_index = 0;
+            session::remember_chart(&path, None);
+            crate::templates::mark_saved(editor);
+            editor.status = Some(format!("Saved {}", path.display()));
+        }
+        Err(error) => editor.status = Some(format!("Save failed: {error}")),
+    }
+}
+
+fn workspace_folder(editor: &EditorState) -> Result<PathBuf, String> {
+    let path = Path::new(&editor.chart_dir);
+    if path.as_os_str().is_empty() {
+        return crate::app::platform::cache_dir().map(|cache| cache.join("charts"));
+    }
+    if path.is_dir() {
+        return Ok(path.to_path_buf());
+    }
+    Ok(path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")))
 }
 
 pub fn save_document(editor: &mut EditorState, chart: &mut ChartDoc) {
