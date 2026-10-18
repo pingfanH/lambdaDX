@@ -690,6 +690,9 @@ fn interact(
     }
 
     if response.clicked() {
+        // Selecting anything on the chart timeline drops a template selection,
+        // exactly like selecting a note replaces another note.
+        editor.selected_instance = None;
         let hit = nearest_marker(markers, response.interact_pointer_pos().unwrap_or_default());
         if cursor.on_playhead && hit.is_none() && editor.tool == Tool::Select {
             editor.pending_seek = Some(cursor.time.max(0.0));

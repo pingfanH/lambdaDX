@@ -538,6 +538,9 @@ impl TemplateUi {
                 return true;
             }
             if !pos.is_some_and(|pos| canonical_head_at(pos, rect, editor, chart, now)) {
+                // An empty spot in the scene clears the instance selection, the
+                // way clicking empty timeline space clears the note selection.
+                editor.selected_instance = None;
                 return true;
             }
         }

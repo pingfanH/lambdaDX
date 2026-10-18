@@ -309,7 +309,11 @@ impl EditorUi {
         });
         let workspace_blocked = overlay_was_open || app.show_params || editor.show_help
             || editor.pending_action.is_some() || was_menu_open || self.menu_open;
-        self.input_blocked = workspace_blocked || ctx.memory(|m| m.any_popup_open());
+        // A context menu keeps pointer input away from the canvas, but it must
+        // not disable the panes: egui closes the popup when its owner widget is
+        // disabled, which made every right-click menu flash once and vanish.
+        let popup_open = ctx.memory(|m| m.any_popup_open());
+        self.input_blocked = workspace_blocked || popup_open;
 
         if !transaction {
             self.workbench.set_visible(PaneKind::Templates, editor.template_panel);
@@ -322,7 +326,7 @@ impl EditorUi {
             && !self.workbench.dragging() && !self.workbench.focused(PaneKind::Simai)
             && !editor.keyboard.owns_input() && (!transaction || editor.autoplay_editor.dragging()),
             self.workbench.focused(PaneKind::Autoplay));
-        let mut regions = self.workbench.show(ctx, !self.input_blocked && !transaction, |ui, kind| {
+        let mut regions = self.workbench.show(ctx, !workspace_blocked && !transaction, |ui, kind| {
             toolbar::pane_tools(ui, kind, editor, app, &mut self.pad_scale);
         });
         // Only a pane closed from its own header clears the request. Rewriting
