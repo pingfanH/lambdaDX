@@ -248,8 +248,12 @@ impl EditorUi {
         self.workbench.capture_views(editor, self.pad_scale);
         self.workbench.activate_views(editor, &mut self.pad_scale);
         self.layout = Layout { pad: self.layout.pad, ..Default::default() };
-        let transaction = editor.selection_transform.is_some() || editor.keyboard.owns_input()
-            || editor.autoplay_editor.dragging() || self.templates.dragging()
+        // A pointer gesture belongs to the pane under the pointer. Disabling the
+        // whole workbench for it drops the release that completes the click, so
+        // a normal click only worked via egui's long-press fallback. Only
+        // structural edits (a transform, an autoplay draft) disable the panes.
+        let structural = editor.selection_transform.is_some() || editor.autoplay_editor.dragging();
+        let transaction = structural || editor.keyboard.owns_input() || self.templates.dragging()
             || editor.dragging.is_some() || editor.handle_grab.is_some() || editor.timeline_pan.is_some()
             || editor.star_placement.is_some() || editor.hold_placement.is_some()
             || editor.pointer_press.is_some() || editor.marquee_start.is_some() || editor.scrubbing
@@ -326,7 +330,7 @@ impl EditorUi {
             && !self.workbench.dragging() && !self.workbench.focused(PaneKind::Simai)
             && !editor.keyboard.owns_input() && (!transaction || editor.autoplay_editor.dragging()),
             self.workbench.focused(PaneKind::Autoplay));
-        let mut regions = self.workbench.show(ctx, !workspace_blocked && !transaction, |ui, kind| {
+        let mut regions = self.workbench.show(ctx, !workspace_blocked && !structural, |ui, kind| {
             toolbar::pane_tools(ui, kind, editor, app, &mut self.pad_scale);
         });
         // Only a pane closed from its own header clears the request. Rewriting
