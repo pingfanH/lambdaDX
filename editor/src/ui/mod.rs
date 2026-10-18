@@ -145,6 +145,8 @@ pub struct EditorUi {
     document_revision: Option<u64>,
     /// Last subdivisions written to the session cache.
     last_divisions: Option<(u32, u32)>,
+    /// Last printed pointer/transaction state (debug only).
+    debug_pointer: Option<(bool, bool, bool, bool, bool, bool, bool)>,
 }
 
 impl Default for EditorUi {
@@ -168,6 +170,7 @@ impl EditorUi {
             templates: Default::default(),
             document_revision: None,
             last_divisions: None,
+            debug_pointer: None,
         }
     }
 
@@ -258,6 +261,15 @@ impl EditorUi {
             || editor.star_placement.is_some() || editor.hold_placement.is_some()
             || editor.pointer_press.is_some() || editor.marquee_start.is_some() || editor.scrubbing
             || editor.loop_drag.is_some();
+        if std::env::var_os("MAI2_DEBUG_POINTER").is_some() {
+            let state = (self.input_blocked, transaction, structural, editor.pointer_press.is_some(),
+                self.templates.dragging(), editor.dragging.is_some(), editor.scrubbing);
+            if self.debug_pointer != Some(state) {
+                self.debug_pointer = Some(state);
+                eprintln!("[ui] blocked={} transaction={} structural={} press={} templates_drag={} drag={} scrub={}",
+                    state.0, state.1, state.2, state.3, state.4, state.5, state.6);
+            }
+        }
         style::quiet_disabled(ctx, transaction && !self.appearance.dim_inactive_during_edit());
         if !transaction && !self.workbench.dragging() && !overlay_was_open && !self.menu_open && !ctx.memory(|m| m.any_popup_open()) {
             let workspace = self.workbench.active_workspace(ctx, editor.workspace);

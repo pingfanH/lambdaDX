@@ -137,6 +137,9 @@ impl Egui {
     /// the reported phase, so a dropped Started/Ended event still resolves to a
     /// complete click (using the last known position for a synthesised release).
     fn pointer(&mut self, pos: Vec2, down: bool, pressed: bool, released: bool) {
+        if std::env::var_os("MAI2_DEBUG_POINTER").is_some() && (pressed || released) {
+            eprintln!("[ptr] down={down} pressed={pressed} released={released} pos={pos:?}");
+        }
         let dpi = mq::window::dpi_scale();
         sync_dpi(self.egui_mq.egui_ctx(), dpi);
         // EguiMq expects physical pixels and divides by pixels_per_point.
