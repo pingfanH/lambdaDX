@@ -402,6 +402,38 @@ impl TemplateUi {
                 continue;
             }
             let selected = editor.selected_instance.as_ref() == Some(&instance.instance_id);
+            let response = ui.interact(
+                block.intersect(plot).intersect(ui.clip_rect()),
+                ui.id().with(("template_block", &instance.instance_id)),
+                if enabled { egui::Sense::click() } else { egui::Sense::hover() },
+            );
+            response.context_menu(|ui| {
+                if ui.button("编辑对应模板").clicked() {
+                    editor.template_action =
+                        Some(Action::EnterDefinition(instance.template_id.clone()));
+                    ui.close_menu();
+                }
+                if ui
+                    .button(if instance.hidden {
+                        "显示实例"
+                    } else {
+                        "隐藏实例"
+                    })
+                    .clicked()
+                {
+                    editor.template_action = Some(Action::SetInstanceHidden(
+                        instance.instance_id.clone(),
+                        !instance.hidden,
+                    ));
+                    ui.close_menu();
+                }
+                if ui.button("删除实例").clicked() {
+                    editor.template_action = Some(Action::DeleteInstance(
+                        instance.instance_id.clone(),
+                    ));
+                    ui.close_menu();
+                }
+            });
             painter.rect_filled(
                 block,
                 0.0,
