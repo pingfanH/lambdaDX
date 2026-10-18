@@ -461,6 +461,35 @@ mod template_interactions {
             assert_eq!(f.app.chart.template_instances[0].anchor_time, 1.5);
         }
     }
+
+    #[test]
+    fn template_click_selection_survives_release_and_does_not_toggle_off() {
+        for layout in [EditorLayout::Horizontal, EditorLayout::Vertical] {
+            let mut f = fixture(layout);
+            let at = position(&f, 1.625, 6.5);
+            let id = f.app.chart.template_instances[0].instance_id.clone();
+
+            f.frame(vec![egui::Event::PointerMoved(at)]);
+            f.frame(vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            assert_eq!(f.editor.selected_instance.as_deref(), Some(id.as_str()));
+            f.frame(vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            f.frame(Vec::new());
+            assert_eq!(f.editor.selected_instance.as_deref(), Some(id.as_str()));
+
+            f.click(at);
+            assert_eq!(f.editor.selected_instance.as_deref(), Some(id.as_str()));
+        }
+    }
 }
 
 fn tool_fill(output: &egui::FullOutput, ui: &EditorUi) -> egui::Color32 {

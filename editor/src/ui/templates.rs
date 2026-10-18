@@ -543,6 +543,11 @@ impl TemplateUi {
                 return true;
             }
             if ui.input(|i| i.pointer.primary_pressed())
+                // Placement/eraser tools must pass through a template block so
+                // they can edit the main chart at the same position. In Select
+                // mode, an exact note head still belongs to the note; the rest
+                // of the block belongs to the template instance.
+                && editor.tool == crate::state::Tool::Select
                 && (shift
                     || !pos.is_some_and(|pos| canonical_head_at(pos, rect, editor, chart, now)))
             {
@@ -559,19 +564,18 @@ impl TemplateUi {
                     before: shift.then(|| chart.clone()),
                     isolate_on_click: shift,
                 });
-                // A plain click on the selected instance clears it; Shift keeps
-                // the isolate-on-click path.
-                if !shift && editor.selected_instance.as_ref() == Some(&id) {
-                    editor.selected_instance = None;
-                } else {
-                    editor.selected_instance = Some(id);
-                    editor.selected.clear();
-                }
+                // Match note selection: a plain click selects/replaces, but
+                // does not toggle the selected object off. Shift is reserved
+                // for the isolate-on-click gesture below.
+                editor.selected_instance = Some(id);
+                editor.selected.clear();
                 return true;
             }
-            if !pos.is_some_and(|pos| canonical_head_at(pos, rect, editor, chart, now)) {
-                // An empty spot in the scene clears the instance selection, the
-                // way clicking empty timeline space clears the note selection.
+            if ui.input(|i| i.pointer.primary_pressed())
+                && !pos.is_some_and(|pos| canonical_head_at(pos, rect, editor, chart, now))
+            {
+                // Only a real click can change selection. Hovering a template
+                // block must not clear the selection on the following frame.
                 editor.selected_instance = None;
                 return true;
             }
