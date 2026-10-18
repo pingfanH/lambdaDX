@@ -146,7 +146,7 @@ pub struct EditorUi {
     /// Last subdivisions written to the session cache.
     last_divisions: Option<(u32, u32)>,
     /// Last printed pointer/transaction state (debug only).
-    debug_pointer: Option<(bool, bool, bool, bool, bool, bool, bool)>,
+    debug_pointer: Option<(bool, bool, bool, bool, bool, bool, bool, bool, Option<String>)>,
 }
 
 impl Default for EditorUi {
@@ -263,11 +263,12 @@ impl EditorUi {
             || editor.loop_drag.is_some();
         if std::env::var_os("MAI2_DEBUG_POINTER").is_some() {
             let state = (self.input_blocked, transaction, structural, editor.pointer_press.is_some(),
-                self.templates.dragging(), editor.dragging.is_some(), editor.scrubbing);
-            if self.debug_pointer != Some(state) {
+                self.templates.dragging(), editor.dragging.is_some(), editor.scrubbing,
+                editor.selected_instance.is_some(), editor.selected_instance.clone());
+            if self.debug_pointer.as_ref() != Some(&state) {
+                eprintln!("[ui] blocked={} transaction={} structural={} press={} templates_drag={} drag={} scrub={} instance={:?}",
+                    state.0, state.1, state.2, state.3, state.4, state.5, state.6, state.8);
                 self.debug_pointer = Some(state);
-                eprintln!("[ui] blocked={} transaction={} structural={} press={} templates_drag={} drag={} scrub={}",
-                    state.0, state.1, state.2, state.3, state.4, state.5, state.6);
             }
         }
         style::quiet_disabled(ctx, transaction && !self.appearance.dim_inactive_during_edit());
