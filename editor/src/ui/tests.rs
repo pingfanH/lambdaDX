@@ -490,6 +490,28 @@ mod template_interactions {
             assert_eq!(f.editor.selected_instance.as_deref(), Some(id.as_str()));
         }
     }
+
+    #[test]
+    fn template_secondary_click_keeps_context_menu_open() {
+        for layout in [EditorLayout::Horizontal, EditorLayout::Vertical] {
+            let mut f = fixture(layout);
+            let at = position(&f, 1.625, 6.5);
+            f.frame(vec![egui::Event::PointerMoved(at)]);
+            f.frame(vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            f.frame(vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            assert!(f.ctx.memory(|memory| memory.any_popup_open()));
+        }
+    }
 }
 
 fn tool_fill(output: &egui::FullOutput, ui: &EditorUi) -> egui::Color32 {

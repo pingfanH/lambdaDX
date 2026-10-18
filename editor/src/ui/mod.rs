@@ -599,11 +599,15 @@ impl EditorUi {
             ),
         );
         self.layout.tools = tools_rect;
+        let template_context_owned = self.templates.context_menu(
+            ui, timeline_rect, tools_rect, editor, chart, current_time,
+        );
         if editor.workspace != Workspace::Chart || editor.loop_drag.is_some()
             || editor.autoplay_editor.dragging() || progress_owned {
             tools::draw(ui, tools_rect, editor, &self.tool_textures, false);
             return;
         }
+
         let template_was_dragging = self.templates.dragging();
         let template_owned = self.templates.timeline(ui, timeline_rect, tools_rect, editor, chart, current_time,
             !self.input_blocked && editor.selection_transform.is_none() && !editor.keyboard.owns_input()
@@ -626,8 +630,8 @@ impl EditorUi {
             return;
         }
 
-        // Timeline host first (lower z), then the palette on top so it captures
-        // the pointer where the two overlap.
+        // Register the timeline host after template selection/drag handling so
+        // the template response can still pass through to note selection.
         let response = ui.interact(
             timeline_rect,
             ui.id().with("editor_timeline"),
@@ -663,7 +667,7 @@ impl EditorUi {
                 current_time,
             );
 
-        if !template_owned && (!tools_hovered || editor.scrubbing) && !handle_active
+        if !template_owned && !template_context_owned && (!tools_hovered || editor.scrubbing) && !handle_active
             && !transform_owned && !keyboard_owned && !navigation_owned {
             crate::timeline::handle_input(
                 editor.layout,

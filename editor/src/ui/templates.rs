@@ -10,6 +10,7 @@ use egui_macroquad::egui::{self, Color32, Pos2, Rect, Stroke};
 pub struct TemplateUi {
     rename: Option<(String, String)>,
     drag: Option<InstanceDrag>,
+    context_menu: Option<TemplateContextMenu>,
 }
 
 struct InstanceDrag {
@@ -19,6 +20,12 @@ struct InstanceDrag {
     moved: bool,
     before: Option<ChartDoc>,
     isolate_on_click: bool,
+}
+
+#[derive(Clone)]
+struct TemplateContextMenu {
+    instance_id: String,
+    position: Pos2,
 }
 
 impl TemplateUi {
@@ -407,33 +414,6 @@ impl TemplateUi {
                 ui.id().with(("template_block", &instance.instance_id)),
                 if enabled { egui::Sense::click() } else { egui::Sense::hover() },
             );
-            response.context_menu(|ui| {
-                if ui.button("编辑对应模板").clicked() {
-                    editor.template_action =
-                        Some(Action::EnterDefinition(instance.template_id.clone()));
-                    ui.close_menu();
-                }
-                if ui
-                    .button(if instance.hidden {
-                        "显示实例"
-                    } else {
-                        "隐藏实例"
-                    })
-                    .clicked()
-                {
-                    editor.template_action = Some(Action::SetInstanceHidden(
-                        instance.instance_id.clone(),
-                        !instance.hidden,
-                    ));
-                    ui.close_menu();
-                }
-                if ui.button("删除实例").clicked() {
-                    editor.template_action = Some(Action::DeleteInstance(
-                        instance.instance_id.clone(),
-                    ));
-                    ui.close_menu();
-                }
-            });
             painter.rect_filled(
                 block,
                 0.0,
@@ -592,6 +572,110 @@ impl TemplateUi {
             }
         }
         false
+    }
+
+    /// Handle the template context menu independently from timeline widgets.
+    /// Egui resolves widget hits from the previous frame, so registering a
+    /// right-click response only after the button is pressed is too late and
+    /// registering it permanently steals primary note interactions. A small
+    /// foreground area avoids both problems.
+    pub fn context_menu(
+        &mut self,
+        ui: &egui::Ui,
+        rect: Rect,
+        tools: Rect,
+        editor: &mut EditorState,
+        chart: &ChartDoc,
+        now: f32,
+    ) -> bool {
+        let plot = Rect::from_min_max(rect.min + egui::vec2(LANE_GUTTER, RULER_H), rect.max);
+        let pointer_pos = ui.input(|i| i.pointer.interact_pos());
+        let over_tools = pointer_pos.is_some_and(|pos| tools.contains(pos));
+        let hit = (!over_tools).then(|| {
+            chart
+                .template_instances
+                .iter()
+                .rev()
+                .find(|instance| {
+                    let block = instance_rect(rect, editor, chart, now, instance).intersect(plot);
+                    pointer_pos.is_some_and(|pos| block.contains(pos))
+                })
+                .map(|instance| instance.instance_id.clone())
+        }).flatten();
+
+        if ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary)) {
+            if let (Some(instance_id), Some(position)) = (hit, pointer_pos) {
+                let popup_id = ui.id().with("template_context_popup");
+                self.context_menu = Some(TemplateContextMenu { instance_id, position });
+                ui.ctx().memory_mut(|memory| memory.open_popup(popup_id));
+            } else if self.context_menu.is_some() {
+                self.context_menu = None;
+                ui.ctx().memory_mut(|memory| memory.close_popup());
+            }
+        }
+
+        let Some(menu) = self.context_menu.clone() else {
+            return false;
+        };
+        let Some(instance) = chart
+            .template_instances
+            .iter()
+            .find(|instance| instance.instance_id == menu.instance_id)
+            .cloned()
+        else {
+            self.context_menu = None;
+            ui.ctx().memory_mut(|memory| memory.close_popup());
+            return false;
+        };
+
+        let popup_id = ui.id().with("template_context_popup");
+        ui.ctx().memory_mut(|memory| memory.open_popup(popup_id));
+        let mut close = false;
+        let popup = egui::Area::new(popup_id)
+            .order(egui::Order::Foreground)
+            .fixed_pos(menu.position)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    if ui.button("编辑对应模板").clicked() {
+                        editor.template_action =
+                            Some(Action::EnterDefinition(instance.template_id.clone()));
+                        close = true;
+                    }
+                    if ui
+                        .button(if instance.hidden { "显示实例" } else { "隐藏实例" })
+                        .clicked()
+                    {
+                        editor.template_action = Some(Action::SetInstanceHidden(
+                            instance.instance_id.clone(),
+                            !instance.hidden,
+                        ));
+                        close = true;
+                    }
+                    if ui.button("删除实例").clicked() {
+                        editor.template_action = Some(Action::DeleteInstance(
+                            instance.instance_id.clone(),
+                        ));
+                        close = true;
+                    }
+                });
+            });
+        let outside = ui.input(|input| {
+            input.pointer.any_pressed()
+                && input
+                    .pointer
+                    .interact_pos()
+                    .is_some_and(|pos| !popup.response.rect.contains(pos))
+        });
+        if close || outside {
+            self.context_menu = None;
+            ui.ctx().memory_mut(|memory| memory.close_popup());
+        }
+        true
+    }
+
+    #[cfg(test)]
+    pub fn context_menu_open(&self) -> bool {
+        self.context_menu.is_some()
     }
 }
 
