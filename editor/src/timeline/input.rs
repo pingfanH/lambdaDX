@@ -17,7 +17,8 @@ use crate::app::types::{
 };
 use crate::io::save_document;
 use crate::state::{
-    DragGrab, EditorLayout, EditorState, SelectionTransformKind, TimelinePress, Tool,
+    DragGrab, EditorLayout, EditorState, NoteContextMenu, SelectionTransformKind, TimelinePress,
+    Tool,
 };
 
 use super::geometry::{
@@ -35,7 +36,9 @@ pub fn handle_edit_shortcuts(
     chart: &mut ChartDoc,
     current_time: f32,
 ) -> bool {
-    if editor.timeline_pan.is_some() { return true; }
+    if editor.timeline_pan.is_some() {
+        return true;
+    }
     if let Some(owned) = crate::keyboard::handle(ui, editor, chart, current_time) {
         return owned;
     }
@@ -112,12 +115,18 @@ pub fn handle_edit_shortcuts(
     if cmd {
         return true;
     }
-    if (editor.star_placement.is_some() || editor.hold_placement.is_some()) && !pressed(egui::Key::Escape) {
+    if (editor.star_placement.is_some() || editor.hold_placement.is_some())
+        && !pressed(egui::Key::Escape)
+    {
         return true;
     }
-    let shift_only = ui.input(|i| i.modifiers.shift && !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.mac_cmd);
+    let shift_only = ui.input(|i| {
+        i.modifiers.shift && !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.mac_cmd
+    });
     if shift_only && pressed(egui::Key::D) {
-        let anchor = ui.input(|i| i.pointer.hover_pos()).unwrap_or(egui::Pos2::ZERO);
+        let anchor = ui
+            .input(|i| i.pointer.hover_pos())
+            .unwrap_or(egui::Pos2::ZERO);
         super::transform::duplicate(editor, chart, anchor);
         return true;
     }
@@ -366,6 +375,196 @@ pub(crate) fn head_rect(
     egui::Rect::from_center_size(center, egui::vec2(size, size))
 }
 
+/// Open a note context menu from the raw secondary-button release rather than
+/// egui's widget-owned context-menu gesture, which can wait for a long press.
+/// Returns true while the note menu owns the pointer, including its dismissal
+/// click, so the same gesture cannot also place, select, or seek on the canvas.
+pub fn note_context_menu(
+    layout: EditorLayout,
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    tools: egui::Rect,
+    editor: &mut EditorState,
+    chart: &mut ChartDoc,
+    current_time: f32,
+) -> bool {
+    let pointer = ui.input(|i| i.pointer.interact_pos());
+    let in_canvas = pointer.is_some_and(|pos| rect.contains(pos) && !tools.contains(pos));
+    let popup_id = ui.id().with("note_context_popup");
+    let secondary_clicked = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary));
+    let mut owns_pointer = editor.note_context_menu.is_some();
+
+    if secondary_clicked {
+        let hit = if in_canvas {
+            pointer.and_then(|pos| {
+                let markers = context_markers(layout, rect, editor, chart, current_time);
+                nearest_marker(&markers, pos)
+            })
+        } else {
+            None
+        };
+        if let (Some(note_id), Some(pos)) = (hit, pointer) {
+            if !editor.selected.contains(&note_id) {
+                editor.select_only(note_id);
+                reconcile_selection(editor);
+            }
+            let (time, lane) = pointer_to_cursor(layout, rect, editor, chart, current_time, pos);
+            editor.note_context_menu = Some(NoteContextMenu {
+                note_id: Some(note_id),
+                position: (pos.x, pos.y),
+                measure: secs_to_measure(time, &chart.bpms),
+                lane,
+            });
+            ui.ctx().memory_mut(|memory| memory.open_popup(popup_id));
+            owns_pointer = true;
+        } else if editor.note_context_menu.take().is_some() {
+            ui.ctx().memory_mut(|memory| memory.close_popup());
+            owns_pointer = false;
+        }
+    }
+
+    let Some(menu) = editor.note_context_menu else {
+        return owns_pointer;
+    };
+    let Some(note) = menu
+        .note_id
+        .and_then(|id| chart.notes.iter().find(|note| note.id == id))
+        .cloned()
+    else {
+        editor.note_context_menu = None;
+        ui.ctx().memory_mut(|memory| memory.close_popup());
+        return true;
+    };
+
+    ui.ctx().memory_mut(|memory| memory.open_popup(popup_id));
+    let mut close = false;
+    let popup = egui::Area::new(popup_id)
+        .order(egui::Order::Foreground)
+        .fixed_pos(egui::pos2(menu.position.0, menu.position.1))
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.label(format!("Note {}", note.id));
+                if let Some(source) = &note.template_source {
+                    if ui.button("编辑对应模板").clicked() {
+                        editor.template_action = Some(crate::templates::Action::EnterDefinition(
+                            source.template_id.clone(),
+                        ));
+                        close = true;
+                    }
+                    if ui.button("隐藏此实例").clicked() {
+                        editor.template_action = Some(crate::templates::Action::SetInstanceHidden(
+                            source.instance_id.clone(),
+                            true,
+                        ));
+                        close = true;
+                    }
+                    if ui.button("删除此实例").clicked() {
+                        editor.template_action = Some(crate::templates::Action::DeleteInstance(
+                            source.instance_id.clone(),
+                        ));
+                        close = true;
+                    }
+                    ui.separator();
+                }
+                if ui
+                    .add_enabled(!editor.selected.is_empty(), egui::Button::new("删除音符"))
+                    .clicked()
+                {
+                    editor.delete_selection(chart);
+                    reconcile_selection(editor);
+                    close = true;
+                }
+            });
+        });
+    let outside = ui.input(|input| {
+        input.pointer.any_pressed()
+            && input
+                .pointer
+                .interact_pos()
+                .is_some_and(|pos| !popup.response.rect.contains(pos))
+    });
+    if close || outside {
+        editor.note_context_menu = None;
+        ui.ctx().memory_mut(|memory| memory.close_popup());
+    }
+    true
+}
+
+fn context_markers(
+    layout: EditorLayout,
+    rect: egui::Rect,
+    editor: &EditorState,
+    chart: &ChartDoc,
+    current_time: f32,
+) -> Markers {
+    let plot_left = rect.left() + LANE_GUTTER;
+    match layout {
+        EditorLayout::Horizontal => {
+            let lanes_top = rect.top() + RULER_H;
+            let lane_h = (rect.bottom() - lanes_top) / LANE_COUNT as f32;
+            chart
+                .notes
+                .iter()
+                .map(|note| {
+                    let center = egui::pos2(
+                        plot_left
+                            + (note_secs(note, &chart.bpms) - editor.view_start)
+                                * editor.pixels_per_second,
+                        lanes_top + (lane_index_of(note) as f32 + 0.5) * lane_h,
+                    );
+                    (note.id, head_rect(editor, note, center))
+                })
+                .collect()
+        }
+        EditorLayout::Vertical => {
+            let judge_y = rect.bottom() - JUDGE_MARGIN;
+            let lane_w = (rect.right() - plot_left).max(1.0) / LANE_COUNT as f32;
+            let now = crate::keyboard::navigation::reference_time(editor, current_time);
+            chart
+                .notes
+                .iter()
+                .map(|note| {
+                    let center = egui::pos2(
+                        plot_left + (lane_index_of(note) as f32 + 0.5) * lane_w,
+                        judge_y - (note_secs(note, &chart.bpms) - now) * editor.pixels_per_second,
+                    );
+                    (note.id, head_rect(editor, note, center))
+                })
+                .collect()
+        }
+    }
+}
+
+fn pointer_to_cursor(
+    layout: EditorLayout,
+    rect: egui::Rect,
+    editor: &EditorState,
+    chart: &ChartDoc,
+    current_time: f32,
+    pos: egui::Pos2,
+) -> (f32, u8) {
+    let plot_left = rect.left() + LANE_GUTTER;
+    match layout {
+        EditorLayout::Horizontal => {
+            let lanes_top = rect.top() + RULER_H;
+            let lane_h = (rect.bottom() - lanes_top) / LANE_COUNT as f32;
+            (
+                editor.view_start + (pos.x - plot_left) / editor.pixels_per_second,
+                lane_at(pos.y - lanes_top, lane_h),
+            )
+        }
+        EditorLayout::Vertical => {
+            let judge_y = rect.bottom() - JUDGE_MARGIN;
+            let lane_w = (rect.right() - plot_left).max(1.0) / LANE_COUNT as f32;
+            (
+                crate::keyboard::navigation::reference_time(editor, current_time)
+                    + (judge_y - pos.y) / editor.pixels_per_second,
+                lane_at(pos.x - plot_left, lane_w),
+            )
+        }
+    }
+}
+
 fn interact(
     response: &egui::Response,
     ui: &egui::Ui,
@@ -382,7 +581,9 @@ fn interact(
             .and_then(|p| nearest_marker(markers, p));
     }
     if response.contains_pointer() && ui.input(|i| i.pointer.primary_pressed()) {
-        let hit = response.interact_pointer_pos().and_then(|p| nearest_marker(markers, p));
+        let hit = response
+            .interact_pointer_pos()
+            .and_then(|p| nearest_marker(markers, p));
         crate::keyboard::navigation::pointer_anchor(editor, chart, cursor.time, cursor.lane, hit);
     }
     if editor.star_placement.is_some() || editor.hold_placement.is_some() {
@@ -391,7 +592,8 @@ fn interact(
                 secs_to_measure(cursor.time, &chart.bpms),
                 editor.snap_enabled,
                 editor.snap_division,
-            ).max(1.0);
+            )
+            .max(1.0);
             if editor.hold_placement.is_some() {
                 editor.place_hold_step(chart, measure, cursor.lane);
             } else {
@@ -426,10 +628,12 @@ fn interact(
         // Template-instance notes are derived: grabbing one cannot move
         // anything, and starting a drag on it only showed a drag state that
         // vanished on release.
-        if editor
-            .dragging
-            .is_some_and(|id| chart.notes.iter().any(|n| n.id == id && n.template_source.is_some()))
-        {
+        if editor.dragging.is_some_and(|id| {
+            chart
+                .notes
+                .iter()
+                .any(|n| n.id == id && n.template_source.is_some())
+        }) {
             editor.dragging = None;
             editor.pointer_press = None;
         }
@@ -476,13 +680,19 @@ fn interact(
         }
     }
 
-    if editor.scrubbing && (response.dragged_by(egui::PointerButton::Primary)
-        || response.drag_stopped_by(egui::PointerButton::Primary)) {
+    if editor.scrubbing
+        && (response.dragged_by(egui::PointerButton::Primary)
+            || response.drag_stopped_by(egui::PointerButton::Primary))
+    {
         editor.pending_seek = Some(cursor.time.max(0.0));
-        if response.dragged_by(egui::PointerButton::Primary) { return; }
+        if response.dragged_by(egui::PointerButton::Primary) {
+            return;
+        }
     }
 
-    if response.dragged_by(egui::PointerButton::Primary) || response.drag_stopped_by(egui::PointerButton::Primary) {
+    if response.dragged_by(egui::PointerButton::Primary)
+        || response.drag_stopped_by(egui::PointerButton::Primary)
+    {
         if let Some((sx, sy)) = editor.marquee_start {
             if let Some(p) = response.interact_pointer_pos() {
                 let sel_rect = egui::Rect::from_two_pos(egui::pos2(sx, sy), p);
@@ -566,79 +776,6 @@ fn interact(
     if ui.input(|i| i.pointer.primary_released()) {
         editor.pointer_press = None;
     }
-
-    // Right-click picks the note under the pointer and opens its menu; the
-    // marker count is small, so a straight linear scan is fine.
-    let context_pos = response.interact_pointer_pos();
-    if response.secondary_clicked() {
-        if let Some(id) = context_pos.and_then(|pos| nearest_marker(markers, pos)) {
-            if !editor.selected.contains(&id) {
-                editor.select_only(id);
-                reconcile_selection(editor);
-            }
-        }
-    }
-    let hit_id = context_pos.and_then(|pos| nearest_marker(markers, pos));
-    // A note that came from a template carries its instance, so the same menu
-    // can offer the instance actions.
-    let hit_source = hit_id
-        .and_then(|id| chart.notes.iter().find(|note| note.id == id))
-        .and_then(|note| note.template_source.clone());
-    response.context_menu(|ui| {
-        if let Some(id) = hit_id {
-            ui.label(format!("Note {id}"));
-        }
-        if let Some(source) = &hit_source {
-            if ui.button("编辑对应模板").clicked() {
-                editor.template_action =
-                    Some(crate::templates::Action::EnterDefinition(source.template_id.clone()));
-                ui.close_menu();
-            }
-            if ui.button("隐藏此实例").clicked() {
-                editor.template_action = Some(crate::templates::Action::SetInstanceHidden(
-                    source.instance_id.clone(),
-                    true,
-                ));
-                ui.close_menu();
-            }
-            if ui.button("删除此实例").clicked() {
-                editor.template_action = Some(crate::templates::Action::DeleteInstance(
-                    source.instance_id.clone(),
-                ));
-                ui.close_menu();
-            }
-            ui.separator();
-        }
-        ui.add_enabled_ui(!editor.selected.is_empty(), |ui| {
-            if ui.button("删除").clicked() {
-                editor.delete_selection(chart);
-                reconcile_selection(editor);
-                ui.close_menu();
-            }
-        });
-        ui.separator();
-        if ui.button("在此新建音符").clicked() {
-            editor.push_history(chart);
-            editor.place_note(chart, cursor.time, cursor.lane);
-            reconcile_selection(editor);
-            ui.close_menu();
-        }
-        if !chart.templates.is_empty() {
-            ui.menu_button("在此添加模板", |ui| {
-                for template in &chart.templates {
-                    if ui.button(&template.name).clicked() {
-                        let measure =
-                            crate::app::types::secs_to_measure(cursor.time, &chart.bpms);
-                        editor.template_action = Some(crate::templates::Action::InsertAt(
-                            template.id.clone(),
-                            measure,
-                        ));
-                        ui.close_menu();
-                    }
-                }
-            });
-        }
-    });
 
     // Double-clicking a star head edits that slide; Alt+double-click pulls out a
     // same-head trajectory instead (E enters the edit from the keyboard).
@@ -919,36 +1056,51 @@ fn view_time(editor: &EditorState, now: f32) -> f32 {
 }
 
 fn pan_view(editor: &mut EditorState, delta: f32, now: f32) {
-    if delta == 0.0 { return; }
+    if delta == 0.0 {
+        return;
+    }
     let view = view_time(editor, now);
     if editor.follow_playhead && !editor.keyboard.detached {
         let now = editor.pending_seek.unwrap_or(now);
         let target = (now + delta).max(0.0);
         editor.follow_view_offset = Some(now - view);
         editor.view_start = view + target - now;
-        if target != now { editor.pending_seek = Some(target); }
+        if target != now {
+            editor.pending_seek = Some(target);
+        }
     } else {
         editor.view_start = view + delta;
     }
 }
 
 fn scrub_position(
-    response: &egui::Response, ui: &egui::Ui, rect: egui::Rect,
-    editor: &mut EditorState, now: f32, mut pos: egui::Pos2,
+    response: &egui::Response,
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    editor: &mut EditorState,
+    now: f32,
+    mut pos: egui::Pos2,
 ) -> egui::Pos2 {
     let dragging = response.dragged_by(egui::PointerButton::Primary);
     if (dragging || response.drag_stopped_by(egui::PointerButton::Primary))
-        && (editor.scrubbing || editor.pointer_press.is_some_and(|press| press.on_playhead)) {
+        && (editor.scrubbing || editor.pointer_press.is_some_and(|press| press.on_playhead))
+    {
         let (axis, lo, hi, sign) = match editor.layout {
             EditorLayout::Horizontal => (&mut pos.x, rect.left() + LANE_GUTTER, rect.right(), 1.0),
             EditorLayout::Vertical => (&mut pos.y, rect.top() + RULER_H, rect.bottom(), -1.0),
         };
         let edge = (*axis).clamp(lo, hi.max(lo));
-        let step = if dragging { scroll_step((*axis - edge) * sign, ui.input(|i| i.stable_dt)) } else { 0.0 };
+        let step = if dragging {
+            scroll_step((*axis - edge) * sign, ui.input(|i| i.stable_dt))
+        } else {
+            0.0
+        };
         editor.view_start = view_time(editor, now) + step / editor.pixels_per_second;
         editor.scrubbing = true;
         *axis = edge;
-        if step != 0.0 { ui.ctx().request_repaint(); }
+        if step != 0.0 {
+            ui.ctx().request_repaint();
+        }
     }
     pos
 }
@@ -1114,52 +1266,92 @@ pub fn navigate(
             return editor.timeline_pan.take().is_some_and(|(_, moved)| moved);
         }
     }
-    if editor.dragging.is_some() || editor.handle_grab.is_some()
+    if editor.dragging.is_some()
+        || editor.handle_grab.is_some()
         || editor.scrubbing && editor.timeline_pan.is_none()
         || editor.marquee_start.is_some()
-        || editor.pointer_press.is_some() && ui.input(|i| i.pointer.primary_down()) {
+        || editor.pointer_press.is_some() && ui.input(|i| i.pointer.primary_down())
+    {
         return false;
     }
     let hovered = ui.rect_contains_pointer(rect);
-    if hovered && ui.input(|i| i.focused && i.pointer.button_pressed(middle) && !i.pointer.primary_down()) {
+    if hovered
+        && ui.input(|i| i.focused && i.pointer.button_pressed(middle) && !i.pointer.primary_down())
+    {
         editor.timeline_pan = pointer.map(|pos| (axis(pos), false));
         editor.view_start = view_time(editor, current_time);
     }
     if let Some((origin, moved)) = editor.timeline_pan {
-        let step = pointer.map_or(0.0, |pos| rate_pan_step(axis(pos) - origin, ui.input(|i| i.stable_dt)));
+        let step = pointer.map_or(0.0, |pos| {
+            rate_pan_step(axis(pos) - origin, ui.input(|i| i.stable_dt))
+        });
         editor.timeline_pan = Some((origin, moved || step != 0.0));
         pan_view(editor, step / editor.pixels_per_second, current_time);
-        if editor.pending_seek.is_some() { editor.scrubbing = true; }
+        if editor.pending_seek.is_some() {
+            editor.scrubbing = true;
+        }
         ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
-        if step != 0.0 { ui.ctx().request_repaint(); }
+        if step != 0.0 {
+            ui.ctx().request_repaint();
+        }
         return true;
     }
-    if !hovered { return false; }
-    let command = ui.input(|i| i.modifiers.command || i.modifiers.ctrl || i.modifiers.mac_cmd
-        || i.events.iter().any(|event| matches!(event, egui::Event::MouseWheel { modifiers, .. }
-            if modifiers.command || modifiers.ctrl || modifiers.mac_cmd)));
-    let shift = ui.input(|i| i.modifiers.shift || i.events.iter().any(|event|
-        matches!(event, egui::Event::MouseWheel { modifiers, .. } if modifiers.shift)));
+    if !hovered {
+        return false;
+    }
+    let command = ui.input(|i| {
+        i.modifiers.command
+            || i.modifiers.ctrl
+            || i.modifiers.mac_cmd
+            || i.events.iter().any(|event| {
+                matches!(event, egui::Event::MouseWheel { modifiers, .. }
+            if modifiers.command || modifiers.ctrl || modifiers.mac_cmd)
+            })
+    });
+    let shift = ui.input(|i| {
+        i.modifiers.shift || i.events.iter().any(|event|
+        matches!(event, egui::Event::MouseWheel { modifiers, .. } if modifiers.shift))
+    });
     let delta = ui.input(|i| i.raw_scroll_delta);
-    let scroll = if delta.y.abs() > delta.x.abs() { delta.y } else { delta.x };
-    let wheel = if raw_wheel.abs() > f32::EPSILON { raw_wheel } else { scroll / 30.0 };
+    let scroll = if delta.y.abs() > delta.x.abs() {
+        delta.y
+    } else {
+        delta.x
+    };
+    let wheel = if raw_wheel.abs() > f32::EPSILON {
+        raw_wheel
+    } else {
+        scroll / 30.0
+    };
     let pinch = crate::gesture::take();
     if pinch.abs() > 1e-6 || command && wheel.abs() > f32::EPSILON {
-        let change = if pinch.abs() > 1e-6 { pinch } else { wheel * 0.05 };
+        let change = if pinch.abs() > 1e-6 {
+            pinch
+        } else {
+            wheel * 0.05
+        };
         let old = editor.pixels_per_second;
         let new = zoomed_pps(old, change, 1.0);
         let pos = pointer.unwrap_or(rect.center());
-        let offset = if vertical { rect.bottom() - JUDGE_MARGIN - pos.y }
-            else { pos.x - rect.left() - LANE_GUTTER };
+        let offset = if vertical {
+            rect.bottom() - JUDGE_MARGIN - pos.y
+        } else {
+            pos.x - rect.left() - LANE_GUTTER
+        };
         let time = view_time(editor, current_time) + offset / old - offset / new;
-        super::geometry::set_view_reference(editor, time, current_time);
+        super::geometry::set_zoom_view_reference(editor, time);
         editor.pixels_per_second = new;
     } else if !command && (scroll != 0.0 || wheel != 0.0) {
         let direction = if editor.scroll_invert { -1.0 } else { 1.0 };
-        let seconds = if shift { (if scroll != 0.0 { scroll } else { wheel * 30.0 }) / editor.pixels_per_second }
-            else { wheel * 0.002 };
+        let seconds = if shift {
+            (if scroll != 0.0 { scroll } else { wheel * 30.0 }) / editor.pixels_per_second
+        } else {
+            wheel * 0.002
+        };
         pan_view(editor, -seconds * direction, current_time);
-    } else { return false; }
+    } else {
+        return false;
+    }
     ui.input_mut(|i| {
         i.smooth_scroll_delta = egui::Vec2::ZERO;
         i.raw_scroll_delta = egui::Vec2::ZERO;
@@ -1252,7 +1444,12 @@ mod tests {
                             egui::Sense::click_and_drag(),
                         );
                         if crate::timeline::transform::handle_pointer(
-                            ui, ui.max_rect(), &mut self.editor, &mut self.chart, 0.0, 0.0,
+                            ui,
+                            ui.max_rect(),
+                            &mut self.editor,
+                            &mut self.chart,
+                            0.0,
+                            0.0,
                         ) {
                             return;
                         }
@@ -1298,7 +1495,8 @@ mod tests {
     #[test]
     fn requested_timeline_mouse_click_refreshes_tab_anchor() {
         let mut test = PointerTest::new();
-        test.editor.keyboard.cursor = crate::keyboard::navigation::note_cursor(&test.chart.notes[1]);
+        test.editor.keyboard.cursor =
+            crate::keyboard::navigation::note_cursor(&test.chart.notes[1]);
         test.editor.keyboard.candidate = Some(2);
         test.click(egui::pos2(120.0, 100.0), egui::Modifiers::NONE);
         assert_eq!(test.editor.keyboard.candidate, Some(1));
@@ -1339,15 +1537,26 @@ mod tests {
         test.frame(at, None, egui::Modifiers::NONE);
         crate::timeline::transform::duplicate(&mut test.editor, &mut test.chart, at);
         test.click(at, egui::Modifiers::NONE);
-        assert_eq!(test.chart.notes.len(), 3, "confirmation must not place another tap");
+        assert_eq!(
+            test.chart.notes.len(),
+            3,
+            "confirmation must not place another tap"
+        );
         assert_eq!(test.editor.undo.len(), 1);
         test.click(egui::pos2(350.0, 250.0), egui::Modifiers::NONE);
-        assert_eq!(test.chart.notes.len(), 4, "next placement click remains usable");
+        assert_eq!(
+            test.chart.notes.len(),
+            4,
+            "next placement click remains usable"
+        );
     }
 
     #[test]
     fn double_click_star_head_adjusts_timing_before_adding_same_head_trajectory() {
-        for layout in [crate::state::EditorLayout::Vertical, crate::state::EditorLayout::Horizontal] {
+        for layout in [
+            crate::state::EditorLayout::Vertical,
+            crate::state::EditorLayout::Horizontal,
+        ] {
             let mut test = PointerTest::new();
             test.editor.layout = layout;
             test.chart.notes[0].note_type = NoteType::Slide;
@@ -1361,7 +1570,8 @@ mod tests {
             let original = test.chart.notes[0].clone();
             // Keep both clicks inside egui's double-click interval without
             // changing the timing of the existing drag tests.
-            test.ctx.options_mut(|options| options.input_options.max_double_click_delay = 2.0);
+            test.ctx
+                .options_mut(|options| options.input_options.max_double_click_delay = 2.0);
             let head = egui::pos2(120.0, 100.0);
             test.click(head, egui::Modifiers::NONE);
             assert_eq!(test.chart.notes[0].slide.len(), 1);
@@ -1395,7 +1605,8 @@ mod tests {
     #[test]
     fn double_click_tap_head_does_not_add_a_slide() {
         let mut test = PointerTest::new();
-        test.ctx.options_mut(|options| options.input_options.max_double_click_delay = 2.0);
+        test.ctx
+            .options_mut(|options| options.input_options.max_double_click_delay = 2.0);
         let head = egui::pos2(120.0, 100.0);
         test.click(head, egui::Modifiers::NONE);
         test.click(head, egui::Modifiers::NONE);
@@ -1635,7 +1846,12 @@ mod tests {
         for (time, lane) in [(4.0, 1), (4.25, 2), (4.5, 3)] {
             test.editor.place_note(&mut test.chart, time, lane);
         }
-        assert!(key(&mut test.editor, &mut test.chart, egui::Key::R, egui::Modifiers::SHIFT));
+        assert!(key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::R,
+            egui::Modifiers::SHIFT
+        ));
         let note = test.chart.notes.last().unwrap();
         assert_eq!((note.time, note.lane), (4.75, 4));
         assert_eq!(note.note_type, NoteType::Hold);
@@ -1650,19 +1866,50 @@ mod tests {
         test.editor.copy_selection(&test.chart);
         let clipboard = test.editor.clipboard.clone();
         let original = test.chart.notes.clone();
-        assert!(key(&mut test.editor, &mut test.chart, egui::Key::D, egui::Modifiers::SHIFT));
+        assert!(key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::D,
+            egui::Modifiers::SHIFT
+        ));
         assert_eq!(test.chart.notes.len(), original.len() + 2);
         assert!(test.editor.selection_transform.is_some());
         assert_eq!(test.editor.clipboard, clipboard);
-        assert!(test.editor.selected.iter().all(|id| !original.iter().any(|n| n.id == *id)));
+        assert!(
+            test.editor
+                .selected
+                .iter()
+                .all(|id| !original.iter().any(|n| n.id == *id))
+        );
         super::super::transform::shift(&mut test.editor, &mut test.chart, 0.25, 1);
-        key(&mut test.editor, &mut test.chart, egui::Key::Enter, egui::Modifiers::NONE);
+        key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::Enter,
+            egui::Modifiers::NONE,
+        );
         assert_eq!(test.editor.undo.len(), 1);
         assert_eq!(&test.chart.notes[..original.len()], &original);
-        let copies: Vec<_> = test.chart.notes.iter().filter(|n| test.editor.selected.contains(&n.id)).cloned().collect();
-        assert!(key(&mut test.editor, &mut test.chart, egui::Key::R, egui::Modifiers::SHIFT));
+        let copies: Vec<_> = test
+            .chart
+            .notes
+            .iter()
+            .filter(|n| test.editor.selected.contains(&n.id))
+            .cloned()
+            .collect();
+        assert!(key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::R,
+            egui::Modifiers::SHIFT
+        ));
         assert!(test.editor.selection_transform.is_none());
-        for (old, new) in copies.iter().zip(test.chart.notes.iter().filter(|n| test.editor.selected.contains(&n.id))) {
+        for (old, new) in copies.iter().zip(
+            test.chart
+                .notes
+                .iter()
+                .filter(|n| test.editor.selected.contains(&n.id)),
+        ) {
             assert_eq!(new.time, old.time + 0.25);
             assert_eq!(new.lane, (old.lane % 8) + 1);
         }
@@ -1678,9 +1925,19 @@ mod tests {
         let mut test = PointerTest::new();
         test.editor.selected = [1].into_iter().collect();
         let original = test.chart.notes.clone();
-        key(&mut test.editor, &mut test.chart, egui::Key::D, egui::Modifiers::SHIFT);
+        key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::D,
+            egui::Modifiers::SHIFT,
+        );
         super::super::transform::shift(&mut test.editor, &mut test.chart, 0.5, 2);
-        key(&mut test.editor, &mut test.chart, egui::Key::Escape, egui::Modifiers::NONE);
+        key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::Escape,
+            egui::Modifiers::NONE,
+        );
         let copy = test.chart.notes.last().unwrap();
         assert_eq!((copy.time, copy.lane), (original[0].time, original[0].lane));
         assert!(test.editor.selected.contains(&copy.id));
@@ -1693,8 +1950,18 @@ mod tests {
     fn repeat_shortcut_without_operation_or_selection_does_nothing() {
         let mut test = PointerTest::new();
         let original = test.chart.notes.clone();
-        key(&mut test.editor, &mut test.chart, egui::Key::R, egui::Modifiers::SHIFT);
-        key(&mut test.editor, &mut test.chart, egui::Key::D, egui::Modifiers::SHIFT);
+        key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::R,
+            egui::Modifiers::SHIFT,
+        );
+        key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::D,
+            egui::Modifiers::SHIFT,
+        );
         assert_eq!(test.chart.notes, original);
         assert!(test.editor.undo.is_empty());
         assert!(test.editor.selection_transform.is_none());
@@ -1707,9 +1974,19 @@ mod tests {
         let original = test.chart.notes.clone();
         assert!(test.editor.begin_same_head_placement(&test.chart, 1));
         test.editor.place_star_step(&mut test.chart, 2.25, 3);
-        key(&mut test.editor, &mut test.chart, egui::Key::G, egui::Modifiers::NONE);
+        key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::G,
+            egui::Modifiers::NONE,
+        );
         assert!(test.editor.selection_transform.is_none());
-        key(&mut test.editor, &mut test.chart, egui::Key::Escape, egui::Modifiers::NONE);
+        key(
+            &mut test.editor,
+            &mut test.chart,
+            egui::Key::Escape,
+            egui::Modifiers::NONE,
+        );
         assert!(test.editor.star_placement.is_none());
         assert_eq!(test.chart.notes, original);
         assert!(test.editor.undo.is_empty());

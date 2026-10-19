@@ -5,6 +5,7 @@ use crate::app::{
     pad_svg::PadSvgDef,
     types::{PadGeom, SlideShape},
 };
+use crate::core::types::sort_timed_input_events;
 
 const RADIUS: f32 = 400.0;
 const MAX_POINTS: usize = 2048;
@@ -323,7 +324,7 @@ pub(super) fn bake(curve: &AutoplayCurve, svg: &PadSvgDef) -> Result<Vec<TimedIn
     for zone in previous {
         events.push(make_event(&zone, 2, end));
     }
-    events.sort_by_key(timed_input_tp);
+    sort_timed_input_events(&mut events);
     // Quantized crossings can occupy one microsecond. Drop only zero-length
     // intervals, never leave an unmatched press in the core input stream.
     let spans = clips::intervals(&events);
@@ -383,15 +384,9 @@ fn append_wifi_legs(
     wifi_branch_lane(start, 1)
 }
 
-fn append_points(
-    points: &mut Vec<macroquad::prelude::Vec2>,
-    part: Vec<macroquad::prelude::Vec2>,
-) {
+fn append_points(points: &mut Vec<macroquad::prelude::Vec2>, part: Vec<macroquad::prelude::Vec2>) {
     for point in part {
-        if points
-            .last()
-            .is_none_or(|last| last.distance(point) > 1e-4)
-        {
+        if points.last().is_none_or(|last| last.distance(point) > 1e-4) {
             points.push(point);
         }
     }
@@ -470,7 +465,11 @@ pub(super) fn from_slide(
                     &one, &single, &pad, svg, 1.0, center, RADIUS,
                 ),
             );
-            lane = segment.points.last().map(|p| p.zone.to_id()).unwrap_or(lane);
+            lane = segment
+                .points
+                .last()
+                .map(|p| p.zone.to_id())
+                .unwrap_or(lane);
         }
         points
     } else {

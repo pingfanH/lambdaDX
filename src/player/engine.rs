@@ -16,7 +16,7 @@ use crate::core::session::{self, Empty, Loaded, Session};
 use crate::core::types::{
     AudioCommand, AutoplayPlan, ButtonZone, ChartSpec, JudgeEvent, JudgeEventKind, JudgeGrade,
     RenderCommand, RuntimeStepLightResult, SeekResult, SensorArea, TimedInputBatch,
-    TimedInputEvent,
+    TimedInputEvent, sort_timed_input_events,
 };
 use crate::player::state::PadPreviewState;
 use std::collections::{HashMap, HashSet};
@@ -176,6 +176,12 @@ pub fn zone_for_sensor(area: SensorArea) -> PadZone {
 pub struct JudgeEngine {
     session: Session<Loaded>,
     chart_spec: ChartSpec,
+    /// Last time successfully accepted by lnmai-core.
+    ///
+    /// Playback can deliver an autoplay event a frame late after a render or
+    /// audio hitch. The core rejects a batch whose clock moves backwards, so
+    /// we retain its clock here and retime only events that arrived behind it.
+    last_step_time_us: i64,
     slide_bindings: HashMap<u64, usize>,
     /// Core slide head timings (µs), indexed by runtime slide index.
     slide_head_timings: Vec<i64>,
@@ -240,11 +246,15 @@ impl JudgeEngine {
         #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
         let chart_spec = loaded.chart_spec_native().map_err(|e| e.json)?;
         #[cfg(feature = "backend-rust")]
-        let chart_spec = loaded.get_lowered_chart_json().map_err(|e| e.json)?
-            .decode_result().map_err(|e| format!("invalid lowered chart json: {e}"))?;
+        let chart_spec = loaded
+            .get_lowered_chart_json()
+            .map_err(|e| e.json)?
+            .decode_result()
+            .map_err(|e| format!("invalid lowered chart json: {e}"))?;
         Ok(JudgeEngine {
             session: loaded,
             chart_spec,
+            last_step_time_us: 0,
             slide_bindings,
             slide_head_timings,
             slide_totals,
@@ -327,7 +337,8 @@ impl JudgeEngine {
             .iter()
             .find(|head| head.note_index == note_index)?;
         let runtime = self.runtime_slide_index(head.logical_slide_id)?;
-        self.slide_position(chart, runtime).map(|position| position.0)
+        self.slide_position(chart, runtime)
+            .map(|position| position.0)
     }
 
     pub fn slide_position(
@@ -370,30 +381,48 @@ impl JudgeEngine {
         current_secs: f32,
         mut events: Vec<TimedInputEvent>,
     ) -> Result<RuntimeStepLightResult, String> {
-        events.sort_by_key(InputTp::tp);
+        let requested_time_us = (current_secs.max(0.0) * 1e6) as i64;
+        let current_time_us = requested_time_us.max(self.last_step_time_us);
+        // A stalled frame can leave autoplay events behind the core clock.
+        // Keep those events in the current zero-duration frame instead of
+        // asking the core to move backwards and dropping the whole step.
+        for event in &mut events {
+            if timed_input_tp(event) < self.last_step_time_us {
+                *event = retime_input_event(event, self.last_step_time_us);
+            }
+        }
+        sort_timed_input_events(&mut events);
         if std::env::var_os("MAI2_DEBUG_TOUCHZONE").is_some() && !events.is_empty() {
             eprintln!(
                 "[touchzone/core] current_time={} events={events:?}",
-                (current_secs.max(0.0) * 1e6) as i64
+                current_time_us
             );
         }
         let batch = TimedInputBatch {
-            current_time: (current_secs.max(0.0) * 1e6) as i64,
+            current_time: current_time_us,
             events,
         };
-        #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
-        return self.session.step_native(&batch).map_err(|e| e.json);
-        #[cfg(feature = "backend-rust")]
-        {
-            let json = serde_json::to_string(&batch).map_err(|e| e.to_string())?;
-            let (envelope, _timings) = self
-                .session
-                .advance_frame_light_timed(&json)
-                .map_err(|e| e.json)?;
-            envelope
-                .decode_result::<RuntimeStepLightResult>()
-                .map_err(|e| e.to_string())
+        let result = {
+            #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
+            {
+                self.session.step_native(&batch).map_err(|e| e.json)
+            }
+            #[cfg(feature = "backend-rust")]
+            {
+                let json = serde_json::to_string(&batch).map_err(|e| e.to_string())?;
+                let (envelope, _timings) = self
+                    .session
+                    .advance_frame_light_timed(&json)
+                    .map_err(|e| e.json)?;
+                envelope
+                    .decode_result::<RuntimeStepLightResult>()
+                    .map_err(|e| e.to_string())
+            }
+        };
+        if let Ok(result) = &result {
+            self.last_step_time_us = result.current_time;
         }
+        result
     }
 
     pub fn runtime_slide_index(&self, note_index: u64) -> Option<usize> {
@@ -423,9 +452,11 @@ impl JudgeEngine {
         crate::player::judge_windows::Metadata::from_spec(
             &self.chart_spec,
             |index| self.chart_note_id(index),
-            |index| self.runtime_slide_index(index)
-                .and_then(|runtime| self.slide_position(chart, runtime))
-                .map(|(id, sub, _, _)| (id, sub)),
+            |index| {
+                self.runtime_slide_index(index)
+                    .and_then(|runtime| self.slide_position(chart, runtime))
+                    .map(|(id, sub, _, _)| (id, sub))
+            },
         )
     }
 
@@ -442,13 +473,22 @@ impl JudgeEngine {
         if !seconds.is_finite() {
             return Err("invalid seek time".into());
         }
-        #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
-        return self
-            .session
-            .seek_with_events((seconds.max(0.0) * 1e6) as i64, events, keep_held)
-            .map_err(|e| e.json);
-        #[cfg(feature = "backend-rust")]
-        Err("seek is not supported by the Rust backend".into())
+        let result = {
+            #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
+            {
+                self.session
+                    .seek_with_events((seconds.max(0.0) * 1e6) as i64, events, keep_held)
+                    .map_err(|e| e.json)
+            }
+            #[cfg(feature = "backend-rust")]
+            {
+                Err("seek is not supported by the Rust backend".into())
+            }
+        };
+        if let Ok(result) = &result {
+            self.last_step_time_us = result.current_time;
+        }
+        result
     }
 
     pub fn autoplay_plan(&self) -> Result<AutoplayPlan, String> {
@@ -682,6 +722,27 @@ pub fn normalize_tactic_event(event: TimedInputEvent) -> TimedInputEvent {
     }
 }
 
+fn retime_input_event(event: &TimedInputEvent, tp: i64) -> TimedInputEvent {
+    match event {
+        TimedInputEvent::ButtonClick { zone, .. } => {
+            TimedInputEvent::ButtonClick { tp, zone: *zone }
+        }
+        TimedInputEvent::ButtonHold { zone, is_down, .. } => TimedInputEvent::ButtonHold {
+            tp,
+            zone: *zone,
+            is_down: *is_down,
+        },
+        TimedInputEvent::SensorClick { area, .. } => {
+            TimedInputEvent::SensorClick { tp, area: *area }
+        }
+        TimedInputEvent::SensorHold { area, is_down, .. } => TimedInputEvent::SensorHold {
+            tp,
+            area: *area,
+            is_down: *is_down,
+        },
+    }
+}
+
 fn sensor_area_for_button(zone: ButtonZone) -> SensorArea {
     match zone {
         ButtonZone::K1 => SensorArea::A1,
@@ -839,7 +900,7 @@ pub(crate) fn step_engine_events(
     if events.is_empty() {
         return vec![engine.step(now, Vec::new())];
     }
-    events.sort_by_key(timed_input_tp);
+    sort_timed_input_events(&mut events);
     let per_event = if force_per_event() {
         true
     } else if force_batch() {
@@ -955,7 +1016,8 @@ fn log_lnmai_slide_state(engine: &JudgeEngine, now: f32, result: &RuntimeStepLig
 }
 
 fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResult) {
-    let displays = collect_judge_result_displays(app.playback_chart(), app.judge_engine.as_ref(), &result);
+    let displays =
+        collect_judge_result_displays(app.playback_chart(), app.judge_engine.as_ref(), &result);
     for display in displays {
         app.push_judgement(display.zone, display.label, display.duration);
         // Tap-family hits and any break note get the ring/spark burst — only on
@@ -972,11 +1034,7 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
         app.record_slide_judge(fx.note_id, fx.slide_idx, fx.grade);
     }
     // Completed single-hit notes disappear on judgment, not after a timer.
-    let hidden = judged_single_hit_notes(
-        app.playback_chart(),
-        app.judge_engine.as_ref(),
-        &result,
-    );
+    let hidden = judged_single_hit_notes(app.playback_chart(), app.judge_engine.as_ref(), &result);
     app.hidden_notes.extend(hidden);
     for command in &result.audio_commands {
         play_audio_command(app, command);
@@ -1547,6 +1605,22 @@ mod tests {
         engine
             .step(5.0, press_events_for_zone(PadZone::from(1), 5_000_000))
             .expect("press frame steps");
+    }
+
+    #[test]
+    fn late_autoplay_event_does_not_rewind_core_clock() {
+        let text = "&inote_1=(120){4}1-5[4:1],E";
+        let mut engine = JudgeEngine::load(text, 1).expect("engine loads");
+
+        engine.step(1.0, Vec::new()).expect("initial clock step");
+        let result = engine
+            .step(0.9, vec![TimedInputEvent::SensorClick {
+                tp: 900_000,
+                area: SensorArea::A1,
+            }])
+            .expect("late autoplay event must not reject the frame");
+
+        assert_eq!(result.current_time, 1_000_000);
     }
 
     #[test]

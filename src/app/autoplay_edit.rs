@@ -1,7 +1,9 @@
 //! Editor ownership keys do not depend on core allocation order or absolute time.
 
 use super::types::{ChartDoc, note_secs};
-use crate::core::types::{AutoplayGroup, AutoplayPart, AutoplayPlan, TimedInputEvent};
+use crate::core::types::{
+    AutoplayGroup, AutoplayPart, AutoplayPlan, TimedInputEvent, sort_timed_input_events,
+};
 use crate::player::engine::{JudgeEngine, timed_input_tp};
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +21,13 @@ pub struct AutoplayKey {
 
 impl AutoplayKey {
     pub fn standalone(id: u64) -> Self {
-        Self { note_id: id, role: STANDALONE_ROLE, slide: 0, segment: 0, track: None }
+        Self {
+            note_id: id,
+            role: STANDALONE_ROLE,
+            slide: 0,
+            segment: 0,
+            track: None,
+        }
     }
 
     pub fn is_standalone(&self) -> bool {
@@ -36,7 +44,10 @@ pub struct AutoplayOverride {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CurveTiming { ConstantSpeed, FixedDuration }
+pub enum CurveTiming {
+    ConstantSpeed,
+    FixedDuration,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CurveHandles {
@@ -61,20 +72,38 @@ pub struct AutoplayCurve {
 
 impl Default for AutoplayCurve {
     fn default() -> Self {
-        Self { points: Vec::new(), handles: Vec::new(), smooth: true, start: 0.0,
-            timing: CurveTiming::ConstantSpeed, speed: 2.0, duration: 1.0, radius: 0.025 }
+        Self {
+            points: Vec::new(),
+            handles: Vec::new(),
+            smooth: true,
+            start: 0.0,
+            timing: CurveTiming::ConstantSpeed,
+            speed: 2.0,
+            duration: 1.0,
+            radius: 0.025,
+        }
     }
 }
 
 /// A whole-track time translation preserves the editable curve; other raw
 /// event edits deliberately detach it so stale geometry cannot overwrite them.
-pub fn translated_curve(item: &AutoplayOverride, events: &[TimedInputEvent]) -> Option<AutoplayCurve> {
+pub fn translated_curve(
+    item: &AutoplayOverride,
+    events: &[TimedInputEvent],
+) -> Option<AutoplayCurve> {
     let mut curve = item.curve.clone()?;
-    if events.len() != item.events.len() { return None; }
-    let delta = timed_input_tp(events.first()?).checked_sub(timed_input_tp(item.events.first()?))?;
+    if events.len() != item.events.len() {
+        return None;
+    }
+    let delta =
+        timed_input_tp(events.first()?).checked_sub(timed_input_tp(item.events.first()?))?;
     if !events.iter().zip(&item.events).all(|(a, b)| {
-        timed_input_tp(b).checked_add(delta).is_some_and(|tp| *a == with_time(b, tp))
-    }) { return None; }
+        timed_input_tp(b)
+            .checked_add(delta)
+            .is_some_and(|tp| *a == with_time(b, tp))
+    }) {
+        return None;
+    }
     curve.start += delta as f64 / 1e6;
     Some(curve)
 }
@@ -84,7 +113,11 @@ pub fn key(chart: &ChartDoc, engine: &JudgeEngine, part: &AutoplayPart) -> Optio
         return Some(AutoplayKey::standalone(part.runtime_note_index));
     }
     let (note_id, slide, segment) = match part.role {
-        1 => (engine.slide_head_note_id(chart, part.runtime_note_index)?, 0, 0),
+        1 => (
+            engine.slide_head_note_id(chart, part.runtime_note_index)?,
+            0,
+            0,
+        ),
         2 => {
             let runtime = engine.runtime_slide_index(part.runtime_note_index)?;
             let (note_id, slide, segment, _) = engine.slide_position(chart, runtime)?;
@@ -127,7 +160,9 @@ pub fn generated_plan(
 ) -> AutoplayPlan {
     let mut plan = defaults.clone();
     if inner_screen {
-        for event in plan.groups.iter_mut()
+        for event in plan
+            .groups
+            .iter_mut()
             .flat_map(|group| &mut group.parts)
             .flat_map(|part| &mut part.events)
         {
@@ -168,15 +203,21 @@ pub fn apply(chart: &ChartDoc, engine: &JudgeEngine, plan: &mut AutoplayPlan) {
             .iter()
             .map(|event| with_time(event, timed_input_tp(event).saturating_add(*head)))
             .collect();
-        part.events.sort_by_key(timed_input_tp);
+        sort_timed_input_events(&mut part.events);
     }
     let mut ids: std::collections::HashSet<_> = plan.groups.iter().map(|group| group.id).collect();
     let mut next_id = 0;
-    for item in chart.autoplay_overrides.iter().filter(|item| item.key.is_standalone()) {
-        while ids.contains(&next_id) { next_id += 1; }
+    for item in chart
+        .autoplay_overrides
+        .iter()
+        .filter(|item| item.key.is_standalone())
+    {
+        while ids.contains(&next_id) {
+            next_id += 1;
+        }
         ids.insert(next_id);
         let mut events = item.events.clone();
-        events.sort_by_key(timed_input_tp);
+        sort_timed_input_events(&mut events);
         plan.groups.push(AutoplayGroup {
             id: next_id,
             kind: STANDALONE_ROLE,

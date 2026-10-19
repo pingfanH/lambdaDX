@@ -820,6 +820,29 @@ pub enum TimedInputEvent {
     },
 }
 
+/// Sort input events chronologically, resolving quantized ties in the order
+/// required by the input state machine: release, click, then press.
+pub fn timed_input_event_sort_key(event: &TimedInputEvent) -> (TimePoint, u8) {
+    let order = match event {
+        TimedInputEvent::ButtonHold { is_down: false, .. }
+        | TimedInputEvent::SensorHold { is_down: false, .. } => 0,
+        TimedInputEvent::ButtonClick { .. } | TimedInputEvent::SensorClick { .. } => 1,
+        TimedInputEvent::ButtonHold { is_down: true, .. }
+        | TimedInputEvent::SensorHold { is_down: true, .. } => 2,
+    };
+    let tp = match event {
+        TimedInputEvent::ButtonClick { tp, .. }
+        | TimedInputEvent::ButtonHold { tp, .. }
+        | TimedInputEvent::SensorClick { tp, .. }
+        | TimedInputEvent::SensorHold { tp, .. } => *tp,
+    };
+    (tp, order)
+}
+
+pub fn sort_timed_input_events(events: &mut [TimedInputEvent]) {
+    events.sort_by_key(timed_input_event_sort_key);
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimedInputBatch {
@@ -929,12 +952,7 @@ impl AutoplayPlan {
             .flat_map(|g| &g.parts)
             .flat_map(|p| p.events.iter().cloned())
             .collect();
-        events.sort_by_key(|event| match event {
-            TimedInputEvent::ButtonClick { tp, .. }
-            | TimedInputEvent::ButtonHold { tp, .. }
-            | TimedInputEvent::SensorClick { tp, .. }
-            | TimedInputEvent::SensorHold { tp, .. } => *tp,
-        });
+        sort_timed_input_events(&mut events);
         events
     }
 
@@ -1548,4 +1566,28 @@ pub struct SessionState {
 #[serde(rename_all = "camelCase")]
 pub struct HandleOnly {
     pub handle: u64,
+}
+
+#[cfg(test)]
+mod timed_input_event_tests {
+    use super::*;
+
+    #[test]
+    fn quantized_release_precedes_press_at_the_same_time() {
+        let mut events = vec![
+            TimedInputEvent::SensorHold {
+                tp: 10,
+                area: SensorArea::A1,
+                is_down: true,
+            },
+            TimedInputEvent::SensorHold {
+                tp: 10,
+                area: SensorArea::A1,
+                is_down: false,
+            },
+        ];
+        sort_timed_input_events(&mut events);
+        assert!(matches!(events[0], TimedInputEvent::SensorHold { is_down: false, .. }));
+        assert!(matches!(events[1], TimedInputEvent::SensorHold { is_down: true, .. }));
+    }
 }

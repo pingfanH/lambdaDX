@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::app::types::zone::PadZone;
 use crate::core::types::{
     AutoplayPart, AutoplayPlan, ChartSpec, JudgeEventKind, JudgeGrade, OuterSlot, SensorArea,
-    SlideChartNote, SlideHeadChartNote, TimedInputEvent,
+    SlideChartNote, SlideHeadChartNote, TimedInputEvent, sort_timed_input_events,
 };
 use crate::model::SlidePlan;
 use crate::player::engine::{
@@ -79,7 +79,7 @@ pub fn build_events(plans: &[SlidePlan], tail_pad_s: f64) -> Vec<TimedInputEvent
             ));
         }
     }
-    events.sort_by_key(timed_input_tp);
+    sort_timed_input_events(&mut events);
     events
 }
 
@@ -274,7 +274,7 @@ pub fn build_events_with_offsets(spec: &ChartSpec, timings: &[ArcTiming]) -> Vec
         }
         push_body_events(&mut events, slide, timing);
     }
-    events.sort_by_key(timed_input_tp);
+    sort_timed_input_events(&mut events);
     events
 }
 

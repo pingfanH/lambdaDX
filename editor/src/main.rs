@@ -24,20 +24,20 @@ mod core;
 #[path = "../../src/player/mod.rs"]
 mod player;
 
-mod audio;
 mod appearance;
+mod audio;
+mod autoplay_editor;
 mod core_chart;
 mod edit_ops;
 mod gesture;
 mod io;
-mod simai_editor;
 mod keyboard;
 mod runtime;
+mod simai_editor;
 mod state;
+mod templates;
 mod theme;
 mod timeline;
-mod templates;
-mod autoplay_editor;
 mod ui;
 
 use egui_macroquad::egui;
@@ -56,10 +56,14 @@ fn editor_window_conf() -> Conf {
     conf.window_width = 1600;
     conf.window_height = 900;
     conf.window_resizable = true;
-    if let Some((width, height)) = std::env::var("MAI2_EDITOR_WINDOW").ok().and_then(|size| {
-        let (width, height) = size.split_once('x')?;
-        Some((width.parse::<i32>().ok()?, height.parse::<i32>().ok()?))
-    }).filter(|(w, h)| *w >= 640 && *h >= 480) {
+    if let Some((width, height)) = std::env::var("MAI2_EDITOR_WINDOW")
+        .ok()
+        .and_then(|size| {
+            let (width, height) = size.split_once('x')?;
+            Some((width.parse::<i32>().ok()?, height.parse::<i32>().ok()?))
+        })
+        .filter(|(w, h)| *w >= 640 && *h >= 480)
+    {
         conf.window_width = width;
         conf.window_height = height;
     }
@@ -166,9 +170,15 @@ async fn run() {
         editor.autoplay_mode = 2;
         runtime::apply_preview_mode(&mut app, 2);
     }
-    if std::env::var_os("MAI2_EDITOR_TEMPLATES").is_some() { editor.template_panel = true; }
+    if std::env::var_os("MAI2_EDITOR_TEMPLATES").is_some() {
+        editor.template_panel = true;
+    }
     if let Ok(id) = std::env::var("MAI2_EDITOR_TEMPLATE") {
-        templates::apply(&mut editor, &mut app, templates::Action::EnterDefinition(id));
+        templates::apply(
+            &mut editor,
+            &mut app,
+            templates::Action::EnterDefinition(id),
+        );
     }
     // Screenshot overrides do not modify saved preferences.
     if std::env::var_os("MAI2_EDITOR_JUDGE_WINDOWS").is_some() {
@@ -176,8 +186,11 @@ async fn run() {
         app::params::set(app.params.clone());
     }
     app.show_params = std::env::var_os("MAI2_EDITOR_SHOW_SETTINGS").is_some();
-    if let Some(time) = std::env::var("MAI2_EDITOR_TIME").ok()
-        .and_then(|value| value.parse::<f32>().ok()).filter(|time| time.is_finite()) {
+    if let Some(time) = std::env::var("MAI2_EDITOR_TIME")
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|time| time.is_finite())
+    {
         app.seek_to(time.max(0.0));
         runtime::follow_playhead(&mut editor, time.max(0.0));
     }
@@ -225,7 +238,14 @@ async fn run() {
 
         runtime::tick_loop(&editor, &mut app);
         let current_time = player_time(&app);
-        runtime::follow_playhead(&mut editor, current_time);
+        runtime::follow_playhead_during_playback(
+            &mut editor,
+            current_time,
+            matches!(
+                app.mode,
+                app::types::Mode::Playing | app::types::Mode::Recording
+            ),
+        );
 
         let events = player::input::collect_pointer_events();
         let pointer = player::input::pointer::ui_pointer(&events);
@@ -237,11 +257,27 @@ async fn run() {
                 waveform = audio::WaveformPyramid::build(&app);
             }
             editor.glyph_to_points = ctx.screen_rect().width() / screen_width().max(1.0);
-            ui.draw(ctx, &mut editor, &mut app, current_time, &waveform, mouse_wheel().1);
-            let preview_keys_enabled = editor.workspace == Workspace::Chart && !ui.input_blocked && !ctx.wants_keyboard_input() && !ctx.input(|i| i.modifiers.any())
-                && !editor.is_slide_edit() && editor.selection_transform.is_none()
-                && !editor.keyboard.owns_input() && !editor.keyboard.active
-                && ctx.input(|i| i.pointer.hover_pos().is_some_and(|p| ui.layout.preview.contains(p)));
+            ui.draw(
+                ctx,
+                &mut editor,
+                &mut app,
+                current_time,
+                &waveform,
+                mouse_wheel().1,
+            );
+            let preview_keys_enabled = editor.workspace == Workspace::Chart
+                && !ui.input_blocked
+                && !ctx.wants_keyboard_input()
+                && !ctx.input(|i| i.modifiers.any())
+                && !editor.is_slide_edit()
+                && editor.selection_transform.is_none()
+                && !editor.keyboard.owns_input()
+                && !editor.keyboard.active
+                && ctx.input(|i| {
+                    i.pointer
+                        .hover_pos()
+                        .is_some_and(|p| ui.layout.preview.contains(p))
+                });
             player::input::keyboard::handle_lane_input_when(&mut app, preview_keys_enabled);
             ctx.request_repaint();
             egui_screen_w = ctx.screen_rect().width();
@@ -299,23 +335,25 @@ async fn run() {
         pad.outer_r /= app::params::pad_circle_scale().max(1.0);
         let preview = ui.layout.preview;
         let pad_visible = preview.width() > 1.0 && preview.height() > 1.0;
-        let pad_input = pad_visible && editor.workspace == Workspace::Chart && !ui.input_blocked
+        let pad_input = pad_visible
+            && editor.workspace == Workspace::Chart
+            && !ui.input_blocked
             && !egui_wants_pointer
-            && !editor.keyboard.owns_input() && !editor.keyboard.suppress_pointer;
+            && !editor.keyboard.owns_input()
+            && !editor.keyboard.suppress_pointer;
         let pad_events: Vec<_> = events
             .into_iter()
             .filter(|e| {
                 let p = e.position;
                 let release = matches!(e.phase, TouchPhase::Ended | TouchPhase::Cancelled)
                     && app.active_pointer_zones.contains_key(&e.id);
-                release || (pad_input && preview.contains(egui_macroquad::egui::pos2(p.x / to_mq, p.y / to_mq))
-                    && (p.x - pad.cx).hypot(p.y - pad.cy) <= pad.outer_r)
+                release
+                    || (pad_input
+                        && preview.contains(egui_macroquad::egui::pos2(p.x / to_mq, p.y / to_mq))
+                        && (p.x - pad.cx).hypot(p.y - pad.cy) <= pad.outer_r)
             })
             .collect();
-        let scale = ui::layout::preview_note_scale(
-            pad.outer_r,
-            player::render::ui_scale(&app),
-        );
+        let scale = ui::layout::preview_note_scale(pad.outer_r, player::render::ui_scale(&app));
         app::params::set_pad_scale(scale * app::params::pad_zoom());
         if !pad_events.is_empty() {
             player::input::handle_touch_controls(&mut app, pad, &pad_events);
@@ -353,17 +391,32 @@ async fn run() {
         app.scrubbing = editor.scrubbing;
         // Star (slide) edit mode shows only the slide being edited, with its
         // whole trail (no time culling); everything else is hidden.
-        app.edit_solo_slide = (editor.workspace == Workspace::Chart).then_some(editor.editing_slide)
-            .flatten().map(|id| (id, editor.editing_slide_idx));
-        let gesture_active = editor.dragging.is_some() || editor.selection_transform.is_some()
-            || editor.handle_grab.is_some() || editor.keyboard.transaction.is_some()
-            || editor.autoplay_editor.dragging() || ui.templates.dragging();
-        let document_idle = !gesture_active && !ui.input_blocked && editor.pending_action.is_none()
-            && editor.pointer_press.is_none() && editor.star_placement.is_none()
-            && editor.hold_placement.is_none() && !editor.transform_pointer_down
-            && editor.keyboard.dialog.is_none() && editor.template_action.is_none();
+        app.edit_solo_slide = (editor.workspace == Workspace::Chart)
+            .then_some(editor.editing_slide)
+            .flatten()
+            .map(|id| (id, editor.editing_slide_idx));
+        let gesture_active = editor.dragging.is_some()
+            || editor.selection_transform.is_some()
+            || editor.handle_grab.is_some()
+            || editor.keyboard.transaction.is_some()
+            || editor.autoplay_editor.dragging()
+            || ui.templates.dragging();
+        let document_idle = !gesture_active
+            && !ui.input_blocked
+            && editor.pending_action.is_none()
+            && editor.pointer_press.is_none()
+            && editor.star_placement.is_none()
+            && editor.hold_placement.is_none()
+            && !editor.transform_pointer_down
+            && editor.keyboard.dialog.is_none()
+            && editor.template_action.is_none();
         simai_editor::tick(&mut editor, &mut app.chart, document_idle);
-        auto_save.tick(&mut editor, &app.chart, app.document_revision(), document_idle);
+        auto_save.tick(
+            &mut editor,
+            &app.chart,
+            app.document_revision(),
+            document_idle,
+        );
         let chart_current = match chart_sync.update(&mut app, gesture_active) {
             Ok(current) => current,
             Err(error) => {
@@ -373,7 +426,14 @@ async fn run() {
         };
         runtime::tick_player(&mut app, chart_current).await;
         let current_time = player_time(&app);
-        runtime::follow_playhead(&mut editor, current_time);
+        runtime::follow_playhead_during_playback(
+            &mut editor,
+            current_time,
+            matches!(
+                app.mode,
+                app::types::Mode::Playing | app::types::Mode::Recording
+            ),
+        );
 
         clear_background(theme::to_mq(theme::BG_WINDOW));
         ui.appearance.draw();
@@ -394,10 +454,15 @@ async fn run() {
             let scissor = to_scissor(preview, s_phys, fb_w);
             unsafe { get_internal_gl() }.quad_gl.scissor(Some(scissor));
             player::render::pad::draw_pad_sim_transparent(
-                &app, pad.cx, pad.cy, pad.outer_r, scale,
-                |pad| ui.appearance.draw_pad_surround(
-                    pad, theme::to_mq(theme::surface(theme::BG_OVERVIEW)),
-                ),
+                &app,
+                pad.cx,
+                pad.cy,
+                pad.outer_r,
+                scale,
+                |pad| {
+                    ui.appearance
+                        .draw_pad_surround(pad, theme::to_mq(theme::surface(theme::BG_OVERVIEW)))
+                },
             );
             unsafe { get_internal_gl() }.quad_gl.scissor(None);
         }
@@ -492,33 +557,48 @@ fn to_scissor(rect: egui::Rect, s_phys: f32, fb_w: f32) -> (i32, i32, i32, i32) 
 /// next frame draws. Load/open/quit are gated on the unsaved-changes prompt:
 /// when the document is dirty they are deferred to `pending_action` and run
 /// later, once the confirm dialog resolves (Save / Discard).
-fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState, dialogs: &mut io::dialogs::Dialogs, appearance: &mut appearance::Appearance) {
+fn apply_io_requests(
+    editor: &mut EditorState,
+    app: &mut PadPreviewState,
+    dialogs: &mut io::dialogs::Dialogs,
+    appearance: &mut appearance::Appearance,
+) {
     use io::dialogs::Request;
     if let Some((request, result)) = dialogs.poll() {
         match result {
             Ok(Some(path)) => match request {
                 Request::Open => load_editor_chart(editor, app, &path, None),
-                Request::Save { save_as, .. } => io::finish_export(editor, &app.chart, save_as, &path),
-                Request::Background => appearance.request_image(path.to_string_lossy().into_owned()),
+                Request::Save { save_as, .. } => {
+                    io::finish_export(editor, &app.chart, save_as, &path)
+                }
+                Request::Background => {
+                    appearance.request_image(path.to_string_lossy().into_owned())
+                }
             },
             Ok(None) => editor.status = Some("File selection cancelled".into()),
             Err(error) => editor.status = Some(format!("File dialog failed: {error}")),
         }
     }
     editor.file_dialog_active = dialogs.busy();
-    if editor.file_dialog_active { return; }
+    if editor.file_dialog_active {
+        return;
+    }
 
     // Resolve a confirmed deferred action first (Save/Discard was chosen).
     if editor.pending_confirmed {
         editor.pending_confirmed = false;
         match editor.pending_action.take() {
-            Some(PendingAction::Reload) => { reload_chart(editor, app); }
+            Some(PendingAction::Reload) => {
+                reload_chart(editor, app);
+            }
             Some(PendingAction::Open) => open_chart(editor, dialogs),
             Some(PendingAction::Quit) => quit_editor(),
             None => {}
         }
     }
-    if dialogs.busy() { return; }
+    if dialogs.busy() {
+        return;
+    }
 
     if editor.open_dialog {
         editor.open_dialog = false;
@@ -538,7 +618,12 @@ fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState, dialog
         return;
     }
     if std::mem::take(&mut appearance.browse_requested) {
-        start_file_dialog(editor, dialogs, Request::Background, Some(appearance.image_path()));
+        start_file_dialog(
+            editor,
+            dialogs,
+            Request::Background,
+            Some(appearance.image_path()),
+        );
         return;
     }
     if editor.reload_request {
@@ -549,8 +634,14 @@ fn apply_io_requests(editor: &mut EditorState, app: &mut PadPreviewState, dialog
     }
 }
 
-fn start_file_dialog(editor: &mut EditorState, dialogs: &mut io::dialogs::Dialogs, request: io::dialogs::Request, hint: Option<std::path::PathBuf>) {
-    let hint = hint.or_else(|| editor.source.as_ref().map(|source| source.path.clone()))
+fn start_file_dialog(
+    editor: &mut EditorState,
+    dialogs: &mut io::dialogs::Dialogs,
+    request: io::dialogs::Request,
+    hint: Option<std::path::PathBuf>,
+) {
+    let hint = hint
+        .or_else(|| editor.source.as_ref().map(|source| source.path.clone()))
         .or_else(|| Some(std::path::PathBuf::from(&editor.chart_dir)));
     match dialogs.start(request, hint) {
         Ok(()) => {
@@ -567,7 +658,12 @@ fn open_chart(editor: &mut EditorState, dialogs: &mut io::dialogs::Dialogs) {
     start_file_dialog(editor, dialogs, io::dialogs::Request::Open, None);
 }
 
-fn export_chart(editor: &mut EditorState, app: &mut PadPreviewState, dialogs: &mut io::dialogs::Dialogs, save_as: bool) {
+fn export_chart(
+    editor: &mut EditorState,
+    app: &mut PadPreviewState,
+    dialogs: &mut io::dialogs::Dialogs,
+    save_as: bool,
+) {
     match io::prepare_export(editor, &mut app.chart, save_as) {
         Ok(request) => start_file_dialog(editor, dialogs, request, None),
         Err(error) => editor.status = Some(error),
@@ -582,7 +678,12 @@ fn reload_chart(editor: &mut EditorState, app: &mut PadPreviewState) {
     load_editor_chart(editor, app, &dir, want);
 }
 
-fn load_editor_chart(editor: &mut EditorState, app: &mut PadPreviewState, path: &std::path::Path, want: Option<u32>) {
+fn load_editor_chart(
+    editor: &mut EditorState,
+    app: &mut PadPreviewState,
+    path: &std::path::Path,
+    want: Option<u32>,
+) {
     let source = match runtime::load_chart_into(app, path, want) {
         Ok(source) => source,
         Err(error) => {
@@ -597,7 +698,10 @@ fn load_editor_chart(editor: &mut EditorState, app: &mut PadPreviewState, path: 
     editor.level_slots = app::chart::read_simai_source(path)
         .map(|t| app::maidata::inote_keys(&t))
         .unwrap_or_default();
-    editor.level_index = source.level.and_then(|level| editor.level_slots.iter().position(|slot| *slot == level)).unwrap_or(0);
+    editor.level_index = source
+        .level
+        .and_then(|level| editor.level_slots.iter().position(|slot| *slot == level))
+        .unwrap_or(0);
     editor.undo.clear();
     editor.redo.clear();
     editor.selected.clear();

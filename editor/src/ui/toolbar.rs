@@ -1,10 +1,13 @@
 //! In-window menus and shared editor settings.
 
+use super::{
+    style::{glyph, icon},
+    workbench::{PaneKind, Workbench},
+};
 use crate::app::{params, types::secs_to_measure};
 use crate::player::state::PadPreviewState;
 use crate::state::{EditorLayout, EditorState, PendingAction, Workspace};
 use crate::theme::{ACCENT_RED, FONT_HEADER, TEXT, TEXT_DIM};
-use super::{style::{glyph, icon}, workbench::{PaneKind, Workbench}};
 use egui_macroquad::egui;
 use lucide_icons::Icon;
 
@@ -35,7 +38,12 @@ pub fn draw(
                 .strong(),
         );
         ui.label(
-            egui::RichText::new(if editor.has_unsaved_changes() { "●" } else { "·" }).color(if editor.has_unsaved_changes() {
+            egui::RichText::new(if editor.has_unsaved_changes() {
+                "●"
+            } else {
+                "·"
+            })
+            .color(if editor.has_unsaved_changes() {
                 ACCENT_RED
             } else {
                 TEXT_DIM
@@ -99,10 +107,13 @@ pub fn draw(
                     let at = secs_to_measure(seconds, &app.chart.bpms);
                     editor.paste_at(&mut app.chart, at);
                 }
-                let event_selected = !chart_workspace && editor.autoplay_editor.selected_row.is_some() && app.has_engine();
+                let event_selected = !chart_workspace
+                    && editor.autoplay_editor.selected_row.is_some()
+                    && app.has_engine();
                 if command(ui, "删除", selected || event_selected) {
-                    if chart_workspace { editor.delete_selection(&mut app.chart); }
-                    else {
+                    if chart_workspace {
+                        editor.delete_selection(&mut app.chart);
+                    } else {
                         let mut events = std::mem::take(&mut editor.autoplay_editor);
                         events.delete(editor, &mut app.chart);
                         editor.autoplay_editor = events;
@@ -112,23 +123,33 @@ pub fn draw(
                     editor.selected = app.chart.notes.iter().map(|n| n.id).collect();
                 }
                 if command(ui, "取消选择", selected || event_selected) {
-                    if chart_workspace { editor.selected.clear(); }
-                    else { editor.autoplay_editor.clear_selection(); }
+                    if chart_workspace {
+                        editor.selected.clear();
+                    } else {
+                        editor.autoplay_editor.clear_selection();
+                    }
                 }
             })
             .inner
             .is_some();
-        owned |= ui.menu_button("模板", |ui| {
-            ui.add_enabled_ui(editor.workspace == Workspace::Chart, |ui| {
-                ui.checkbox(&mut editor.template_panel, "模板库与 Scene");
-                let main = editor.template_session.is_none();
-                if command(ui, "从选择创建模板", main && !editor.selected.is_empty()) {
-                    editor.template_action = Some(crate::templates::Action::CreateSelection);
-                }
-                if command(ui, "新建模板", main) { editor.template_action = Some(crate::templates::Action::New); }
-                if command(ui, "返回主谱面", !main) { editor.template_action = Some(crate::templates::Action::Exit); }
-            });
-        }).inner.is_some();
+        owned |= ui
+            .menu_button("模板", |ui| {
+                ui.add_enabled_ui(editor.workspace == Workspace::Chart, |ui| {
+                    ui.checkbox(&mut editor.template_panel, "模板库与 Scene");
+                    let main = editor.template_session.is_none();
+                    if command(ui, "从选择创建模板", main && !editor.selected.is_empty()) {
+                        editor.template_action = Some(crate::templates::Action::CreateSelection);
+                    }
+                    if command(ui, "新建模板", main) {
+                        editor.template_action = Some(crate::templates::Action::New);
+                    }
+                    if command(ui, "返回主谱面", !main) {
+                        editor.template_action = Some(crate::templates::Action::Exit);
+                    }
+                });
+            })
+            .inner
+            .is_some();
         owned |= ui
             .menu_button("视图", |ui| {
                 pane_options(ui, editor, workbench);
@@ -145,21 +166,48 @@ pub fn draw(
         workspace = workbench.workspace_picker(ui, compact);
         owned |= workspace.is_some();
         ui.separator();
-        if icon(ui, Icon::SkipBack, "回到开头", false).clicked() { crate::runtime::rewind(editor, app); }
+        if icon(ui, Icon::SkipBack, "回到开头", false).clicked() {
+            crate::runtime::rewind(editor, app);
+        }
         let playing = app.mode == crate::app::types::Mode::Playing;
-        if icon(ui, if playing { Icon::Pause } else { Icon::Play }, "播放 / 暂停", playing).clicked() {
+        if icon(
+            ui,
+            if playing { Icon::Pause } else { Icon::Play },
+            "播放 / 暂停",
+            playing,
+        )
+        .clicked()
+        {
             crate::runtime::toggle_play(editor, app);
         }
         if icon(ui, Icon::Repeat2, "循环试听", editor.loop_enabled).clicked() {
             if editor.loop_range.is_none() {
                 super::navigation::loop_selection(editor, &app.chart);
-                if editor.loop_range.is_none() { editor.loop_range = Some((app.timeline_time().max(0.0), app.timeline_time().max(0.0) + 4.0)); }
+                if editor.loop_range.is_none() {
+                    editor.loop_range = Some((
+                        app.timeline_time().max(0.0),
+                        app.timeline_time().max(0.0) + 4.0,
+                    ));
+                }
                 editor.loop_enabled = true;
-            } else { editor.loop_enabled = !editor.loop_enabled; }
+            } else {
+                editor.loop_enabled = !editor.loop_enabled;
+            }
         }
         let mut time = app.timeline_time();
-        if ui.add(egui::DragValue::new(&mut time).range(0.0..=86400.0).speed(0.01).fixed_decimals(2).suffix(" s"))
-            .on_hover_text("播放位置").changed() { editor.pending_seek = Some(time); }
+        if ui
+            .add(
+                egui::DragValue::new(&mut time)
+                    .range(0.0..=86400.0)
+                    .speed(0.01)
+                    .fixed_decimals(2)
+                    .suffix(" s"),
+            )
+            .on_hover_text("播放位置")
+            .changed()
+        {
+            editor.pending_seek = Some(time);
+        }
         owned |= ui
             .menu_button("播放", |ui| {
                 if command(
@@ -221,16 +269,29 @@ pub fn draw(
             .is_some();
         if ui.available_width() > 100.0 {
             let mut speed = app.play_speed;
-            if ui.add(egui::DragValue::new(&mut speed).range(0.1..=3.0).speed(0.05)
-                .fixed_decimals(2).suffix("x")).on_hover_text("播放速度").changed() {
+            if ui
+                .add(
+                    egui::DragValue::new(&mut speed)
+                        .range(0.1..=3.0)
+                        .speed(0.05)
+                        .fixed_decimals(2)
+                        .suffix("x"),
+                )
+                .on_hover_text("播放速度")
+                .changed()
+            {
                 app.set_play_speed(speed);
             }
         }
         if ui.available_width() > 100.0 {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if icon(ui, Icon::Settings2, "设置", false).clicked() { app.show_params = true; }
+                if icon(ui, Icon::Settings2, "设置", false).clicked() {
+                    app.show_params = true;
+                }
                 ui.label(crate::runtime::preview_mode_label(editor.autoplay_mode));
-                if let Some(status) = &editor.status && ui.available_width() > 140.0 {
+                if let Some(status) = &editor.status
+                    && ui.available_width() > 140.0
+                {
                     ui.add(egui::Label::new(status).truncate());
                 }
             });
@@ -241,9 +302,16 @@ pub fn draw(
 
 fn layout_options(ui: &mut egui::Ui, editor: &mut EditorState) {
     ui.horizontal(|ui| {
-        let vertical = ui.selectable_value(&mut editor.layout, EditorLayout::Vertical, "纵向").changed();
-        let horizontal = ui.selectable_value(&mut editor.layout, EditorLayout::Horizontal, "横向").changed();
-        if vertical || horizontal { editor.follow_view_offset = None; }
+        let vertical = ui
+            .selectable_value(&mut editor.layout, EditorLayout::Vertical, "纵向")
+            .changed();
+        let horizontal = ui
+            .selectable_value(&mut editor.layout, EditorLayout::Horizontal, "横向")
+            .changed();
+        if vertical || horizontal {
+            editor.follow_view_offset = None;
+            editor.follow_zoom_detached = false;
+        }
     });
 }
 
@@ -254,7 +322,9 @@ fn preview_options(ui: &mut egui::Ui, editor: &mut EditorState) {
         (2, "自动打歌：模拟触摸"),
         (3, "自动打歌：直传核心"),
     ] {
-        if editor.workspace == Workspace::Autoplay && mode < 2 { continue; }
+        if editor.workspace == Workspace::Autoplay && mode < 2 {
+            continue;
+        }
         if ui
             .radio_value(&mut editor.autoplay_mode, mode, label)
             .changed()
@@ -265,23 +335,42 @@ fn preview_options(ui: &mut egui::Ui, editor: &mut EditorState) {
 }
 
 fn loop_options(ui: &mut egui::Ui, editor: &mut EditorState, chart: &crate::app::types::ChartDoc) {
-    ui.add_enabled_ui(editor.loop_range.is_some(), |ui| { ui.checkbox(&mut editor.loop_enabled, "循环试听"); });
+    ui.add_enabled_ui(editor.loop_range.is_some(), |ui| {
+        ui.checkbox(&mut editor.loop_enabled, "循环试听");
+    });
     if let Some((mut start, mut end)) = editor.loop_range {
         ui.horizontal(|ui| {
             ui.label("起点");
-            ui.add(egui::DragValue::new(&mut start).range(0.0..=(end - 0.01).max(0.0)).speed(0.01).fixed_decimals(3).suffix(" s"));
+            ui.add(
+                egui::DragValue::new(&mut start)
+                    .range(0.0..=(end - 0.01).max(0.0))
+                    .speed(0.01)
+                    .fixed_decimals(3)
+                    .suffix(" s"),
+            );
         });
         ui.horizontal(|ui| {
             ui.label("终点");
-            ui.add(egui::DragValue::new(&mut end).range((start + 0.01)..=86400.0).speed(0.01).fixed_decimals(3).suffix(" s"));
+            ui.add(
+                egui::DragValue::new(&mut end)
+                    .range((start + 0.01)..=86400.0)
+                    .speed(0.01)
+                    .fixed_decimals(3)
+                    .suffix(" s"),
+            );
         });
         editor.loop_range = Some((start, end));
     }
-    if command(ui, "循环所选范围", super::navigation::selection_span(editor, chart).is_some()) {
+    if command(
+        ui,
+        "循环所选范围",
+        super::navigation::selection_span(editor, chart).is_some(),
+    ) {
         super::navigation::loop_selection(editor, chart);
     }
     if command(ui, "清除循环范围", editor.loop_range.is_some()) {
-        editor.loop_range = None; editor.loop_enabled = false;
+        editor.loop_range = None;
+        editor.loop_enabled = false;
     }
 }
 
@@ -291,25 +380,42 @@ pub fn draw_editor_settings(
     pad_scale: &mut f32,
     workbench: &mut Workbench,
 ) {
-    egui::CollapsingHeader::new("工作区与分区").default_open(true).show(ui, |ui| {
-        layout_options(ui, editor); pane_options(ui, editor, workbench);
-        workbench.layout_menu(ui);
-    });
-    egui::CollapsingHeader::new("编辑与导航").default_open(true).show(ui, |ui| {
-        ui.checkbox(&mut editor.auto_save, "自动保存");
-        draw_subdivision(ui, editor);
-        ui.checkbox(&mut editor.scroll_invert, "反转滚轮方向");
-        ui.checkbox(&mut editor.keyboard_seek_on_navigation, "时间轴跟随谱面光标")
+    egui::CollapsingHeader::new("工作区与分区")
+        .default_open(true)
+        .show(ui, |ui| {
+            layout_options(ui, editor);
+            pane_options(ui, editor, workbench);
+            workbench.layout_menu(ui);
+        });
+    egui::CollapsingHeader::new("编辑与导航")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.checkbox(&mut editor.auto_save, "自动保存");
+            draw_subdivision(ui, editor);
+            ui.checkbox(&mut editor.scroll_invert, "反转滚轮方向");
+            ui.checkbox(
+                &mut editor.keyboard_seek_on_navigation,
+                "时间轴跟随谱面光标",
+            )
             .on_hover_text("Alt+Shift+Enter 切换；Alt+Enter 单次跳转到光标");
-        if ui.checkbox(&mut editor.follow_playhead, "谱面跟随播放").changed() {
-            editor.keyboard.detached = !editor.follow_playhead;
-            if editor.follow_playhead { editor.follow_view_offset = None; }
-        }
-        let mut autoplay_follow = editor.autoplay_editor.follow;
-        if ui.checkbox(&mut autoplay_follow, "Autoplay 跟随播放").changed() {
-            editor.autoplay_editor.toggle_follow();
-        }
-    });
+            if ui
+                .checkbox(&mut editor.follow_playhead, "谱面跟随播放")
+                .changed()
+            {
+                editor.keyboard.detached = !editor.follow_playhead;
+                editor.follow_zoom_detached = false;
+                if editor.follow_playhead {
+                    editor.follow_view_offset = None;
+                }
+            }
+            let mut autoplay_follow = editor.autoplay_editor.follow;
+            if ui
+                .checkbox(&mut autoplay_follow, "Autoplay 跟随播放")
+                .changed()
+            {
+                editor.autoplay_editor.toggle_follow();
+            }
+        });
     egui::CollapsingHeader::new("预览与试听").show(ui, |ui| {
         ui.add(egui::Slider::new(pad_scale, 0.3..=2.0).text("预览缩放"));
         preview_options(ui, editor);
@@ -335,7 +441,11 @@ pub fn grid_controls(ui: &mut egui::Ui, editor: &mut EditorState) {
 }
 
 pub fn autoplay_grid_controls(ui: &mut egui::Ui, editor: &mut EditorState) {
-    grid(ui, &mut editor.autoplay_snap_enabled, &mut editor.autoplay_snap_division);
+    grid(
+        ui,
+        &mut editor.autoplay_snap_enabled,
+        &mut editor.autoplay_snap_division,
+    );
 }
 
 fn grid(ui: &mut egui::Ui, enabled: &mut bool, division: &mut u32) {
@@ -343,12 +453,21 @@ fn grid(ui: &mut egui::Ui, enabled: &mut bool, division: &mut u32) {
         *enabled = !*enabled;
     }
     if ui.available_width() >= 55.0 {
-        ui.menu_button(format!("1/{}", division), |ui| subdivision(ui, enabled, division))
-            .response.on_hover_text("网格细分");
+        ui.menu_button(format!("1/{}", division), |ui| {
+            subdivision(ui, enabled, division)
+        })
+        .response
+        .on_hover_text("网格细分");
     }
 }
 
-pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, app: &mut PadPreviewState, pad_scale: &mut f32) {
+pub fn pane_tools(
+    ui: &mut egui::Ui,
+    kind: PaneKind,
+    editor: &mut EditorState,
+    app: &mut PadPreviewState,
+    pad_scale: &mut f32,
+) {
     match kind {
         PaneKind::Chart => {
             ui.menu_button(glyph(Icon::SlidersHorizontal, 14.0), |ui| {
@@ -356,25 +475,58 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
                 draw_subdivision(ui, editor);
                 chart_zoom(ui, editor, app.timeline_time());
                 ui.checkbox(&mut editor.scroll_invert, "反转滚轮方向");
-                if ui.checkbox(&mut editor.keyboard_seek_on_navigation, "时间轴跟随谱面光标")
-                    .on_hover_text("Alt+Shift+Enter 切换；Alt+Enter 单次跳转到光标").changed() {
+                if ui
+                    .checkbox(
+                        &mut editor.keyboard_seek_on_navigation,
+                        "时间轴跟随谱面光标",
+                    )
+                    .on_hover_text("Alt+Shift+Enter 切换；Alt+Enter 单次跳转到光标")
+                    .changed()
+                {
                     crate::keyboard::navigation::follow_cursor(editor, &app.chart);
                 }
-                if ui.button("显示完整谱面").clicked() { super::navigation::fit_chart(editor, (0.0, app.song_duration())); ui.close_menu(); }
-                let span = super::navigation::chart_selection_span(editor, &app.chart);
-                if ui.add_enabled(span.is_some(), egui::Button::new("显示所选 Notes")).clicked() {
-                    super::navigation::fit_chart(editor, span.unwrap()); ui.close_menu();
+                if ui.button("显示完整谱面").clicked() {
+                    super::navigation::fit_chart(editor, (0.0, app.song_duration()));
+                    ui.close_menu();
                 }
-            }).response.on_hover_text("谱面视图");
-            if icon(ui, Icon::LocateFixed, "回到播放线", false).clicked() { super::navigation::current_chart(editor, app.timeline_time()); }
-            if icon(ui, Icon::MoveRight, "跟随播放线", editor.follow_playhead && !editor.keyboard.detached).clicked() {
-                if editor.follow_playhead && !editor.keyboard.detached {
-                    editor.view_start = crate::keyboard::navigation::reference_time(editor, app.timeline_time());
-                    editor.follow_playhead = false; editor.keyboard.detached = true;
-                } else { super::navigation::current_chart(editor, app.timeline_time()); }
+                let span = super::navigation::chart_selection_span(editor, &app.chart);
+                if ui
+                    .add_enabled(span.is_some(), egui::Button::new("显示所选 Notes"))
+                    .clicked()
+                {
+                    super::navigation::fit_chart(editor, span.unwrap());
+                    ui.close_menu();
+                }
+            })
+            .response
+            .on_hover_text("谱面视图");
+            if icon(ui, Icon::LocateFixed, "回到播放线", false).clicked() {
+                super::navigation::current_chart(editor, app.timeline_time());
             }
-            if ui.available_width() >= 30.0 { grid_controls(ui, editor); }
-            if ui.available_width() >= 95.0 { chart_zoom(ui, editor, app.timeline_time()); }
+            if icon(
+                ui,
+                Icon::MoveRight,
+                "跟随播放线",
+                editor.follow_playhead && !editor.keyboard.detached,
+            )
+            .clicked()
+            {
+                if editor.follow_playhead && !editor.keyboard.detached {
+                    editor.view_start =
+                        crate::keyboard::navigation::reference_time(editor, app.timeline_time());
+                    editor.follow_playhead = false;
+                    editor.follow_zoom_detached = false;
+                    editor.keyboard.detached = true;
+                } else {
+                    super::navigation::current_chart(editor, app.timeline_time());
+                }
+            }
+            if ui.available_width() >= 30.0 {
+                grid_controls(ui, editor);
+            }
+            if ui.available_width() >= 95.0 {
+                chart_zoom(ui, editor, app.timeline_time());
+            }
         }
         PaneKind::Pad => {
             ui.menu_button(glyph(Icon::SlidersHorizontal, 14.0), |ui| {
@@ -398,9 +550,14 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
                 ui.checkbox(&mut app.params.hide_notes, "隐藏 Notes");
                 ui.checkbox(&mut app.params.hide_zones, "隐藏感应区");
                 params::set(app.params.clone());
-            }).response.on_hover_text("预览设置");
+            })
+            .response
+            .on_hover_text("预览设置");
             if ui.available_width() > 80.0 {
-                ui.label(egui::RichText::new(crate::runtime::preview_mode_label(editor.autoplay_mode)).color(TEXT_DIM));
+                ui.label(
+                    egui::RichText::new(crate::runtime::preview_mode_label(editor.autoplay_mode))
+                        .color(TEXT_DIM),
+                );
             }
         }
         PaneKind::Autoplay => crate::autoplay_editor::header(ui, editor, app),
@@ -412,14 +569,20 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
         }
         PaneKind::History => {
             ui.add_enabled_ui(!editor.undo.is_empty(), |ui| {
-                if icon(ui, Icon::Undo2, "撤销", false).clicked() { editor.undo(&mut app.chart); }
+                if icon(ui, Icon::Undo2, "撤销", false).clicked() {
+                    editor.undo(&mut app.chart);
+                }
             });
             ui.add_enabled_ui(!editor.redo.is_empty(), |ui| {
-                if icon(ui, Icon::Redo2, "重做", false).clicked() { editor.redo(&mut app.chart); }
+                if icon(ui, Icon::Redo2, "重做", false).clicked() {
+                    editor.redo(&mut app.chart);
+                }
             });
         }
         PaneKind::Templates => {
-            if icon(ui, Icon::Plus, "新建模板", false).clicked() && editor.template_session.is_none() {
+            if icon(ui, Icon::Plus, "新建模板", false).clicked()
+                && editor.template_session.is_none()
+            {
                 editor.template_action = Some(crate::templates::Action::New);
             }
         }
@@ -429,16 +592,33 @@ pub fn pane_tools(ui: &mut egui::Ui, kind: PaneKind, editor: &mut EditorState, a
 
 fn chart_zoom(ui: &mut egui::Ui, editor: &mut EditorState, now: f32) {
     let mut pps = editor.pixels_per_second;
-    if ui.add(egui::DragValue::new(&mut pps)
-        .range(crate::timeline::geometry::MIN_PPS..=crate::timeline::geometry::MAX_PPS)
-        .speed(2.0).max_decimals(0).suffix(" px/s")).on_hover_text("谱面缩放").changed() {
-        crate::timeline::geometry::set_zoom(editor, pps, now, editor.layout == EditorLayout::Horizontal);
+    if ui
+        .add(
+            egui::DragValue::new(&mut pps)
+                .range(crate::timeline::geometry::MIN_PPS..=crate::timeline::geometry::MAX_PPS)
+                .speed(2.0)
+                .max_decimals(0)
+                .suffix(" px/s"),
+        )
+        .on_hover_text("谱面缩放")
+        .changed()
+    {
+        crate::timeline::geometry::set_zoom(
+            editor,
+            pps,
+            now,
+            editor.layout == EditorLayout::Horizontal,
+        );
     }
 }
 
 fn draw_subdivision(ui: &mut egui::Ui, editor: &mut EditorState) {
     if editor.workspace == Workspace::Autoplay {
-        subdivision(ui, &mut editor.autoplay_snap_enabled, &mut editor.autoplay_snap_division);
+        subdivision(
+            ui,
+            &mut editor.autoplay_snap_enabled,
+            &mut editor.autoplay_snap_division,
+        );
     } else {
         subdivision(ui, &mut editor.snap_enabled, &mut editor.snap_division);
     }
@@ -450,15 +630,14 @@ fn subdivision(ui: &mut egui::Ui, enabled: &mut bool, division: &mut u32) {
     ui.menu_button(format!("细分 1/{}", division), |ui| {
         ui.horizontal(|ui| {
             ui.label("自定义 1/");
-            ui.add(
-                egui::DragValue::new(division)
-                    .range(1..=256)
-                    .speed(1),
-            );
+            ui.add(egui::DragValue::new(division).range(1..=256).speed(1));
         });
         ui.separator();
         for value in [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256] {
-            if ui.selectable_value(division, value, format!("1/{value}")).clicked() {
+            if ui
+                .selectable_value(division, value, format!("1/{value}"))
+                .clicked()
+            {
                 ui.close_menu();
             }
         }

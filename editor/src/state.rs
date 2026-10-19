@@ -190,6 +190,17 @@ pub struct TimelinePress {
     pub on_playhead: bool,
 }
 
+/// A timeline context menu opened by a secondary-click. This is kept outside
+/// egui's widget-owned context-menu machinery so it can open on the same frame
+/// as the native right-button release.
+#[derive(Debug, Clone, Copy)]
+pub struct NoteContextMenu {
+    pub note_id: Option<u64>,
+    pub position: (f32, f32),
+    pub measure: f32,
+    pub lane: u8,
+}
+
 /// Where the pointer is, resolved to timeline coordinates (for the read-out).
 #[derive(Debug, Clone, Copy)]
 pub struct CursorInfo {
@@ -238,6 +249,8 @@ pub struct EditorState {
     pub follow_playhead: bool,
     /// Playhead offset from the view reference after pointer-anchored zoom.
     pub follow_view_offset: Option<f32>,
+    /// Keep a pointer-anchored zoom in place while paused; playback resumes follow.
+    pub follow_zoom_detached: bool,
     pub loop_range: Option<(f32, f32)>,
     pub loop_enabled: bool,
     pub loop_drag: Option<LoopDrag>,
@@ -282,6 +295,7 @@ pub struct EditorState {
     /// Grab offset captured when a note drag starts (see [`DragGrab`]).
     pub drag_grab: Option<DragGrab>,
     pub pointer_press: Option<TimelinePress>,
+    pub note_context_menu: Option<NoteContextMenu>,
     pub selection_transform: Option<SelectionTransform>,
     pub last_edit: Option<RepeatEdit>,
     pub placement_sequence: Vec<Note>,
@@ -373,6 +387,7 @@ impl Default for EditorState {
             keyboard_seek_on_navigation: false,
             follow_playhead: true,
             follow_view_offset: None,
+            follow_zoom_detached: false,
             loop_range: None,
             loop_enabled: false,
             loop_drag: None,
@@ -401,6 +416,7 @@ impl Default for EditorState {
             drag_history_pushed: false,
             drag_grab: None,
             pointer_press: None,
+            note_context_menu: None,
             selection_transform: None,
             last_edit: None,
             placement_sequence: Vec::new(),

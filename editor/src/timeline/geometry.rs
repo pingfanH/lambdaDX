@@ -24,21 +24,36 @@ pub const DEFAULT_PPS: f32 = 360.0;
 
 pub fn view_reference(editor: &EditorState, playhead: f32) -> f32 {
     // Dragging the line owns the view until release; overview seeking still follows.
-    if !editor.follow_playhead || editor.keyboard.detached
-        || editor.scrubbing && editor.pointer_press.is_some_and(|press| press.on_playhead) {
+    if !editor.follow_playhead
+        || editor.keyboard.detached
+        || editor.follow_zoom_detached
+        || editor.scrubbing && editor.pointer_press.is_some_and(|press| press.on_playhead)
+    {
         return editor.view_start;
     }
     let playhead = editor.pending_seek.unwrap_or(playhead);
-    editor.follow_view_offset.map_or_else(|| match editor.layout {
-        EditorLayout::Vertical => playhead,
-        EditorLayout::Horizontal => (playhead - 2.0).max(0.0),
-    }, |offset| playhead - offset)
+    editor.follow_view_offset.map_or_else(
+        || match editor.layout {
+            EditorLayout::Vertical => playhead,
+            EditorLayout::Horizontal => (playhead - 2.0).max(0.0),
+        },
+        |offset| playhead - offset,
+    )
 }
 
 pub fn set_view_reference(editor: &mut EditorState, time: f32, playhead: f32) {
     editor.view_start = time;
+    editor.follow_zoom_detached = false;
     if editor.follow_playhead && !editor.keyboard.detached {
         editor.follow_view_offset = Some(editor.pending_seek.unwrap_or(playhead) - time);
+    }
+}
+
+/// Preserve a pointer-anchored zoom without replacing the user's follow offset.
+pub fn set_zoom_view_reference(editor: &mut EditorState, time: f32) {
+    editor.view_start = time;
+    if editor.follow_playhead && !editor.keyboard.detached {
+        editor.follow_zoom_detached = true;
     }
 }
 
@@ -47,7 +62,7 @@ pub fn set_zoom(editor: &mut EditorState, pps: f32, playhead: f32, horizontal: b
     let pps = pps.clamp(MIN_PPS, MAX_PPS);
     if horizontal {
         let view = playhead - (playhead - editor.view_start) * editor.pixels_per_second / pps;
-        set_view_reference(editor, view, playhead);
+        set_zoom_view_reference(editor, view);
     }
     editor.pixels_per_second = pps;
 }
@@ -160,11 +175,36 @@ mod tests {
         let offset = (playhead - editor.view_start) * editor.pixels_per_second;
         for pps in [120.0, MIN_PPS, MAX_PPS, 360.0] {
             set_zoom(&mut editor, pps, playhead, true);
-            assert!(((playhead - editor.view_start) * editor.pixels_per_second - offset).abs() < 0.01);
+            assert!(
+                ((playhead - editor.view_start) * editor.pixels_per_second - offset).abs() < 0.01
+            );
         }
         let view = editor.view_start;
         set_zoom(&mut editor, 120.0, playhead, false);
         assert_eq!(editor.view_start, view);
+    }
+
+    #[test]
+    fn zoom_detaches_follow_until_playback_resumes() {
+        let mut editor = EditorState {
+            layout: EditorLayout::Horizontal,
+            follow_playhead: true,
+            ..Default::default()
+        };
+        crate::runtime::follow_playhead(&mut editor, 20.0);
+        assert_eq!(editor.view_start, 18.0);
+
+        set_zoom_view_reference(&mut editor, 19.25);
+        assert!(editor.follow_zoom_detached);
+        crate::runtime::follow_playhead(&mut editor, 22.0);
+        assert_eq!(editor.view_start, 19.25, "paused zoom remains anchored");
+
+        crate::runtime::follow_playhead_during_playback(&mut editor, 22.0, true);
+        assert!(!editor.follow_zoom_detached);
+        assert_eq!(
+            editor.view_start, 20.0,
+            "playback restores the default follow position"
+        );
     }
 
     #[test]

@@ -49,6 +49,10 @@ required-features = ["ui-preview"]
 name = "macroanimate_test"
 path = "src/macroanimate_test.rs"
 
+[[bin]]
+name = "maiwiki_effect_preview"
+path = "src/maiwiki_effect_preview.rs"
+
 # Minimal feasibility probe for docs/AUTOPLAY_GENERATOR.md (headless planner).
 [[bin]]
 name = "autoplay_gen"

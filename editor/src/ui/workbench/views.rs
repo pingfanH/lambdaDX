@@ -12,6 +12,7 @@ pub(super) struct PaneView {
     division: u32,
     follow: bool,
     follow_offset: Option<f32>,
+    follow_zoom_detached: bool,
     cursor_follow: bool,
     detached: bool,
     invert: bool,
@@ -27,12 +28,25 @@ pub(super) struct PaneView {
 
 impl Default for PaneView {
     fn default() -> Self {
-        Self { orientation: EditorLayout::Vertical, start: 0.0,
-            pps: crate::timeline::geometry::DEFAULT_PPS, snap: true, division: 32,
-            follow: true, follow_offset: None, cursor_follow: false, detached: false,
-            invert: false, pad_scale: 1.0, properties_autoplay: false, pad_preview_only: false,
+        Self {
+            orientation: EditorLayout::Vertical,
+            start: 0.0,
+            pps: crate::timeline::geometry::DEFAULT_PPS,
+            snap: true,
+            division: 32,
+            follow: true,
+            follow_offset: None,
+            follow_zoom_detached: false,
+            cursor_follow: false,
+            detached: false,
+            invert: false,
+            pad_scale: 1.0,
+            properties_autoplay: false,
+            pad_preview_only: false,
             pad_surface: crate::state::PadSurface::FollowFocus,
-            autoplay: Default::default(), simai: Default::default() }
+            autoplay: Default::default(),
+            simai: Default::default(),
+        }
     }
 }
 
@@ -40,7 +54,9 @@ impl Workbench {
     pub fn capture_views(&mut self, editor: &EditorState, pad_scale: f32) {
         for dock in &mut self.docks {
             for (_, pane) in dock.iter_all_tabs_mut() {
-                if !self.applied_views.contains(&(pane.kind, pane.id)) { continue; }
+                if !self.applied_views.contains(&(pane.kind, pane.id)) {
+                    continue;
+                }
                 let view = &mut pane.view;
                 match pane.kind {
                     PaneKind::Chart => {
@@ -51,6 +67,7 @@ impl Workbench {
                         view.division = editor.snap_division;
                         view.follow = editor.follow_playhead;
                         view.follow_offset = editor.follow_view_offset;
+                        view.follow_zoom_detached = editor.follow_zoom_detached;
                         view.detached = editor.keyboard.detached;
                         view.cursor_follow = editor.keyboard_seek_on_navigation;
                         view.invert = editor.scroll_invert;
@@ -79,17 +96,23 @@ impl Workbench {
         let mut active = Vec::new();
         for (_, pane) in self.docks[self.workspace].iter_all_tabs() {
             active.push((pane.kind, pane.id));
-            if self.applied_views.contains(&(pane.kind, pane.id)) { continue; }
+            if self.applied_views.contains(&(pane.kind, pane.id)) {
+                continue;
+            }
             let v = &pane.view;
             match pane.kind {
                 PaneKind::Chart => {
                     editor.layout = v.orientation;
                     editor.view_start = v.start;
-                    editor.pixels_per_second = v.pps.clamp(crate::timeline::geometry::MIN_PPS, crate::timeline::geometry::MAX_PPS);
+                    editor.pixels_per_second = v.pps.clamp(
+                        crate::timeline::geometry::MIN_PPS,
+                        crate::timeline::geometry::MAX_PPS,
+                    );
                     editor.snap_enabled = v.snap;
                     editor.snap_division = v.division.clamp(1, 256);
                     editor.follow_playhead = v.follow;
                     editor.follow_view_offset = v.follow_offset;
+                    editor.follow_zoom_detached = v.follow_zoom_detached;
                     editor.keyboard.detached = v.detached;
                     editor.keyboard_seek_on_navigation = v.cursor_follow;
                     editor.scroll_invert = v.invert;

@@ -16,9 +16,9 @@ pub mod horizontal;
 pub mod input;
 pub mod judgment;
 pub mod notes;
+pub mod overview;
 pub mod placement;
 pub mod transform;
-pub mod overview;
 pub mod vertical;
 pub mod waveform;
 
@@ -26,11 +26,12 @@ use macroquad::prelude::Rect as MqRect;
 
 use crate::app::types::ChartDoc;
 use crate::audio::WaveformPyramid;
-use crate::state::{EditorLayout, EditorState};
 use crate::player::state::PadPreviewState;
+use crate::state::{EditorLayout, EditorState};
 
 pub use geometry::LANE_GUTTER;
 pub use input::handle_edit_shortcuts;
+pub use input::note_context_menu;
 pub use overview::draw_in as draw_overview;
 
 /// Draw the timeline for the active layout into `rect` (macroquad logical units,

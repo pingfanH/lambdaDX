@@ -42,6 +42,7 @@ pub fn fit_chart(editor: &mut EditorState, span: (f32, f32)) {
         (pixels / (end - start + 2.0 * margin).max(0.1)).clamp(MIN_PPS, MAX_PPS);
     editor.view_start = start - margin;
     editor.follow_playhead = false;
+    editor.follow_zoom_detached = false;
     editor.keyboard.detached = true;
 }
 
@@ -55,6 +56,7 @@ pub fn current(editor: &mut EditorState, now: f32) {
 
 pub fn current_chart(editor: &mut EditorState, now: f32) {
     editor.follow_view_offset = None;
+    editor.follow_zoom_detached = false;
     editor.view_start = if editor.layout == EditorLayout::Vertical {
         now
     } else {
@@ -78,6 +80,7 @@ pub fn toggle_follow(editor: &mut EditorState, now: f32) {
     } else if editor.follow_playhead && !editor.keyboard.detached {
         editor.view_start = crate::keyboard::navigation::reference_time(editor, now);
         editor.follow_playhead = false;
+        editor.follow_zoom_detached = false;
         editor.keyboard.detached = true;
     } else {
         current_chart(editor, now);

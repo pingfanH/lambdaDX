@@ -59,7 +59,13 @@ fn initialize_native(app: &mut PadPreviewState) {
             let compiled = crate::core_chart::compile(chart, level)?;
             let mut engine = crate::player::engine::JudgeEngine::load(&compiled.text, level)?;
             engine.bind_editor_chart(compiled.note_ids, compiled.slide_positions)?;
-            crate::player::state::PreparedEditedEngine::new(chart, engine, compiled.text, level, app.edited_engine_context())
+            crate::player::state::PreparedEditedEngine::new(
+                chart,
+                engine,
+                compiled.text,
+                level,
+                app.edited_engine_context(),
+            )
         })();
         match result {
             Ok(prepared) => app.install_edited_engine(prepared),
@@ -74,8 +80,12 @@ pub fn load_chart_bundle(dir: &Path, want_slot: Option<u32>) -> ChartBundle {
     try_load_chart_bundle(dir, want_slot).unwrap_or_else(|error| {
         eprintln!("editor: load failed: {error}");
         ChartBundle {
-            chart: app::chart::fallback_chart(), audio_name: None, audio_pcm: None,
-            simai: None, level: None, source: None,
+            chart: app::chart::fallback_chart(),
+            audio_name: None,
+            audio_pcm: None,
+            simai: None,
+            level: None,
+            source: None,
         }
     })
 }
@@ -83,15 +93,21 @@ pub fn load_chart_bundle(dir: &Path, want_slot: Option<u32>) -> ChartBundle {
 pub fn try_load_chart_bundle(dir: &Path, want_slot: Option<u32>) -> Result<ChartBundle, String> {
     let mut source = crate::io::ChartSource::resolve(dir, None);
     let simai = if source.is_simai() {
-        Some(std::fs::read_to_string(&source.path).map_err(|e| format!("read {}: {e}", source.path.display()))?)
-    } else { None };
+        Some(
+            std::fs::read_to_string(&source.path)
+                .map_err(|e| format!("read {}: {e}", source.path.display()))?,
+        )
+    } else {
+        None
+    };
     let (chart, level) = match &simai {
         Some(text) => {
             let keys = app::maidata::inote_keys(text);
             let slot = want_slot
                 .filter(|s| keys.contains(s))
                 .or_else(|| keys.last().copied());
-            let chart = app::maidata::from_maidata_level(text, slot.ok_or("No Simai difficulties")?)?;
+            let chart =
+                app::maidata::from_maidata_level(text, slot.ok_or("No Simai difficulties")?)?;
             (chart, slot)
         }
         None => {
@@ -116,7 +132,11 @@ pub fn try_load_chart_bundle(dir: &Path, want_slot: Option<u32>) -> Result<Chart
 
 /// (Re)load a chart folder into a live [`PadPreviewState`], keeping the already
 /// loaded textures/materials/SFX. `want_slot` selects a Simai difficulty.
-pub fn load_chart_into(app: &mut PadPreviewState, dir: &Path, want_slot: Option<u32>) -> Result<crate::io::ChartSource, String> {
+pub fn load_chart_into(
+    app: &mut PadPreviewState,
+    dir: &Path,
+    want_slot: Option<u32>,
+) -> Result<crate::io::ChartSource, String> {
     let bundle = try_load_chart_bundle(dir, want_slot)?;
     let source = bundle.source.ok_or("Missing loaded source")?;
     let native = bundle.simai.is_none();
@@ -127,7 +147,9 @@ pub fn load_chart_into(app: &mut PadPreviewState, dir: &Path, want_slot: Option<
         bundle.simai,
         bundle.level,
     );
-    if native { initialize_native(app); }
+    if native {
+        initialize_native(app);
+    }
     Ok(source)
 }
 
@@ -179,27 +201,49 @@ pub fn preview_mode_label(mode: u8) -> &'static str {
 
 /// Follow the chart playhead. Autoplay centers itself after laying out its plot.
 pub fn follow_playhead(editor: &mut EditorState, current_time: f32) {
-    if editor.follow_playhead && !editor.keyboard.detached {
+    if editor.follow_playhead && !editor.keyboard.detached && !editor.follow_zoom_detached {
         editor.view_start = crate::timeline::geometry::view_reference(editor, current_time);
     }
 }
 
+/// Resume a zoom-suspended chart follow once playback is active.
+pub fn follow_playhead_during_playback(editor: &mut EditorState, current_time: f32, playing: bool) {
+    if playing && editor.follow_playhead && !editor.keyboard.detached {
+        editor.follow_zoom_detached = false;
+    }
+    follow_playhead(editor, current_time);
+}
+
 pub fn loop_range(editor: &EditorState) -> Option<(f32, f32)> {
-    editor.loop_range.filter(|&(start, end)| editor.loop_enabled
-        && start.is_finite() && end.is_finite() && start >= 0.0 && end - start >= 0.01)
+    editor.loop_range.filter(|&(start, end)| {
+        editor.loop_enabled
+            && start.is_finite()
+            && end.is_finite()
+            && start >= 0.0
+            && end - start >= 0.01
+    })
 }
 
 fn playback_start(editor: &EditorState, time: f32) -> f32 {
     loop_range(editor).map_or(time, |(start, end)| {
-        if time < start || time >= end { start } else { time }
+        if time < start || time >= end {
+            start
+        } else {
+            time
+        }
     })
 }
 
 pub fn toggle_play(editor: &EditorState, app: &mut PadPreviewState) {
-    if !matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) {
+    if !matches!(
+        app.mode,
+        app::types::Mode::Playing | app::types::Mode::Recording
+    ) {
         let time = app.timeline_time();
         let start = playback_start(editor, time);
-        if start != time { app.seek_to(start); }
+        if start != time {
+            app.seek_to(start);
+        }
     }
     app.toggle_play();
 }
@@ -209,17 +253,32 @@ pub fn restart_playback(editor: &EditorState, app: &mut PadPreviewState) {
 }
 
 pub fn rewind(editor: &EditorState, app: &mut PadPreviewState) {
-    let start = if matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) {
+    let start = if matches!(
+        app.mode,
+        app::types::Mode::Playing | app::types::Mode::Recording
+    ) {
         loop_range(editor).map_or(0.0, |(start, _)| start)
-    } else { 0.0 };
+    } else {
+        0.0
+    };
     app.seek_to(start);
 }
 
 pub fn tick_loop(editor: &EditorState, app: &mut PadPreviewState) {
-    if !editor.loop_enabled || editor.loop_drag.is_some() || editor.scrubbing || app.scrubbing
-        || !matches!(app.mode, app::types::Mode::Playing | app::types::Mode::Recording) { return; }
+    if !editor.loop_enabled
+        || editor.loop_drag.is_some()
+        || editor.scrubbing
+        || app.scrubbing
+        || !matches!(
+            app.mode,
+            app::types::Mode::Playing | app::types::Mode::Recording
+        )
+    {
+        return;
+    }
     if let Some((start, end)) = loop_range(editor)
-        && (app.timeline_time() < start || app.timeline_time() >= end) {
+        && (app.timeline_time() < start || app.timeline_time() >= end)
+    {
         app.seek_to(start);
     }
 }
@@ -230,7 +289,11 @@ mod tests {
 
     #[test]
     fn loop_playback_starts_inside_the_range_and_preserves_inside_positions() {
-        let mut editor = EditorState { loop_range: Some((2.0, 6.0)), loop_enabled: true, ..Default::default() };
+        let mut editor = EditorState {
+            loop_range: Some((2.0, 6.0)),
+            loop_enabled: true,
+            ..Default::default()
+        };
         for (time, expected) in [(0.0, 2.0), (2.0, 2.0), (3.5, 3.5), (6.0, 2.0), (9.0, 2.0)] {
             assert_eq!(playback_start(&editor, time), expected);
         }
@@ -244,9 +307,14 @@ mod tests {
     fn settle(sync: &mut ChartSync, pad: &mut PadPreviewState) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
-            if sync.update(pad, false).unwrap() { return; }
+            if sync.update(pad, false).unwrap() {
+                return;
+            }
             sync.schedule(pad, false).unwrap();
-            assert!(std::time::Instant::now() < deadline, "core update did not finish");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "core update did not finish"
+            );
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
@@ -293,7 +361,10 @@ mod tests {
         let original = pad.chart.notes.clone();
         pad.chart.notes[0].lane = 7;
         assert!(!sync.update(&mut pad, true).unwrap());
-        assert!(!pad.has_engine(), "a gesture must not keep stale native state on the UI thread");
+        assert!(
+            !pad.has_engine(),
+            "a gesture must not keep stale native state on the UI thread"
+        );
         sync.schedule(&mut pad, true).unwrap();
         settle(&mut sync, &mut pad);
         assert_eq!(
@@ -371,18 +442,39 @@ mod tests {
         use crate::core::types::{SensorArea, TimedInputEvent};
         for direct in [false, true] {
             let chart = app::maidata::from_maidata_level("&inote_6=(120){4}1h[2],,,E", 6).unwrap();
-            let mut pad = initialize_player(PadPreviewState::new_at(chart, None, None, 0.0, None), None, None);
+            let mut pad = initialize_player(
+                PadPreviewState::new_at(chart, None, None, 0.0, None),
+                None,
+                None,
+            );
             pad.forced_time = Some(0.0);
             pad.autoplay = true;
             pad.autoplay_direct_core = direct;
             let mut sync = ChartSync::new(&mut pad.chart);
             let part = &pad.default_autoplay_plan.as_ref().unwrap().groups[0].parts[0];
-            let key = autoplay_edit::key(pad.playback_chart(), pad.judge_engine.as_ref().unwrap(), part).unwrap();
+            let key = autoplay_edit::key(
+                pad.playback_chart(),
+                pad.judge_engine.as_ref().unwrap(),
+                part,
+            )
+            .unwrap();
             let events = vec![
-                TimedInputEvent::SensorHold { tp: 100_000, area: SensorArea::A1, is_down: true },
-                TimedInputEvent::SensorHold { tp: 1_500_000, area: SensorArea::A1, is_down: false },
+                TimedInputEvent::SensorHold {
+                    tp: 100_000,
+                    area: SensorArea::A1,
+                    is_down: true,
+                },
+                TimedInputEvent::SensorHold {
+                    tp: 1_500_000,
+                    area: SensorArea::A1,
+                    is_down: false,
+                },
             ];
-            pad.chart.autoplay_overrides.push(AutoplayOverride { key, events: events.clone(), curve: None });
+            pad.chart.autoplay_overrides.push(AutoplayOverride {
+                key,
+                events: events.clone(),
+                curve: None,
+            });
             settle(&mut sync, &mut pad);
             assert!(pad.external_autoplay);
             assert_eq!(pad.autoplay_plan.as_ref().unwrap().events(), events);
@@ -391,8 +483,11 @@ mod tests {
                 assert_eq!(pad.autoplay_plan.as_ref().unwrap().events(), events);
             }
             assert_eq!(pad.autoplay_tactic_cursor, 1);
-            if direct { assert_eq!(pad.autoplay_direct_held, events[..1]); }
-            else { assert!(pad.autoplay_explicit_held.contains(&SensorArea::A1)); }
+            if direct {
+                assert_eq!(pad.autoplay_direct_held, events[..1]);
+            } else {
+                assert!(pad.autoplay_explicit_held.contains(&SensorArea::A1));
+            }
             pad.forced_time = Some(1.5);
             pad.audio_start_pending = false;
             autoplay::tick(&mut pad);

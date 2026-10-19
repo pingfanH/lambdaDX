@@ -307,36 +307,61 @@ impl AutoplayEditor {
         curve: AutoplayCurve,
         history: bool,
     ) -> Result<(), String> {
-        let events = match app.pad_svg.as_ref() {
-            Some(svg) => curve::bake(&curve, svg)?,
-            None => return Err("Pad geometry is not loaded".into()),
-        };
-        let track = self
-            .tracks
-            .get_mut(row)
-            .ok_or("Curve owner no longer exists")?;
-        let item = AutoplayOverride {
-            key: track.key.clone(),
-            events,
-            curve: Some(curve),
-        };
-        if app.chart.autoplay_overrides.iter().any(|o| *o == item) {
+        let svg = app.pad_svg.as_ref().ok_or("Pad geometry is not loaded")?;
+        let rows = self.clip_rows(row);
+        let rows = if rows.is_empty() { vec![row] } else { rows };
+        if self.tracks.get(row).is_none() {
+            return Err("Curve owner no longer exists".into());
+        }
+
+        // A grouped conslide is one timeline element, but its runtime parts
+        // still have different keys and paths. Keep an override for every
+        // segment so playback never mixes one authored segment with the core's
+        // implicit events for the remaining segments.
+        let mut items = Vec::with_capacity(rows.len());
+        for target in rows {
+            let target_curve = if target == row {
+                curve.clone()
+            } else {
+                self.curve_for(target, app)
+                    .or_else(|_| curve::from_slide(&self.tracks[target].key, app))?
+            };
+            let events = curve::bake(&target_curve, svg)?;
+            items.push((
+                target,
+                AutoplayOverride {
+                    key: self.tracks[target].key.clone(),
+                    events,
+                    curve: Some(target_curve),
+                },
+            ));
+        }
+        let changed = items.iter().any(|(_, item)| {
+            app.chart
+                .autoplay_overrides
+                .iter()
+                .find(|old| old.key == item.key)
+                != Some(item)
+        });
+        if !changed {
             return Ok(());
         }
         if history {
             editor.push_history(&app.chart);
         }
-        app.chart.autoplay_overrides.retain(|o| o.key != track.key);
-        track.events = item
-            .events
-            .iter()
-            .map(|e| autoplay_edit::with_time(e, timed_input_tp(e).saturating_add(track.head)))
-            .collect();
-        track.authored = true;
-        if track.key.is_standalone() {
-            track.label = format!("Curve {}", track.key.note_id);
+        for (target, item) in items {
+            let track = &mut self.tracks[target];
+            track.events = item
+                .events
+                .iter()
+                .map(|e| autoplay_edit::with_time(e, timed_input_tp(e).saturating_add(track.head)))
+                .collect();
+            track.authored = true;
+            if track.key.is_standalone() {
+                track.label = format!("Curve {}", track.key.note_id);
+            }
+            super::replace_autoplay_override(&mut app.chart, item);
         }
-        app.chart.autoplay_overrides.push(item);
         self.edits_pending_sync = true;
         self.lanes_dirty = true;
         Ok(())

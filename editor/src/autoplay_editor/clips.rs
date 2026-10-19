@@ -1,6 +1,7 @@
 //! Clip overview and sensor intervals. Drafts never mutate the chart.
 
 use super::*;
+use crate::core::types::timed_input_event_sort_key;
 use crate::theme::{ACCENT_BLUE, BG_CANVAS, TEXT, TEXT_DIM};
 use crate::ui::style::{glyph, icon};
 use lucide_icons::Icon;
@@ -35,8 +36,18 @@ pub(super) struct LaneOptions<'a> {
 impl ClipLayout {
     /// One clip per real owner by default; `grouped` folds the parts of one
     /// Slide or note back into a single clip.
-    pub fn build(tracks: &[Track], minimum: usize, previous: &Self, options: LaneOptions<'_>) -> Self {
-        let LaneOptions { grouped, slide_new_lane, pins, split_slides } = options;
+    pub fn build(
+        tracks: &[Track],
+        minimum: usize,
+        previous: &Self,
+        options: LaneOptions<'_>,
+    ) -> Self {
+        let LaneOptions {
+            grouped,
+            slide_new_lane,
+            pins,
+            split_slides,
+        } = options;
         let mut groups = HashMap::new();
         let mut slide_groups: HashMap<(u64, usize), usize> = HashMap::new();
         let mut clips: Vec<Clip> = Vec::new();
@@ -51,7 +62,12 @@ impl ClipLayout {
                         let index = *slide_groups.entry(pair).or_insert_with(|| {
                             let mut key = track.key.clone();
                             key.segment = 0;
-                            clips.push(Clip { key, rows: Vec::new(), start: i64::MAX, end: i64::MIN });
+                            clips.push(Clip {
+                                key,
+                                rows: Vec::new(),
+                                start: i64::MAX,
+                                end: i64::MIN,
+                            });
                             clips.len() - 1
                         });
                         let clip = &mut clips[index];
@@ -151,7 +167,11 @@ pub(super) struct Interval {
 
 pub(super) fn intervals(events: &[TimedInputEvent]) -> Vec<Interval> {
     let mut order: Vec<_> = (0..events.len()).collect();
-    order.sort_by_key(|&i| timed_input_tp(&events[i]));
+    // Editing keeps the authored order for events sharing a timestamp. The
+    // runtime stream uses release-first ordering, but applying that here
+    // changes zero-duration pairs and makes adjacent sensor intervals appear
+    // to belong to different gestures.
+    order.sort_by_key(|&i| crate::player::engine::timed_input_tp(&events[i]));
     let mut active: HashMap<String, usize> = HashMap::new();
     let mut result: Vec<Interval> = Vec::new();
     for index in order {
@@ -305,7 +325,13 @@ pub(super) fn navigate(state: &mut AutoplayEditor, reverse: bool) {
             .into_iter()
             .flat_map(|row| (0..state.tracks[row].events.len()).map(move |i| (row, i)))
             .collect();
-        ends.sort_by_key(|&(row, i)| (timed_input_tp(&state.tracks[row].events[i]), row, i));
+        ends.sort_by_key(|&(row, i)| {
+            (
+                timed_input_event_sort_key(&state.tracks[row].events[i]),
+                row,
+                i,
+            )
+        });
         if ends.is_empty() {
             return;
         }
@@ -696,7 +722,8 @@ pub(super) fn draw(
                     let (start, end) = state.element_span(row, app);
                     // A Slide sharing its time with a tap drops a little, so
                     // both boxes stay readable and their edges stay reachable.
-                    let (start_us, end_us) = ((start as f64 * 1e6) as i64, (end as f64 * 1e6) as i64);
+                    let (start_us, end_us) =
+                        ((start as f64 * 1e6) as i64, (end as f64 * 1e6) as i64);
                     let lowered = curve.is_some()
                         && clips.iter().any(|&other| {
                             other != index
