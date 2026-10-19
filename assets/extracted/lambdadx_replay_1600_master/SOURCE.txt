@@ -1,0 +1,7 @@
+Source page: https://maiwiki.moe/replay/1600/master
+Sprite base: https://maiwiki.moe/gameresources/sprites
+Effect base: https://maiwiki.moe/gameresources/effects
+Chart: 1600 MASTER (緋色のDance)
+Judgement sprites: Critical variants loaded by the replay renderer.
+Particle effects: all definitions and referenced textures from effects.json.
+Sprite effects: Break/BreakHold/BreakSlide effect sprites for design 00.

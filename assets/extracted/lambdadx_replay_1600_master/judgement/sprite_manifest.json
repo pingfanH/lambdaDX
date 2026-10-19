@@ -1,0 +1,324 @@
+{
+  "judge/UI_GAM_Critical": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Critical_Break": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_Critical": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_Critical_Break": {
+    "tex": [
+      426,
+      140
+    ],
+    "rect": [
+      20.07612,
+      0,
+      378.84778,
+      108.92388
+    ],
+    "pivot": [
+      -0.05299258,
+      0.6426506
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_Critical": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_Critical_Break": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      0,
+      378.84778,
+      108.92388
+    ],
+    "pivot": [
+      1.0556321,
+      0.6426506
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_Critical": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_Critical_Break": {
+    "tex": [
+      412,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      412,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_Critical": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_Critical_Break": {
+    "tex": [
+      412,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      412,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_Critical": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_Critical_Break": {
+    "tex": [
+      668,
+      186
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      186
+    ],
+    "pivot": [
+      0.5,
+      0.8
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_Critical": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_Critical_Break": {
+    "tex": [
+      668,
+      186
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      186
+    ],
+    "pivot": [
+      0.5,
+      0.2
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  }
+}
