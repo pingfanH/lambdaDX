@@ -3,9 +3,20 @@
 //! The module is intentionally independent from the legacy MajdataPlay-shaped
 //! judge module so hosts can migrate one call site at a time.
 
+pub mod input;
 pub mod judge;
+pub mod timing;
+
+pub use input::{
+    InputFrame, PanelLog, A1, A2, A8, B1, B8, C1, C2, D1, D8, E1, E8, PANEL_AREA_COUNT,
+};
 
 pub use judge::{
     adjust_msec, convert_judge, get_judge_score, get_judge_timing, get_slide_judge_timing,
     judge_hold_total, judge_timing_frame, EJudgeType, ETiming, JudgeBox, NoteScoreType,
+};
+
+pub use timing::{
+    auto_play_trigger_msec, is_note_check_time_start, is_too_late, judge_slide, judge_tap_like,
+    TimingSettings, AUTO_PLAY_LEAD_MSEC, NORMAL_TIMING,
 };
