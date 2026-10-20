@@ -216,3 +216,9 @@ transport-streamable-http-client-reqwest、reqwest; 尚无可执行代理。
 P3 仍须做 HTTP 鉴权、Origin/Host、真实 rmcp client、断连/取消和 stdio 集成测试。
 P4 仍须核对 0.7.0 chat/tool API、fake provider 循环与真实 provider 烟测。
 尚未发送模型请求, 也没有宣称 provider 兼容性。
+
+P1 验收补充: 隔离 worktree 的 11 项 automation 测试通过; 默认全部 bins、
+editor-mcp、editor-agent、both 编译通过。共享 crate Rust 1.88 的无 feature
+6 项、all-features 7 项测试通过。backend-none 的 editor 测试构建被已有
+JudgeEngine::chart_spec 缺失阻挡, 与本次 automation 接口无关。
+性能与快照内存估算限制见计划 P1 记录; 尚无真实播放/UI 延迟或 provider 验证。

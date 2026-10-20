@@ -1,6 +1,6 @@
 # MCP 与轻量 Agent 实现计划
 
-状态: **P0 契约与桥已实现; P1 只读 host 验收中; P2–P5 待实现**。
+状态: **P0/P1 已实现并验收; P2–P4 实施中; P5 待实现**。
 更新日期: 2026-10-21。工作分支: `agent`。设计调查基线: `62df204`;
 实施基线: `9af3500`。下文未勾选项描述后续目标, 不代表已有网络或 Agent 入口。
 
@@ -401,12 +401,29 @@ P0/P1 不实例化它, 不打开端口、不读取凭据、不调用 provider。
 
 ### P1: 编辑器只读工具
 
-- [ ] 接入主线程安全帧点, 按需抓取 canonical 文档/Simai/草稿状态。
-- [ ] 实现摘要、分页 note 查询、原文读取、结构检查和可选定位。
-- [ ] 未应用草稿/模板隔离/无核心时返回准确状态, 不误读另一份文档。
-- [ ] 测试大谱面、分页稳定性、取消、队列满和主线程延迟。
+- [x] 接入主线程安全帧点, 按需抓取 canonical 文档/Simai/草稿状态。
+- [x] 实现摘要、分页 note 查询、原文读取、结构检查和可选定位。
+- [x] 未应用草稿/模板隔离/无核心时返回准确状态, 不误读另一份文档。
+- [x] 测试大谱面、分页稳定性、取消、队列满和主线程处理耗时。
 
 验收: fake caller 能查询用户实际打开的谱面, 不产生 dirty、history、save 或播放变化。
+
+实现位于 editor/src/automation, 在 ChartSync 发布后、player tick 前处理请求。
+快照只查询 authored 主谱 note, 原文读取保留 Unicode/CRLF 和未应用草稿, 不生成 Simai。
+后续编辑不改变旧快照分页; 重载、源/难度切换、模板隔离变化使旧身份失效。
+定位仅滚动并关闭跟随, 必须与 live chart/原文一致; 模板隔离与忙碌捕获返回错误。
+结构检查涵盖重复 ID、数值/时值/区域、正 Hold 时长与 Slide 轨迹; 核心检查仍明确不支持。
+
+快照最多 8 个、TTL 300 秒、单个估算 16 MiB/总估算 32 MiB。估算并非严格 heap 配额。
+捕获/检查同步在主线程进行; 每帧一个请求不是耗时上限。过滤结果和诊断先收集再分页。
+20,000 note 的本机 optimized-dev 测试: 捕获 3.446 ms、查询 0.287 ms、
+结构检查 0.709 ms、1000 空闲帧 0.0368 ms; 这不是实际播放/UI 延迟保证。
+
+隔离 worktree 排除其他 agent 的改动后, automation 11 项测试通过。共享 crate
+Rust 1.88 测试: 无 feature 6 项、all-features 7 项通过。默认全部 bins 及 editor 的
+editor-mcp、editor-agent、两者同时开启均 cargo check --locked 通过。
+backend-none 的 editor 测试构建被既有 autoplay_editor/curve.rs 中 JudgeEngine::chart_spec
+缺失阻挡, 未修改无关模块; P1 无实际窗口/播放端到端验收。
 
 ### P2: 提案到单步撤销闭环
 
@@ -464,8 +481,9 @@ P0/P1 不实例化它, 不打开端口、不读取凭据、不调用 provider。
 自动测试使用 fake provider 与真实本机 rmcp client, 不依赖付费模型或访问公网。
 真实 provider 烟测显式手动运行, 不把 Key 放入 fixture。
 
-实施时先重新记录现有测试基线。上次记录为编辑器 487 通过/22 失败/3 忽略,
-这只是历史记录, 不是本轮跑过或可永久豁免的失败清单。
+本轮实施前记录的完整编辑器基线为 533 通过/23 失败/3 忽略。失败涉及既有
+maichart 难度、Autoplay 时值、Slide handles、UI 快捷键和 Jack Ripper 保存格式。
+该记录不表示完整套件通过, 也不是可永久豁免的失败清单。
 大谱面性能先测 P1 捕获/比较/提交耗时及播放延迟; 不能以“用了 async”替代测量。
 
 ## 10. 决策摘要与下一步
@@ -473,8 +491,8 @@ P0/P1 不实例化它, 不打开端口、不读取凭据、不调用 provider。
 确定采用: 双入口、共享 typed tools、主线程拥有状态、只读优先、UI 审批提案、
 保留原文的单步撤销、显式自动保存语义、rmcp + genai 可选集成。
 
-首选但待 P0 探针验证: Streamable HTTP + stdio 代理、单共享 crate、
-依赖精确版本/features、支持的 provider 流式 tools 行为。
+P0 已验证共享 crate、依赖精确版本/features/MSRV 与隔离。后续仍须验证
+Streamable HTTP + stdio 代理的真实客户端行为及 provider 流式 tools。
 
-实施从 **P0 + P1 的只读查询闭环**开始。P2 在无模型情况下通过后再接 MCP 与 Agent,
+下一步为 **P2 提案与单步撤销闭环**。P2 在无模型情况下通过后再接 MCP 与 Agent,
 避免把领域编辑错误和模型行为混在一起排查。后续实施必须同步更新本文状态与使用文档。

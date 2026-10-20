@@ -26,6 +26,8 @@ mod player;
 
 mod appearance;
 mod audio;
+#[cfg(feature = "editor-automation")]
+mod automation;
 mod autoplay_editor;
 mod core_chart;
 mod edit_ops;
@@ -205,6 +207,8 @@ async fn run() {
     let start_time = get_time();
     let mut chart_sync = runtime::ChartSync::new(&mut app.chart);
     let mut auto_save = io::autosave::AutoSave::default();
+    #[cfg(feature = "editor-automation")]
+    let mut automation = automation::Service::new();
     let mut cover_art = appearance::CoverArt::default();
 
     // `MAI2_EDITOR_FPS=1` prints a once-per-second frame-time summary to stderr
@@ -423,6 +427,8 @@ async fn run() {
                 false
             }
         };
+        #[cfg(feature = "editor-automation")]
+        automation.tick(&mut editor, &app, document_idle, chart_current);
         runtime::tick_player(&mut app, chart_current).await;
         let current_time = player_time(&app);
         runtime::follow_playhead_during_playback(

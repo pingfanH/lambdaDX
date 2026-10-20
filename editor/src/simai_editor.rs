@@ -120,6 +120,12 @@ impl SimaiEditor {
 
     pub fn modified(&self) -> bool { self.modified }
 
+    /// Inspect the existing source baseline without cloning or parsing it.
+    #[cfg(feature = "editor-automation")]
+    pub(crate) fn automation_source(&self, chart: &ChartDoc) -> (bool, bool) {
+        (self.source.is_some(), !self.modified && self.source.as_ref().is_some_and(|s| s.matches(chart)))
+    }
+
     pub(crate) fn document(&self) -> Option<format::Document> {
         Some(format::Document { text: self.applied.clone(), chart: self.source.as_ref()?.chart.clone() })
     }
