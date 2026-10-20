@@ -81,7 +81,11 @@ pub fn slide_end_for_shape(shape: &SlideShape, slot: OuterSlot) -> u8 {
     let rel_end = shape_rel_end(shape)
         .and_then(|value| value.to_usize())
         .unwrap_or(5);
-    ((slot.to_index() + rel_end) % 8) as u8
+    if rel_end == 8 {
+        slot.to_index() as u8
+    } else {
+        ((slot.to_index() + rel_end - 1) % 8) as u8
+    }
 }
 
 #[cfg(test)]
@@ -97,7 +101,7 @@ mod tests {
             symmetry: direct(),
         };
         assert_eq!(slide_type_for_shape(&shape, OuterSlot::S1), SLIDE_STRAIGHT);
-        assert_eq!(slide_end_for_shape(&shape, OuterSlot::S1), 2);
+        assert_eq!(slide_end_for_shape(&shape, OuterSlot::S1), 1);
     }
 
     #[test]
@@ -107,6 +111,18 @@ mod tests {
             symmetry: direct(),
         };
         assert_eq!(slide_type_for_shape(&shape, OuterSlot::S1), SLIDE_FAN);
-        assert_eq!(slide_end_for_shape(&shape, OuterSlot::S1), 5);
+        assert_eq!(slide_end_for_shape(&shape, OuterSlot::S1), 4);
+    }
+
+    #[test]
+    fn lowered_chart_carries_the_sdez_fields() {
+        let chart = crate::simai::frontend::frontend_lowered_chart(
+            "&inote_1=(120){4}1-3[4:1],E",
+            (1).into(),
+        )
+        .expect("chart");
+        let slide = chart.slides.first().expect("slide");
+        assert_eq!(slide.sdez_slide_type, SLIDE_STRAIGHT);
+        assert_eq!(slide.sdez_end, 2);
     }
 }
