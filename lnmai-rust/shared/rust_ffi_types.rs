@@ -992,13 +992,15 @@ impl AutoplayPlan {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SeekResult {
     pub score: ScoreState,
     pub current_time: TimePoint,
     pub terminated: bool,
     pub retained_note_indices: Vec<u64>,
     pub skipped_note_indices: Vec<u64>,
+    pub render_commands: Vec<RenderCommand>,
 }
 
 #[derive(Debug, Clone, Copy)]

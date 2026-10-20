@@ -230,28 +230,12 @@ impl JudgeEngine {
     /// Simai text.
     pub fn load(simai_text: &str, level_index: u32) -> Result<Self, String> {
         ensure_runtime();
-        #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
         let loaded = Session::<Empty>::create_native()
             .map_err(|e| e.json)?
             .load_chart_text_native(simai_text, level_index)
             .map_err(|e| e.json)?;
-        #[cfg(feature = "backend-rust")]
-        let loaded = {
-            let empty = Session::<Empty>::create().map_err(|e| e.json)?;
-            let (loaded, _envelope) = empty
-                .load_chart_text(simai_text, level_index)
-                .map_err(|e| e.json)?;
-            loaded
-        };
         let (slide_bindings, slide_head_timings, slide_totals) = runtime_slide_bindings(&loaded)?;
-        #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
         let chart_spec = loaded.chart_spec_native().map_err(|e| e.json)?;
-        #[cfg(feature = "backend-rust")]
-        let chart_spec = loaded
-            .get_lowered_chart_json()
-            .map_err(|e| e.json)?
-            .decode_result()
-            .map_err(|e| format!("invalid lowered chart json: {e}"))?;
         Ok(JudgeEngine {
             session: loaded,
             chart_spec,
@@ -412,23 +396,7 @@ impl JudgeEngine {
             current_time: current_time_us,
             events,
         };
-        let result = {
-            #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
-            {
-                self.session.step_native(&batch).map_err(|e| e.json)
-            }
-            #[cfg(feature = "backend-rust")]
-            {
-                let json = serde_json::to_string(&batch).map_err(|e| e.to_string())?;
-                let (envelope, _timings) = self
-                    .session
-                    .advance_frame_light_timed(&json)
-                    .map_err(|e| e.json)?;
-                envelope
-                    .decode_result::<RuntimeStepLightResult>()
-                    .map_err(|e| e.to_string())
-            }
-        };
+        let result = self.session.step_native(&batch).map_err(|e| e.json);
         if let Ok(result) = &result {
             self.last_step_time_us = result.current_time;
         }
@@ -483,18 +451,10 @@ impl JudgeEngine {
         if !seconds.is_finite() {
             return Err("invalid seek time".into());
         }
-        let result = {
-            #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
-            {
-                self.session
-                    .seek_with_events((seconds.max(0.0) * 1e6) as i64, events, keep_held)
-                    .map_err(|e| e.json)
-            }
-            #[cfg(feature = "backend-rust")]
-            {
-                Err("seek is not supported by the Rust backend".into())
-            }
-        };
+        let result = self
+            .session
+            .seek_with_events((seconds.max(0.0) * 1e6) as i64, events, keep_held)
+            .map_err(|e| e.json);
         if let Ok(result) = &result {
             self.last_step_time_us = result.current_time;
         }
@@ -502,29 +462,13 @@ impl JudgeEngine {
     }
 
     pub fn autoplay_plan(&self) -> Result<AutoplayPlan, String> {
-        #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
-        {
-            let mut plan = self.session.autoplay_plan().map_err(|e| e.json)?;
-            plan.chart_fingerprint = self.fingerprint.clone();
-            Ok(plan)
-        }
-        #[cfg(feature = "backend-rust")]
-        Err("grouped autoplay is not supported by the Rust backend".into())
+        let mut plan = self.session.autoplay_plan().map_err(|e| e.json)?;
+        plan.chart_fingerprint = self.fingerprint.clone();
+        Ok(plan)
     }
 
     pub fn default_tactic(&self) -> Result<Vec<TimedInputEvent>, String> {
-        #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
-        return Ok(self.autoplay_plan()?.events());
-        #[cfg(feature = "backend-rust")]
-        {
-            let envelope = self.session.get_lowered_chart_json().map_err(|e| e.json)?;
-            let chart: ChartSpec = envelope
-                .decode_result()
-                .map_err(|e| format!("invalid lowered chart json: {e}"))?;
-            crate::core::api::default_tactic_from_chart(&chart)
-                .map(|tactic| tactic.events)
-                .map_err(|e| e.json)
-        }
+        Ok(self.autoplay_plan()?.events())
     }
 
     /// Consumed fraction (0..1) of each runtime slide arc, from a frame's render
@@ -682,54 +626,25 @@ pub struct SlideArcProgress {
 fn runtime_slide_bindings(
     session: &Session<Loaded>,
 ) -> Result<(HashMap<u64, usize>, Vec<i64>, Vec<(u64, u64, u64)>), String> {
-    #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
-    {
-        let bindings = session.slide_bindings_native().map_err(|e| e.json)?;
-        return Ok((
-            bindings
-                .iter()
-                .enumerate()
-                .map(|(i, b)| (b.note_index, i))
-                .collect(),
-            bindings.iter().map(|b| b.head_timing).collect(),
-            bindings
-                .iter()
-                .map(|b| {
-                    (
-                        b.total_judge_queue_len,
-                        b.track_count,
-                        b.initial_queue_remaining,
-                    )
-                })
-                .collect(),
-        ));
-    }
-    #[cfg(feature = "backend-rust")]
-    {
-        let envelope = session.get_state_json().map_err(|e| e.json)?;
-        let state = envelope
-            .decode_result::<crate::core::types::GameState>()
-            .map_err(|e| format!("invalid engine state json: {e}"))?;
-        let index_by_note = state
-            .slides
+    let bindings = session.slide_bindings_native().map_err(|e| e.json)?;
+    Ok((
+        bindings
             .iter()
             .enumerate()
-            .map(|(runtime_slide_index, slide)| (slide.params.note_index, runtime_slide_index))
-            .collect();
-        let head_timings = state.slides.iter().map(|slide| slide.head_timing).collect();
-        let totals = state
-            .slides
+            .map(|(i, b)| (b.note_index, i))
+            .collect(),
+        bindings.iter().map(|b| b.head_timing).collect(),
+        bindings
             .iter()
-            .map(|slide| {
+            .map(|b| {
                 (
-                    slide.total_judge_queue_len,
-                    slide.track_count,
-                    slide.initial_queue_remaining,
+                    b.total_judge_queue_len,
+                    b.track_count,
+                    b.initial_queue_remaining,
                 )
             })
-            .collect();
-        Ok((index_by_note, head_timings, totals))
-    }
+            .collect(),
+    ))
 }
 
 trait InputTp {
@@ -2167,5 +2082,19 @@ mod tests {
             !grades.iter().any(|(_, g)| *g == JudgeGrade::Miss),
             "neither the fast chain nor the normal slide may miss: {grades:?}"
         );
+    }
+
+    #[test]
+    fn rust_registry_supports_grouped_autoplay_and_seek() {
+        let text = bundled_maidata();
+        let level = crate::app::maidata::inote_key(&text, None).expect("level");
+        let mut engine = JudgeEngine::load(&text, level).expect("engine");
+
+        let plan = engine.autoplay_plan().expect("autoplay plan");
+        assert_eq!(plan.version, 1);
+        assert!(!plan.groups.is_empty(), "plan must own at least one group");
+
+        let restored = engine.seek(1.0).expect("seek");
+        assert_eq!(restored.current_time, 1_000_000);
     }
 }

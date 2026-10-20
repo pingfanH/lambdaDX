@@ -5,5 +5,6 @@
 //! linked Lean runtime, so no Nix/Lake artifacts are needed to build.
 
 pub mod api;
+pub mod native;
 pub mod session;
 pub mod types;
