@@ -12,6 +12,7 @@ pub mod editing;
 pub mod modal;
 pub mod completion;
 pub mod input;
+pub mod history;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ClickSeek { Off, Click, CommandClick }
@@ -95,7 +96,7 @@ pub struct SimaiEditor {
     pub options: Options,
     pub playback: source::PlaybackMap,
     pub input: input::Input,
-    source: Option<Source>,
+    source: Option<Arc<Source>>,
     applied: String,
     modified: bool,
     revision: u64,
@@ -107,6 +108,9 @@ pub struct SimaiEditor {
     cursor_follow_seen: bool,
     pending_cursor_seek: Option<bool>,
     failed_refresh: Option<Source>,
+    history_typing_at: Option<f64>,
+    history_text: Option<String>,
+    pub(crate) restore_cursor: bool,
 }
 
 impl SimaiEditor {
@@ -122,12 +126,14 @@ impl SimaiEditor {
 
     pub fn load(&mut self, chart: &ChartDoc, text: String) {
         self.input = Default::default();
-        self.source = Some(Source::new(chart));
+        self.source = Some(Arc::new(Source::new(chart)));
         self.text = text;
         self.applied = self.text.clone();
         self.modified = false;
         self.error = None;
         self.failed_refresh = None;
+        self.history_boundary();
+        self.history_text = None;
         self.playback.invalidate();
     }
 
@@ -192,7 +198,13 @@ impl SimaiEditor {
     pub fn sync(&mut self, chart: &ChartDoc) {
         if !self.modified && self.source.as_ref().is_none_or(|s| !s.matches(chart))
             && !self.failed_refresh.as_ref().is_some_and(|s| s.matches(chart)) {
+            let mut input = std::mem::take(&mut self.input);
+            let generation = self.generation;
             self.refresh(chart);
+            self.generation = generation;
+            input.external_change(&self.text);
+            self.input = input;
+            self.restore_cursor = true;
         }
     }
 }
@@ -315,8 +327,11 @@ fn apply_parsed(editor: &mut EditorState, chart: &mut ChartDoc, mut parsed: Char
     crate::app::maichart::recompute_each(&mut updated.notes);
     crate::app::maichart::mark_double_stars(&mut updated.notes);
     crate::io::validate(&updated)?;
-    if !editor.simai_editor.source.as_ref().is_some_and(|s| s.matches(&updated)) {
-        editor.push_history(chart);
+    let chart_changed = !editor.simai_editor.source.as_ref().is_some_and(|s| s.matches(&updated));
+    if editor.simai_editor.history_text.as_deref() != Some(editor.simai_editor.text.as_str()) {
+        history::record_application(editor, chart);
+    }
+    if chart_changed {
         *chart = updated;
         editor.selected.clear();
         editor.hovered = None;
@@ -327,8 +342,9 @@ fn apply_parsed(editor: &mut EditorState, chart: &mut ChartDoc, mut parsed: Char
         editor.last_edit = None;
         editor.autoplay_editor.cancel();
     }
-    editor.simai_editor.source = Some(Source::new(chart));
+    editor.simai_editor.source = Some(Arc::new(Source::new(chart)));
     editor.simai_editor.applied = editor.simai_editor.text.clone();
+    editor.simai_editor.history_text = Some(editor.simai_editor.text.clone());
     editor.simai_editor.modified = false;
     editor.simai_editor.apply_at = None;
     editor.simai_editor.playback.invalidate();

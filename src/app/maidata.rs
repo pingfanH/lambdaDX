@@ -324,28 +324,28 @@ mod lean {
             measure: 1.0,
             bpm: 120.0,
         }];
-        let mut measure = 1.0_f32;
-        let mut prev_t = 0.0_f32;
+        let mut measure = 1.0_f64;
+        let mut prev_t = 0_i64;
         let mut cur_bpm: Option<f32> = None;
 
         for event in events {
-            let t = event.timing as f32 / 1e6;
             let bpm = rational_f32(&event.bpm);
             match cur_bpm {
                 None => {
                     cur_bpm = Some(bpm);
                     bpms[0] = BpmChange { measure: 1.0, bpm };
-                    measure += (t - prev_t) * bpm / 240.0;
                 }
                 Some(current) => {
-                    measure += (t - prev_t) * current / 240.0;
                     if (bpm - current).abs() > 1e-6 {
-                        bpms.push(BpmChange { measure, bpm });
+                        // Only tempo boundaries advance the clock. Rounding at
+                        // every note made equivalent sparse/dense sources drift.
+                        measure += (event.timing - prev_t) as f64 * current as f64 / 240_000_000.0;
+                        bpms.push(BpmChange { measure: measure as f32, bpm });
+                        prev_t = event.timing;
                         cur_bpm = Some(bpm);
                     }
                 }
             }
-            prev_t = t;
         }
 
         bpms.sort_by(|a, b| a.measure.total_cmp(&b.measure));
@@ -656,6 +656,24 @@ mod tests {
         assert!((chart.notes[0].time - 2.0).abs() < 0.00002);
         let fragments = super::simai_timeline(text, 6).unwrap();
         assert!((fragments[0].time - 1.666667).abs() < 0.00002);
+    }
+
+    #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+    #[test]
+    fn tempo_boundaries_do_not_depend_on_note_density() {
+        let parse = |cell: &str| {
+            let body = format!("(210){{7}}1,{}(228)2,{}(180)3,E", cell.repeat(4096), cell.repeat(4096));
+            super::from_maidata_level(&format!("&inote_6={body}\n"), 6).unwrap()
+        };
+        let sparse = parse(",");
+        let dense = parse("1,");
+        assert_eq!(sparse.bpms.len(), 3);
+        assert_eq!(sparse.notes.len(), 3);
+        assert!(dense.notes.len() > 8000);
+        assert_eq!(sparse.bpms, dense.bpms, "only tempo changes may advance the BPM integration clock");
+        for note in &sparse.notes {
+            assert!(dense.notes.iter().any(|other| other.time == note.time && other.lane == note.lane));
+        }
     }
 
     #[test]

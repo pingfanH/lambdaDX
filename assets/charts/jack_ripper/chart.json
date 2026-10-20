@@ -26,7 +26,7 @@
       "lane": 6,
       "note_type": "tap",
       "slide": [],
-      "time": 2.249999523162842
+      "time": 2.25
     },
     {
       "id": 2,
@@ -7929,18 +7929,24 @@
         }
       ],
       "time": 128.08534240722656
+    },
+    {
+      "hi_speed": 0.0,
+      "id": 932,
+      "lane": 2,
+      "note_type": "slide",
+      "slide": [
+        {
+          "runtime_parts": 1,
+          "segments": [],
+          "slide_duration": 0.6875,
+          "slide_start_delay": 0.40625
+        }
+      ],
+      "time": 1.21875
     }
   ],
   "simai_level": 14,
-  "template_instances": [
-    {
-      "anchor_time": 1.0,
-      "hidden": false,
-      "instance_id": "inst_1",
-      "template_id": "tpl_1",
-      "template_version": 2
-    }
-  ],
   "templates": [
     {
       "duration": 0.25,

@@ -4,6 +4,7 @@ use super::{Kind, source};
 
 struct Cell {
     text: String,
+    division: u64,
     duration: f64,
     content: bool,
 }
@@ -21,18 +22,36 @@ pub(super) fn compact(text: &str) -> Result<String, String> {
             division = raw.trim_matches(['{', '}']).parse().map_err(|_| "Invalid Simai division")?;
             if division == 0 { return Err("Invalid Simai division".into()); }
         } else if raw == "," {
-            cells.push(Cell { text: std::mem::take(&mut value), duration: 1.0 / division as f64, content });
+            cells.push(Cell { text: std::mem::take(&mut value), division, duration: 1.0 / division as f64, content });
             content = false;
         } else {
             value.push_str(raw);
             content |= token.kind != Kind::Space;
         }
     }
-    cells.push(Cell { text: value, duration: 0.0, content });
+    cells.push(Cell { text: value, division, duration: 0.0, content });
     let mut out = String::new();
     let mut active = 4;
     let mut index = 0;
+    let mut position = 0.0;
+    let mut written_position = 0.0;
     while index < cells.len() {
+        // Bare slide bodies inherit this cell's division. Keep their first
+        // comma intact; only the following empty cells may use coarser rests.
+        if cells[index].duration > 0.0 && source::tokens(&cells[index].text).iter().any(|token| token.kind == Kind::Slide) {
+            let cell = &cells[index];
+            if active != cell.division {
+                out.push_str(&format!("{{{}}}", cell.division));
+                active = cell.division;
+            }
+            out.push_str(&cell.text);
+            if source::tokens(&cell.text).last().is_some_and(|token| token.kind == Kind::Comment) { out.push('\n'); }
+            out.push(',');
+            position += cell.duration;
+            written_position += cell.duration;
+            index += 1;
+            continue;
+        }
         let mut gap = cells[index].duration;
         let mut next = index + 1;
         while next < cells.len() && !cells[next].content && cells[next].duration > 0.0 {
@@ -40,7 +59,10 @@ pub(super) fn compact(text: &str) -> Result<String, String> {
             next += 1;
         }
         if gap > 0.0 {
-            emit_gap(&mut out, &cells[index].text, gap, &mut active)?;
+            // Correct against the original absolute clock. Independently
+            // rounding every rest accumulates on long, off-grid charts.
+            position += gap;
+            written_position += emit_gap(&mut out, &cells[index].text, position - written_position, &mut active)?;
             // Keep authored whitespace, especially newlines following comments.
             for cell in &cells[index + 1..next] { out.push_str(&cell.text); }
         } else { out.push_str(&cells[index].text); }
@@ -49,8 +71,9 @@ pub(super) fn compact(text: &str) -> Result<String, String> {
     Ok(out)
 }
 
-fn emit_gap(out: &mut String, content: &str, gap: f64, active: &mut u64) -> Result<(), String> {
+fn emit_gap(out: &mut String, content: &str, gap: f64, active: &mut u64) -> Result<f64, String> {
     let steps = crate::io::simai::gap_steps(gap, 0.0000005)?;
+    let written = steps.iter().map(|step| 1.0 / *step as f64).sum();
     for (index, step) in steps.into_iter().enumerate() {
         if *active != step {
             out.push_str(&format!("{{{step}}}"));
@@ -64,7 +87,7 @@ fn emit_gap(out: &mut String, content: &str, gap: f64, active: &mut u64) -> Resu
         }
         out.push(',');
     }
-    Ok(())
+    Ok(written)
 }
 
 pub(super) fn events(events: &[(f32, String)], division: u64, terminate: bool) -> Result<String, String> {

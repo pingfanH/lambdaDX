@@ -135,7 +135,7 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
             editor.open_dialog = true;
         }
     }
-    let prepared = editing::prepare(ui, &mut editor.simai_editor, text_id,
+    let prepared = editing::prepare(ui, editor, chart, text_id,
         enabled && !template && owns_keyboard, editor.keyboard.ime);
     let active = if !template && !editor.simai_editor.modified() {
         let simai = &mut editor.simai_editor;
@@ -194,7 +194,7 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
                     }
                     let mut output = edit.show(ui);
                     ui.visuals_mut().text_cursor = cursor_style;
-                    let edited = editing::finish(ui, &mut editor.simai_editor, &mut output, &prepared, enabled && !template);
+                    let edited = editing::finish(ui, editor, chart, &mut output, &prepared, enabled && !template);
                     if output.response.changed() || edited {
                         editor.simai_editor.changed();
                         ui.data_mut(|d| d.insert_temp::<Option<usize>>(follow_id, None));

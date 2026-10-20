@@ -1075,6 +1075,60 @@ fn simai_playback_space_blocks_separate_text_events_and_preserves_paste() {
 }
 
 #[test]
+fn simai_undo_redo_restores_visual_edits() {
+    let mut f = Fixture::new();
+    f.ui.workbench.set_visible(PaneKind::Simai, true);
+    f.frame(Vec::new());
+    let original = f.app.chart.clone();
+    let original_text = f.editor.simai_editor.text.clone();
+    f.editor.push_history(&f.app.chart);
+    f.app.chart.notes[0].lane = 4;
+    f.frame(Vec::new());
+    let edited_text = f.editor.simai_editor.text.clone();
+    assert_ne!(edited_text, original_text);
+    let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+    f.ctx.memory_mut(|m| m.request_focus(id));
+    f.frame(Vec::new());
+    f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+    assert_eq!(f.app.chart, original, "Simai undo must restore a visual edit");
+    assert_eq!(f.editor.simai_editor.text, original_text);
+    f.key(egui::Key::Z, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT);
+    assert_eq!(f.app.chart.notes[0].lane, 4);
+    assert_eq!(f.editor.simai_editor.text, edited_text);
+    assert!(f.ctx.memory(|m| m.has_focus(id)), "undo keeps Simai keyboard focus");
+}
+
+#[test]
+fn simai_modal_undo_redo_restores_visual_edits() {
+    use crate::simai_editor::modal::{Mode as EditMode, Style};
+    for style in [Style::Vim, Style::Helix] {
+        let mut f = Fixture::new();
+        f.ui.workbench.set_visible(PaneKind::Simai, true);
+        f.frame(Vec::new());
+        f.editor.simai_editor.options.edit_style = style;
+        let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+        f.ctx.memory_mut(|m| m.request_focus(id));
+        f.frame(Vec::new());
+        let original = f.app.chart.clone();
+        let original_text = f.editor.simai_editor.text.clone();
+        f.editor.push_history(&f.app.chart);
+        f.app.chart.notes[0].lane = 4;
+        f.frame(Vec::new());
+        let edited_text = f.editor.simai_editor.text.clone();
+        assert!(f.ctx.memory(|m| m.has_focus(id)), "visual sync preserves focus");
+        f.frame(vec![egui::Event::Text("u".into())]);
+        assert_eq!(f.app.chart, original, "{style:?} undo restores the chart");
+        assert_eq!(f.editor.simai_editor.text, original_text);
+        if style == Style::Vim { f.key(egui::Key::R, egui::Modifiers::CTRL); }
+        else { f.frame(vec![egui::Event::Text("U".into())]); }
+        assert_eq!(f.app.chart.notes[0].lane, 4);
+        assert_eq!(f.editor.simai_editor.text, edited_text);
+        assert_eq!(f.editor.simai_editor.input.modal.mode, EditMode::Normal);
+        assert!(f.ctx.memory(|m| m.has_focus(id)));
+    }
+}
+
+#[test]
 fn simai_modal_modes_preserve_input_ownership_and_text_history() {
     use crate::simai_editor::modal::{Mode as EditMode, Style};
     for style in [Style::Vim, Style::Helix] {
@@ -1144,10 +1198,16 @@ fn simai_completion_can_be_accepted_with_a_pointer_click() {
     f.frame(vec![egui::Event::Text("[".into())]);
     let output = f.frame(Vec::new());
     let at = text_position(&output, "[4:1]  时值");
+    let before = f.editor.simai_editor.text.clone();
     f.click(at);
     assert!(f.editor.simai_editor.text.contains("[4:1]"));
     assert!(!f.editor.simai_editor.input.completion.open());
     assert!(f.ctx.memory(|m| m.has_focus(id)));
+    let completed = f.editor.simai_editor.text.clone();
+    f.editor.undo(&mut f.app.chart);
+    assert_eq!(f.editor.simai_editor.text, before);
+    f.editor.redo(&mut f.app.chart);
+    assert_eq!(f.editor.simai_editor.text, completed);
 }
 
 #[test]

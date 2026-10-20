@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use crate::app::types::{ChartDoc, Note, secs_to_measure};
+use crate::app::types::{ChartDoc, Note, Slide, SlideSegment, SlideShape, secs_to_measure};
 use super::source::{self, Kind, NoteSpan};
 
 mod rhythm;
@@ -27,6 +27,24 @@ fn close(a: f32, b: f32) -> bool {
     (a - b).abs() <= 0.00002_f32.max(a.abs().max(b.abs()) * f32::EPSILON * 2.0)
 }
 
+fn normalize_slide_segments(slide: &mut Slide) {
+    // The waypoint editor stores a ring polyline in one segment; Simai stores
+    // one segment per leg. Preserve every point, including its timing offset.
+    if slide.segments.iter().any(|s| s.shape == SlideShape::Line && s.points.len() > 1
+        && s.points.iter().all(|p| (1..=8).contains(&p.zone.to_id()))) {
+        slide.segments = std::mem::take(&mut slide.segments).into_iter().flat_map(|segment| {
+            if segment.shape == SlideShape::Line && segment.points.len() > 1
+                && segment.points.iter().all(|p| (1..=8).contains(&p.zone.to_id())) {
+                segment.points.into_iter().map(|point| SlideSegment {
+                    shape: SlideShape::Line, points: vec![point],
+                }).collect()
+            } else { vec![segment] }
+        }).collect();
+    }
+    // This is derived runtime-index mapping, not authored path data.
+    slide.runtime_parts = slide.segments.len().max(1);
+}
+
 fn same_note(a: &Note, b: &Note, timing: bool) -> bool {
     if timing && !close(a.time, b.time) { return false; }
     if !close(a.hold_duration, b.hold_duration) || a.slide.len() != b.slide.len() { return false; }
@@ -40,8 +58,10 @@ fn same_note(a: &Note, b: &Note, timing: bool) -> bool {
     if a.hi_speed == 0.0 { a.hi_speed = 1.0; }
     let mut b = b.clone();
     if b.hi_speed == 0.0 { b.hi_speed = 1.0; }
-    for (left, right) in a.slide.iter_mut().zip(&b.slide) {
+    for (left, right) in a.slide.iter_mut().zip(&mut b.slide) {
         if !close(left.slide_duration, right.slide_duration) || !close(left.slide_start_delay, right.slide_start_delay) { return false; }
+        normalize_slide_segments(left);
+        normalize_slide_segments(right);
         left.slide_duration = right.slide_duration;
         left.slide_start_delay = right.slide_start_delay;
         for (l, r) in left.segments.iter_mut().zip(&right.segments) {
@@ -59,7 +79,7 @@ fn same_except_lane(a: &Note, b: &Note) -> bool {
     same_note(&a, b, false)
 }
 
-pub(super) fn equivalent(a: &ChartDoc, b: &ChartDoc) -> bool {
+pub(crate) fn equivalent(a: &ChartDoc, b: &ChartDoc) -> bool {
     if a.notes.len() != b.notes.len() || a.bpms.len() != b.bpms.len() { return false; }
     if a.bpms.iter().zip(&b.bpms).any(|(a, b)| !close(a.measure, b.measure) || !close(a.bpm, b.bpm)) { return false; }
     let mut ordered: Vec<_> = b.notes.iter().collect();
@@ -80,13 +100,18 @@ impl Document {
         let rhythm_changed = self.chart.notes.len() != chart.notes.len()
             || self.chart.notes.iter().zip(&chart.notes).any(|(a, b)| a.id != b.id || !close(a.time, b.time));
         if let Ok(text) = self.patch(chart) {
-            let text = if rhythm_changed { rhythm::compact(&text).unwrap_or(text) } else { text };
+            if rhythm_changed {
+                if let Ok(compacted) = rhythm::compact(&text) {
+                    if self.represents(&compacted, chart) { return Ok(compacted); }
+                }
+            }
             if self.represents(&text, chart) { return Ok(text); }
         }
         // A new head can precede the first authored cell or follow E. If local
         // mapping cannot express it, rebuild the clock instead of freezing it.
         let text = crate::io::simai::editable_body(chart)?;
-        let mut text = rhythm::compact(&text).unwrap_or(text);
+        let mut text = rhythm::compact(&text).ok()
+            .filter(|compacted| self.represents(compacted, chart)).unwrap_or(text);
         for token in source::tokens(&self.text).into_iter().filter(|t| t.kind == Kind::Comment) {
             text.push_str(if self.text.contains("\r\n") { "\r\n" } else { "\n" });
             text.push_str(self.text[token.bytes].trim_end_matches('\r'));
@@ -149,9 +174,18 @@ impl Document {
         }
         let mut groups: Vec<Vec<&Note>> = vec![Vec::new(); cells.len()];
         let mut extra = Vec::new();
+        let owners: HashMap<_, _> = cells.iter().enumerate().flat_map(|(index, cell)|
+            cell.notes.iter().flat_map(move |span| span.ids.iter().map(move |id| (*id, index)))).collect();
         for note in &chart.notes {
-            let index = cells.partition_point(|cell| cell.measure < note.time - 0.00002);
-            if let Some(group) = groups.get_mut(index).filter(|_| close(cells[index].measure, note.time)) { group.push(note); }
+            // Nearby micro-rests may round to the same f32 measure. An
+            // unchanged head still belongs to its bound source span.
+            let owner = owners.get(&note.id).copied()
+                .filter(|_| previous.get(&note.id).is_some_and(|old| old.time == note.time));
+            let index = owner.or_else(|| cells.iter().enumerate()
+                .filter(|(_, cell)| close(cell.measure, note.time))
+                .min_by(|(_, a), (_, b)| (a.measure - note.time).abs().total_cmp(&(b.measure - note.time).abs()))
+                .map(|(index, _)| index));
+            if let Some(index) = index { groups[index].push(note); }
             else { extra.push(note); }
         }
         let mut trailing = Vec::new();
@@ -240,7 +274,8 @@ impl Document {
         }
         for (index, events) in by_interval.into_iter().enumerate().filter(|(_, e)| !e.is_empty()) {
             let cell = &cells[index];
-            let (directive, mut value) = advance(events[0].0 - cell.measure)?;
+            let (directive, mut value) = advance(events[0].0 - cell.measure)
+                .map_err(|error| format!("{error}: cell {} -> {}", cell.measure, events[0].0))?;
             let at = tokens.iter().filter(|t| cell.range.contains(&t.bytes.start)
                 && matches!(t.kind, Kind::Bpm | Kind::Division | Kind::Speed))
                 .map(|t| t.bytes.end).max().unwrap_or(cell.range.start);
@@ -251,7 +286,8 @@ impl Document {
                 let end = cursor + events[cursor..].partition_point(|e| close(e.0, time));
                 let next = events.get(end).map(|e| e.0)
                     .or_else(|| cells.get(index + 1).map(|c| c.measure)).unwrap_or(time + 0.25);
-                let (directive, rest) = advance(next - time)?;
+                let (directive, rest) = advance(next - time)
+                    .map_err(|error| format!("{error}: event {time} -> {next}"))?;
                 value.push_str(&directive);
                 let (directives, notes): (Vec<_>, Vec<_>) = events[cursor..end].iter().partition(|(_, s)| s.starts_with('('));
                 for (_, text) in directives { value.push_str(text); }
@@ -330,7 +366,9 @@ fn fraction(duration: f32) -> Option<String> {
     if duration <= 0.0 { return None; }
     for denominator in 1..=192 {
         let numerator = (duration * denominator as f32).round();
-        if numerator > 0.0 && close(duration, numerator / denominator as f32) {
+        // Fraction recovery must be stricter than whole-note equivalence:
+        // independently snapping wait and motion can exceed that budget.
+        if numerator > 0.0 && (duration - numerator / denominator as f32).abs() <= 0.000001 {
             return Some(format!("{denominator}:{}", numerator as u64));
         }
     }
@@ -340,7 +378,10 @@ fn fraction(duration: f32) -> Option<String> {
 /// Generated edits use readable measure fractions whenever the timing permits.
 pub(crate) fn note_text(note: &Note, chart: &ChartDoc) -> Result<String, String> {
     let mut text = crate::core_chart::note_text(note, &chart.bpms)?;
-    let bpm = crate::app::types::bpm_at(note.time, &chart.bpms);
+    // Rendering's bpm_at deliberately anticipates nearby boundaries. Simai
+    // durations must instead use the tempo at the actual note head.
+    let bpm = chart.bpms.iter().rev().find(|b| b.measure <= note.time)
+        .or_else(|| chart.bpms.first()).map_or(chart.bpm, |b| b.bpm);
     if matches!(note.note_type, crate::app::types::NoteType::Hold | crate::app::types::NoteType::TouchHold) {
         let seconds = crate::app::types::mdur_to_secs(note.hold_duration, note.time, &chart.bpms);
         if let Some(value) = fraction(seconds * bpm / 240.0) {
@@ -385,11 +426,7 @@ mod tests {
     }
 
     fn changed(source: &Document, chart: &ChartDoc) -> String {
-        let text = source.update(chart).unwrap_or_else(|error| {
-            let patched = source.patch(chart);
-            let canonical = crate::io::simai::editable_body(chart);
-            panic!("{error}\npatched={patched:?}\nexpected={chart:?}\ncanonical={canonical:?}\nparsed={:?}", canonical.as_ref().ok().map(|text| super::super::parse_draft(text, chart.bpm, 6)));
-        });
+        let text = source.update(chart).unwrap();
         let parsed = super::super::parse_draft(&text, chart.bpm, 6).unwrap();
         assert!(equivalent(chart, &parsed), "{text}");
         text
@@ -402,6 +439,94 @@ mod tests {
         let mut chart = source.chart.clone();
         chart.notes[0].lane = 2;
         assert_eq!(changed(&source, &chart), source.text.replacen("1h", "2h", 1));
+    }
+
+    #[test]
+    fn native_polyline_equivalence_preserves_every_leg_and_timing() {
+        let source = document("(120){4}3-8-5[160#24:5],E");
+        let mut native = source.chart.clone();
+        let slide = &mut native.notes[0].slide[0];
+        let last = slide.segments.pop().unwrap();
+        slide.segments[0].points.extend(last.points);
+        slide.runtime_parts = 1;
+        assert!(equivalent(&native, &source.chart));
+        assert!(equivalent(&source.chart, &native));
+        for edit in 0..9 {
+            let mut altered = native.clone();
+            let slide = &mut altered.notes[0].slide[0];
+            match edit {
+                0 => { slide.segments[0].points.remove(0); }
+                1 => slide.segments[0].points.reverse(),
+                2 => slide.segments[0].points[0].zone = crate::app::types::zone::PadZone::A7,
+                3 => slide.segments[0].shape = SlideShape::VShape,
+                4 => slide.segments[0].points[0].beat_offset = 0.125,
+                5 => slide.slide_start_delay += 0.125,
+                6 => slide.slide_duration += 0.125,
+                7 => slide.slide_is_break = !slide.slide_is_break,
+                _ => slide.segments[0].points[0].zone = crate::app::types::zone::PadZone::C,
+            }
+            assert!(!equivalent(&altered, &source.chart), "edit {edit}");
+            assert!(!equivalent(&source.chart, &altered), "edit {edit}, reversed");
+        }
+        assert_eq!(native.notes[0].slide[0].segments.len(), 1);
+        assert_eq!(native.notes[0].slide[0].runtime_parts, 1);
+    }
+
+    #[test]
+    fn bundled_jack_ripper_visual_edits_remain_representable() {
+        let original = include_str!("../../../assets/charts/jack_ripper/maidata.txt");
+        let level = *crate::app::maidata::inote_keys(original).last().unwrap();
+        let mut chart = crate::app::maidata::from_maidata_level(original, level).unwrap();
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
+        let source = Document {
+            text: crate::io::simai::body_for_level(original, level).unwrap(), chart: chart.clone(),
+        };
+        let cells = source::mapped_timeline(&source.text, &source.chart).unwrap();
+        assert!(cells.iter().flat_map(|cell| &cell.notes).all(|span| !span.ids.is_empty()),
+            "all original note spans must map even beside very short rests");
+        let hold = chart.notes.iter().position(|n| n.note_type == crate::app::types::NoteType::Hold).unwrap();
+        let slide = chart.notes.iter().position(|n| n.note_type == crate::app::types::NoteType::Slide).unwrap();
+        for edit in 0..9 {
+            let mut edited = chart.clone();
+            match edit {
+                0 => edited.notes[0].lane = edited.notes[0].lane % 8 + 1,
+                1 => edited.notes[0].time += 0.125,
+                2 => edited.notes[hold].time += 0.125,
+                3 => edited.notes[slide].time += 0.125,
+                4 => edited.notes[hold].hold_duration += 0.125,
+                5 => edited.notes[slide].slide[0].slide_duration += 0.125,
+                6 | 7 => {
+                    let time = if edit == 6 { 1.0 } else { edited.notes.last().unwrap().time + 2.0 };
+                    edited.notes.push(Note { id: 10000, time, lane: 7, hi_speed: 1.0, ..Default::default() });
+                }
+                _ => { edited.notes.remove(hold); }
+            }
+            let text = source.update(&edited).unwrap_or_else(|error| panic!("edit {edit}: {error}"));
+            assert!(source.represents(&text, &edited), "edit {edit}");
+            // Generated source must remain editable after another operation.
+            let next = Document { text, chart: edited.clone() };
+            edited.notes[0].lane = edited.notes[0].lane % 8 + 1;
+            let text = next.update(&edited).unwrap_or_else(|error| panic!("second edit after {edit}: {error}"));
+            assert!(next.represents(&text, &edited), "second edit after {edit}");
+        }
+    }
+
+    #[test]
+    fn bundled_jack_ripper_canonical_durations_round_trip() {
+        let original = include_str!("../../../assets/charts/jack_ripper/maidata.txt");
+        let chart = crate::app::maidata::from_maidata_level(original, 5).unwrap();
+        let source = Document { text: String::new(), chart: chart.clone() };
+        let text = crate::io::simai::editable_body(&chart).unwrap();
+        assert!(source.represents(&text, &chart));
+    }
+
+    #[test]
+    fn holds_just_before_a_tempo_change_keep_the_start_tempo() {
+        for note in ["8h[0.263157]", "Ch[0.263157]", "8-4[0.285714##0.263157]"] {
+            let source = document(&format!("(210){{10001}}{note},(228),E"));
+            let text = crate::io::simai::editable_body(&source.chart).unwrap();
+            assert!(source.represents(&text, &source.chart), "{text}");
+        }
     }
 
     #[test]

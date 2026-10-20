@@ -13,8 +13,17 @@ use crate::app::types::{
 use super::state::{EditorState, HistoryEntry};
 
 impl HistoryEntry {
-    fn apply(self, chart: &mut ChartDoc) -> Self {
+    fn apply(self, chart: &mut ChartDoc, simai: &mut crate::simai_editor::SimaiEditor) -> Self {
         match self {
+            Self::Document { change, simai: previous } => {
+                let current = simai.history_snapshot();
+                let inverse = change.apply(chart, simai);
+                simai.restore_history(*previous, chart);
+                match current {
+                    Some(current) => Self::Document { change: Box::new(inverse), simai: Box::new(current) },
+                    None => inverse,
+                }
+            }
             Self::Snapshot(mut previous) => {
                 std::mem::swap(chart, &mut previous);
                 Self::Snapshot(previous)
@@ -38,6 +47,9 @@ impl EditorState {
     /// a bounded depth and drops any redo history.
     pub fn push_history(&mut self, chart: &ChartDoc) {
         self.placement_sequence.clear();
+        if self.template_session.is_none() && self.simai_editor.has_history_source() {
+            self.simai_editor.sync(chart);
+        }
         self.push_history_entry(chart.clone().into());
     }
 
@@ -45,7 +57,14 @@ impl EditorState {
         self.push_history_entry(HistoryEntry::RemoveNote(id));
     }
 
-    fn push_history_entry(&mut self, entry: HistoryEntry) {
+    pub(crate) fn push_history_entry(&mut self, entry: HistoryEntry) {
+        self.simai_editor.history_boundary();
+        let entry = if self.template_session.is_none() && !matches!(&entry, HistoryEntry::Document { .. }) {
+            match self.simai_editor.history_snapshot() {
+                Some(simai) => HistoryEntry::Document { change: Box::new(entry), simai: Box::new(simai) },
+                None => entry,
+            }
+        } else { entry };
         self.undo.push(entry);
         if self.undo.len() > 64 {
             self.undo.drain(..self.undo.len() - 64);
@@ -55,25 +74,31 @@ impl EditorState {
     }
 
     pub fn undo(&mut self, chart: &mut ChartDoc) {
+        self.simai_editor.history_boundary();
         if let Some(previous) = self.undo.pop() {
+            if self.template_session.is_none() { self.simai_editor.sync(chart); }
             self.placement_sequence.clear();
             self.last_edit = None;
-            self.redo.push(previous.apply(chart));
+            self.redo.push(previous.apply(chart, &mut self.simai_editor));
             crate::app::maichart::recompute_each(&mut chart.notes);
             crate::app::maichart::mark_double_stars(&mut chart.notes);
             self.reconcile_slide_target(chart);
+            if self.template_session.is_none() { self.simai_editor.sync(chart); }
             self.dirty = true;
         }
     }
 
     pub fn redo(&mut self, chart: &mut ChartDoc) {
+        self.simai_editor.history_boundary();
         if let Some(next) = self.redo.pop() {
+            if self.template_session.is_none() { self.simai_editor.sync(chart); }
             self.placement_sequence.clear();
             self.last_edit = None;
-            self.undo.push(next.apply(chart));
+            self.undo.push(next.apply(chart, &mut self.simai_editor));
             crate::app::maichart::recompute_each(&mut chart.notes);
             crate::app::maichart::mark_double_stars(&mut chart.notes);
             self.reconcile_slide_target(chart);
+            if self.template_session.is_none() { self.simai_editor.sync(chart); }
             self.dirty = true;
         }
     }

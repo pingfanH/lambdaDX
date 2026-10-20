@@ -1,6 +1,6 @@
 //! egui adapter for the standalone Simai input and completion modules.
 
-use crate::simai_editor::{SimaiEditor, editing::Selection, modal::Style};
+use crate::{app::types::ChartDoc, state::EditorState, simai_editor::{editing::Selection, history, modal::Style}};
 use egui_macroquad::egui::*;
 
 pub struct Prepared {
@@ -24,18 +24,25 @@ fn to_cursor(selection: Selection) -> text::CCursorRange {
     }
 }
 
-pub fn prepare(ui: &mut Ui, simai: &mut SimaiEditor, id: Id, active: bool, ime: bool) -> Prepared {
+pub fn prepare(ui: &mut Ui, editor: &mut EditorState, chart: &mut ChartDoc, id: Id, active: bool, ime: bool) -> Prepared {
+    let simai = &mut editor.simai_editor;
     let mut changed = false;
     let previous = simai.input.selection;
+    let mut state = text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+    let restored = std::mem::take(&mut simai.restore_cursor);
+    if restored {
+        state.cursor.set_char_range(Some(to_cursor(simai.input.selection)));
+        state.clear_undoer();
+        state.clone().store(ui.ctx(), id);
+    }
     if active {
-        let mut state = text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
-        if let Some(range) = state.cursor.char_range() {
+        if !restored && let Some(range) = state.cursor.char_range() {
             simai.input.selection = from_cursor(range);
         }
         let result = ui.input_mut(|i| {
-            simai
-                .input
-                .process(&mut i.events, &mut simai.text, &simai.options, ime, i.time)
+            history::with_input(editor, chart, |input, text, options, history| {
+                input.process_with_history(&mut i.events, text, options, ime, i.time, history)
+            })
         });
         changed = result.changed;
         if let Some(text) = result.copied {
@@ -43,13 +50,15 @@ pub fn prepare(ui: &mut Ui, simai: &mut SimaiEditor, id: Id, active: bool, ime: 
         }
         state
             .cursor
-            .set_char_range(Some(to_cursor(simai.input.selection)));
+            .set_char_range(Some(to_cursor(editor.simai_editor.input.selection)));
         state.clear_undoer();
         state.store(ui.ctx(), id);
         ui.memory_mut(|m| m.request_focus(id));
     } else {
-        simai.input.completion.close();
+        editor.simai_editor.input.completion.close();
+        editor.simai_editor.history_boundary();
     }
+    let simai = &editor.simai_editor;
     Prepared {
         before: simai.text.clone(),
         selection: simai.input.selection,
@@ -61,23 +70,26 @@ pub fn prepare(ui: &mut Ui, simai: &mut SimaiEditor, id: Id, active: bool, ime: 
 
 pub fn finish(
     ui: &mut Ui,
-    simai: &mut SimaiEditor,
+    editor: &mut EditorState,
+    chart: &mut ChartDoc,
     output: &mut text_edit::TextEditOutput,
     prepared: &Prepared,
     enabled: bool,
 ) -> bool {
     let now = ui.input(|i| i.time);
     if output.response.changed() {
-        simai
-            .input
-            .observe_native(&prepared.before, prepared.selection, &simai.text, now);
+        history::with_input(editor, chart, |input, text, _, history| {
+            input.observe_native_with_history(&prepared.before, prepared.selection, text, now, history);
+        });
     }
+    let simai = &mut editor.simai_editor;
     if let Some(range) = output.cursor_range {
         let selection = from_cursor(range.as_ccursor_range());
         if selection != prepared.selection
             && ui.input(|i| i.pointer.any_down() || i.pointer.any_released())
         {
             simai.input.pointer_selection(selection);
+            simai.history_boundary();
         }
         simai.input.selection = selection;
     }
@@ -178,7 +190,10 @@ pub fn finish(
         });
     if let Some(index) = picked {
         simai.input.completion.selected = index;
-        simai.input.accept(&mut simai.text, now);
+        history::with_input(editor, chart, |input, text, _, history| {
+            input.accept_with_history(text, now, history);
+        });
+        let simai = &mut editor.simai_editor;
         output
             .state
             .cursor

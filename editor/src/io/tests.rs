@@ -117,6 +117,114 @@ fn native_save_retains_precision_ids_speeds_templates_and_recording_metadata() {
     }
 }
 
+#[cfg(feature = "backend-lean")]
+fn edit_bundled_chart(chart: &mut ChartDoc, edit: usize) {
+    use crate::app::types::NoteType;
+    let kind = match edit {
+        2 | 4 => NoteType::Hold,
+        3 | 5 => NoteType::Slide,
+        _ => NoteType::Tap,
+    };
+    let note = chart.notes.iter_mut().find(|note| note.note_type == kind).unwrap();
+    match edit {
+        0 => note.lane = note.lane % 8 + 1,
+        1..=3 => note.time += 0.125,
+        4 => note.hold_duration += 0.125,
+        5 => note.slide[0].slide_duration += 0.125,
+        _ => unreachable!(),
+    }
+}
+
+#[cfg(feature = "backend-lean")]
+fn assert_simai_represents_chart(editor: &EditorState, chart: &ChartDoc) {
+    assert!(editor.simai_editor.error.is_none(), "{:?}", editor.simai_editor.error);
+    let text = format!("&first={}\n&wholebpm={}\n&inote_6={}\n",
+        chart.audio_offset, chart.bpm, editor.simai_editor.text);
+    let parsed = crate::app::maidata::from_maidata_level(&text, 6).unwrap();
+    assert!(crate::simai_editor::format::equivalent(chart, &parsed),
+        "generated Simai must retain positions, flags, durations, slides and tempos");
+}
+
+#[cfg(feature = "backend-lean")]
+#[test]
+fn bundled_jack_ripper_native_edits_survive_preview_and_reopen() {
+    let fixture = include_str!("../../../assets/charts/jack_ripper/chart.json");
+    for edit in 0..6 {
+        let folder = ChartFolder::new();
+        let path = folder.path().join("chart.json");
+        std::fs::write(&path, fixture).unwrap();
+        let mut app = crate::player::state::PadPreviewState::new_at(empty_chart(), None, None, 0.0, None);
+        app.forced_time = Some(0.0);
+        crate::runtime::load_chart_into(&mut app, &path, None).unwrap();
+        assert!(app.has_engine(), "the native fixture must compile for preview");
+        assert!(!app.chart.templates.is_empty(), "the fixture must retain editor data");
+        for round in 0..2 {
+            let mut editor = source_editor(&path, None);
+            crate::simai_editor::load_source(&mut editor, &app.chart);
+            edit_bundled_chart(&mut app.chart, edit);
+            editor.simai_editor.sync(&app.chart);
+            assert_simai_represents_chart(&editor, &app.chart);
+            let mut expected = app.chart.clone();
+            crate::app::maichart::recompute_each(&mut expected.notes);
+            save_document(&mut editor, &mut app.chart);
+            assert!(!editor.dirty, "edit {edit}, round {round}: {:?}", editor.status);
+            crate::runtime::load_chart_into(&mut app, &path, None).unwrap();
+            assert!(app.has_engine(), "saved edit {edit}, round {round} must compile for preview");
+            assert_eq!(app.chart.notes.len(), expected.notes.len(), "edit {edit}, round {round}");
+            for (index, (actual, expected)) in app.chart.notes.iter().zip(&expected.notes).enumerate() {
+                assert_eq!(actual, expected, "note {index}, edit {edit}, round {round}");
+            }
+            assert_eq!(app.chart.bpms, expected.bpms);
+            assert_eq!(app.chart.templates, expected.templates);
+            assert_eq!(app.chart.template_instances, expected.template_instances);
+        }
+    }
+}
+
+#[cfg(feature = "backend-lean")]
+#[test]
+fn bundled_jack_ripper_simai_edits_survive_save_and_reopen() {
+    let fixture = include_str!("../../../assets/charts/jack_ripper/maidata.txt");
+    let field_values = |text: &str| -> Vec<(String, String)> {
+        let mut fields: Vec<(String, String)> = Vec::new();
+        for line in text.lines() {
+            if let Some((key, value)) = line.strip_prefix('&').and_then(|line| line.split_once('=')) {
+                fields.push((key.to_owned(), value.to_owned()));
+            } else if let Some((_, value)) = fields.last_mut() {
+                value.push('\n');
+                value.push_str(line);
+            }
+        }
+        fields.into_iter().filter(|(key, _)| key != "inote_5").collect()
+    };
+    let preserved = field_values(fixture);
+    for edit in 0..6 {
+        let folder = ChartFolder::new();
+        let path = folder.path().join("maidata.txt");
+        std::fs::write(&path, fixture).unwrap();
+        let mut chart = crate::app::maidata::from_maidata_level(fixture, 5).unwrap();
+        for round in 0..2 {
+            crate::app::maichart::assign_note_ids(&mut chart.notes);
+            let mut editor = source_editor(&path, Some(5));
+            crate::simai_editor::load_source(&mut editor, &chart);
+            edit_bundled_chart(&mut chart, edit);
+            editor.simai_editor.sync(&chart);
+            assert_simai_represents_chart(&editor, &chart);
+            let expected_body = editor.simai_editor.text.clone();
+            save_document(&mut editor, &mut chart);
+            assert!(!editor.dirty, "edit {edit}, round {round}: {:?}", editor.status);
+            assert_eq!(editor.source.as_ref().unwrap().path, path);
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert_eq!(field_values(&saved), preserved, "other difficulties and metadata must remain unchanged");
+            assert_eq!(simai::body_for_level(&saved, 5).unwrap(), expected_body);
+            let reopened = crate::app::maidata::from_maidata_level(&saved, 5).unwrap();
+            assert!(crate::simai_editor::format::equivalent(&chart, &reopened),
+                "saved edit {edit}, round {round} must retain all note semantics");
+            chart = reopened;
+        }
+    }
+}
+
 #[test]
 fn empty_beat_version_document_keeps_templates_after_native_save() {
     use crate::app::types::TemplateDef;
@@ -372,6 +480,84 @@ fn simai_save_and_save_as_keep_applied_text_and_visual_edits() {
 fn round_trip(chart: &ChartDoc) -> ChartDoc {
     let text = simai::document(chart, 6, "").unwrap();
     crate::app::maidata::from_maidata_level(&text, 6).unwrap_or_else(|error| panic!("{error}\n{text}"))
+}
+
+#[cfg(feature = "backend-lean")]
+fn assert_simai_core_equivalent(native: &ChartDoc, parsed: &ChartDoc) {
+    let load = |chart: &ChartDoc| {
+        let compiled = crate::core_chart::compile(chart, 6).unwrap();
+        let mut engine = crate::player::engine::JudgeEngine::load(&compiled.text, 6).unwrap();
+        engine.bind_editor_chart(compiled.note_ids, compiled.slide_positions).unwrap();
+        let mut spec = engine.chart_spec().unwrap();
+        for slide in &mut spec.slides { slide.debug_simai = None; }
+        (engine, spec)
+    };
+    let (native_engine, native_spec) = load(native);
+    let (parsed_engine, parsed_spec) = load(parsed);
+    assert_eq!(native_spec, parsed_spec, "Simai must retain core timings, paths and judgment queues");
+    assert_eq!(native_engine.default_tactic().unwrap(), parsed_engine.default_tactic().unwrap());
+    for runtime in 0..native_engine.slide_count() {
+        assert_eq!(native_engine.slide_queue_total(runtime), parsed_engine.slide_queue_total(runtime));
+        let (_, sub, leg, count) = native_engine.slide_position(native, runtime).unwrap();
+        let (_, parsed_sub, parsed_leg, parsed_count) = parsed_engine.slide_position(parsed, runtime).unwrap();
+        assert_eq!((sub, leg, count), (parsed_sub, parsed_leg, parsed_count));
+    }
+}
+
+#[cfg(feature = "backend-lean")]
+#[test]
+fn native_polyline_slide_saves_as_simai_after_repeated_visual_edits() {
+    use crate::app::types::{Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape, zone::PadZone};
+    let folder = ChartFolder::new();
+    let path = folder.path().join("chart.json");
+    let mut chart = empty_chart();
+    chart.notes = vec![
+        Note { id: 13, time: 2.4375, lane: 5, ..Default::default() },
+        Note {
+            id: 16, time: 2.4375, lane: 3, note_type: NoteType::Slide,
+            slide: vec![Slide {
+                segments: vec![SlideSegment {
+                    points: vec![SlidePoint::from(PadZone::A8), SlidePoint::from(PadZone::A5)],
+                    shape: SlideShape::Line,
+                }],
+                slide_duration: 0.34375, slide_start_delay: 0.1875,
+                slide_is_break: false, runtime_parts: 1,
+            }],
+            ..Default::default()
+        },
+    ];
+    std::fs::write(&path, native_json(&chart, "{}").unwrap()).unwrap();
+    let original = std::fs::read(&path).unwrap();
+    let mut chart = crate::app::chart::load_chart_from_path(&path, None).unwrap();
+    let mut editor = source_editor(&path, None);
+    crate::simai_editor::load_source(&mut editor, &chart);
+    let destination = folder.path().join("maidata.txt");
+    for edit in 0..3 {
+        if edit == 1 { chart.notes[0].lane = 6; }
+        if edit == 2 {
+            chart.notes[1].time += 0.125;
+            chart.notes[1].slide[0].slide_duration += 0.125;
+        }
+        editor.simai_editor.sync(&chart);
+        assert!(editor.simai_editor.error.is_none(), "edit {edit}: {:?}", editor.simai_editor.error);
+        save_as_to(&mut editor, &chart, &destination).unwrap();
+        let saved = std::fs::read_to_string(&destination).unwrap();
+        let parsed = crate::app::maidata::from_maidata_level(&saved, 6).unwrap();
+        assert!(crate::simai_editor::format::equivalent(&chart, &parsed), "edit {edit}: {saved}");
+        assert_simai_core_equivalent(&chart, &parsed);
+        let slide = parsed.notes.iter().find(|n| n.note_type == NoteType::Slide).unwrap();
+        assert_eq!(slide.slide[0].segments.len(), 2);
+        assert_eq!(slide.slide[0].runtime_parts, 2);
+        assert_eq!(slide.slide[0].segments[0].points[0].zone, PadZone::A8);
+        assert_eq!(slide.slide[0].segments[1].points[0].zone, PadZone::A5);
+        let native_slide = &chart.notes[1].slide[0];
+        assert_eq!(native_slide.segments.len(), 1);
+        assert_eq!(native_slide.runtime_parts, 1);
+        let reopened = crate::app::chart::load_chart_from_path(&destination, None).unwrap();
+        assert!(crate::simai_editor::format::equivalent(&chart, &reopened));
+        assert_simai_core_equivalent(&chart, &reopened);
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), original);
 }
 
 #[cfg(feature = "backend-lean")]

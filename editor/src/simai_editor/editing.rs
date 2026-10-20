@@ -326,6 +326,22 @@ pub struct History {
     typing_at: Option<f64>,
 }
 
+pub trait EditHistory {
+    fn boundary(&mut self);
+    fn record(&mut self, before: &str, selection: Selection, after: &str, typing: bool, now: f64);
+    fn restore(&mut self, text: &mut String, selection: &mut Selection, redo: bool);
+}
+
+impl EditHistory for History {
+    fn boundary(&mut self) { History::boundary(self); }
+    fn record(&mut self, before: &str, selection: Selection, after: &str, typing: bool, now: f64) {
+        History::record(self, before, selection, after, typing, now);
+    }
+    fn restore(&mut self, text: &mut String, selection: &mut Selection, redo: bool) {
+        History::restore(self, text, selection, redo);
+    }
+}
+
 impl History {
     pub fn record(
         &mut self,

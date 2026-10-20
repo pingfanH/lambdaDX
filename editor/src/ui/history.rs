@@ -6,7 +6,7 @@ use crate::{
 use egui_macroquad::egui;
 
 fn summary(entry: &HistoryEntry) -> String {
-    match entry {
+    match entry.chart_change() {
         HistoryEntry::RemoveNote(id) => format!("Note #{id}"),
         HistoryEntry::InsertNote { note, .. } => format!("Note #{}", note.id),
         HistoryEntry::Snapshot(chart) => format!(
@@ -14,6 +14,7 @@ fn summary(entry: &HistoryEntry) -> String {
             chart.notes.len(),
             chart.autoplay_overrides.len()
         ),
+        HistoryEntry::Document { .. } => unreachable!(),
     }
 }
 

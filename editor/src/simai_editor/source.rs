@@ -155,14 +155,17 @@ pub fn timeline(text: &str, bpm: f32) -> Result<Vec<TimedCell>, String> {
 fn bind_notes(cells: &mut [TimedCell], chart: &ChartDoc) {
     for note in &chart.notes {
         let time = note_secs(note, &chart.bpms);
-        let index = cells.partition_point(|cell| cell.time < time - 0.0002);
-        if let Some(cell) = cells.get_mut(index).filter(|cell| (cell.time - time).abs() < 0.0002) {
-            // Same-head stars may share one lexical span. Prefer an unused
-            // matching span when the source explicitly spells them separately.
-            let span = cell.notes.iter().position(|span| span.ids.is_empty() && span.matches(note))
-                .or_else(|| cell.notes.iter().position(|span| span.matches(note)));
-            if let Some(index) = span { cell.notes[index].ids.push(note.id); }
-        }
+        let start = cells.partition_point(|cell| cell.time < time - 0.0002);
+        // Very fine subdivisions can put rests and several heads inside the
+        // timing tolerance. Pick the nearest matching span, not the first cell.
+        let candidate = cells.iter().enumerate().skip(start)
+            .take_while(|(_, cell)| cell.time <= time + 0.0002)
+            .flat_map(|(cell_index, cell)| cell.notes.iter().enumerate()
+                .filter(|(_, span)| span.matches(note))
+                .map(move |(span_index, span)| (cell_index, span_index, !span.ids.is_empty(), (cell.time - time).abs())))
+            // Shared-head stars may reuse a span once unused matches are bound.
+            .min_by(|a, b| a.2.cmp(&b.2).then_with(|| a.3.total_cmp(&b.3)));
+        if let Some((cell, span, _, _)) = candidate { cells[cell].notes[span].ids.push(note.id); }
     }
 }
 

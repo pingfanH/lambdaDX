@@ -3,7 +3,7 @@
 use super::{
     Options,
     completion::{self, Completion},
-    editing::{self as edit, History, Motion, Navigation, Selection},
+    editing::{self as edit, EditHistory, History, Motion, Navigation, Selection},
     modal::{Modal, Mode, Style},
 };
 use egui_macroquad::egui::{Event, ImeEvent, Key};
@@ -25,6 +25,13 @@ pub struct Output {
 }
 
 impl Input {
+    pub(crate) fn external_change(&mut self, text: &str) {
+        self.selection.clamp(text);
+        self.navigation.reset();
+        self.history.boundary();
+        self.completion.reset();
+    }
+
     pub fn cursor(&self, text: &str, options: &Options) -> usize {
         self.modal.cursor(text, self.selection, options.edit_style)
     }
@@ -51,11 +58,26 @@ impl Input {
         ime: bool,
         now: f64,
     ) -> Output {
+        let mut history = std::mem::take(&mut self.history);
+        let result = self.process_with_history(events, text, options, ime, now, &mut history);
+        self.history = history;
+        result
+    }
+
+    pub(crate) fn process_with_history(
+        &mut self,
+        events: &mut Vec<Event>,
+        text: &mut String,
+        options: &Options,
+        ime: bool,
+        now: f64,
+        history: &mut impl EditHistory,
+    ) -> Output {
         if self.style != options.edit_style {
             self.style = options.edit_style;
             self.modal = Modal::default();
             self.completion.reset();
-            self.history.boundary();
+            history.boundary();
             self.navigation.reset();
         }
         self.selection.clamp(text);
@@ -82,7 +104,7 @@ impl Input {
             let before = text.clone();
             let selection = self.selection;
             let mut typing = false;
-            let mut history = None;
+            let mut history_request = None;
             let mut consumed = true;
             match &event {
                 Event::Key {
@@ -93,7 +115,7 @@ impl Input {
                     ..
                 } => {
                     if *key == Key::Escape {
-                        self.history.boundary();
+                        history.boundary();
                         if self.completion.open() {
                             self.completion.close();
                         } else if !self.completion.fields.is_empty() {
@@ -113,18 +135,18 @@ impl Input {
                             self.completion.update(text, self.selection.head, true);
                         }
                     } else if modifiers.command && *key == Key::Z {
-                        history = Some(modifiers.shift);
+                        history_request = Some(modifiers.shift);
                     } else if modifiers.command && *key == Key::A {
                         self.selection = Selection {
                             anchor: 0,
                             head: text.chars().count(),
                         };
-                        self.history.boundary();
+                        history.boundary();
                         self.completion.reset();
                     } else if (modifiers.command && *key == Key::Y)
                         || (modifiers.ctrl && *key == Key::R && options.edit_style == Style::Vim)
                     {
-                        history = Some(true);
+                        history_request = Some(true);
                     } else if self.completion.open()
                         && modifiers.is_none()
                         && matches!(key, Key::ArrowUp | Key::ArrowDown | Key::Enter | Key::Tab)
@@ -142,7 +164,7 @@ impl Input {
                             }
                             _ => {
                                 self.completion.accept(text, &mut self.selection);
-                                self.history.boundary();
+                                history.boundary();
                             }
                         }
                     } else if *key == Key::Tab
@@ -172,7 +194,7 @@ impl Input {
                         )
                     {
                         self.insert_motion(text, *key, *modifiers);
-                        self.history.boundary();
+                        history.boundary();
                         self.completion.reset();
                     } else if !self.inserting(options)
                         && modifiers.ctrl
@@ -268,7 +290,7 @@ impl Input {
                             | Key::PageUp
                             | Key::PageDown => {
                                 consumed = false;
-                                self.history.boundary();
+                                history.boundary();
                                 self.completion.close();
                             }
                             _ => {
@@ -296,14 +318,14 @@ impl Input {
                                 options.edit_style,
                             );
                             if output.history.is_some() {
-                                history = output.history;
+                                history_request = output.history;
                             }
                             if output.copied.is_some() {
                                 result.copied = output.copied;
                             }
                         }
                     }
-                    self.history.boundary();
+                    history.boundary();
                     self.completion.reset();
                 }
                 Event::Text(value) => {
@@ -339,15 +361,15 @@ impl Input {
                 }
                 _ => consumed = false,
             }
-            if let Some(redo) = history {
+            if let Some(redo) = history_request {
                 self.navigation.reset();
-                self.history.restore(text, &mut self.selection, redo);
+                history.restore(text, &mut self.selection, redo);
                 self.completion.reset();
             } else {
                 if before != *text {
                     self.navigation.reset();
                 }
-                self.history.record(&before, selection, text, typing, now);
+                history.record(&before, selection, text, typing, now);
                 if !matches!(
                     event,
                     Event::Key {
@@ -369,6 +391,11 @@ impl Input {
 
     pub fn observe_native(&mut self, before: &str, selection: Selection, text: &str, now: f64) {
         self.history.record(before, selection, text, true, now);
+        self.completion.text_changed(before, text);
+    }
+
+    pub(crate) fn observe_native_with_history(&mut self, before: &str, selection: Selection, text: &str, now: f64, history: &mut impl EditHistory) {
+        history.record(before, selection, text, true, now);
         self.completion.text_changed(before, text);
     }
 
@@ -416,10 +443,16 @@ impl Input {
     }
 
     pub fn accept(&mut self, text: &mut String, now: f64) {
+        let mut history = std::mem::take(&mut self.history);
+        self.accept_with_history(text, now, &mut history);
+        self.history = history;
+    }
+
+    pub(crate) fn accept_with_history(&mut self, text: &mut String, now: f64, history: &mut impl EditHistory) {
         let before = text.clone();
         let selection = self.selection;
         self.completion.accept(text, &mut self.selection);
-        self.history.record(&before, selection, text, false, now);
+        history.record(&before, selection, text, false, now);
     }
 }
 

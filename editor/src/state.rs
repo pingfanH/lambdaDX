@@ -214,6 +214,19 @@ pub enum HistoryEntry {
     Snapshot(Box<ChartDoc>),
     RemoveNote(u64),
     InsertNote { index: usize, note: Box<Note> },
+    Document {
+        change: Box<HistoryEntry>,
+        simai: Box<crate::simai_editor::history::Snapshot>,
+    },
+}
+
+impl HistoryEntry {
+    pub fn chart_change(&self) -> &Self {
+        match self {
+            Self::Document { change, .. } => change.chart_change(),
+            _ => self,
+        }
+    }
 }
 
 impl From<ChartDoc> for HistoryEntry {
