@@ -1,7 +1,8 @@
 # MCP 与轻量 Agent 实现计划
 
-状态: **设计草案, 尚未实施**。日期: 2026-10-20。工作分支: `agent`。
-代码调查基线: `62df204`。本轮只新增设计与研究文档, 不引入依赖、不改变编辑行为。
+状态: **P0 契约与桥已实现; P1 只读 host 验收中; P2–P5 待实现**。
+更新日期: 2026-10-21。工作分支: `agent`。设计调查基线: `62df204`;
+实施基线: `9af3500`。下文未勾选项描述后续目标, 不代表已有网络或 Agent 入口。
 
 用户已确认: 同时支持外部 MCP 客户端控制正在运行的编辑器, 以及编辑器内置轻量 Agent;
 首要用途是理解、检查和修改谱面。
@@ -374,12 +375,29 @@ Prompts 可后置, 例如解释选区/检查节奏, 不影响首版闭环。
 
 ### P0: 契约与依赖可行性
 
-- [ ] 用最小 Cargo 探针核对 rmcp、genai、Tokio、schema 版本/features/MSRV。
-- [ ] 定义 DTO、共享工具目录、错误、实例/文档/快照令牌与权限模型。
-- [ ] 定义单实例 runtime、bridge 的容量、截止时间与关闭流程。
-- [ ] 保留 feature-off 构建, stdio bin 不链接图形/Lean。
+- [x] 用最小 Cargo 探针核对 rmcp、genai、Tokio、schema 版本/features/MSRV。
+- [x] 定义 DTO、共享工具目录、错误、实例/文档/快照令牌与权限模型。
+- [x] 定义单实例 runtime、bridge 的容量、截止时间与关闭流程。
+- [x] 可选依赖隔离: feature-off 依赖图不包含 automation/Tokio/rmcp/genai。
+- [ ] 独立 stdio bin 不链接图形/Lean (P3 实现; 当前仅验证依赖 feature)。
 
 验收: fake EditorHost 能列工具、读取快照、拒绝无效/过期请求, 没有网络与模型依赖。
+
+共享 crate 位于 `crates/lambdadx-automation`。工具目录从同一 DTO 生成输入/输出 schema,
+通过 OnceLock 只构建一次, 同时保存严格解析函数。当前五个工具为摘要、音符查询、
+原文读取、结构检查、范围定位; 提案工具尚未加入目录。输入拒绝未知字段,
+音符 ID 使用规范十进制字符串, 权限区分 Read/Focus/Propose。
+
+bridge 使用标准库有界队列: 容量 16、每帧最多一个请求、截止时间最长 30 秒。
+取消、丢弃 caller、超时和 host 关闭均有显式错误; 已取消/过期的排队请求不会调用 host。
+输入 256 KiB、结果 64 KiB、原文 UTF-8 16 KiB、单页 128、ID 过滤 256 个,
+超限报错而非截断。可选 BackgroundRuntime 仅一个 worker, 显式关闭最多等待 1 秒;
+P0/P1 不实例化它, 不打开端口、不读取凭据、不调用 provider。
+
+锁定 rmcp 3.6.0、genai 0.7.0、schemars 1.2.2、Tokio 1.53.1。共享 crate 的
+无 feature 与 all-features 已用真实 Rust 1.88.0 检查通过, all-features 也用 stable
+1.96.0 检查通过; mcp、agent、mcp+agent、stdio-bridge 分别通过当前工具链检查。
+这是 macOS 本机编译验证, 不代表已验证客户端协商、provider tools 或跨平台。
 
 ### P1: 编辑器只读工具
 

@@ -1,6 +1,7 @@
 # MCP 与轻量 Agent 依赖研究
 
-日期: 2026-10-20。本文记录实现计划使用的一手资料，不能替代 P0 Cargo 探针。
+设计研究日期: 2026-10-20; Cargo 探针更新: 2026-10-21。
+本文前半记录原设计的一手资料; 第 6 节记录实际发布版与本机编译结果。
 网络源码来自两个项目的 main 分支，因此版本会继续变化；真正实施时应锁定发布版本、
 git revision 和 Cargo.lock，再重新验证。
 
@@ -184,3 +185,34 @@ feature-off 的共享 typed contract 与 fake host，接着只读查询，再做
 - https://github.com/modelcontextprotocol/rust-sdk/tree/74d789515fdee63ef46a1635b801364aad6695e4
 - https://github.com/jeremychone/rust-genai/tree/06eca2124811a3384f1c5e4d30e0a27c3a0b5fcb
 - https://modelcontextprotocol.io/specification/2026-07-28
+
+## 6. P0 发布版与实测记录 (2026-10-21)
+
+实际 manifest: `crates/lambdadx-automation/Cargo.toml`; 解析结果提交到根 Cargo.lock。
+以锁定发布版为准, 不把 main 的 0.7.1-WIP 当作 genai 发布版。
+
+| 依赖 | 精确版本 | 启用条件 / features |
+| --- | --- | --- |
+| schemars | 1.2.2 | 共享 DTO/schema 始终使用 |
+| rmcp | 3.6.0 | mcp; default-features=false, server/schemars/transport-streamable-http-server |
+| genai | 0.7.0 | agent; default-features=false, rustls-tls; 不启用 system-proxy |
+| Tokio | 1.53.1 | mcp 或 agent; rt-multi-thread/time/sync/net |
+
+stdio-bridge 额外启用 rmcp 的 client、transport-io、
+transport-streamable-http-client-reqwest、reqwest; 尚无可执行代理。
+共享 crate 不依赖 ChartDoc、GPU、编辑器或 Lean。mcp/agent runtime 与 editor host
+明确只支持桌面; 默认关闭, 原有移动/wasm 构建不启用新功能。
+
+实际运行并通过:
+
+- Rust 1.88.0: `cargo +1.88.0 check -p lambdadx-automation --locked`。
+- Rust 1.88.0: 同上加 `--all-features`, 包括实际 transitive dependencies。
+- Stable 1.96.0: `cargo +stable check -p lambdadx-automation --all-features`。
+- 项目 1.98.0-nightly: mcp、agent、mcp+agent、stdio-bridge 分别 cargo check。
+- cargo tree 确认未启用 editor-automation 时根包不包含共享 crate/Tokio/rmcp/genai;
+  共享 crate 无 feature 时仅依赖 serde、serde_json、schemars。
+
+这些结果验证版本/features/MSRV 与依赖隔离, 没有验证真实服务/API 行为。
+P3 仍须做 HTTP 鉴权、Origin/Host、真实 rmcp client、断连/取消和 stdio 集成测试。
+P4 仍须核对 0.7.0 chat/tool API、fake provider 循环与真实 provider 烟测。
+尚未发送模型请求, 也没有宣称 provider 兼容性。

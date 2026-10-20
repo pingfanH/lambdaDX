@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [".", "lnmai-core"]
+members = [".", "lnmai-core", "crates/lambdadx-automation"]
 # The Rust shim pulls in an external pure-Rust port via an absolute path; it is
 # excluded so a missing port does not break the default (Lean) build. It is only
 # loaded when `backend-rust` is enabled.
@@ -24,6 +24,9 @@ backend-rust = ["dep:lnmai-core-rust"]
 backend-lean = ["dep:lnmai-core"]
 backend-none = []
 ui-preview = []
+editor-automation = ["dep:lambdadx-automation"]
+editor-mcp = ["editor-automation", "lambdadx-automation/mcp"]
+editor-agent = ["editor-automation", "lambdadx-automation/agent"]
 
 [[bin]]
 name = "lambda_dx_pad_preview"
@@ -68,6 +71,7 @@ macroquad = { version = "0.4", default-features = false }
 macroanimate = { path = "macroanimate" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+lambdadx-automation = { path = "crates/lambdadx-automation", optional = true }
 hound = "3"
 minimp3 = "0.5"
 # Enables JPEG (cover art) decoding for macroquad's texture loader, which only
