@@ -36,6 +36,7 @@ pub mod native;
 pub mod rat;
 pub mod runtime_score;
 pub mod runtime_seek;
+pub mod sdez;
 pub mod scheduler;
 pub mod simai;
 pub mod storage;
