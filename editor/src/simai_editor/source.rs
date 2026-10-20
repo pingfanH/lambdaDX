@@ -44,7 +44,7 @@ pub fn tokens(text: &str) -> Vec<Token> {
 #[derive(Debug, Clone)]
 pub struct NoteSpan {
     pub chars: Vec<Range<usize>>,
-    text: String,
+    pub(super) text: String,
     pub ids: Vec<u64>,
 }
 
@@ -164,6 +164,13 @@ fn bind_notes(cells: &mut [TimedCell], chart: &ChartDoc) {
             if let Some(index) = span { cell.notes[index].ids.push(note.id); }
         }
     }
+}
+
+pub(super) fn mapped_timeline(text: &str, chart: &ChartDoc) -> Result<Vec<TimedCell>, String> {
+    let mut cells = timeline(text, chart.bpm)?;
+    for cell in &mut cells { cell.time += chart.audio_offset; }
+    bind_notes(&mut cells, chart);
+    Ok(cells)
 }
 
 #[derive(Debug, Clone)]

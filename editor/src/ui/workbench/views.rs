@@ -6,6 +6,8 @@ use crate::state::{EditorLayout, EditorState};
 #[serde(default)]
 pub(super) struct PaneView {
     orientation: EditorLayout,
+    hide_chart_tools: bool,
+    note_scale: Option<f32>,
     start: f32,
     pps: f32,
     snap: bool,
@@ -30,6 +32,8 @@ impl Default for PaneView {
     fn default() -> Self {
         Self {
             orientation: EditorLayout::Vertical,
+            hide_chart_tools: false,
+            note_scale: None,
             start: 0.0,
             pps: crate::timeline::geometry::DEFAULT_PPS,
             snap: true,
@@ -61,6 +65,8 @@ impl Workbench {
                 match pane.kind {
                     PaneKind::Chart => {
                         view.orientation = editor.layout;
+                        view.hide_chart_tools = editor.hide_chart_tools;
+                        view.note_scale = editor.chart_note_scale;
                         view.start = editor.view_start;
                         view.pps = editor.pixels_per_second;
                         view.snap = editor.snap_enabled;
@@ -103,6 +109,8 @@ impl Workbench {
             match pane.kind {
                 PaneKind::Chart => {
                     editor.layout = v.orientation;
+                    editor.hide_chart_tools = v.hide_chart_tools;
+                    editor.chart_note_scale = v.note_scale;
                     editor.view_start = v.start;
                     editor.pixels_per_second = v.pps.clamp(
                         crate::timeline::geometry::MIN_PPS,
@@ -132,13 +140,95 @@ impl Workbench {
                 _ => {}
             }
         }
+        if self.applied_views != active {
+            editor.template_panel = self.has(PaneKind::Templates);
+        }
         self.applied_views = active;
+    }
+}
+
+impl PaneView {
+    pub(super) fn ignore_playback_position(&mut self, kind: PaneKind) {
+        if kind == PaneKind::Chart && self.follow && !self.detached && !self.follow_zoom_detached {
+            self.start = 0.0;
+        }
+        if kind == PaneKind::Autoplay {
+            self.autoplay.ignore_playback_position();
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restored_layout_keeps_template_visibility_and_pane_configuration() {
+        let mut workbench = Workbench::default();
+        let mut editor = EditorState::default();
+        let mut scale = 1.0;
+        workbench.activate_views(&mut editor, &mut scale);
+        workbench.set_visible(PaneKind::Templates, true);
+        editor.layout = EditorLayout::Horizontal;
+        editor.snap_division = 48;
+        scale = 1.4;
+        workbench.capture_views(&editor, scale);
+        workbench.saved[0] = Some(workbench.docks[0].clone());
+        workbench.set_visible(PaneKind::Templates, false);
+        editor.template_panel = false;
+        editor.layout = EditorLayout::Vertical;
+        scale = 0.8;
+        workbench.restore_layout();
+        workbench.activate_views(&mut editor, &mut scale);
+        workbench.set_visible(PaneKind::Templates, editor.template_panel);
+        assert!(workbench.has(PaneKind::Templates), "restored panes must not be removed by an old visibility toggle");
+        assert_eq!(editor.layout, EditorLayout::Horizontal);
+        assert_eq!(editor.snap_division, 48);
+        assert_eq!(scale, 1.4);
+    }
+
+    #[test]
+    fn chart_note_scale_is_independent_and_restores_with_layout() {
+        let legacy: PaneView = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.note_scale, None);
+        let view = PaneView { note_scale: Some(0.65), ..Default::default() };
+        let restored: PaneView = serde_json::from_str(&serde_json::to_string(&view).unwrap()).unwrap();
+        assert_eq!(restored.note_scale, Some(0.65));
+
+        let mut workbench = Workbench::default();
+        let mut editor = EditorState::default();
+        let mut pad_scale = 1.0;
+        workbench.activate_views(&mut editor, &mut pad_scale);
+        editor.chart_note_scale = Some(0.65);
+        workbench.capture_views(&editor, pad_scale);
+        workbench.saved[0] = Some(workbench.docks[0].clone());
+        workbench.workspace = 2;
+        workbench.activate_views(&mut editor, &mut pad_scale);
+        assert_eq!(editor.chart_note_scale, None);
+        editor.chart_note_scale = Some(1.75);
+        workbench.capture_views(&editor, pad_scale);
+        workbench.workspace = 0;
+        workbench.activate_views(&mut editor, &mut pad_scale);
+        assert_eq!(editor.note_scale(), 0.65);
+        editor.chart_note_scale = Some(1.25);
+        workbench.capture_views(&editor, pad_scale);
+        workbench.restore_layout();
+        workbench.activate_views(&mut editor, &mut pad_scale);
+        assert_eq!(editor.note_scale(), 0.65);
+        workbench.workspace = 2;
+        workbench.activate_views(&mut editor, &mut pad_scale);
+        assert_eq!(editor.note_scale(), 1.75);
+        assert_eq!(pad_scale, 1.0, "chart sizing must not change the Pad");
+    }
+
+    #[test]
+    fn hidden_chart_tools_preference_roundtrips_and_defaults_to_visible() {
+        let legacy: PaneView = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.hide_chart_tools);
+        let view = PaneView { hide_chart_tools: true, ..Default::default() };
+        let restored: PaneView = serde_json::from_str(&serde_json::to_string(&view).unwrap()).unwrap();
+        assert!(restored.hide_chart_tools);
+    }
 
     #[test]
     fn workspace_upgrade_independent_pane_views() {
@@ -148,6 +238,7 @@ mod tests {
         workbench.activate_views(&mut editor, &mut scale);
         editor.layout = EditorLayout::Horizontal;
         editor.snap_division = 32;
+        editor.hide_chart_tools = true;
         editor.pixels_per_second = 720.0;
         scale = 1.4;
         workbench.capture_views(&editor, scale);
@@ -155,6 +246,7 @@ mod tests {
         workbench.activate_views(&mut editor, &mut scale);
         assert_eq!(editor.layout, EditorLayout::Vertical);
         assert_eq!(editor.snap_division, 32);
+        assert!(!editor.hide_chart_tools);
         assert_eq!(scale, 1.0);
         editor.autoplay_snap_division = 64;
         workbench.capture_views(&editor, scale);
@@ -165,6 +257,7 @@ mod tests {
         workbench.activate_views(&mut editor, &mut scale);
         assert_eq!(editor.layout, EditorLayout::Horizontal);
         assert_eq!(editor.snap_division, 32);
+        assert!(editor.hide_chart_tools);
         assert_eq!(editor.pixels_per_second, 720.0);
         assert_eq!(scale, 1.4);
         workbench.workspace = 2;

@@ -1,0 +1,7 @@
+&title=LambdaDX Slide Break Judgment
+&first=0
+&inote_1=(120){4}
+1-5b[4:1],,,,
+1>4b[4:1],,,,
+1<6b[4:1],,,,
+1w5b[4:1],,,,E

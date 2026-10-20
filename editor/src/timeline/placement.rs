@@ -101,7 +101,7 @@ pub fn draw(
         let painter = ui.painter().with_clip_rect(rect);
         let size = super::notes::head_size(&note)
             * editor.glyph_to_points
-            * crate::app::params::get().editor_note_scale.clamp(0.05, 8.0);
+            * editor.note_scale();
         let index = match editor.tool {
             Tool::Hold | Tool::TouchHold => 1,
             Tool::Slide => 2,
@@ -190,7 +190,7 @@ pub fn draw(
         };
         let from = position(pending.time);
         let to = position(tail_measure);
-        let width = super::notes::HOLD_WIDTH * editor.glyph_to_points * crate::app::params::get().editor_note_scale.clamp(0.05, 8.0);
+        let width = super::notes::HOLD_WIDTH * editor.glyph_to_points * editor.note_scale();
         let painter = ui.painter().with_clip_rect(rect);
         if let Some(texture) = &textures[1] {
             draw_hold_ghost(&painter, texture, from, to, width, editor.layout, egui::Color32::from_white_alpha(160));
@@ -270,7 +270,7 @@ pub fn draw(
     }
     let size = super::notes::STAR_SIZE
         * editor.glyph_to_points
-        * crate::app::params::get().editor_note_scale.clamp(0.05, 8.0);
+        * editor.note_scale();
     if let Some(texture) = &textures[2] {
         painter.image(
             texture.id(),
@@ -330,6 +330,7 @@ mod tests {
     #[test]
     fn hold_hover_ghost_uses_pad_cap_lengths_in_both_layouts() {
         for layout in [EditorLayout::Vertical, EditorLayout::Horizontal] {
+            for note_scale in [0.5, 1.0, 1.75] {
             let ctx = egui::Context::default();
             let texture = ctx.load_texture(
                 "hold-regression",
@@ -337,7 +338,7 @@ mod tests {
                 egui::TextureOptions::LINEAR,
             );
             let textures = [None, Some(texture.clone()), None, None, None, None];
-            let editor = EditorState { tool: Tool::Hold, layout, ..Default::default() };
+            let editor = EditorState { tool: Tool::Hold, layout, chart_note_scale: Some(note_scale), ..Default::default() };
             let chart = ChartDoc {
                 version: String::new(), title: String::new(), artist: String::new(),
                 simai_level: 0, bpm: 120.0, bpms: Vec::new(), audio_offset: 0.0,
@@ -364,9 +365,10 @@ mod tests {
                 EditorLayout::Vertical => bounds.size(),
                 EditorLayout::Horizontal => egui::vec2(bounds.height(), bounds.width()),
             };
-            let scale = crate::app::params::get().editor_note_scale.clamp(0.05, 8.0);
+            let scale = editor.note_scale();
             assert!((size.x - 40.0 * scale).abs() < 0.01, "{size:?}");
             assert!((size.y - 56.0 * scale).abs() < 0.01, "{size:?}");
+            }
         }
     }
 

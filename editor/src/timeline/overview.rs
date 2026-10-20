@@ -141,14 +141,28 @@ pub fn loop_gesture(
     time_at: impl Fn(f32) -> f32,
     position: impl Fn(f32) -> f32,
 ) -> bool {
+    loop_gesture_axis(ui, response, editor, interactive, false, time_at, position)
+}
+
+/// Share loop gestures with vertical chart rulers and horizontal views.
+pub fn loop_gesture_axis(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    editor: &mut EditorState,
+    interactive: bool,
+    vertical: bool,
+    time_at: impl Fn(f32) -> f32,
+    position: impl Fn(f32) -> f32,
+) -> bool {
+    let axis = |pos: egui::Pos2| if vertical { pos.y } else { pos.x };
     let boundary = response.hover_pos().and_then(|pos| {
         let (a, b) = editor.loop_range?;
-        let da = (position(a) - pos.x).abs();
-        let db = (position(b) - pos.x).abs();
+        let da = (position(a) - axis(pos)).abs();
+        let db = (position(b) - axis(pos)).abs();
         if da.min(db) > 6.0 { None } else { Some(if da <= db { b } else { a }) }
     });
     if interactive && (boundary.is_some() || editor.loop_drag.as_ref().is_some_and(|drag| drag.owner == response.id)) {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        ui.ctx().set_cursor_icon(if vertical { egui::CursorIcon::ResizeVertical } else { egui::CursorIcon::ResizeHorizontal });
     }
     if interactive
         && editor.loop_drag.is_none()
@@ -158,7 +172,7 @@ pub fn loop_gesture(
     {
         editor.loop_drag = Some(crate::state::LoopDrag {
             owner: response.id,
-            anchor: if ui.input(|i| i.modifiers.shift) { time_at(pos.x) } else { boundary.unwrap_or(time_at(pos.x)) },
+            anchor: if ui.input(|i| i.modifiers.shift) { time_at(axis(pos)) } else { boundary.unwrap_or(time_at(axis(pos))) },
             previous: editor.loop_range,
             was_enabled: editor.loop_enabled,
             cancelled: false,
@@ -181,7 +195,7 @@ pub fn loop_gesture(
     if !drag.cancelled
         && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
     {
-        let time = time_at(pos.x);
+        let time = time_at(axis(pos));
         let range = (drag.anchor.min(time), drag.anchor.max(time));
         if range.1 - range.0 >= 0.01 {
             editor.loop_range = Some(range);

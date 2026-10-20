@@ -206,10 +206,27 @@ pub fn follow_playhead(editor: &mut EditorState, current_time: f32) {
     }
 }
 
-/// Resume a zoom-suspended chart follow once playback is active.
+/// Resume chart follow without retaining an offscreen navigation offset.
 pub fn follow_playhead_during_playback(editor: &mut EditorState, current_time: f32, playing: bool) {
+    if editor.scrubbing
+        || editor.timeline_pan.is_some()
+        || editor.loop_drag.is_some()
+        || editor.pointer_press.is_some()
+        || editor.dragging.is_some()
+        || editor.handle_grab.is_some()
+        || editor.marquee_start.is_some()
+        || editor.selection_transform.is_some()
+        || editor.keyboard.owns_input()
+    {
+        return;
+    }
     if playing && editor.follow_playhead && !editor.keyboard.detached {
         editor.follow_zoom_detached = false;
+        let time = editor.pending_seek.unwrap_or(current_time);
+        let reference = crate::timeline::geometry::view_reference(editor, time);
+        if !crate::timeline::geometry::playhead_in_view(editor, reference, time) {
+            editor.follow_view_offset = None;
+        }
     }
     follow_playhead(editor, current_time);
 }

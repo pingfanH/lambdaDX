@@ -134,16 +134,15 @@ pub(crate) fn draw_polyline_band(path: &[Vec2], width: f32, color: Color) {
 
 /// Place a sub-slide's `slideok` overlay from the baked prefab pose.
 ///
-/// Returns `(centre, rotation, width, height)` in screen space (before the
-/// caller's per-variant `adj.rot`/flips), or `None` when the slide has no
-/// reference prefab (wifi and off-ring locations fall back to the procedural
-/// placement).
+/// Returns `(centre, rotation, width, height)` in screen space, or `None`
+/// when the slide has no reference prefab (wifi and off-ring locations fall
+/// back to procedural placement).
 fn prefab_ok(
     note: &Note,
     slide: &Slide,
     spawn_cx: Vec2,
     outer_r: f32,
-    adj: crate::app::params::SlideJustParams,
+    judgment_scale: f32,
 ) -> Option<(Vec2, f32, f32, f32)> {
     let seg = slide.segments.last()?;
     if matches!(seg.shape, SlideShape::Wifi) {
@@ -166,10 +165,9 @@ fn prefab_ok(
     };
     let unit = prefab_unit(outer_r);
     let ok = slide_svg::ok_screen(def, start, key.mirror, spawn_cx, unit, fix_up)?;
-    let offset = vec2(adj.off_x, adj.off_y) * params::pad_scale();
-    let s = adj.scale.max(0.01);
+    let s = judgment_scale.max(0.01);
     Some((
-        ok.pos + offset,
+        ok.pos,
         ok.rot,
         ok.size.x * unit * s,
         ok.size.y * unit * s,
@@ -184,8 +182,7 @@ fn prefab_ok(
 /// * wifi — the sprite's **up axis** follows the middle track's tail direction
 ///   (start lane → opposite lane), with its top edge attached to the tail.
 ///
-/// `adj` (per shape family) scales the sprite, nudges it in screen px and can
-/// mirror it on either axis.
+/// All families share one size multiplier; geometry determines registration and rotation.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_slide_just(
     note: &Note,
@@ -197,10 +194,10 @@ pub fn draw_slide_just(
     outer_r: f32,
     tex: &Texture2D,
     tint: Color,
-    adj: crate::app::params::SlideJustParams,
+    judgment_scale: f32,
 ) {
     // Baked prefab pose (reference registration) — non-wifi only for now.
-    if let Some((center, rotation, w, h)) = prefab_ok(note, slide, spawn_cx, outer_r, adj) {
+    if let Some((center, rotation, w, h)) = prefab_ok(note, slide, spawn_cx, outer_r, judgment_scale) {
         draw_texture_ex(
             tex,
             center.x - w * 0.5,
@@ -208,9 +205,7 @@ pub fn draw_slide_just(
             tint,
             DrawTextureParams {
                 dest_size: Some(vec2(w, h)),
-                rotation: rotation + adj.rot,
-                flip_x: adj.flip_x,
-                flip_y: adj.flip_y,
+                rotation,
                 pivot: Some(center),
                 ..Default::default()
             },
@@ -218,8 +213,7 @@ pub fn draw_slide_just(
         return;
     }
     let aspect = tex.height() / tex.width().max(1.0);
-    let size = adj.scale.max(0.01);
-    let offset = vec2(adj.off_x, adj.off_y) * params::pad_scale();
+    let size = judgment_scale.max(0.01);
 
     let (w, h, center, rotation) = if slide
         .segments
@@ -248,7 +242,7 @@ pub fn draw_slide_just(
         // Up axis (local -y) follows the middle track; top edge attached to the
         // tail (opposite lane), body hanging back toward the start lane.
         let rotation = dir.y.atan2(dir.x) + std::f32::consts::FRAC_PI_2;
-        (w, h, mid - dir * (h * 0.5) + offset, rotation)
+        (w, h, mid - dir * (h * 0.5), rotation)
     } else {
         // Normal slide: align the sprite's axis to the path **chord** (which,
         // for a circular arc, is parallel to the tangent at the arc midpoint, so
@@ -295,7 +289,7 @@ pub fn draw_slide_just(
         } else {
             -normal
         };
-        (w, h, line + inward * (h * 0.5) + offset, rotation)
+        (w, h, line + inward * (h * 0.5), rotation)
     };
 
     draw_texture_ex(
@@ -305,9 +299,7 @@ pub fn draw_slide_just(
         tint,
         DrawTextureParams {
             dest_size: Some(vec2(w, h)),
-            rotation: rotation + adj.rot,
-            flip_x: adj.flip_x,
-            flip_y: adj.flip_y,
+            rotation,
             pivot: Some(center),
             ..Default::default()
         },
@@ -900,7 +892,9 @@ pub fn draw_slide(
                 for (j, target) in targets.iter().enumerate() {
                     let dir = (*target - start_pos).normalize_or_zero();
                     let seg_len = (*target - start_pos).length().max(0.001);
-                    let angle = dir.y.atan2(dir.x) + std::f32::consts::PI + 112.0_f32.to_radians();
+                    let imported = params::note_skin() == super::note_skin::NoteSkin::Lambdadx;
+                    let angle = if imported { dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2 }
+                        else { dir.y.atan2(dir.x) + std::f32::consts::PI + 112.0_f32.to_radians() };
                     let step_size = seg_len / (sprite_count - 1) as f32 * 0.83;
                     // Wifi has three independent straight tracks, so its
                     // bars do not go through the shared path segmentation.
@@ -913,17 +907,29 @@ pub fn draw_slide(
                             continue;
                         }
                         let dist = i as f32 * step_size;
-                        let sprite_pos = start_pos + dir * dist;
+                        let sprite_pos = if imported {
+                            start_pos + dir * seg_len * (480.0 - super::note_skin::WIFI_STRIP_Y[i]) / 960.0
+                        } else { start_pos + dir * dist };
 
                         if is_middle {
                             if let Some(t) = tex.wifi[i] {
-                                let tw = t.width() * scale * params::slide_tile_scale();
-                                let th = t.height() * scale * params::slide_tile_scale();
+                                let texture_scale = super::note_skin::wifi_texture_scale(
+                                    params::note_skin(), outer_r + params::tap_target_offset(),
+                                    scale, params::slide_tile_scale(),
+                                );
+                                let tw = t.width() * texture_scale;
+                                let th = t.height() * texture_scale;
+                                let tint = if imported {
+                                    let [r, g, b] = if slide.slide_is_break { [255, 148, 77] }
+                                        else if note.is_each { [255, 237, 37] }
+                                        else { [0, 251, 252] };
+                                    Color::from_rgba(r, g, b, path_alpha)
+                                } else { Color::from_rgba(255, 255, 255, path_alpha) };
                                 draw_texture_ex(
                                     t,
                                     sprite_pos.x - tw * 0.5,
                                     sprite_pos.y - th * 0.5,
-                                    Color::from_rgba(255, 255, 255, path_alpha),
+                                    tint,
                                     DrawTextureParams {
                                         dest_size: Some(vec2(tw, th)),
                                         rotation: angle,
@@ -1567,6 +1573,21 @@ mod tests {
             runtime_parts: 1,
         };
         (note, slide)
+    }
+
+    #[test]
+    fn shared_judgment_scale_keeps_each_fallback_pose_aligned() {
+        for shape in [SlideShape::Line, SlideShape::Left, SlideShape::Right, SlideShape::P, SlideShape::Q] {
+            let (note, mut slide) = line_slide(1, 5);
+            slide.segments[0].shape = shape;
+            let center = vec2(400.0, 400.0);
+            let base = prefab_ok(&note, &slide, center, 300.0, 1.0).unwrap();
+            let scaled = prefab_ok(&note, &slide, center, 300.0, 0.5).unwrap();
+            assert_eq!(base.0, scaled.0, "{shape:?} anchor changed");
+            assert_eq!(base.1, scaled.1, "{shape:?} rotation changed");
+            assert_eq!(base.2 * 0.5, scaled.2);
+            assert_eq!(base.3 * 0.5, scaled.3);
+        }
     }
 
     #[test]

@@ -852,28 +852,6 @@ pub struct PadFeedback {
     pub until: f64,
 }
 
-#[derive(Debug, Clone)]
-pub struct JudgeFeedback {
-    pub zone: PadZone,
-    pub label: String,
-    pub color: macroquad::prelude::Color,
-    pub started: f64,
-    pub until: f64,
-}
-
-/// A one-shot tap-hit effect (expanding ring + sparks + flash) anchored at the
-/// hit zone. Lifetime is wall-clock seconds; drawn by `render::hit_fx`.
-#[derive(Debug, Clone, Copy)]
-pub struct HitFx {
-    pub zone: PadZone,
-    pub started: f64,
-    pub duration: f32,
-    pub color: macroquad::prelude::Color,
-    pub is_break: bool,
-    /// Per-effect rotation offset so repeated hits do not look identical.
-    pub seed: f32,
-}
-
 /// Hold tail time in seconds (note fields are in measures).
 pub fn hold_tail_time(note: &Note, bpms: &[BpmChange]) -> f32 {
     let dur_s = mdur_to_secs(note.hold_duration, note.time, bpms).max(0.0);

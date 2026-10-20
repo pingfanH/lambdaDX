@@ -9,7 +9,7 @@ use macroquad::prelude::*;
 
 use crate::app::types::zone::PadZone;
 use crate::app::types::{MOUSE_POINTER_ID, PadGeom, PointerEvent};
-use crate::player::input::hit::judge_label_for_zone;
+use crate::player::input::hit::judgement_for_zone;
 use crate::player::state::PadPreviewState;
 
 /// Append the desktop mouse's press/hold/release as pointer events.
@@ -203,9 +203,16 @@ pub(super) fn update_pointer_zones(
                 // too early).
                 app.queue_engine_hold(zone, tp);
             }
-        } else if let Some(label) = judge_label_for_zone(app, zone) {
-            app.push_judgement(zone, label, 0.6);
-            app.push_hit_fx(zone, label, false);
+        } else if let Some((note, label)) = judgement_for_zone(app, zone) {
+            use crate::player::feedback::{FeedbackGrade, HitEffect};
+            let (id, is_touch, is_break, is_ex, is_hanabi) = (note.id, crate::app::types::note_is_touch(note), note.is_break, note.is_ex, note.is_hanabi);
+            let grade = FeedbackGrade::from_label(label);
+            let effect = if is_break { HitEffect::Break } else if is_touch { HitEffect::Touch } else if is_ex { HitEffect::ExTap } else { HitEffect::Tap };
+            app.push_note_judgement(zone, grade, is_touch, is_break, 0.6);
+            app.push_note_hit_fx(zone, grade, effect, is_touch, None, Some(id));
+            if is_touch && is_hanabi {
+                app.push_hanabi_feedback(zone, grade, is_touch, Some(id));
+            }
         }
     }
 

@@ -3,6 +3,12 @@
 use crate::app::types::{BpmChange, ChartDoc, NoteType};
 
 pub(super) fn document(chart: &ChartDoc, level: u32, original: &str) -> Result<String, String> {
+    document_with_source(chart, level, original, None)
+}
+
+pub(super) fn document_with_source(
+    chart: &ChartDoc, level: u32, original: &str, source: Option<&crate::simai_editor::format::Document>,
+) -> Result<String, String> {
     super::validate(chart)?;
     if !chart.templates.is_empty() || !chart.template_instances.is_empty() {
         return Err("Simai cannot retain editor templates; save this document as native JSON".into());
@@ -10,7 +16,13 @@ pub(super) fn document(chart: &ChartDoc, level: u32, original: &str) -> Result<S
     if [&chart.title, &chart.artist].iter().any(|s| s.contains(['\r', '\n'])) {
         return Err("Title and artist must be single-line fields".into());
     }
-    let body = body(chart)?;
+    let body = if let Some(source) = source {
+        source.update(chart)?
+    } else if let Some(text) = body_for_level(original, level) {
+        let mut previous = crate::app::maidata::from_maidata_level(original, level)?;
+        if chart.notes.iter().all(|n| n.id != 0) { crate::app::maichart::assign_note_ids(&mut previous.notes); }
+        crate::simai_editor::format::Document { text, chart: previous }.update(chart)?
+    } else { body(chart)? };
     let mut text = original.to_string();
     let newline = if original.contains("\r\n") { "\r\n" } else { "\n" };
     set_field(&mut text, "title", &chart.title, newline);
@@ -25,6 +37,14 @@ pub(super) fn document(chart: &ChartDoc, level: u32, original: &str) -> Result<S
     }
     set_field(&mut text, &format!("inote_{level}"), &body, newline);
     Ok(text)
+}
+
+pub(crate) fn body_for_level(text: &str, level: u32) -> Option<String> {
+    let fields = fields(text);
+    let key = format!("inote_{level}");
+    let (index, (_, _, start, _)) = fields.iter().enumerate().rev().find(|(_, (name, ..))| *name == key)?;
+    let end = fields.get(index + 1).map(|(_, start, ..)| *start).unwrap_or(text.len());
+    Some(text[*start..end].trim_end_matches(['\r', '\n']).to_owned())
 }
 
 fn number(value: f32) -> String {
@@ -142,7 +162,7 @@ fn serialize_body(chart: &ChartDoc, multiline: bool) -> Result<String, String> {
                     return Err(format!("Note {} has no slide trail", note.id));
                 }
             }
-            let text = crate::core_chart::note_text(note, bpms)?;
+            let text = crate::simai_editor::format::note_text(note, chart)?;
             if text.is_empty() { return Err(format!("Note {} cannot be exported", note.id)); }
             if index > 0 { out.push('/'); }
             out.push_str(&text);
@@ -170,7 +190,7 @@ fn subdivision(out: &mut String, current: &mut u64, divisor: u64) {
 
 /// Recover simple rhythmic fractions before encoding genuinely off-grid rests.
 /// The caller compensates against absolute positions, so rounding cannot drift.
-fn gap_steps(mut gap: f64, tolerance: f64) -> Result<Vec<u64>, String> {
+pub(crate) fn gap_steps(mut gap: f64, tolerance: f64) -> Result<Vec<u64>, String> {
     if gap <= 0.0 || !gap.is_finite() || gap > 100_000.0 { return Err("Invalid or excessive measure gap".into()); }
     let mut steps = vec![1; gap.floor() as usize];
     gap -= gap.floor();

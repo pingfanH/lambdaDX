@@ -62,6 +62,12 @@ impl Default for ViewOptions {
     }
 }
 
+impl ViewOptions {
+    pub(crate) fn ignore_playback_position(&mut self) {
+        if self.follow { self.start = 0.0; }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Track {
     pub key: AutoplayKey,

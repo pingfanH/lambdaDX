@@ -249,14 +249,20 @@ fn preprocess_tactic_frame_with_holds(
                 // Release only that sensor's synthetic click before retriggering
                 // it; other areas may still be active parts of a slide path.
                 events.extend(release_click_hold_for_area(click_held, area, tp));
-                events.extend(release_click_hold_for_area(explicit_held, area, tp));
                 events.push(TimedInputEvent::SensorClick { tp, area });
-                events.push(TimedInputEvent::SensorHold {
-                    tp,
-                    area,
-                    is_down: true,
-                });
-                if !click_held.contains(&area) {
+                // A tap can overlap a slide body after K1..K8 are mapped to
+                // A1..A8.  The explicit hold belongs to the slide and must
+                // survive the tap; releasing and pressing it again creates a
+                // same-timestamp transition that can consume the tap or
+                // interrupt the slide state machine in lnmai-core.
+                if !explicit_held.contains(&area) {
+                    events.push(TimedInputEvent::SensorHold {
+                        tp,
+                        area,
+                        is_down: true,
+                    });
+                }
+                if !click_held.contains(&area) && !explicit_held.contains(&area) {
                     click_held.push(area);
                 }
             }
@@ -751,6 +757,51 @@ mod tests {
             preprocess_tactic_frame_with_holds(&mut click_held, &mut explicit_held, 120, [],)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn click_on_an_explicitly_held_sensor_does_not_release_the_slide_hold() {
+        let mut click_held = Vec::new();
+        let mut explicit_held = Vec::new();
+        let prepared = preprocess_tactic_frame_with_holds(
+            &mut click_held,
+            &mut explicit_held,
+            392_947_60,
+            [
+                TimedInputEvent::SensorHold {
+                    tp: 392_857_15,
+                    area: SensorArea::A8,
+                    is_down: true,
+                },
+                TimedInputEvent::SensorClick {
+                    tp: 392_857_17,
+                    area: SensorArea::A8,
+                },
+                TimedInputEvent::SensorHold {
+                    tp: 392_857_17,
+                    area: SensorArea::A8,
+                    is_down: true,
+                },
+            ],
+        );
+
+        assert_eq!(
+            prepared,
+            vec![
+                TimedInputEvent::SensorHold {
+                    tp: 392_857_15,
+                    area: SensorArea::A8,
+                    is_down: true,
+                },
+                TimedInputEvent::SensorClick {
+                    tp: 392_857_17,
+                    area: SensorArea::A8,
+                },
+            ],
+            "a tap sharing a slide sensor must not synthesize a release/re-press",
+        );
+        assert!(click_held.is_empty());
+        assert_eq!(explicit_held, vec![SensorArea::A8]);
     }
 
     #[test]

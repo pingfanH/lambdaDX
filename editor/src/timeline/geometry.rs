@@ -22,6 +22,31 @@ pub const MIN_PPS: f32 = 10.0;
 pub const MAX_PPS: f32 = 4800.0;
 pub const DEFAULT_PPS: f32 = 360.0;
 
+/// Keep the usual two-second lead, capped at half this pane's visible span.
+pub fn default_view_reference(editor: &EditorState, playhead: f32) -> f32 {
+    if editor.layout == EditorLayout::Vertical { return playhead; }
+    let width = editor.keyboard.rect.width() - LANE_GUTTER;
+    let lead = if width.is_finite() && width > 0.0 {
+        2.0_f32.min(width * 0.5 / editor.pixels_per_second.max(1.0))
+    } else {
+        2.0
+    };
+    (playhead - lead).max(0.0)
+}
+
+pub fn playhead_in_view(editor: &EditorState, reference: f32, playhead: f32) -> bool {
+    let rect = editor.keyboard.rect;
+    if !rect.is_positive() || !rect.is_finite() { return true; }
+    let offset = (playhead - reference) * editor.pixels_per_second.max(1.0);
+    match editor.layout {
+        EditorLayout::Vertical => {
+            let y = rect.bottom() - JUDGE_MARGIN - offset;
+            y >= rect.top() + RULER_H && y <= rect.bottom()
+        }
+        EditorLayout::Horizontal => offset >= 0.0 && offset <= rect.width() - LANE_GUTTER,
+    }
+}
+
 pub fn view_reference(editor: &EditorState, playhead: f32) -> f32 {
     // Dragging the line owns the view until release; overview seeking still follows.
     if !editor.follow_playhead
@@ -33,10 +58,7 @@ pub fn view_reference(editor: &EditorState, playhead: f32) -> f32 {
     }
     let playhead = editor.pending_seek.unwrap_or(playhead);
     editor.follow_view_offset.map_or_else(
-        || match editor.layout {
-            EditorLayout::Vertical => playhead,
-            EditorLayout::Horizontal => (playhead - 2.0).max(0.0),
-        },
+        || default_view_reference(editor, playhead),
         |offset| playhead - offset,
     )
 }
@@ -205,6 +227,57 @@ mod tests {
             editor.view_start, 20.0,
             "playback restores the default follow position"
         );
+    }
+
+    #[test]
+    fn playback_recovers_an_offscreen_playhead_after_view_navigation() {
+        for layout in [EditorLayout::Vertical, EditorLayout::Horizontal] {
+            for offset in [-40.0, 40.0] {
+                for zoomed in [false, true] {
+                    let mut editor = EditorState {
+                        layout, follow_playhead: true, pixels_per_second: 240.0,
+                        follow_view_offset: Some(offset), follow_zoom_detached: zoomed,
+                        view_start: 20.0 - offset, ..Default::default()
+                    };
+                    editor.keyboard.rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(640.0, 480.0));
+                    crate::runtime::follow_playhead_during_playback(&mut editor, 20.0, false);
+                    assert_eq!(editor.view_start, 20.0 - offset, "paused browsing must stay put");
+                    crate::runtime::follow_playhead_during_playback(&mut editor, 20.0, true);
+                    let reference = view_reference(&editor, 20.0);
+                    let coordinate = if layout == EditorLayout::Vertical {
+                        480.0 - JUDGE_MARGIN - (20.0 - reference) * editor.pixels_per_second
+                    } else {
+                        LANE_GUTTER + (20.0 - reference) * editor.pixels_per_second
+                    };
+                    let (lo, hi) = if layout == EditorLayout::Vertical { (RULER_H, 480.0) } else { (LANE_GUTTER, 640.0) };
+                    assert!(coordinate >= lo && coordinate <= hi, "playhead must return into view: {layout:?}, offset={offset}, zoomed={zoomed}, coordinate={coordinate}");
+                    assert!(!editor.follow_zoom_detached);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn playback_follow_stays_visible_at_high_zoom_in_a_small_pane() {
+        let mut editor = EditorState { layout: EditorLayout::Horizontal, pixels_per_second: MAX_PPS, ..Default::default() };
+        editor.keyboard.rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320.0, 480.0));
+        crate::runtime::follow_playhead_during_playback(&mut editor, 20.0, true);
+        let x = LANE_GUTTER + (20.0 - editor.view_start) * editor.pixels_per_second;
+        assert!(x >= LANE_GUTTER && x <= 320.0, "high zoom must not put the playhead outside the pane: {x}");
+    }
+
+    #[test]
+    fn playback_follow_does_not_interrupt_an_active_scrub_or_disabled_follow() {
+        for disabled in [false, true] {
+            let mut editor = EditorState {
+                layout: EditorLayout::Horizontal, view_start: 50.0, follow_playhead: !disabled,
+                follow_view_offset: Some(-30.0), follow_zoom_detached: true, scrubbing: !disabled,
+                ..Default::default()
+            };
+            crate::runtime::follow_playhead_during_playback(&mut editor, 20.0, true);
+            assert_eq!(editor.view_start, 50.0);
+            assert!(editor.follow_zoom_detached);
+        }
     }
 
     #[test]

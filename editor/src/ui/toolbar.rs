@@ -244,6 +244,19 @@ pub fn draw(
             .is_some();
         owned |= ui
             .menu_button("设置", |ui| {
+                ui.menu_button("Note 皮肤", |ui| {
+                    for skin in crate::app::note_skin::NoteSkin::ALL {
+                        if ui.selectable_value(&mut app.params.note_skin, skin, skin.label()).changed() {
+                            params::set(app.params.clone());
+                            crate::player::render::textures::sync_note_skin(app);
+                            editor.status = Some(match params::save(&app.params) {
+                                Ok(_) => format!("Note skin: {}", skin.label()),
+                                Err(error) => format!("Settings: {error}"),
+                            });
+                            ui.close_menu();
+                        }
+                    }
+                });
                 draw_subdivision(ui, editor);
                 ui.checkbox(&mut editor.scroll_invert, "反转滚轮方向");
                 ui.separator();
@@ -384,6 +397,8 @@ pub fn draw_editor_settings(
         .default_open(true)
         .show(ui, |ui| {
             layout_options(ui, editor);
+            ui.checkbox(&mut editor.hide_chart_tools, "隐藏左侧工具栏");
+            chart_note_size(ui, editor);
             pane_options(ui, editor, workbench);
             workbench.layout_menu(ui);
         });
@@ -472,6 +487,8 @@ pub fn pane_tools(
         PaneKind::Chart => {
             ui.menu_button(glyph(Icon::SlidersHorizontal, 14.0), |ui| {
                 layout_options(ui, editor);
+                ui.checkbox(&mut editor.hide_chart_tools, "隐藏左侧工具栏");
+                chart_note_size(ui, editor);
                 draw_subdivision(ui, editor);
                 chart_zoom(ui, editor, app.timeline_time());
                 ui.checkbox(&mut editor.scroll_invert, "反转滚轮方向");
@@ -588,6 +605,19 @@ pub fn pane_tools(
         }
         PaneKind::Overview => {}
     }
+}
+
+fn chart_note_size(ui: &mut egui::Ui, editor: &mut EditorState) {
+    ui.horizontal(|ui| {
+        ui.label("Note 大小");
+        let mut scale = editor.note_scale();
+        if ui.add(egui::DragValue::new(&mut scale).range(0.05..=8.0).speed(0.02).suffix(" x")).changed() {
+            editor.chart_note_scale = Some(scale);
+        }
+        if icon(ui, Icon::RotateCcw, "跟随全局 Note 大小", false).clicked() {
+            editor.chart_note_scale = None;
+        }
+    });
 }
 
 fn chart_zoom(ui: &mut egui::Ui, editor: &mut EditorState, now: f32) {

@@ -100,7 +100,7 @@ impl Judgment {
 
 #[derive(Clone, Debug)]
 pub struct EffectInstance {
-    pub(super) definition: EffectDefinition,
+    pub(super) definition: std::rc::Rc<EffectDefinition>,
     seed: u32,
     pub judgment: Judgment,
     pub elapsed: f32,
@@ -109,7 +109,7 @@ pub struct EffectInstance {
 impl EffectInstance {
     pub(crate) fn new(effect: &EffectDefinition, seed: u64) -> Self {
         Self {
-            definition: effect.clone(),
+            definition: std::rc::Rc::new(effect.clone()),
             seed: seed as u32,
             judgment: Judgment::default(),
             elapsed: 0.0,
@@ -154,6 +154,15 @@ impl EffectInstance {
     }
 
     pub(super) fn sample_system(&self, index: usize) -> Vec<ParticleQuad> {
+        self.sample_system_oriented(index, 0.0)
+    }
+
+    pub(super) fn sample_system_oriented(
+        &self,
+        index: usize,
+        placement_rotation: f32,
+    ) -> Vec<ParticleQuad> {
+        let axis = Vec2::from_angle(placement_rotation);
         let system = &self.definition.systems[index];
         let Some(render) = system.render.as_ref() else {
             return Vec::new();
@@ -256,10 +265,10 @@ impl EffectInstance {
                 }
                 let m = system.matrix;
                 let scale = (m[0] * m[3] - m[1] * m[2]).abs().sqrt();
-                let mut position = transform_vector(m, local) + vec2(m[4], m[5]);
+                let mut position = axis.rotate(transform_vector(m, local) + vec2(m[4], m[5]));
                 dimensions = (dimensions * scale).min(Vec2::splat(render.max_size * 1920.0));
                 let angle = if render.mode == 1 {
-                    let velocity = transform_vector(m, direction);
+                    let velocity = axis.rotate(transform_vector(m, direction));
                     // Unity stretches local Y along velocity. The website stretches X,
                     // which prevents Hold Release's eight stars from regaining their shape.
                     let unstretched_length = dimensions.y;
@@ -272,7 +281,7 @@ impl EffectInstance {
                     velocity.y.atan2(velocity.x) - std::f32::consts::FRAC_PI_2
                 } else {
                     (if render.align == 2 {
-                        system.rot.to_radians()
+                        system.rot.to_radians() + placement_rotation
                     } else {
                         0.0
                     }) - rotation
@@ -292,7 +301,7 @@ impl EffectInstance {
                         lifetime,
                         &system.rotation_over_lifetime,
                     )
-                    .unwrap_or(rotation + angle)
+                    .unwrap_or(rotation + angle - placement_rotation)
                 } else {
                     0.0
                 };

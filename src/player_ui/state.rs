@@ -204,6 +204,16 @@ impl PlayerUiApp {
         self.go(self.settings_return);
     }
 
+    pub fn select_note_skin(&mut self, skin: crate::app::note_skin::NoteSkin) {
+        self.pad.params.note_skin = skin;
+        crate::app::params::set(self.pad.params.clone());
+        crate::player::render::textures::sync_note_skin(&mut self.pad);
+        self.status = match crate::app::params::save(&self.pad.params) {
+            Ok(_) => format!("Note 皮肤: {}", skin.label()),
+            Err(error) => format!("保存失败: {error}"),
+        };
+    }
+
     /// True when the pad should be drawn under the current page. Settings is a
     /// full opaque page (it never reveals the pad behind it).
     pub fn shows_gameplay_background(&self) -> bool {

@@ -256,6 +256,10 @@ pub struct EditorState {
     pub loop_drag: Option<LoopDrag>,
     pub pinned_note: Option<u64>,
     pub tool: Tool,
+    /// Hide the floating chart palette without disabling tool shortcuts.
+    pub hide_chart_tools: bool,
+    /// Per-chart-pane note size; unset panes inherit the global default.
+    pub chart_note_scale: Option<f32>,
     pub touch_zone: Option<u8>,
     pub layout: EditorLayout,
     /// Notes selected by id.
@@ -393,6 +397,8 @@ impl Default for EditorState {
             loop_drag: None,
             pinned_note: None,
             tool: Tool::Select,
+            hide_chart_tools: false,
+            chart_note_scale: None,
             touch_zone: None,
             layout: EditorLayout::Vertical,
             selected: HashSet::new(),
@@ -457,6 +463,12 @@ impl Default for EditorState {
 }
 
 impl EditorState {
+    pub fn note_scale(&self) -> f32 {
+        self.chart_note_scale
+            .unwrap_or_else(|| crate::app::params::get().editor_note_scale)
+            .clamp(0.05, 8.0)
+    }
+
     pub fn cancel_file_action(&mut self) {
         self.pending_action = None;
         self.pending_confirmed = false;

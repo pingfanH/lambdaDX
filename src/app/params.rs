@@ -23,44 +23,12 @@ pub const PARAMS_ASSET: &str = "note_params.json";
 /// Override file written by the panel (under the writable output dir).
 pub const PARAMS_OVERRIDE: &str = "note_params.json";
 
-/// Per-variant tuning for the MajdataView `slideok` judgment overlay.
-///
-/// One instance per sprite variant (`slide_just_str_l` / `slide_just_curv_r` /
-/// `slide_just_wifi_u` …), so each star type can be sized, nudged, rotated and
-/// mirrored independently — the `_l`/`_r` (and `_u`/`_d`) sprites are mirror
-/// images and generally need different adjustments.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SlideJustParams {
-    /// Size multiplier applied to the sprite's width/height.
-    pub scale: f32,
-    /// Extra rotation (radians) added to the sprite's computed orientation.
-    pub rot: f32,
-    /// Screen-space offset in design px (scaled by the pad scale).
-    pub off_x: f32,
-    pub off_y: f32,
-    pub flip_x: bool,
-    pub flip_y: bool,
-}
-
-impl Default for SlideJustParams {
-    fn default() -> Self {
-        Self {
-            scale: 1.0,
-            rot: 0.0,
-            off_x: 0.0,
-            off_y: 0.0,
-            flip_x: false,
-            flip_y: false,
-        }
-    }
-}
-
 /// All tunable visual parameters. Missing JSON fields fall back to
 /// [`Params::default`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Params {
+    pub note_skin: super::note_skin::NoteSkin,
     // ── Note sizes ───────────────────────────────────────────────────
     pub tap_size: f32,
     pub hold_width: f32,
@@ -110,15 +78,8 @@ pub struct Params {
     pub slide_sub_reverse: bool,
 
     // ── Slide judgment (slideok) overlay ─────────────────────────────
-    /// Per-variant tuning for the slide judgment overlay: straight / curve /
-    /// wifi, split by turn direction (`l`/`r`, `u`/`d`) so the mirrored sprites
-    /// can be aligned independently.
-    pub slide_just_str_l: SlideJustParams,
-    pub slide_just_str_r: SlideJustParams,
-    pub slide_just_curv_l: SlideJustParams,
-    pub slide_just_curv_r: SlideJustParams,
-    pub slide_just_wifi_u: SlideJustParams,
-    pub slide_just_wifi_d: SlideJustParams,
+    /// Shared size multiplier; registration and orientation follow the slide geometry.
+    pub slide_just_scale: f32,
 
     // ── Touch / touch-hold ───────────────────────────────────────────
     pub touch_cross_size: f32,
@@ -247,6 +208,8 @@ pub struct Params {
     pub fx_timeline: bool,
     /// Effect base radius (design px, scales with the pad).
     pub hit_fx_size: f32,
+    /// Firework effect size multiplier, independent of ordinary hit effects.
+    pub hanabi_fx_scale: f32,
     /// Effect lifetime in seconds.
     pub hit_fx_duration: f32,
     /// Peak opacity (0..255).
@@ -315,6 +278,7 @@ pub struct Params {
 impl Default for Params {
     fn default() -> Self {
         Self {
+            note_skin: super::note_skin::NoteSkin::default(),
             tap_size: t::TAP_SIZE,
             hold_width: t::HOLD_WIDTH,
             star_size: t::STAR_SIZE,
@@ -340,12 +304,7 @@ impl Default for Params {
             note_earlier_on_top: false,
             slide_tile_reverse: false,
             slide_sub_reverse: false,
-            slide_just_str_l: SlideJustParams::default(),
-            slide_just_str_r: SlideJustParams::default(),
-            slide_just_curv_l: SlideJustParams::default(),
-            slide_just_curv_r: SlideJustParams::default(),
-            slide_just_wifi_u: SlideJustParams::default(),
-            slide_just_wifi_d: SlideJustParams::default(),
+            slide_just_scale: 1.0,
 
             touch_cross_size: t::TOUCH_CROSS_SIZE,
             touch_start_dist: t::TOUCH_START_DIST,
@@ -409,6 +368,7 @@ impl Default for Params {
             hit_fx: true,
             fx_timeline: true,
             hit_fx_size: 46.0,
+            hanabi_fx_scale: 1.0,
             hit_fx_duration: 0.28,
             hit_fx_alpha: 230.0,
             hit_fx_ring: 2.5,
@@ -483,23 +443,18 @@ pub fn slide_sub_reverse() -> bool {
     PARAMS.with(|p| p.borrow().slide_sub_reverse)
 }
 
-/// `slideok` overlay tuning for a variant key (`str_l` / `curv_r` / `wifi_u` …).
-pub fn slide_just(variant: &str) -> SlideJustParams {
-    let p = get();
-    match variant {
-        "str_l" => p.slide_just_str_l,
-        "str_r" => p.slide_just_str_r,
-        "curv_l" => p.slide_just_curv_l,
-        "curv_r" => p.slide_just_curv_r,
-        "wifi_u" => p.slide_just_wifi_u,
-        "wifi_d" => p.slide_just_wifi_d,
-        _ => SlideJustParams::default(),
-    }
+/// Shared size multiplier for every slide judgment family.
+pub fn slide_just_scale() -> f32 {
+    PARAMS.with(|p| p.borrow().slide_just_scale.max(0.01))
 }
 
 /// Replace the current parameters globally.
 pub fn set(p: Params) {
     PARAMS.with(|c| *c.borrow_mut() = p);
+}
+
+pub fn note_skin() -> super::note_skin::NoteSkin {
+    PARAMS.with(|p| p.borrow().note_skin)
 }
 
 /// Per-field accessors so the render code can read a single value without
@@ -577,6 +532,7 @@ param_accessors!(
     hold_end_guide_off,
     hold_guide_size,
     hit_fx_size,
+    hanabi_fx_scale,
     hit_fx_duration,
     hit_fx_alpha,
     hit_fx_ring,
@@ -786,6 +742,33 @@ mod tests {
     }
 
     #[test]
+    fn legacy_slide_variant_adjustments_are_ignored() {
+        let p: Params = serde_json::from_str(r#"{
+            "tap_size": 99.0,
+            "slide_just_str_l": {"scale": 2.0, "off_x": 100.0},
+            "slide_just_str_r": {"scale": 0.5, "rot": 1.0},
+            "slide_just_curv_l": {"off_y": -50.0},
+            "slide_just_curv_r": {"flip_x": true},
+            "slide_just_wifi_u": {"scale": 3.0},
+            "slide_just_wifi_d": {"flip_y": true}
+        }"#).unwrap();
+        assert_eq!(p.tap_size, 99.0);
+        assert_eq!(p.slide_just_scale, 1.0);
+        let saved = serde_json::to_value(p).unwrap();
+        let fields: Vec<_> = saved.as_object().unwrap().keys()
+            .filter(|key| key.starts_with("slide_just_")).map(String::as_str).collect();
+        assert_eq!(fields, ["slide_just_scale"]);
+    }
+
+    #[test]
+    fn shared_slide_judgment_scale_round_trips() {
+        let p = Params { slide_just_scale: 0.75, ..Params::default() };
+        let saved = serde_json::to_string(&p).unwrap();
+        let restored: Params = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.slide_just_scale, 0.75);
+    }
+
+    #[test]
     fn judgment_window_preference_round_trips() {
         let p = Params {
             show_judge_windows: true,
@@ -802,6 +785,16 @@ mod tests {
         let s = serde_json::to_string_pretty(&p).unwrap();
         let q: Params = serde_json::from_str(&s).unwrap();
         assert_eq!(p, q);
+    }
+
+    #[test]
+    fn hanabi_scale_has_a_backward_compatible_default_and_round_trips() {
+        let legacy: Params = serde_json::from_str(r#"{"hit_fx_size":25.0}"#).unwrap();
+        assert_eq!(legacy.hanabi_fx_scale, 1.0);
+        let configured = Params { hanabi_fx_scale: 0.65, ..legacy };
+        let restored: Params = serde_json::from_str(&serde_json::to_string(&configured).unwrap()).unwrap();
+        assert_eq!(restored.hanabi_fx_scale, 0.65);
+        assert_eq!(restored.hit_fx_size, 25.0);
     }
 
     /// The background (disc + cover) defaults to the same size as the

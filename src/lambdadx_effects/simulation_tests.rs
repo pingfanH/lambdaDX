@@ -50,6 +50,23 @@ fn particle_velocity_uses_system_scale_without_translation() {
 }
 
 #[test]
+fn placement_rotates_emitter_positions_but_preserves_world_aligned_billboards() {
+    for align in [0, 2] {
+        let mut system = system();
+        system.matrix = [1.0, 0.0, 0.0, 1.0, 3.0, 4.0];
+        system.render.as_mut().unwrap().align = align;
+        let effect = instance(system);
+        let a = &effect.sample_system(0)[0];
+        let b = &effect.sample_system_oriented(0, std::f32::consts::FRAC_PI_2)[0];
+        let center = |p: &ParticleQuad| (p.points[0] + p.points[3]) * 0.5;
+        assert!(center(b).distance(vec2(-4.0, 3.0)) < 1e-5);
+        let edge = a.points[1] - a.points[0];
+        let expected = if align == 2 { vec2(-edge.y, edge.x) } else { edge };
+        assert!((b.points[1] - b.points[0]).distance(expected) < 1e-5);
+    }
+}
+
+#[test]
 fn delayed_burst_does_not_emit_before_start_delay() {
     let mut system = system();
     system.delay = constant(0.5);
@@ -206,7 +223,7 @@ fn hold_release_authored_spin_changes_outline_without_changing_particle_centers(
     );
     spinning.elapsed = 0.125;
     let mut locked = spinning.clone();
-    for system in &mut locked.definition.systems {
+    for system in &mut std::rc::Rc::make_mut(&mut locked.definition).systems {
         system.rotation_over_lifetime = Value::Null;
     }
     for index in [0, 1] {

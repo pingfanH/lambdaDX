@@ -83,6 +83,61 @@ included in this group scale.
 
 ## Verification
 
+The editor, player UI, and standalone PadView load the same runtime through
+`player::effects`. `player::feedback` owns judgment metadata, sprite resources,
+and active particle instances; the preview binary still only owns its controls.
+PadView chooses Tap/EXTap/Break/Touch by note metadata, starts Hold on the core's
+head event, and stops it on the tail before spawning Hold Release. Misses do not
+spawn hit particles. Touch fireworks use Center Back.
+Slide completion (including break slides) uses only its shaped `Judgement`
+overlay, not Tap/Break hit particles. A slide's head is still a separate
+Tap/Break event and retains its normal head feedback.
+
+Sprite placement retains
+the manifest's registration point and texture aspect ratio, including slide,
+circle, and wifi judgment families. Missing particle resources leave judgment
+sprites available and fall back to Animate/primitives for hit feedback.
+
+Judgment art is rendered from the named `Judgement/...` symbols in
+`assets/effects/lambdadx_replay_1600_master.fla` (unpacked project fallback).
+The manifest only supplies registration metadata; symbol artwork and timeline
+frames come from Flash. `tools/make_lambdadx_replay_xfl.py --judgments-only` adds
+missing grade symbols without regenerating existing authored symbols.
+
+All slide judgment families share `slide_just_scale` (default 1.0), including
+the Flash symbols, break overlays, and classic fallback. The F1 panel exposes
+only this size multiplier; registration and rotation follow the source geometry.
+Legacy per-variant offsets, rotations, and flips are ignored when loading old
+settings and omitted on the next save.
+
+Successful touch fireworks layer `Sfx/touch_hanabi.wav` over the ordinary touch
+sound. They obey the audio and hit-sound switches and stay silent on misses or
+scrubs, independently of the visual-effects switch. `hanabi_fx_scale` (default
+1.0) adjusts fireworks without changing `hit_fx_size`; configure it in F1 under
+the sound/hit-effects section. The same multiplier applies to particle, Flash,
+and procedural fallback drawing.
+
+Note skins are independent: select Classic or LambdaDX under Settings > Note
+skin in the editor, F1 panel, or the player's Display settings. The player and
+editor menu persist the selection; the F1 panel uses its existing Save action.
+Skin textures are cached and switches replace all slots together without
+resetting notes, judgment state, or playback. Original design-00 source art is
+retained under `assets/Skins/lambdadx/source`, with its slot manifest in skin.json.
+
+`hit_fx` and `hide_slide_just` still respect saved settings. The shipped defaults
+enable both layers, but an existing `~/.lambdadx/note_params.json` (or legacy
+`output/note_params.json`) can disable them. No personal settings are overwritten.
+
+A short real-PadView smoke export, isolated from saved settings:
+
+```sh
+MAI2_CACHE_DIR=/tmp/lambdadx-pad-qa MAI2_DATA_DIR=/tmp/lambdadx-pad-qa cargo run --bin lambda_dx_pad_preview -- tools/fixtures/pad_feedback/maidata.txt /dev/null --diff 1 --export-core --export-video /tmp/lambdadx-pad-feedback.mp4 --export-size 900x900 --export-fps 60 --export-duration 16 --export-no-audio
+```
+
+Particle placement respects world-aligned versus local-aligned billboards.
+Rotating an emitter around the pad must not rotate world-aligned textures along
+with it; velocity-aligned sprites retain their independent pre-stretch spin.
+
 ```sh
 cargo test --no-default-features --features backend-none --bin lambdadx_effect_preview
 ```

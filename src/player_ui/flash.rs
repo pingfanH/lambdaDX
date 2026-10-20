@@ -96,6 +96,7 @@ pub enum Action {
     Section(usize),
     ToggleAudio,
     ResetSettings,
+    SetNoteSkin(crate::app::note_skin::NoteSkin),
     SetSlider(usize, f32),
     ToggleAutoplay,
     TogglePlay,
@@ -192,6 +193,9 @@ pub fn hits(page: &str) -> Vec<Hit> {
                     kind: Kind::Slider,
                     action: Action::SetSlider(i, 0.0),
                 });
+            }
+            for (i, skin) in crate::app::note_skin::NoteSkin::ALL.into_iter().enumerate() {
+                v.push(button("note_skin", 272.0 + i as f32 * 192.0, 632.0, 180.0, 46.0, "UI/ui_btn_quiet", Action::SetNoteSkin(skin)));
             }
             v
         }

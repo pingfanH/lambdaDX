@@ -12,6 +12,7 @@ pub struct Axis {
     pub reference: f32,
     pub pps: f32,
     pub lane_size: f32,
+    pub note_scale: f32,
 }
 
 impl Axis {
@@ -81,7 +82,7 @@ pub fn draw(app: &PadPreviewState, chart: &ChartDoc, axis: Axis) {
                 windows::hold_requirement(head, tail - head, note_is_touch(note))
             {
                 let offset =
-                    (22.0 * crate::app::params::get().editor_note_scale).min(axis.lane_size * 0.4);
+                    (22.0 * axis.note_scale).min(axis.lane_size * 0.4);
                 axis.fill(
                     axis.rect(lane + offset, 4.0, body.body_start, body.perfect_release),
                     hold_color,

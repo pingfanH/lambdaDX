@@ -9,6 +9,7 @@ pub mod egui_bridge;
 pub mod guide;
 pub mod maichart;
 pub mod maidata;
+pub mod note_skin;
 pub mod pad_svg;
 pub mod params;
 pub mod platform;

@@ -703,7 +703,7 @@ fn canonical_head_at(
             ),
         };
         let size = crate::timeline::notes::head_size(note)
-            * crate::app::params::get().editor_note_scale
+            * editor.note_scale()
             * editor.glyph_to_points;
         Rect::from_center_size(center, egui::Vec2::splat(size)).contains(pos)
     })

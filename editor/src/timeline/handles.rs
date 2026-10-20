@@ -140,7 +140,7 @@ pub fn draw(
             let note = chart.notes.iter().find(|n| n.id == id).unwrap();
             super::notes::head_size(note)
                 * editor.glyph_to_points
-                * crate::app::params::get().editor_note_scale.clamp(0.05, 8.0)
+                * editor.note_scale()
                 * 0.5
                 + 8.0
         } else {

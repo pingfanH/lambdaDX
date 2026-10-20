@@ -139,7 +139,7 @@ void main() {
     a1 *= 0.5 >= r ? (stripeZ ? 0.5 : 1.0) : 0.0;
     float fo = uFalloff * 0.2499 + 0.25;
     a1 *= clamp(-(r - fo) / (0.5 - fo) + 1.0, 0.0, 1.0);
-    gl_FragColor = vec4(rgb, a1 * 0.75);
+    gl_FragColor = vec4(rgb, a1 * 0.75 * uOpacity);
 }"#;
 
 pub struct EffectShaders {

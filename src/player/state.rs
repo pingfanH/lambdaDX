@@ -7,8 +7,9 @@ use crate::app::pad_svg::PadSvgDef;
 use crate::app::params;
 use crate::app::types::zone::PadZone;
 use crate::app::types::{
-    ChartDoc, HitFx, JudgeFeedback, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
+    ChartDoc, Mode, NOTE_SPEED, PadFeedback, SPEED_MAX, SPEED_MIN, WavPcm,
 };
+use crate::player::feedback::{FeedbackGrade, FeedbackResources, HitFx, JudgeFeedback};
 use crate::player::cues::CueTrack;
 use crate::player::video::VideoBg;
 
@@ -27,13 +28,16 @@ pub struct SlideProgress {
 }
 
 /// Seconds a slide `just` overlay stays on screen after its judgment.
-pub const SLIDE_JUST_DURATION: f64 = 0.65;
+pub const SLIDE_JUST_DURATION: f64 = super::render::slide_judgment::DURATION;
 
 /// Display grade for the slide `just` overlay, mapping lnmai-core's full
 /// fast/late grade set onto the shipped `Skins/classic/slideok` sprite variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlideJudgeGrade {
+    CriticalPerfect,
     Perfect,
+    FastPerfect,
+    LatePerfect,
     FastGreat,
     LateGreat,
     FastGood,
@@ -53,9 +57,9 @@ impl SlideJudgeGrade {
             LateGood => SlideJudgeGrade::LateGood,
             FastGreat | FastGreat2nd | FastGreat3rd => SlideJudgeGrade::FastGreat,
             LateGreat | LateGreat2nd | LateGreat3rd => SlideJudgeGrade::LateGreat,
-            Perfect | FastPerfect2nd | FastPerfect3rd | LatePerfect2nd | LatePerfect3rd => {
-                SlideJudgeGrade::Perfect
-            }
+            Perfect => SlideJudgeGrade::CriticalPerfect,
+            FastPerfect2nd | FastPerfect3rd => SlideJudgeGrade::FastPerfect,
+            LatePerfect2nd | LatePerfect3rd => SlideJudgeGrade::LatePerfect,
         }
     }
 
@@ -71,7 +75,8 @@ impl SlideJudgeGrade {
     /// Grade suffix appended after the shape (`_p`, `_fast_gr`, …).
     pub fn suffix(self) -> &'static str {
         match self {
-            SlideJudgeGrade::Perfect => "_p",
+            SlideJudgeGrade::CriticalPerfect | SlideJudgeGrade::Perfect
+            | SlideJudgeGrade::FastPerfect | SlideJudgeGrade::LatePerfect => "_p",
             SlideJudgeGrade::FastGreat => "_fast_gr",
             SlideJudgeGrade::LateGreat => "_late_gr",
             SlideJudgeGrade::FastGood => "_fast_gd",
@@ -82,7 +87,8 @@ impl SlideJudgeGrade {
 
     pub fn tint(self) -> Color {
         match self {
-            SlideJudgeGrade::Perfect => Color::from_rgba(255, 244, 179, 255),
+            SlideJudgeGrade::CriticalPerfect | SlideJudgeGrade::Perfect
+            | SlideJudgeGrade::FastPerfect | SlideJudgeGrade::LatePerfect => Color::from_rgba(255, 244, 179, 255),
             SlideJudgeGrade::FastGreat | SlideJudgeGrade::LateGreat => {
                 Color::from_rgba(120, 255, 160, 255)
             }
@@ -92,6 +98,22 @@ impl SlideJudgeGrade {
             SlideJudgeGrade::Miss | SlideJudgeGrade::TooFast => {
                 Color::from_rgba(255, 120, 120, 255)
             }
+        }
+    }
+
+    pub fn feedback(self) -> FeedbackGrade {
+        use crate::core::types::JudgeGrade as Core;
+        match self {
+            Self::CriticalPerfect => Core::Perfect.into(),
+            Self::Perfect => FeedbackGrade::from_label("Perfect"),
+            Self::FastPerfect => Core::FastPerfect2nd.into(),
+            Self::LatePerfect => Core::LatePerfect2nd.into(),
+            Self::FastGreat => Core::FastGreat.into(),
+            Self::LateGreat => Core::LateGreat.into(),
+            Self::FastGood => Core::FastGood.into(),
+            Self::LateGood => Core::LateGood.into(),
+            Self::Miss => Core::Miss.into(),
+            Self::TooFast => Core::TooFast.into(),
         }
     }
 }
@@ -252,6 +274,7 @@ pub struct PadPreviewState {
     pub prev_pointer_pos: HashMap<u64, Vec2>,
     pub pad_feedback: Vec<PadFeedback>,
     pub judge_feedback: Vec<JudgeFeedback>,
+    pub feedback_resources: Option<FeedbackResources>,
     /// One-shot tap-hit effects, pruned in `tick_feedback`.
     pub hit_fx: Vec<HitFx>,
 
@@ -269,6 +292,7 @@ pub struct PadPreviewState {
     /// to one of these lives in `crate::player::sfx` (a table like the skins).
     pub sfx_tap: Option<SfxBuffer>,
     pub sfx_touch: Option<SfxBuffer>,
+    pub sfx_hanabi: Option<SfxBuffer>,
     pub sfx_slide: Option<SfxBuffer>,
     pub sfx_hold: Option<SfxBuffer>,
     pub sfx_break: Option<SfxBuffer>,
@@ -283,6 +307,8 @@ pub struct PadPreviewState {
     pub cue_track: Option<CueTrack>,
 
     // ── Note textures ────────────────────────────────────────────────
+    pub loaded_note_skin: Option<crate::app::note_skin::NoteSkin>,
+    pub note_skin_cache: HashMap<crate::app::note_skin::NoteSkin, crate::player::render::textures::NoteTextures>,
     pub tap_texture: Option<Texture2D>,
     pub hold_texture: Option<Texture2D>,
     pub touch_tri_tex: Option<Texture2D>,
@@ -479,6 +505,7 @@ impl PadPreviewState {
             prev_pointer_pos: HashMap::new(),
             pad_feedback: Vec::new(),
             judge_feedback: Vec::new(),
+            feedback_resources: None,
             hit_fx: Vec::new(),
             audio_source_name,
             audio_wav_pcm,
@@ -490,6 +517,7 @@ impl PadPreviewState {
             answer_sfx: None,
             sfx_tap: None,
             sfx_touch: None,
+            sfx_hanabi: None,
             sfx_slide: None,
             sfx_hold: None,
             sfx_break: None,
@@ -499,6 +527,8 @@ impl PadPreviewState {
             sfx_slide_break_start: None,
             sfx_slide_break_slide: None,
             cue_track,
+            loaded_note_skin: None,
+            note_skin_cache: HashMap::new(),
             tap_texture: None,
             hold_texture: None,
             touch_tri_tex: None,
@@ -971,12 +1001,8 @@ impl PadPreviewState {
         self.judge_feedback.retain(|f| f.until > clock);
         self.hit_fx
             .retain(|f| clock - f.started < f.duration as f64);
-        // Slide results can be produced while paused because the core still
-        // steps frames at the frozen current time. Their overlay lifetime must
-        // use wall time so the result appears and fades immediately.
-        let wall_time = self.now();
         self.slide_judge
-            .retain(|_, fx| wall_time - fx.started < SLIDE_JUST_DURATION);
+            .retain(|_, fx| clock - fx.started < SLIDE_JUST_DURATION);
     }
 
     /// Clock used for transient feedback lifetimes: the deterministic export
@@ -1016,40 +1042,45 @@ impl PadPreviewState {
         });
     }
 
-    pub fn push_judgement(&mut self, zone: PadZone, label: &str, duration: f64) {
-        let now = self.fx_clock();
-        self.judge_feedback.push(JudgeFeedback {
-            zone,
-            label: label.to_string(),
-            color: Color::new(1.0, 1.0, 1.0, 1.0),
-            started: now,
-            until: now + duration,
-        });
-    }
-
-    /// Spawn a one-shot tap-hit effect at `zone`, tinted by the judge `label`
-    /// (break notes are orange; misses grey-red).
-    pub fn push_hit_fx(&mut self, zone: PadZone, label: &str, is_break: bool) {
-        let now = self.fx_clock();
-        self.hit_fx.push(HitFx {
-            zone,
-            started: now,
-            duration: params::hit_fx_duration().max(0.05),
-            color: hit_fx_color(label, is_break),
-            is_break,
-            seed: (now.fract() as f32) * std::f32::consts::TAU,
-        });
-    }
-
     /// Record a slide `just` overlay when lnmai-core reports a slide judgment.
     pub fn record_slide_judge(&mut self, note_id: u64, slide_idx: usize, grade: SlideJudgeGrade) {
+        let started = if self.autoplay && crate::app::params::fx_timeline() {
+            // Replay judgments start at arrival, not when a later engine tick reports completion.
+            self.playback_chart().notes.iter().find(|note| note.id == note_id)
+                .and_then(|note| self.slide_arrival(note, slide_idx))
+                .unwrap_or_else(|| self.fx_clock())
+        } else {
+            self.fx_clock()
+        };
         self.slide_judge.insert(
             (note_id, slide_idx),
             SlideJudgeFx {
                 grade,
-                started: self.now(),
+                started,
             },
         );
+    }
+
+    fn slide_arrival(&self, note: &crate::app::types::Note, slide_idx: usize) -> Option<f64> {
+        let slide = note.slide.get(slide_idx)?;
+        let bpms = &self.playback_chart().bpms;
+        Some(f64::from(crate::app::types::note_secs(note, bpms)
+            + crate::app::types::mdur_to_secs(slide.slide_duration, note.time, bpms)
+                .max(crate::app::types::SLIDE_MIN_DURATION_S)))
+    }
+
+    pub fn slide_judgment(&self, note: &crate::app::types::Note, slide_idx: usize) -> Option<SlideJudgeFx> {
+        if let Some(fx) = self.slide_judge.get(&(note.id, slide_idx)) {
+            return Some(*fx);
+        }
+        // The replay is timeline-driven even before the next core result arrives.
+        if self.autoplay && crate::app::params::fx_timeline() {
+            let started = self.slide_arrival(note, slide_idx)?;
+            if (0.0..SLIDE_JUST_DURATION).contains(&(self.fx_clock() - started)) {
+                return Some(SlideJudgeFx { grade: SlideJudgeGrade::CriticalPerfect, started });
+            }
+        }
+        None
     }
 
     // ── lnmai-core judgment engine ───────────────────────────────────
@@ -1149,6 +1180,8 @@ impl PadPreviewState {
         self.hidden_notes.clear();
         self.hold_head_hits.clear();
         self.simai_source = Some(simai_text.to_string());
+        self.judge_feedback.clear();
+        self.hit_fx.clear();
         self.simai_level = level_index;
         self.simai_fragments =
             crate::app::maidata::simai_timeline(simai_text, level_index).unwrap_or_default();
@@ -1566,26 +1599,6 @@ fn env_autoplay_tactic_path() -> Option<std::path::PathBuf> {
     std::env::var_os("MAI2_AUTOPLAY_TACTIC").map(std::path::PathBuf::from)
 }
 
-/// Judge-label → hit-effect tint.
-fn hit_fx_color(label: &str, is_break: bool) -> Color {
-    let l = label.to_ascii_lowercase();
-    if l.contains("miss") {
-        return Color::from_rgba(200, 90, 90, 255);
-    }
-    if is_break {
-        return Color::from_rgba(255, 150, 60, 255);
-    }
-    if l.contains("perfect") {
-        Color::from_rgba(255, 214, 76, 255)
-    } else if l.contains("great") {
-        Color::from_rgba(120, 220, 255, 255)
-    } else if l.contains("good") {
-        Color::from_rgba(130, 240, 130, 255)
-    } else {
-        Color::from_rgba(255, 255, 255, 255)
-    }
-}
-
 fn note_end_seconds(note: &crate::app::types::Note, bpms: &[crate::app::types::BpmChange]) -> f32 {
     use crate::app::types::{NoteType, hold_tail_time, note_secs, slide_end_time};
     match note.note_type {
@@ -1598,6 +1611,70 @@ fn note_end_seconds(note: &crate::app::types::Note, bpms: &[crate::app::types::B
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slide_judgment_expires_after_source_animation_finishes() {
+        let chart = serde_json::from_str(r#"{"version":"1","title":"","bpm":120,"notes":[]}"#).unwrap();
+        let mut app = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        app.mode = Mode::Playing;
+        app.forced_time = Some(1.0);
+        app.record_slide_judge(1, 0, SlideJudgeGrade::CriticalPerfect);
+        app.forced_time = Some(1.34);
+        app.tick_feedback();
+        assert!(app.slide_judge.is_empty(), "source slide judgment ends at 333.33ms, not 650ms");
+    }
+
+    #[test]
+    fn slide_judgment_freezes_on_pause_and_uses_playback_time() {
+        let previous = crate::app::params::get();
+        let mut params = previous.clone();
+        params.fx_timeline = true;
+        crate::app::params::set(params);
+        let chart = serde_json::from_str(r#"{"version":"1","title":"","bpm":120,"notes":[]}"#).unwrap();
+        let mut app = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        app.mode = Mode::Playing;
+        app.play_speed = 2.0;
+        app.forced_time = Some(1.0);
+        app.record_slide_judge(1, 0, SlideJudgeGrade::CriticalPerfect);
+        app.forced_time = Some(1.1);
+        app.toggle_play();
+        app.forced_time = Some(10.0);
+        app.tick_feedback();
+        let fx = app.slide_judge.get(&(1, 0)).unwrap();
+        assert!((app.fx_clock() - fx.started - 0.1).abs() < 0.00001);
+        app.mode = Mode::Playing;
+        app.forced_time = Some(1.34);
+        app.tick_feedback();
+        assert!(app.slide_judge.is_empty());
+        crate::app::params::set(previous);
+    }
+
+    #[test]
+    fn autoplay_slide_animation_starts_at_arrival_not_the_engine_tick() {
+        let previous = crate::app::params::get();
+        let mut params = previous.clone();
+        params.fx_timeline = true;
+        crate::app::params::set(params);
+        let chart = crate::app::maidata::from_maidata("&inote_1=(120){4}1-5[4:1],,,,E", None).unwrap();
+        let note = &chart.notes[0];
+        let arrival = crate::app::types::slide_end_time(note, &chart.bpms) as f64;
+        let mut app = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        let id = app.chart.notes[0].id;
+        app.mode = Mode::Playing;
+        app.autoplay = true;
+        app.forced_time = Some(arrival as f32 + 1.0 / 120.0);
+        assert_eq!(app.slide_judgment(&app.chart.notes[0], 0).unwrap().started, arrival);
+        assert!(app.slide_judge.is_empty(), "rendering must not fabricate engine results");
+        app.forced_time = Some(arrival as f32 + 0.025);
+        app.record_slide_judge(id, 0, SlideJudgeGrade::CriticalPerfect);
+        assert_eq!(app.slide_judge[&(id, 0)].started, arrival);
+        app.autoplay = false;
+        app.record_slide_judge(id, 0, SlideJudgeGrade::CriticalPerfect);
+        assert!((app.slide_judge[&(id, 0)].started - arrival - 0.025).abs() < 0.00001);
+        app.slide_judge.clear();
+        assert!(app.slide_judgment(&app.chart.notes[0], 0).is_none());
+        crate::app::params::set(previous);
+    }
 
     #[cfg(feature = "backend-lean")]
     #[test]
@@ -1674,14 +1751,6 @@ mod tests {
         }
     }
 
-    fn rgb(c: Color) -> (u8, u8, u8) {
-        (
-            (c.r * 255.0).round() as u8,
-            (c.g * 255.0).round() as u8,
-            (c.b * 255.0).round() as u8,
-        )
-    }
-
     #[cfg(feature = "backend-lean")]
     #[test]
     fn autoplay_resumes_crossing_hold_and_next_note_in_both_input_modes() {
@@ -1716,14 +1785,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn hit_fx_color_tracks_grade_and_break() {
-        assert_eq!(rgb(hit_fx_color("Perfect", false)), (255, 214, 76));
-        assert_eq!(rgb(hit_fx_color("Great", false)), (120, 220, 255));
-        assert_eq!(rgb(hit_fx_color("Good", false)), (130, 240, 130));
-        assert_eq!(rgb(hit_fx_color("Miss", false)), (200, 90, 90));
-        // Break overrides the grade tint with orange (except misses).
-        assert_eq!(rgb(hit_fx_color("Perfect", true)), (255, 150, 60));
-        assert_eq!(rgb(hit_fx_color("Miss", true)), (200, 90, 90));
-    }
 }

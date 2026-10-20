@@ -349,7 +349,7 @@ fn draw_tap(
             draw_body();
         }
         if note.is_ex {
-            if let Some(ex_tex) = skin::ex(app, skin::SkinKind::Tap) {
+            if let Some(ex_tex) = skin::note_ex(app, skin::SkinKind::Tap, note) {
                 draw_texture_ex(
                     ex_tex,
                     px - ts * 0.5,
@@ -437,7 +437,7 @@ fn draw_hold(
             draw_body();
         }
         if note.is_ex {
-            if let Some(ex_tex) = skin::ex(app, skin::SkinKind::Hold) {
+            if let Some(ex_tex) = skin::note_ex(app, skin::SkinKind::Hold, note) {
                 draw_hold_9slice_segment(
                     ex_tex,
                     head_pos,

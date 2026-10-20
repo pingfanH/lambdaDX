@@ -59,7 +59,8 @@ pub fn save_chart(editor: &mut EditorState, chart: &ChartDoc) {
     let Some(source) = editor.source.as_ref() else {
         return;
     };
-    let result = save_to_source(source, &chart);
+    let document = editor.simai_editor.document();
+    let result = save_to_source(source, &chart, document.as_ref());
     if result.is_ok() { crate::templates::mark_saved(editor); }
     editor.status = Some(match result {
         Ok(path) => format!("Saved {}", path.display()),
@@ -112,21 +113,27 @@ pub fn save_document(editor: &mut EditorState, chart: &mut ChartDoc) {
     save_chart(editor, chart);
 }
 
-fn save_to_source(source: &ChartSource, chart: &ChartDoc) -> Result<PathBuf, String> {
+fn save_to_source(source: &ChartSource, chart: &ChartDoc, document: Option<&crate::simai_editor::format::Document>) -> Result<PathBuf, String> {
     let original = std::fs::read_to_string(&source.path)
         .map_err(|error| format!("read {}: {error}", source.path.display()))?;
-    let text = source_text(source, chart, &original)?;
+    let text = source_text_with_document(source, chart, &original, document)?;
     atomic_write(&source.path, &text)?;
     Ok(source.path.clone())
 }
 
 fn source_text(source: &ChartSource, chart: &ChartDoc, original: &str) -> Result<String, String> {
+    source_text_with_document(source, chart, original, None)
+}
+
+fn source_text_with_document(
+    source: &ChartSource, chart: &ChartDoc, original: &str, document: Option<&crate::simai_editor::format::Document>,
+) -> Result<String, String> {
     if source.is_simai() {
         let level = source.level.ok_or("No loaded Simai difficulty")?;
         if !crate::app::maidata::inote_keys(&original).contains(&level) {
             return Err(format!("Source no longer contains &inote_{level}; reload or Save As"));
         }
-        simai::document(chart, level, original)
+        simai::document_with_source(chart, level, original, document)
     } else {
         native_json(chart, original)
     }
@@ -164,7 +171,8 @@ pub fn export_to(editor: &EditorState, chart: &ChartDoc, path: &Path) -> Result<
     let mut expanded = crate::app::templates::expand(&canonical);
     expanded.templates.clear();
     expanded.autoplay_overrides.clear();
-    atomic_write(path, &simai::document(&expanded, level, &original)?)?;
+    let document = editor.simai_editor.document();
+    atomic_write(path, &simai::document_with_source(&expanded, level, &original, document.as_ref())?)?;
     Ok(path.to_path_buf())
 }
 
@@ -175,7 +183,7 @@ fn save_as_to(editor: &mut EditorState, chart: &ChartDoc, path: &Path) -> Result
         return Err("Templates and Autoplay edits require .json; use Export for flattened Simai".into());
     }
     let source = if let Some(source) = editor.source.as_ref().filter(|s| same_path(&s.path, path)) {
-        save_to_source(source, &chart)?;
+        save_to_source(source, &chart, editor.simai_editor.document().as_ref())?;
         source.clone()
     } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("json")) {
         atomic_write(path, &native_json(&chart, "{}")?)?;
@@ -185,7 +193,8 @@ fn save_as_to(editor: &mut EditorState, chart: &ChartDoc, path: &Path) -> Result
         let original = editor.source.as_ref().filter(|s| s.is_simai())
             .map(|s| std::fs::read_to_string(&s.path).map_err(|error| error.to_string()))
             .transpose()?.unwrap_or_default();
-        atomic_write(path, &simai::document(&chart, level, &original)?)?;
+        let document = editor.simai_editor.document();
+        atomic_write(path, &simai::document_with_source(&chart, level, &original, document.as_ref())?)?;
         ChartSource {
             path: path.to_path_buf(),
             level: Some(editor.source.as_ref().and_then(|s| s.level).unwrap_or(6)),

@@ -1,0 +1,1308 @@
+{
+  "id": "lambdadx",
+  "name": "LambdaDX",
+  "design": "00",
+  "source": "https://maiwiki.moe/gameresources/sprites",
+  "slots": {
+    "tap": {
+      "source": "tap/Tap_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          28.07612,
+          28.07612,
+          123.847755,
+          123.847755
+        ],
+        "pivot": [
+          0.50000006,
+          0.50000006
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "tap_each": {
+      "source": "tap/Tap_Each_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          28.07612,
+          28.07612,
+          123.847755,
+          123.847755
+        ],
+        "pivot": [
+          0.50000006,
+          0.50000006
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "tap_break": {
+      "source": "break/Break_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          28.07612,
+          28.07612,
+          123.847755,
+          123.847755
+        ],
+        "pivot": [
+          0.50000006,
+          0.50000006
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "tap_ex": {
+      "source": "tap/Tap_Ex_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          26.07612,
+          26.07612,
+          127.847755,
+          127.847755
+        ],
+        "pivot": [
+          0.50000006,
+          0.50000006
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "tap_break_ex": {
+      "source": "break/Break_Ex_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          26.07612,
+          26.07612,
+          127.847755,
+          127.847755
+        ],
+        "pivot": [
+          0.50000006,
+          0.50000006
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "hold": {
+      "source": "hold/Hold_00",
+      "metadata": {
+        "tex": [
+          122,
+          200
+        ],
+        "rect": [
+          0,
+          0,
+          122,
+          200
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          70,
+          0,
+          70
+        ],
+        "ppu": 1
+      }
+    },
+    "hold_each": {
+      "source": "hold/Hold_Each_00",
+      "metadata": {
+        "tex": [
+          122,
+          200
+        ],
+        "rect": [
+          0,
+          0,
+          122,
+          200
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          70,
+          0,
+          70
+        ],
+        "ppu": 1
+      }
+    },
+    "hold_break": {
+      "source": "breakhold/BreakHold_00",
+      "metadata": {
+        "tex": [
+          122,
+          200
+        ],
+        "rect": [
+          0,
+          0,
+          122,
+          200
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          70,
+          0,
+          70
+        ],
+        "ppu": 1
+      }
+    },
+    "hold_ex": {
+      "source": "hold/Hold_Ex_00",
+      "metadata": {
+        "tex": [
+          122,
+          200
+        ],
+        "rect": [
+          0,
+          0,
+          122,
+          200
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          70,
+          0,
+          70
+        ],
+        "ppu": 1
+      }
+    },
+    "hold_break_ex": {
+      "source": "breakhold/BreakHold_Ex_00",
+      "metadata": {
+        "tex": [
+          122,
+          200
+        ],
+        "rect": [
+          0,
+          0,
+          122,
+          200
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          70,
+          0,
+          70
+        ],
+        "ppu": 1
+      }
+    },
+    "Hold_End": {
+      "source": "hold/Hold_End",
+      "metadata": {
+        "tex": [
+          64,
+          64
+        ],
+        "rect": [
+          0,
+          0,
+          64,
+          64
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "Hold_Each_End": {
+      "source": "hold/Hold_Each_End",
+      "metadata": {
+        "tex": [
+          64,
+          64
+        ],
+        "rect": [
+          0,
+          0,
+          64,
+          64
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "Hold_Break_End": {
+      "source": "breakhold/BreakHold_End",
+      "metadata": {
+        "tex": [
+          64,
+          64
+        ],
+        "rect": [
+          0,
+          0,
+          64,
+          64
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star": {
+      "source": "star/Star_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          29.02675,
+          35.076122,
+          121.897125,
+          118.84775
+        ],
+        "pivot": [
+          0.50020254,
+          0.46213645
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_each": {
+      "source": "star/Star_Each_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          29.02675,
+          35.076122,
+          121.897125,
+          118.84775
+        ],
+        "pivot": [
+          0.50020254,
+          0.46213645
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_break": {
+      "source": "breakstar/BreakStar_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          29.02675,
+          35.076122,
+          121.897125,
+          118.84775
+        ],
+        "pivot": [
+          0.50020254,
+          0.46213645
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_ex": {
+      "source": "star/Star_Ex_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          28.02675,
+          33.076122,
+          123.92555,
+          122.897125
+        ],
+        "pivot": [
+          0.5000845,
+          0.46318316
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_break_ex": {
+      "source": "breakstar/BreakStar_Ex_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          28.02675,
+          33.076122,
+          123.92555,
+          122.897125
+        ],
+        "pivot": [
+          0.5000845,
+          0.46318316
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_double": {
+      "source": "star/Star_Double_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          29.02675,
+          27.07612,
+          121.9465,
+          126.847755
+        ],
+        "pivot": [
+          0.5,
+          0.4960583
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_double_each": {
+      "source": "star/Star_Each_Double_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          30.02675,
+          27.07612,
+          121.9465,
+          126.847755
+        ],
+        "pivot": [
+          0.49179968,
+          0.4960583
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_double_break": {
+      "source": "breakstar/BreakStar_Double_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          29.02675,
+          27.07612,
+          121.9465,
+          126.847755
+        ],
+        "pivot": [
+          0.5,
+          0.4960583
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_double_ex": {
+      "source": "star/Star_Ex_Double_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          27.02675,
+          25.02675,
+          126.9465,
+          130.89713
+        ],
+        "pivot": [
+          0.49606133,
+          0.49636883
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "star_double_break_ex": {
+      "source": "breakstar/BreakStar_Ex_Double_00",
+      "metadata": {
+        "tex": [
+          180,
+          180
+        ],
+        "rect": [
+          27.02675,
+          25.02675,
+          126.9465,
+          130.89713
+        ],
+        "pivot": [
+          0.49606133,
+          0.49636883
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "slide": {
+      "source": "slide/Slide_00",
+      "metadata": {
+        "tex": [
+          70,
+          94
+        ],
+        "rect": [
+          0.076120496,
+          0.036285102,
+          69.89713,
+          93.936966
+        ],
+        "pivot": [
+          0.49964678,
+          0.49994925
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "slide_each": {
+      "source": "slide/Slide_Each_00",
+      "metadata": {
+        "tex": [
+          70,
+          94
+        ],
+        "rect": [
+          0.076120496,
+          0.036285102,
+          69.89713,
+          93.936966
+        ],
+        "pivot": [
+          0.49964678,
+          0.49994925
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "slide_break": {
+      "source": "breakslide/BreakSlide_00",
+      "metadata": {
+        "tex": [
+          70,
+          94
+        ],
+        "rect": [
+          0.076120496,
+          0.036285102,
+          69.89713,
+          93.936966
+        ],
+        "pivot": [
+          0.49964678,
+          0.49994925
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touch": {
+      "source": "touchtap/UI_NOTES_Touch_01",
+      "metadata": {
+        "tex": [
+          112,
+          82
+        ],
+        "rect": [
+          0,
+          0,
+          112,
+          82
+        ],
+        "pivot": [
+          0.49999997,
+          0.75
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touch_each": {
+      "source": "touchtap/UI_NOTES_Touch_Each_01",
+      "metadata": {
+        "tex": [
+          112,
+          82
+        ],
+        "rect": [
+          0,
+          0,
+          112,
+          82
+        ],
+        "pivot": [
+          0.5,
+          0.75
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touch_point": {
+      "source": "touchtap/UI_NOTES_Touch_Point",
+      "metadata": {
+        "tex": [
+          32,
+          32
+        ],
+        "rect": [
+          0,
+          0,
+          32,
+          32
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touch_point_each": {
+      "source": "touchtap/UI_NOTES_Touch_Each_Point",
+      "metadata": {
+        "tex": [
+          32,
+          32
+        ],
+        "rect": [
+          0,
+          0,
+          32,
+          32
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touchhold_border": {
+      "source": "touchhold/UI_NOTES_Touch_Hold_hold",
+      "metadata": {
+        "tex": [
+          211,
+          210
+        ],
+        "rect": [
+          0,
+          0,
+          211,
+          210
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "tap_guide": {
+      "source": "guide/Normal",
+      "metadata": {
+        "tex": [
+          1080,
+          1080
+        ],
+        "rect": [
+          0,
+          0,
+          1080,
+          1080
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "Each": {
+      "source": "guide/Each",
+      "metadata": {
+        "tex": [
+          1080,
+          1080
+        ],
+        "rect": [
+          0,
+          0,
+          1080,
+          1080
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "Break": {
+      "source": "guide/Break",
+      "metadata": {
+        "tex": [
+          1080,
+          1080
+        ],
+        "rect": [
+          0,
+          0,
+          1080,
+          1080
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "slide_guide": {
+      "source": "guide/Slide",
+      "metadata": {
+        "tex": [
+          1080,
+          1080
+        ],
+        "rect": [
+          0,
+          0,
+          1080,
+          1080
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touchhold_0": {
+      "source": "touchhold/UI_NOTES_Touch_Hold_01",
+      "metadata": {
+        "tex": [
+          112,
+          82
+        ],
+        "rect": [
+          0,
+          0,
+          112,
+          82
+        ],
+        "pivot": [
+          0.5,
+          0.75
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touchhold_1": {
+      "source": "touchhold/UI_NOTES_Touch_Hold_02",
+      "metadata": {
+        "tex": [
+          112,
+          82
+        ],
+        "rect": [
+          0,
+          0,
+          112,
+          82
+        ],
+        "pivot": [
+          0.5,
+          0.75
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touchhold_2": {
+      "source": "touchhold/UI_NOTES_Touch_Hold_03",
+      "metadata": {
+        "tex": [
+          112,
+          82
+        ],
+        "rect": [
+          0,
+          0,
+          112,
+          82
+        ],
+        "pivot": [
+          0.5,
+          0.75
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "touchhold_3": {
+      "source": "touchhold/UI_NOTES_Touch_Hold_04",
+      "metadata": {
+        "tex": [
+          112,
+          82
+        ],
+        "rect": [
+          0,
+          0,
+          112,
+          82
+        ],
+        "pivot": [
+          0.5,
+          0.75
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_0": {
+      "source": "slidefan/MM_UI_Game_053",
+      "metadata": {
+        "tex": [
+          57,
+          53
+        ],
+        "rect": [
+          0,
+          0,
+          57,
+          53
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_1": {
+      "source": "slidefan/MM_UI_Game_054",
+      "metadata": {
+        "tex": [
+          81,
+          63
+        ],
+        "rect": [
+          0,
+          0,
+          81,
+          63
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_2": {
+      "source": "slidefan/MM_UI_Game_055",
+      "metadata": {
+        "tex": [
+          108,
+          75
+        ],
+        "rect": [
+          0,
+          0,
+          108,
+          75
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_3": {
+      "source": "slidefan/MM_UI_Game_056",
+      "metadata": {
+        "tex": [
+          132,
+          87
+        ],
+        "rect": [
+          0,
+          0,
+          132,
+          87
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_4": {
+      "source": "slidefan/MM_UI_Game_057",
+      "metadata": {
+        "tex": [
+          156,
+          98
+        ],
+        "rect": [
+          0,
+          0,
+          156,
+          98
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_5": {
+      "source": "slidefan/MM_UI_Game_058",
+      "metadata": {
+        "tex": [
+          186,
+          111
+        ],
+        "rect": [
+          0,
+          0,
+          186,
+          111
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_6": {
+      "source": "slidefan/MM_UI_Game_059",
+      "metadata": {
+        "tex": [
+          215,
+          129
+        ],
+        "rect": [
+          0,
+          0,
+          215,
+          129
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_7": {
+      "source": "slidefan/MM_UI_Game_060",
+      "metadata": {
+        "tex": [
+          243,
+          141
+        ],
+        "rect": [
+          0,
+          0,
+          243,
+          141
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_8": {
+      "source": "slidefan/MM_UI_Game_061",
+      "metadata": {
+        "tex": [
+          276,
+          156
+        ],
+        "rect": [
+          0,
+          2.026751,
+          276,
+          153.97325
+        ],
+        "pivot": [
+          0.5,
+          0.4934185
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_9": {
+      "source": "slidefan/MM_UI_Game_062",
+      "metadata": {
+        "tex": [
+          306,
+          163
+        ],
+        "rect": [
+          0,
+          0,
+          306,
+          163
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    },
+    "wifi_10": {
+      "source": "slidefan/MM_UI_Game_063",
+      "metadata": {
+        "tex": [
+          339,
+          177
+        ],
+        "rect": [
+          0,
+          0,
+          339,
+          177
+        ],
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "border": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ppu": 1
+      }
+    }
+  }
+}

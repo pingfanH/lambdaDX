@@ -64,7 +64,7 @@ pub fn draw_pad_sim(app: &PadPreviewState, cx: f32, cy: f32, outer_r: f32, scale
 }
 
 /// Transparent host preview. Restore the host backdrop outside the circle
-/// after notes, before judgment effects, to retain the usual circular clipping.
+/// after notes and hit effects, before judgment labels, for circular clipping.
 pub fn draw_pad_sim_transparent(
     app: &PadPreviewState,
     cx: f32,
@@ -118,13 +118,14 @@ fn draw_pad_sim_impl(
         app.play_speed.max(0.1)
     };
     if !params::hide_notes() {
+        // Notes cover all effects, including fireworks and every fallback.
+        crate::player::render::hit_fx::draw(app, &pad, outer_r, spawn_cx, scale);
         crate::player::render::notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale);
-        crate::player::render::slide::draw_just_overlays(app, &pad, scale, spawn_cx);
     }
     draw_boundary(&pad);
     if !params::hide_notes() {
         crate::player::render::judgment::draw(app, &pad, scale, spawn_cx, current_t, speed_scale);
-        crate::player::render::hit_fx::draw(app, &pad, outer_r, spawn_cx, scale);
+        crate::player::render::slide::draw_just_overlays(app, &pad, scale, spawn_cx);
         crate::player::render::feedback::draw(app, &pad, outer_r, spawn_cx, scale);
         crate::player::render::notes::draw_judge_dots(
             app, &pad, scale, spawn_cx, current_t, speed_scale,

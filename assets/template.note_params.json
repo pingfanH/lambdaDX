@@ -21,54 +21,7 @@
   "note_earlier_on_top": true,
   "slide_tile_reverse": true,
   "slide_sub_reverse": false,
-  "slide_just_str_l": {
-    "scale": 1.0,
-    "rot": 0.0,
-    "off_x": 0.0,
-    "off_y": 0.0,
-    "flip_x": false,
-    "flip_y": false
-  },
-  "slide_just_str_r": {
-    "scale": 1.0,
-    "rot": 0.0,
-    "off_x": 0.0,
-    "off_y": 0.0,
-    "flip_x": false,
-    "flip_y": false
-  },
-  "slide_just_curv_l": {
-    "scale": 1.0,
-    "rot": 0.0,
-    "off_x": 0.0,
-    "off_y": 0.0,
-    "flip_x": false,
-    "flip_y": false
-  },
-  "slide_just_curv_r": {
-    "scale": 1.0,
-    "rot": 0.0,
-    "off_x": 0.0,
-    "off_y": 0.0,
-    "flip_x": false,
-    "flip_y": false
-  },
-  "slide_just_wifi_u": {
-    "scale": 1.0,
-    "rot": 0.0,
-    "off_x": 0.0,
-    "off_y": 0.0,
-    "flip_x": false,
-    "flip_y": false
-  },
-  "slide_just_wifi_d": {
-    "scale": 1.0,
-    "rot": 0.0,
-    "off_x": 0.0,
-    "off_y": 0.0,
-    "flip_x": false,
-    "flip_y": false
-  },
+  "slide_just_scale": 1.0,
   "touch_cross_size": 65.0,
   "touch_start_dist": 30.0,
   "touch_end_dist": 10.0,
@@ -118,6 +71,7 @@
   "hit_fx": true,
   "fx_timeline": true,
   "hit_fx_size": 25.0,
+  "hanabi_fx_scale": 1.0,
   "hit_fx_duration": 0.5099998,
   "hit_fx_alpha": 230.0,
   "hit_fx_ring": 2.5,

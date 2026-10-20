@@ -1,0 +1,2854 @@
+{
+  "judge/UI_GAM_Break": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Critical": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Critical_Break": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Fast": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_FastGood": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_FastGreat": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_FastPerfect": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Good": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Great": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Late": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_LateGood": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_LateGreat": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_LatePerfect": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Miss": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Perfect": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "judge/UI_GAM_Perfect_Break": {
+    "tex": [
+      223,
+      82
+    ],
+    "rect": [
+      0,
+      0,
+      223,
+      82
+    ],
+    "pivot": [
+      0.5,
+      0.5
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_Critical": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_Critical_Break": {
+    "tex": [
+      412,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      412,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_Fast": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_FastGood_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_FastGood_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_FastGreat_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_FastGreat_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_FastPerfect_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_FastPerfect_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_Late": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_LateGood_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_LateGood_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_LateGreat_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_LateGreat_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_LatePerfect_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_LatePerfect_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_Perfect": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_L_Perfect_Break": {
+    "tex": [
+      412,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      412,
+      140
+    ],
+    "pivot": [
+      0,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_Critical": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_Critical_Break": {
+    "tex": [
+      412,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      412,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_Fast": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_FastGood_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_FastGood_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_FastGreat_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_FastGreat_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_FastPerfect_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_FastPerfect_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_Late": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_LateGood_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_LateGood_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_LateGreat_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_LateGreat_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_LatePerfect_01": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_LatePerfect_02": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_Perfect": {
+    "tex": [
+      410,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      410,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidecirclejudge/UI_GAM_SlideCircle_R_Perfect_Break": {
+    "tex": [
+      412,
+      140
+    ],
+    "rect": [
+      0,
+      0,
+      412,
+      140
+    ],
+    "pivot": [
+      1,
+      0.3
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_Critical": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_Critical_Break": {
+    "tex": [
+      668,
+      186
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      186
+    ],
+    "pivot": [
+      0.5,
+      0.2
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_Fast": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_FastGood_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_FastGood_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_FastGreat_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_FastGreat_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_FastPerfect_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_FastPerfect_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_Late": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_LateGood_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_LateGood_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_LateGreat_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_LateGreat_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_LatePerfect_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_LatePerfect_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_Perfect": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.20000002
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_D_Perfect_Break": {
+    "tex": [
+      668,
+      186
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      186
+    ],
+    "pivot": [
+      0.5,
+      0.2
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_Critical": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_Critical_Break": {
+    "tex": [
+      668,
+      186
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      186
+    ],
+    "pivot": [
+      0.5,
+      0.8
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_Fast": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_FastGood_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_FastGood_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_FastGreat_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_FastGreat_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_FastPerfect_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_FastPerfect_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_Late": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_LateGood_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_LateGood_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_LateGreat_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_LateGreat_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_LatePerfect_01": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_LatePerfect_02": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_Perfect": {
+    "tex": [
+      668,
+      188
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      188
+    ],
+    "pivot": [
+      0.5,
+      0.8000001
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidefanjudge/UI_GAM_SlideFan_U_Perfect_Break": {
+    "tex": [
+      668,
+      186
+    ],
+    "rect": [
+      0,
+      0,
+      668,
+      186
+    ],
+    "pivot": [
+      0.5,
+      0.8
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_Critical": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_Critical_Break": {
+    "tex": [
+      426,
+      140
+    ],
+    "rect": [
+      20.07612,
+      0,
+      378.84778,
+      108.92388
+    ],
+    "pivot": [
+      -0.05299258,
+      0.6426506
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_Fast": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      27.07612,
+      378.84778,
+      81.84776
+    ],
+    "pivot": [
+      -0.058271743,
+      0.52443564
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_FastGood_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_FastGood_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_FastGreat_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.0761205,
+      378.84778,
+      107.84776
+    ],
+    "pivot": [
+      -0.058271743,
+      0.63908494
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_FastGreat_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.0761205,
+      378.84778,
+      107.84776
+    ],
+    "pivot": [
+      -0.058271743,
+      0.63908494
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_FastPerfect_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_FastPerfect_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_Late": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      27.07612,
+      378.84778,
+      81.84776
+    ],
+    "pivot": [
+      -0.058271743,
+      0.52443564
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_LateGood_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_LateGood_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_LateGreat_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.0761205,
+      378.84778,
+      107.84776
+    ],
+    "pivot": [
+      -0.058271743,
+      0.63908494
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_LateGreat_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.0761205,
+      378.84778,
+      107.84776
+    ],
+    "pivot": [
+      -0.058271743,
+      0.63908494
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_LatePerfect_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_LatePerfect_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_Perfect": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_L_Perfect_Break": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      22.07612,
+      0,
+      378.84778,
+      108.92388
+    ],
+    "pivot": [
+      -0.058271743,
+      0.6426506
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_Critical": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_Critical_Break": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      0,
+      378.84778,
+      108.92388
+    ],
+    "pivot": [
+      1.0556321,
+      0.6426506
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_Fast": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      27.07612,
+      378.84778,
+      81.84776
+    ],
+    "pivot": [
+      1.0556321,
+      0.52443564
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_FastGood_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_FastGood_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_FastGreat_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.0761205,
+      378.84778,
+      107.84776
+    ],
+    "pivot": [
+      1.0556321,
+      0.63908494
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_FastGreat_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.0761205,
+      378.84778,
+      107.84776
+    ],
+    "pivot": [
+      1.0556321,
+      0.63908494
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_FastPerfect_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_FastPerfect_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_Late": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      27.07612,
+      378.84778,
+      81.84776
+    ],
+    "pivot": [
+      1.0556321,
+      0.52443564
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_LateGood_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_LateGood_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_LateGreat_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.0761205,
+      378.84778,
+      107.84776
+    ],
+    "pivot": [
+      1.0556321,
+      0.63908494
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_LateGreat_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.0761205,
+      378.84778,
+      107.84776
+    ],
+    "pivot": [
+      1.0556321,
+      0.63908494
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_LatePerfect_01": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_LatePerfect_02": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_Perfect": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      1.026751,
+      378.84778,
+      107.89713
+    ],
+    "pivot": [
+      1.0556321,
+      0.6392501
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  },
+  "slidejudge/UI_GAM_Slide_R_Perfect_Break": {
+    "tex": [
+      428,
+      140
+    ],
+    "rect": [
+      28.07612,
+      0,
+      378.84778,
+      108.92388
+    ],
+    "pivot": [
+      1.0556321,
+      0.6426506
+    ],
+    "border": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "ppu": 1
+  }
+}

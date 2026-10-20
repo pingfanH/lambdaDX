@@ -155,6 +155,7 @@ async fn run() {
     }
     editor.chart_dir = chart_dir.to_string_lossy().to_string();
     editor.source = source;
+    simai_editor::load_source(&mut editor, &app.chart);
     editor.snap_division = session.division.unwrap_or(32).clamp(1, 256);
     editor.autoplay_snap_division = session.autoplay_division.unwrap_or(32).clamp(1, 256);
     editor.level_slots = app::chart::read_simai_source(&chart_dir)
@@ -215,15 +216,13 @@ async fn run() {
     let mut fps_worst = 0.0f32;
 
     loop {
-        // OS close requests are deferred while there are unsaved changes: with a
-        // dirty document we cancel the quit and raise a confirm action instead
-        // (resolved by the Save / Discard / Cancel dialog).
-        if editor.has_unsaved_changes() || editor.file_dialog_active {
-            macroquad::input::prevent_quit();
-        }
+        player::render::textures::sync_note_skin(&mut app);
+        // Route clean and confirmed dirty closes through preference saving.
+        macroquad::input::prevent_quit();
         if macroquad::input::is_quit_requested() && !editor.file_dialog_active {
             timeline::transform::finish(&mut editor, &mut app.chart, false);
             editor.pending_action = Some(PendingAction::Quit);
+            editor.pending_confirmed = !editor.has_unsaved_changes();
         }
 
         app::anim::tick();
@@ -288,7 +287,7 @@ async fn run() {
         if let Some(action) = editor.template_action.take() {
             templates::apply(&mut editor, &mut app, action);
         }
-        apply_io_requests(&mut editor, &mut app, &mut file_dialogs, &mut ui.appearance);
+        apply_io_requests(&mut editor, &mut app, &mut file_dialogs, &mut ui.appearance, &mut ui.workbench);
         ui.input_blocked |= editor.file_dialog_active;
         if let Some(error) = cover_art.update(editor.source.as_ref(), &mut app) {
             editor.status = Some(error);
@@ -562,6 +561,7 @@ fn apply_io_requests(
     app: &mut PadPreviewState,
     dialogs: &mut io::dialogs::Dialogs,
     appearance: &mut appearance::Appearance,
+    workbench: &mut ui::workbench::Workbench,
 ) {
     use io::dialogs::Request;
     if let Some((request, result)) = dialogs.poll() {
@@ -592,7 +592,7 @@ fn apply_io_requests(
                 reload_chart(editor, app);
             }
             Some(PendingAction::Open) => open_chart(editor, dialogs),
-            Some(PendingAction::Quit) => quit_editor(),
+            Some(PendingAction::Quit) => quit_editor(workbench),
             None => {}
         }
     }
@@ -725,12 +725,16 @@ fn load_editor_chart(
     editor.selected_instance = None;
     editor.autoplay_editor = Default::default();
     editor.simai_editor.reset();
+    simai_editor::load_source(editor, &app.chart);
     editor.view_start = 0.0;
     editor.dirty = false;
     editor.status = Some(format!("Loaded {}", editor.chart_dir));
 }
 
 /// Exit the editor (used by the confirm dialog / a clean quit request).
-fn quit_editor() -> ! {
+fn quit_editor(workbench: &mut ui::workbench::Workbench) -> ! {
+    if let Err(error) = workbench.persist_current_layout() {
+        eprintln!("[layout] {error}");
+    }
     std::process::exit(0);
 }

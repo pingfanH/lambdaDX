@@ -330,6 +330,7 @@ async fn run(args: LaunchArgs) {
             ui_pointer.released,
         );
         app::egui_bridge::ui(|ctx| player::params_panel::draw(ctx, &mut app));
+        player::render::textures::sync_note_skin(&mut app);
         let egui_wants_pointer = app::egui_bridge::wants_pointer();
 
         // The HUD progress bar / AUTO button take priority over pad touches.

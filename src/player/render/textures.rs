@@ -1,161 +1,210 @@
-//! Note skin loading. Each texture is looked up through a small candidate path
-//! list so both `Skins/classic/<name>.png` and a flat `<name>.png` work. Any
-//! missing texture falls back to primitive shapes in the renderers.
+//! Cached note skins shared by editor, preview, and player.
 
-use macroquad::miniquad::{FilterMode, MipmapFilterMode};
-use macroquad::prelude::load_texture;
-use macroquad::texture::Texture2D;
-
+use crate::app::note_skin::NoteSkin;
 use crate::player::state::PadPreviewState;
+use macroquad::miniquad::{FilterMode, MipmapFilterMode};
+use macroquad::prelude::{Texture2D, load_texture};
+use std::collections::HashMap;
 
-/// Try each path in order; return the first texture that loads.
-async fn first(paths: &[&str]) -> Option<Texture2D> {
+#[derive(Default)]
+pub struct NoteTextures {
+    textures: HashMap<String, Texture2D>,
+}
+
+const NOTE_SLOTS: &[&str] = &[
+    "tap",
+    "tap_each",
+    "tap_break",
+    "tap_ex",
+    "tap_break_ex",
+    "hold",
+    "hold_each",
+    "hold_break",
+    "hold_ex",
+    "hold_break_ex",
+    "star",
+    "star_each",
+    "star_break",
+    "star_ex",
+    "star_break_ex",
+    "star_double",
+    "star_double_each",
+    "star_double_break",
+    "star_double_ex",
+    "star_double_break_ex",
+    "slide",
+    "slide_each",
+    "slide_break",
+    "touch",
+    "touch_each",
+    "touch_point",
+    "touch_point_each",
+    "touchhold_border",
+    "tap_guide",
+    "Each",
+    "Break",
+    "slide_guide",
+    "Hold_End",
+    "Hold_Each_End",
+    "Hold_Break_End",
+];
+
+async fn first(paths: &[String]) -> Option<Texture2D> {
     for path in paths {
         if let Ok(tex) = load_texture(path).await {
             tex.set_filter(FilterMode::Linear);
-            enable_mipmaps(&tex);
+            let id = tex.raw_miniquad_id();
+            let gl = unsafe { macroquad::prelude::get_internal_gl() };
+            gl.quad_context.texture_generate_mipmaps(id);
+            gl.quad_context
+                .texture_set_filter(id, FilterMode::Linear, MipmapFilterMode::Linear);
             return Some(tex);
         }
     }
     None
 }
 
-/// Give a freshly loaded texture mipmaps + trilinear minification.
-///
-/// macroquad's `set_filter` hardcodes `MipmapFilterMode::None`, but these skins
-/// are drawn **several-fold smaller** than their native resolution (the tap
-/// sprite is 122px shown at ~25px in the editor; the guide is 1080px shown at
-/// ~95px). Plain bilinear minification reads only 4 texels, so the extra detail
-/// aliases into a soft/糊 look — worst on the oversized guide textures. The GL
-/// and Metal backends both implement `texture_generate_mipmaps`.
-fn enable_mipmaps(tex: &Texture2D) {
-    let id = tex.raw_miniquad_id();
-    let mut gl = unsafe { macroquad::prelude::get_internal_gl() };
-    gl.quad_context.texture_generate_mipmaps(id);
-    gl.quad_context
-        .texture_set_filter(id, FilterMode::Linear, MipmapFilterMode::Linear);
+impl NoteTextures {
+    async fn load(skin: NoteSkin) -> Self {
+        let mut textures = HashMap::new();
+        let slots = NOTE_SLOTS
+            .iter()
+            .map(|name| name.to_string())
+            .chain((0..4).map(|i| format!("touchhold_{i}")))
+            .chain((0..11).map(|i| format!("wifi_{i}")));
+        for name in slots {
+            let mut paths = vec![format!("Skins/{}/{name}.png", skin.id())];
+            if skin == NoteSkin::Classic {
+                if name.ends_with("break_ex") {
+                    continue;
+                }
+                paths.extend([format!("skins/classic/{name}.png"), format!("{name}.png")]);
+            }
+            if let Some(texture) = first(&paths).await {
+                textures.insert(name, texture);
+            }
+        }
+        Self { textures }
+    }
 }
 
-/// Load every note texture into `app`.
 pub async fn load_note_textures(app: &mut PadPreviewState) {
-    app.tap_texture = first(&["Skins/classic/tap.png", "skins/classic/tap.png", "tap.png"]).await;
-    // Optional guide line drawn under taps (drop `tap_guide.png` into the skins
-    // folder). Missing = feature silently disabled.
-    app.tap_guide_tex = first(&[
-        "Skins/classic/tap_guide.png",
-        "skins/classic/tap_guide.png",
-        "tap_guide.png",
-    ])
-    .await;
-    // Per-variant guides (fall back to the normal one in the renderer).
-    app.tap_guide_each_tex = first(&["Skins/classic/Each.png", "skins/classic/Each.png", "Each.png"]).await;
-    app.tap_guide_break_tex =
-        first(&["Skins/classic/Break.png", "skins/classic/Break.png", "Break.png"]).await;
-    app.slide_guide_tex =
-        first(&["Skins/classic/slide_guide.png", "skins/classic/slide_guide.png", "slide_guide.png"]).await;
-    app.hold_end_guide_tex =
-        first(&["Skins/classic/Hold_End.png", "skins/classic/Hold_End.png", "Hold_End.png"]).await;
-    app.hold_end_each_guide_tex = first(&[
-        "Skins/classic/Hold_Each_End.png",
-        "skins/classic/Hold_Each_End.png",
-        "Hold_Each_End.png",
-    ])
-    .await;
-    app.hold_end_break_guide_tex = first(&[
-        "Skins/classic/Hold_Break_End.png",
-        "skins/classic/Hold_Break_End.png",
-        "Hold_Break_End.png",
-    ])
-    .await;
-    app.hold_texture =
-        first(&["Skins/classic/hold.png", "skins/classic/hold.png", "hold.png"]).await;
-    app.touch_tri_tex = first(&["Skins/classic/touch.png", "touch.png"]).await;
-    app.touch_point_tex = first(&["Skins/classic/touch_point.png", "touch_point.png"]).await;
-    app.tap_each_tex = first(&["Skins/classic/tap_each.png", "tap_each.png"]).await;
-    app.hold_each_tex = first(&["Skins/classic/hold_each.png", "hold_each.png"]).await;
-    app.touch_tri_each_tex = first(&["Skins/classic/touch_each.png", "touch_each.png"]).await;
-    app.touch_point_each_tex =
-        first(&["Skins/classic/touch_point_each.png", "touch_point_each.png"]).await;
-
-    // Touch-hold uses a 4-frame cross.
-    for (i, name) in ["touchhold_0", "touchhold_1", "touchhold_2", "touchhold_3"]
-        .iter()
-        .enumerate()
-    {
-        let owned = [format!("Skins/classic/{name}.png"), format!("{name}.png")];
-        let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
-        app.touchhold_tex[i] = first(&refs).await;
+    for skin in NoteSkin::ALL {
+        if !app.note_skin_cache.contains_key(&skin) {
+            app.note_skin_cache
+                .insert(skin, NoteTextures::load(skin).await);
+        }
     }
-    app.touchhold_border_tex =
-        first(&["Skins/classic/touchhold_border.png", "touchhold_border.png"]).await;
-
-    // Slide trails.
-    app.slide_tex = first(&["Skins/classic/slide.png", "slide.png"]).await;
-    app.slide_each_tex = first(&["Skins/classic/slide_each.png", "slide_each.png"]).await;
-    for i in 0..11 {
-        let owned = [
-            format!("Skins/classic/wifi_{i}.png"),
-            format!("wifi_{i}.png"),
-        ];
-        let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
-        app.wifi_tex[i] = first(&refs).await;
-    }
-
-    // Stars (slide heads / each / break / double variants).
-    app.star_tex = first(&["Skins/classic/star.png", "star.png"]).await;
-    app.star_each_tex = first(&["Skins/classic/star_each.png", "star_each.png"]).await;
-    app.star_break_tex = first(&["Skins/classic/star_break.png", "star_break.png"]).await;
-    app.star_double_tex = first(&["Skins/classic/star_double.png", "star_double.png"]).await;
-    app.star_double_each_tex =
-        first(&["Skins/classic/star_double_each.png", "star_double_each.png"]).await;
-
-    // Break variants.
-    app.tap_break_tex = first(&["Skins/classic/tap_break.png", "tap_break.png"]).await;
-    app.hold_break_tex = first(&["Skins/classic/hold_break.png", "hold_break.png"]).await;
-    app.slide_break_tex = first(&["Skins/classic/slide_break.png", "slide_break.png"]).await;
-    app.star_double_break_tex = first(&[
-        "Skins/classic/star_double_break.png",
-        "star_double_break.png",
-    ])
-    .await;
-
-    // Ex overlays.
-    app.tap_ex_tex = first(&["Skins/classic/tap_ex.png", "tap_ex.png"]).await;
-    app.hold_ex_tex = first(&["Skins/classic/hold_ex.png", "hold_ex.png"]).await;
-    app.star_ex_tex = first(&["Skins/classic/star_ex.png", "star_ex.png"]).await;
-    app.star_double_ex_tex = first(&[
-        "Skins/classic/star_double_ex.png",
-        "star_double_ex.png",
-    ])
-    .await;
-
+    sync_note_skin(app);
     load_slideok_textures(app).await;
+    if app.feedback_resources.is_none() {
+        match crate::player::feedback::FeedbackResources::load().await {
+            Ok(resources) => app.feedback_resources = Some(resources),
+            Err(error) => eprintln!("LambdaDX feedback assets: {error}"),
+        }
+    }
 }
 
-/// Load `Skins/classic/slideok/*` — the MajdataView slide judgment overlays.
-///
-/// Each sprite is `<family>_<shape><suffix>`: family `just`/`miss`/`toofast`,
-/// shape `curv_l`/`curv_r`/`str_l`/`str_r`/`wifi_u`/`wifi_d`, and a grade
-/// suffix (`_p`, `_fast_gr`, `_late_gd`, …) that only the `just` family has.
-/// Missing files are simply absent from the map.
+pub fn sync_note_skin(app: &mut PadPreviewState) {
+    let selected = app.params.note_skin;
+    if app.loaded_note_skin == Some(selected) {
+        return;
+    }
+    let Some(skin) = app.note_skin_cache.get(&selected) else {
+        return;
+    };
+    let classic = app.note_skin_cache.get(&NoteSkin::Classic);
+    let texture = |name: &str| {
+        skin.textures
+            .get(name)
+            .or_else(|| classic.and_then(|skin| skin.textures.get(name)))
+            .cloned()
+    };
+    macro_rules! assign {
+        ($($field:ident => $name:literal),* $(,)?) => { $(app.$field = texture($name);)* };
+    }
+    assign! {
+        tap_texture => "tap", tap_each_tex => "tap_each", tap_break_tex => "tap_break", tap_ex_tex => "tap_ex",
+        hold_texture => "hold", hold_each_tex => "hold_each", hold_break_tex => "hold_break", hold_ex_tex => "hold_ex",
+        star_tex => "star", star_each_tex => "star_each", star_break_tex => "star_break", star_ex_tex => "star_ex",
+        star_double_tex => "star_double", star_double_each_tex => "star_double_each",
+        star_double_break_tex => "star_double_break", star_double_ex_tex => "star_double_ex",
+        slide_tex => "slide", slide_each_tex => "slide_each", slide_break_tex => "slide_break",
+        touch_tri_tex => "touch", touch_tri_each_tex => "touch_each",
+        touch_point_tex => "touch_point", touch_point_each_tex => "touch_point_each",
+        touchhold_border_tex => "touchhold_border", tap_guide_tex => "tap_guide",
+        tap_guide_each_tex => "Each", tap_guide_break_tex => "Break", slide_guide_tex => "slide_guide",
+        hold_end_guide_tex => "Hold_End", hold_end_each_guide_tex => "Hold_Each_End",
+        hold_end_break_guide_tex => "Hold_Break_End",
+    }
+    app.touchhold_tex = std::array::from_fn(|i| texture(&format!("touchhold_{i}")));
+    app.wifi_tex = std::array::from_fn(|i| texture(&format!("wifi_{i}")));
+    app.loaded_note_skin = Some(selected);
+}
+
+pub fn extra_texture<'a>(app: &'a PadPreviewState, name: &str) -> Option<&'a Texture2D> {
+    app.note_skin_cache
+        .get(&app.loaded_note_skin?)
+        .and_then(|skin| skin.textures.get(name))
+}
+
 async fn load_slideok_textures(app: &mut PadPreviewState) {
     const SHAPES: [&str; 6] = ["curv_l", "curv_r", "str_l", "str_r", "wifi_u", "wifi_d"];
     const SUFFIXES: [&str; 6] = ["", "_p", "_fast_gr", "_late_gr", "_fast_gd", "_late_gd"];
-
     for shape in SHAPES {
-        for suffix in SUFFIXES {
-            let stem = format!("just_{shape}{suffix}");
-            let path = format!("Skins/classic/slideok/{stem}.png");
-            if let Some(tex) = first(&[path.as_str()]).await {
+        let stems = SUFFIXES
+            .iter()
+            .map(|suffix| format!("just_{shape}{suffix}"))
+            .chain([format!("miss_{shape}"), format!("toofast_{shape}")]);
+        for stem in stems {
+            if let Some(tex) = first(&[format!("Skins/classic/slideok/{stem}.png")]).await {
                 app.slideok_tex.insert(stem, tex);
             }
         }
-        for family in ["miss", "toofast"] {
-            let stem = format!("{family}_{shape}");
-            let path = format!("Skins/classic/slideok/{stem}.png");
-            if let Some(tex) = first(&[path.as_str()]).await {
-                app.slideok_tex.insert(stem, tex);
-            }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn imported_skin_contains_every_renderer_slot() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/Skins/lambdadx");
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join("skin.json")).unwrap())
+                .unwrap();
+        for slot in NOTE_SLOTS
+            .iter()
+            .map(|s| s.to_string())
+            .chain((0..4).map(|i| format!("touchhold_{i}")))
+            .chain((0..11).map(|i| format!("wifi_{i}")))
+        {
+            assert!(!manifest["slots"][&slot].is_null(), "{slot}");
+            let image = image::open(root.join(format!("{slot}.png"))).unwrap();
+            assert!(image.width() > 0 && image.height() > 0);
+        }
+        let defaults: crate::app::params::Params = serde_json::from_str("{}").unwrap();
+        assert_eq!(defaults.note_skin, NoteSkin::Classic);
+        let mut selected = defaults;
+        selected.note_skin = NoteSkin::Lambdadx;
+        let roundtrip: crate::app::params::Params =
+            serde_json::from_str(&serde_json::to_string(&selected).unwrap()).unwrap();
+        assert_eq!(roundtrip.note_skin, NoteSkin::Lambdadx);
+        let normal = image::open(root.join("tap.png")).unwrap();
+        let each = image::open(root.join("tap_each.png")).unwrap();
+        assert_ne!(normal.to_rgba8(), each.to_rgba8());
+        for i in 0..11 {
+            let source =
+                image::open(root.join(format!("source/slidefan/MM_UI_Game_{:03}.png", 53 + i)))
+                    .unwrap();
+            let full = image::open(root.join(format!("wifi_{i}.png"))).unwrap();
+            assert_eq!(full.width(), source.width() * 2);
+            assert_eq!(full.height(), source.height());
+            assert_eq!(
+                full.to_rgba8(),
+                image::imageops::flip_horizontal(&full.to_rgba8())
+            );
         }
     }
 }

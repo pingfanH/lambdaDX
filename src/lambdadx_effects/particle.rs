@@ -15,10 +15,29 @@ pub struct EffectLibrary {
 
 impl EffectLibrary {
     pub async fn load(root: impl AsRef<Path>) -> Result<Self, String> {
-        let root = root.as_ref();
-        let json_path = root.join("effects.json");
-        let json = std::fs::read_to_string(&json_path)
-            .map_err(|error| format!("cannot read {}: {error}", json_path.display()))?;
+        Self::load_with(&root.as_ref().to_string_lossy(), |path| async move {
+            std::fs::read(&path).map_err(|error| format!("cannot read {path}: {error}"))
+        })
+        .await
+    }
+
+    #[allow(dead_code)] // Shared PadView entry point; the standalone preview uses filesystem paths.
+    pub async fn load_assets(root: &str) -> Result<Self, String> {
+        Self::load_with(root, |path| async move {
+            macroquad::file::load_file(&path)
+                .await
+                .map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    async fn load_with<F, Fut>(root: &str, load: F) -> Result<Self, String>
+    where
+        F: Fn(String) -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<u8>, String>>,
+    {
+        let json = String::from_utf8(load(format!("{root}/effects.json")).await?)
+            .map_err(|error| error.to_string())?;
         let effects = super::data::parse_effects(&json)?;
         let mut names = effects
             .iter()
@@ -31,8 +50,7 @@ impl EffectLibrary {
         names.dedup();
         let mut textures = HashMap::new();
         for name in names {
-            let bytes = std::fs::read(root.join("particle_textures").join(&name))
-                .map_err(|error| format!("cannot read particle texture {name}: {error}"))?;
+            let bytes = load(format!("{root}/particle_textures/{name}")).await?;
             let mut image = Image::from_file_with_format(&bytes, None)
                 .map_err(|error| format!("cannot decode particle texture {name}: {error}"))?;
             // Match WebGL UNPACK_FLIP_Y_WEBGL before uploading Unity UVs.
@@ -85,18 +103,34 @@ impl EffectLibrary {
     }
 
     pub fn draw(&self, instance: &EffectInstance, center: Vec2, zoom: f32) {
+        self.draw_oriented(instance, center, zoom, 0.0);
+    }
+
+    pub fn draw_oriented(&self, instance: &EffectInstance, center: Vec2, zoom: f32, rotation: f32) {
+        self.draw_placed(instance, center, zoom, rotation, 1.0);
+    }
+
+    pub fn draw_placed(
+        &self,
+        instance: &EffectInstance,
+        center: Vec2,
+        zoom: f32,
+        rotation: f32,
+        opacity: f32,
+    ) {
         // effects.json already contains the source renderer's system order.
         for (index, system) in instance.definition.systems.iter().enumerate() {
             let Some(render) = system.render.as_ref() else {
                 continue;
             };
-            let particles = instance.sample_system(index);
+            let particles = instance.sample_system_oriented(index, -rotation);
             if particles.is_empty() {
                 continue;
             }
             let material = self
                 .shaders
                 .configure(render, instance.elapsed, instance.judgment);
+            material.set_uniform("uOpacity", render.opacity * opacity.clamp(0.0, 1.0));
             let texture = render
                 .texture
                 .as_ref()

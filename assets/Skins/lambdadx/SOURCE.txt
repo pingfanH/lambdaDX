@@ -1,0 +1,7 @@
+Source replay: https://maiwiki.moe/replay/1600/master
+Source assets: https://maiwiki.moe/gameresources/sprites
+Design: 00. Original PNGs and source registration metadata are preserved in source/ and skin.json.
+Runtime slots: tap/star transparent margins are centered to the existing LDX size convention;
+wifi half-strips are mirrored at their shared seam. Other PNGs retain original pixels.
+Refresh: python3 tools/import_lambdadx_skin.py (Pillow required).
+Gameplay timings, effect colors, and personal size parameters are not part of this skin.

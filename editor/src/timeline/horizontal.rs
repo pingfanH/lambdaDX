@@ -49,8 +49,8 @@ impl NoteCtx<'_> {
 }
 
 /// Timeline note-size multiplier from the F1 params (clamped to a sane range).
-fn note_scale() -> f32 {
-    crate::app::params::get().editor_note_scale.clamp(0.05, 8.0)
+fn note_scale(editor: &EditorState) -> f32 {
+    editor.note_scale()
 }
 
 pub fn draw(
@@ -96,6 +96,7 @@ pub fn draw(
     super::judgment::draw(app, chart, super::judgment::Axis {
         plot: MqRect::new(plot_left, lanes_top, plot_right - plot_left, lanes_h),
         vertical: false, origin: plot_left, reference: view, pps, lane_size: lane_h,
+        note_scale: editor.note_scale(),
     });
 
     let mut ctx = NoteCtx {
@@ -107,7 +108,7 @@ pub fn draw(
         lanes_top,
         lane_h,
         scale: s,
-        note_scale: note_scale(),
+        note_scale: note_scale(editor),
         tint: mq::WHITE,
     };
     let backdrop = editor.template_session.as_ref().map(|session| session.backdrop.notes.as_slice()).unwrap_or(&[]);

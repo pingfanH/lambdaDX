@@ -326,6 +326,49 @@ fn parse(body: &str) -> ChartDoc {
 }
 
 #[cfg(feature = "backend-lean")]
+#[test]
+fn simai_visual_edit_keeps_original_notation_and_layout() {
+    let body = "(188){1},,\n{4}3h[1:2],,,4, || keep this comment\n4,,,5,\n6h[2:9],,,4<5-8[8:5],\n{1},\n{4}E1,,,E6,\nE5,,,5,\n5h[2:1],,,4/5,\nE";
+    let original = format!("&lv_5=13.0\n&des_5=サファ太\n&inote_5={body}\n&custom=keep\n");
+    let mut chart = crate::app::maidata::from_maidata_level(&original, 5).unwrap();
+    let unchanged = simai::document(&chart, 5, &original).unwrap();
+    assert!(unchanged.contains(&format!("&inote_5={body}\n")), "{unchanged}");
+    chart.notes.iter_mut().find(|n| n.lane == 4 && n.note_type == crate::app::types::NoteType::Tap).unwrap().lane = 7;
+    let saved = simai::document(&chart, 5, &original).unwrap();
+    let expected = body.replacen("3h[1:2],,,4,", "3h[1:2],,,7,", 1);
+    assert!(saved.contains(&format!("&inote_5={expected}\n")), "{saved}");
+    assert!(saved.contains("&lv_5=13.0\n&des_5=サファ太\n"));
+    assert!(saved.contains("&custom=keep\n"));
+}
+
+#[cfg(feature = "backend-lean")]
+#[test]
+fn simai_save_and_save_as_keep_applied_text_and_visual_edits() {
+    let folder = ChartFolder::new();
+    let path = folder.path().join("maidata.txt");
+    let destination = folder.path().join("copy.txt");
+    let body = "(188){4}3h[1:2], || original\n4,6h[2:9],4<5-8[8:5],E";
+    std::fs::write(&path, format!("&lv_5=13.0\r\n&inote_5={body}\r\n&inote_2=(120)1,E\r\n")).unwrap();
+    let mut chart = crate::app::maidata::from_maidata_level(&std::fs::read_to_string(&path).unwrap(), 5).unwrap();
+    crate::app::maichart::assign_note_ids(&mut chart.notes);
+    let mut editor = source_editor(&path, Some(5));
+    crate::simai_editor::load_source(&mut editor, &chart);
+    assert_eq!(editor.simai_editor.text, body);
+    editor.simai_editor.text = body.replace("original", "edited text");
+    editor.simai_editor.changed();
+    crate::simai_editor::apply(&mut editor, &mut chart).unwrap();
+    chart.notes[1].lane = 7;
+    let expected = body.replace("original", "edited text").replacen("\n4,", "\n7,", 1);
+    save_chart(&mut editor, &chart);
+    assert!(!editor.dirty, "{:?}", editor.status);
+    let saved = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(simai::body_for_level(&saved, 5).unwrap(), expected);
+    assert!(saved.contains("&inote_2=(120)1,E\r\n"));
+    save_as_to(&mut editor, &chart, &destination).unwrap();
+    assert_eq!(simai::body_for_level(&std::fs::read_to_string(destination).unwrap(), 5).unwrap(), expected);
+}
+
+#[cfg(feature = "backend-lean")]
 fn round_trip(chart: &ChartDoc) -> ChartDoc {
     let text = simai::document(chart, 6, "").unwrap();
     crate::app::maidata::from_maidata_level(&text, 6).unwrap_or_else(|error| panic!("{error}\n{text}"))

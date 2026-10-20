@@ -19,6 +19,7 @@ use crate::core::types::{
     TimedInputEvent, sort_timed_input_events,
 };
 use crate::player::state::PadPreviewState;
+use crate::player::feedback::{FeedbackGrade, HitEffect};
 use std::collections::{HashMap, HashSet};
 
 /// Map a pad zone to the screen sensor event family.
@@ -1019,14 +1020,49 @@ fn handle_engine_result(app: &mut PadPreviewState, result: RuntimeStepLightResul
     let displays =
         collect_judge_result_displays(app.playback_chart(), app.judge_engine.as_ref(), &result);
     for display in displays {
-        app.push_judgement(display.zone, display.label, display.duration);
-        // Tap-family hits and any break note get the ring/spark burst — only on
-        // an actual hit (a miss shows the text but no burst).
-        if display.is_hit
-            && (matches!(display.kind, JudgeEventKind::Tap | JudgeEventKind::Break)
-                || display.is_break)
+        // Slide heads arrive as Tap/Break events. Only completion uses the
+        // shaped Judgement overlay; it must never fall through to tap particles.
+        if display.kind == JudgeEventKind::Slide {
+            continue;
+        }
+        app.push_note_judgement(
+            display.zone, display.grade, display.is_touch, display.is_break, display.duration,
+        );
+        let hold_head = display.kind == JudgeEventKind::Hold
+            && display.phase == crate::core::types::JudgePhase::Head;
+        if display.kind == JudgeEventKind::Hold && !hold_head
+            && let Some(id) = display.note_id
         {
-            app.push_hit_fx(display.zone, display.label, display.is_break);
+            app.stop_hold_fx(id);
+        }
+        if display.is_hit {
+            let effect = if hold_head {
+                HitEffect::Hold
+            } else if display.is_break {
+                HitEffect::Break
+            } else if display.kind == JudgeEventKind::Hold {
+                HitEffect::HoldRelease
+            } else if display.is_touch {
+                HitEffect::Touch
+            } else if display.is_ex {
+                HitEffect::ExTap
+            } else {
+                HitEffect::Tap
+            };
+            let duration = hold_head.then(|| {
+                display.note_id
+                    .and_then(|id| chart_note(app.playback_chart(), id))
+                    .map(|note| {
+                        (crate::app::types::hold_tail_time(note, &app.chart.bpms) - app.song_time()).max(0.0)
+                    })
+                    .unwrap_or(0.0)
+            });
+            app.push_note_hit_fx(
+                display.zone, display.grade, effect, display.is_touch, duration, display.note_id,
+            );
+            if display.is_hanabi && !hold_head {
+                app.push_hanabi_feedback(display.zone, display.grade, display.is_touch, display.note_id);
+            }
         }
     }
     // Record slide judgments so the renderer can show the `slideok` overlay.
@@ -1125,10 +1161,15 @@ fn collect_slide_judge_fx(
 #[derive(Debug, Clone, PartialEq)]
 struct JudgeResultDisplay {
     zone: PadZone,
-    label: &'static str,
+    grade: FeedbackGrade,
     duration: f64,
     kind: JudgeEventKind,
     is_break: bool,
+    is_touch: bool,
+    is_ex: bool,
+    is_hanabi: bool,
+    note_id: Option<u64>,
+    phase: crate::core::types::JudgePhase,
     /// True when the note was actually hit (not a miss / too-fast).
     is_hit: bool,
 }
@@ -1140,7 +1181,13 @@ fn collect_judge_result_displays(
     result: &RuntimeStepLightResult,
 ) -> Vec<JudgeResultDisplay> {
     let mut displays = Vec::new();
-    let mut displayed_slide_results: HashSet<u64> = HashSet::new();
+    for event in &result.events {
+        if let Some(display) = make_judge_result_display(
+            chart, engine, std::slice::from_ref(event), event.note_index, event.kind, event.grade,
+        ) {
+            displays.push(display);
+        }
+    }
     for command in &result.render_commands {
         if let RenderCommand::ShowJudgeResult {
             kind,
@@ -1149,30 +1196,12 @@ fn collect_judge_result_displays(
             ..
         } = command
         {
+            if result.events.iter().any(|event| event.note_index == *note_index && event.kind == *kind) {
+                continue;
+            }
             if let Some(display) =
                 make_judge_result_display(chart, engine, &result.events, *note_index, *kind, *grade)
             {
-                if *kind == JudgeEventKind::Slide {
-                    displayed_slide_results.insert(*note_index);
-                }
-                displays.push(display);
-            }
-        }
-    }
-
-    for event in &result.events {
-        if event.kind == JudgeEventKind::Slide
-            && !displayed_slide_results.contains(&event.note_index)
-        {
-            if let Some(display) = make_judge_result_display(
-                chart,
-                engine,
-                &result.events,
-                event.note_index,
-                event.kind,
-                event.grade,
-            ) {
-                displayed_slide_results.insert(event.note_index);
                 displays.push(display);
             }
         }
@@ -1190,23 +1219,48 @@ fn make_judge_result_display(
     grade: JudgeGrade,
 ) -> Option<JudgeResultDisplay> {
     let zone = judge_result_zone(chart, engine, events, note_index, kind)?;
-    let label = display_label_for_grade(grade);
     let duration = if grade.is_miss_or_too_fast() {
         0.24
     } else {
         0.3
     };
-    let is_break = events
+    let event = events
         .iter()
-        .find(|e| e.note_index == note_index && e.kind == kind)
-        .map(|e| e.is_break)
-        .unwrap_or(false);
+        .find(|e| e.note_index == note_index && e.kind == kind);
+    let slide_key = engine.and_then(|engine| {
+        engine.runtime_slide_index(note_index)
+            .and_then(|runtime| engine.slide_position(chart, runtime))
+    });
+    let chart_id = if kind == JudgeEventKind::Slide {
+        slide_key.map(|(id, ..)| id)
+    } else {
+        engine.and_then(|engine| {
+            engine.slide_head_note_id(chart, note_index)
+                .or_else(|| engine.chart_note_id(note_index))
+        })
+    }.unwrap_or(note_index);
+    let note = chart_note(chart, chart_id);
+    let is_touch = kind == JudgeEventKind::Touch
+        || (kind != JudgeEventKind::Slide && note.is_some_and(crate::app::types::note_is_touch));
+    let is_break = event.is_some_and(|e| e.is_break) || {
+        if kind == JudgeEventKind::Slide {
+            slide_key.and_then(|(_, index, ..)| note.and_then(|n| n.slide.get(index)))
+                .is_some_and(|slide| slide.slide_is_break)
+        } else {
+            note.is_some_and(|n| n.is_break)
+        }
+    };
     Some(JudgeResultDisplay {
         zone,
-        label,
+        grade: grade.into(),
         duration,
         kind,
         is_break,
+        is_touch,
+        is_ex: event.is_some_and(|e| e.is_ex) || note.is_some_and(|n| n.is_ex),
+        is_hanabi: is_touch && note.is_some_and(|n| n.is_hanabi),
+        note_id: note.map(|n| n.id),
+        phase: event.map(|e| e.phase).unwrap_or(crate::core::types::JudgePhase::Tail),
         is_hit: !grade.is_miss_or_too_fast(),
     })
 }
@@ -1229,18 +1283,6 @@ fn judge_result_zone(
             };
             chart_note_head_zone(chart, index)
         })
-    }
-}
-
-fn display_label_for_grade(grade: JudgeGrade) -> &'static str {
-    if grade.is_miss_or_too_fast() {
-        "Miss"
-    } else if grade.is_good_grade() {
-        "Good"
-    } else if grade.is_great_grade() {
-        "Great"
-    } else {
-        "Perfect"
     }
 }
 
@@ -1417,6 +1459,133 @@ fn play_audio_command(app: &mut PadPreviewState, command: &AudioCommand) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slide_completion_uses_slide_judgment_without_tap_particles() {
+        for source in ["&inote_1=(120){4}1-5[4:1],,,,E", "&inote_1=(120){4}1-5b[4:1],,,,E"] {
+            let chart = crate::app::maidata::from_maidata(source, None).unwrap();
+            let mut engine = JudgeEngine::load(source, 1).unwrap();
+            let tactic = engine.default_tactic().unwrap();
+            let mut app = PadPreviewState::new_at(chart, None, None, 0.0, None);
+            app.audio_enabled = false;
+            app.mode = crate::app::types::Mode::Playing;
+            let mut cursor = 0;
+            let mut completions = 0;
+            for frame in 0..=240 {
+                let now = frame as f32 / 120.0;
+                app.forced_time = Some(now);
+                let end = tactic.partition_point(|event| timed_input_tp(event) <= (now * 1e6) as i64);
+                let due = tactic[cursor..end].to_vec();
+                cursor = end;
+                for result in step_engine_events(&mut engine, now, due) {
+                    let mut result = result.unwrap();
+                    result.events.retain(|event| event.kind == JudgeEventKind::Slide);
+                    result.render_commands.retain(|command| matches!(command, RenderCommand::ShowJudgeResult { kind: JudgeEventKind::Slide, .. }));
+                    if result.events.is_empty() { continue; }
+                    assert!(result.events.iter().all(|event| !event.grade.is_miss_or_too_fast()));
+                    app.judge_engine = Some(engine);
+                    handle_engine_result(&mut app, result);
+                    assert_eq!(app.slide_judge.len(), 1, "slide result must reach its Judgement sprite");
+                    assert!(app.judge_feedback.is_empty(), "slide completion must not use the ordinary note label");
+                    assert!(app.hit_fx.is_empty(), "slide completion incorrectly spawned {:?}", app.hit_fx.iter().map(|fx| fx.kind).collect::<Vec<_>>());
+                    completions += 1;
+                    engine = app.judge_engine.take().unwrap();
+                }
+            }
+            assert_eq!(completions, 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn pad_feedback_smoke_routes_notes_touches_and_both_hold_phases() {
+        use crate::player::feedback::Grade;
+        let text = include_str!("../../tools/fixtures/pad_feedback/maidata.txt");
+        let chart = crate::app::maidata::from_maidata(text, Some(1)).unwrap();
+        let mut engine = JudgeEngine::load(text, 1).unwrap();
+        let mut app = PadPreviewState::new_at(chart.clone(), None, None, 0.0, None);
+        app.audio_enabled = false;
+        app.mode = crate::app::types::Mode::Playing;
+        let tactic = engine.default_tactic().unwrap();
+        let mut cursor = 0;
+        let mut holds = 0;
+        let mut releases = 0;
+        let mut touches = 0;
+        let mut slides = 0;
+        let mut ex = 0;
+        let mut breaks = 0;
+        for frame in 0..=16 * 120 {
+            let now = frame as f32 / 120.0;
+            app.forced_time = Some(now);
+            let end = tactic.partition_point(|event| timed_input_tp(event) <= (now * 1e6) as i64);
+            let due = tactic[cursor..end].to_vec();
+            cursor = end;
+            for result in step_engine_events(&mut engine, now, due) {
+                let result = result.unwrap();
+                let displays = collect_judge_result_displays(&chart, Some(&engine), &result);
+                for display in &displays {
+                    assert_ne!(display.grade.grade, Grade::Miss);
+                    if display.kind == JudgeEventKind::Hold {
+                        assert!(display.note_id.is_some());
+                        match display.phase {
+                            crate::core::types::JudgePhase::Head => holds += 1,
+                            crate::core::types::JudgePhase::Tail => releases += 1,
+                        }
+                    }
+                    if display.kind == JudgeEventKind::Touch {
+                        assert!(display.is_touch);
+                        touches += 1;
+                    }
+                    slides += usize::from(display.kind == JudgeEventKind::Slide);
+                    ex += usize::from(display.is_ex);
+                    breaks += usize::from(display.is_break);
+                }
+                // Use the same engine mapping during application as during collection.
+                app.judge_engine = Some(engine);
+                let expected = displays.iter().filter(|d| d.kind != JudgeEventKind::Slide).count();
+                handle_engine_result(&mut app, result);
+                assert_eq!(app.judge_feedback.len(), expected);
+                app.judge_feedback.clear();
+                engine = app.judge_engine.take().unwrap();
+            }
+            app.tick_feedback();
+        }
+        assert_eq!((holds, releases, touches, slides), (2, 2, 3, 4));
+        assert!(ex > 0 && breaks > 0, "ex={ex}, breaks={breaks}");
+        assert!(app.hit_fx.is_empty());
+    }
+
+    #[test]
+    fn hanabi_touch_routes_one_firework_per_successful_judgment() {
+        let previous = crate::app::params::get();
+        let mut params = previous.clone();
+        params.hit_fx = true;
+        crate::app::params::set(params);
+        for (note, expected) in [("Cf", 1), ("C", 0)] {
+            let text = format!("&inote_1=(120){{4}},{note},,,E");
+            let chart = crate::app::maidata::from_maidata(&text, None).unwrap();
+            let mut engine = JudgeEngine::load(&text, 1).unwrap();
+            let tactic = engine.default_tactic().unwrap();
+            let mut app = PadPreviewState::new_at(chart, None, None, 0.0, None);
+            app.audio_enabled = false;
+            app.mode = crate::app::types::Mode::Playing;
+            let mut cursor = 0;
+            for frame in 0..=180 {
+                let now = frame as f32 / 120.0;
+                app.forced_time = Some(now);
+                let end = tactic.partition_point(|event| timed_input_tp(event) <= (now * 1e6) as i64);
+                let due = tactic[cursor..end].to_vec();
+                cursor = end;
+                for result in step_engine_events(&mut engine, now, due) {
+                    app.judge_engine = Some(engine);
+                    handle_engine_result(&mut app, result.unwrap());
+                    engine = app.judge_engine.take().unwrap();
+                }
+            }
+            assert_eq!(app.hit_fx.iter().filter(|fx| fx.kind == HitEffect::Center).count(), expected, "{note}");
+            assert_eq!(app.hit_fx.iter().filter(|fx| fx.kind == HitEffect::Touch).count(), 1, "ordinary touch feedback must remain");
+        }
+        crate::app::params::set(previous);
+    }
 
     #[test]
     fn edited_note_ids_hide_the_judged_tap_and_touch_not_their_neighbors() {
@@ -1621,6 +1790,21 @@ mod tests {
             .expect("late autoplay event must not reject the frame");
 
         assert_eq!(result.current_time, 1_000_000);
+    }
+
+    #[test]
+    fn debug_late_distinct_taps() {
+        let text = "&inote_1=(120){4},,1,2,3,E";
+        let mut engine = JudgeEngine::load(text, 1).expect("engine loads");
+        let tactic = engine.default_tactic().expect("tactic builds");
+        eprintln!("[late-taps] tactic={tactic:?}");
+        engine.step(3.0, Vec::new()).expect("advance clock");
+        let events: Vec<_> = tactic.into_iter().filter(|event| {
+            matches!(event, TimedInputEvent::SensorClick { .. } | TimedInputEvent::ButtonClick { .. })
+        }).take(3).collect();
+        eprintln!("[late-taps] events={events:?}");
+        let result = engine.step(3.0, events).expect("late events accepted");
+        eprintln!("[late-taps] result={result:?}");
     }
 
     #[test]

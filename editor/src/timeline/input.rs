@@ -371,7 +371,7 @@ pub(crate) fn head_rect(
 ) -> egui::Rect {
     let size = super::notes::head_size(note)
         * editor.glyph_to_points
-        * crate::app::params::get().editor_note_scale.clamp(0.05, 8.0);
+        * editor.note_scale();
     egui::Rect::from_center_size(center, egui::vec2(size, size))
 }
 
@@ -567,6 +567,7 @@ fn pointer_to_cursor(
 
 fn interact(
     response: &egui::Response,
+    rect: egui::Rect,
     ui: &egui::Ui,
     editor: &mut EditorState,
     chart: &mut ChartDoc,
@@ -810,7 +811,7 @@ fn interact(
             if let Some((id, sub)) = slide_trail_at_pointer(
                 chart,
                 editor,
-                response.rect,
+                rect,
                 response.interact_pointer_pos().unwrap_or_default(),
                 cursor.time,
             ) {
@@ -964,7 +965,7 @@ fn slide_trail_at_pointer(
         ),
     };
     let radius =
-        7.0 * editor.glyph_to_points * crate::app::params::get().editor_note_scale.clamp(0.05, 8.0)
+        7.0 * editor.glyph_to_points * editor.note_scale()
             + 3.0;
     let mut best = None;
     let mut distance = radius * radius;
@@ -1147,6 +1148,7 @@ pub fn horizontal(
 
     interact(
         response,
+        rect,
         ui,
         editor,
         chart,
@@ -1211,6 +1213,7 @@ pub fn vertical(
 
     interact(
         response,
+        rect,
         ui,
         editor,
         chart,
@@ -1391,6 +1394,26 @@ mod tests {
         clock: f64,
     }
 
+    #[test]
+    fn chart_note_scale_changes_hit_bounds_without_moving_centers() {
+        let global = crate::app::params::get().editor_note_scale;
+        let small = EditorState { chart_note_scale: Some(0.5), ..Default::default() };
+        let large = EditorState { chart_note_scale: Some(2.0), ..Default::default() };
+        let center = egui::pos2(200.0, 300.0);
+        for note_type in [NoteType::Tap, NoteType::Hold, NoteType::Slide, NoteType::Touch, NoteType::TouchHold] {
+            let note = Note { note_type, ..Default::default() };
+            let a = super::head_rect(&small, &note, center);
+            let b = super::head_rect(&large, &note, center);
+            assert_eq!(a.center(), center);
+            assert_eq!(b.center(), center);
+            assert!((b.width() - a.width() * 4.0).abs() < 0.001);
+            let edge = center + egui::vec2(a.width(), 0.0);
+            assert!(!a.contains(edge));
+            assert!(b.contains(edge));
+        }
+        assert_eq!(crate::app::params::get().editor_note_scale, global);
+    }
+
     impl PointerTest {
         fn new() -> Self {
             Self {
@@ -1455,6 +1478,7 @@ mod tests {
                         }
                         interact(
                             &response,
+                            ui.max_rect(),
                             ui,
                             &mut self.editor,
                             &mut self.chart,
@@ -2241,6 +2265,7 @@ mod tests {
                         );
                         interact(
                             &response,
+                            ui.max_rect(),
                             ui,
                             &mut editor,
                             &mut chart,

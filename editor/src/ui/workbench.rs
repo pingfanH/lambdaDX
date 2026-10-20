@@ -121,6 +121,8 @@ pub struct Workbench {
     dragging: Option<u64>,
     drag_owned: bool,
     applied_views: Vec<(PaneKind, u64)>,
+    persistence: persistence::Persistence,
+    remember_requested: bool,
 }
 
 impl Default for Workbench {
@@ -140,6 +142,8 @@ impl Default for Workbench {
             dragging: None,
             drag_owned: false,
             applied_views: Vec::new(),
+            persistence: Default::default(),
+            remember_requested: false,
         }
     }
 }
@@ -194,18 +198,25 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
 }
 
 impl Workbench {
-    pub fn initialize(&mut self, workspace: Workspace) {
+    pub fn initialize(&mut self, workspace: Workspace) -> Option<Workspace> {
         if !self.initialized {
             self.load_layouts();
             self.workspace = match std::env::var("MAI2_EDITOR_WORKSPACE").as_deref() {
                 Ok("simai") => 3,
                 Ok("combined") => 2,
+                Ok("autoplay") => 1,
+                Ok("chart") => 0,
                 _ if workspace == Workspace::Autoplay => 1,
-                _ => 0,
+                _ => self.workspace,
             };
             self.initialized = true;
             self.focused = self.default_focus();
+            if std::env::var_os("MAI2_EDITOR_TEMPLATES").is_some() {
+                self.set_visible(PaneKind::Templates, true);
+            }
+            return Some(if self.workspace == 1 { Workspace::Autoplay } else { Workspace::Chart });
         }
+        None
     }
     pub fn has(&self, kind: PaneKind) -> bool {
         self.docks[self.workspace]
@@ -330,10 +341,10 @@ impl Workbench {
         ui.separator();
         if ui
             .button("保存当前工作区布局")
-            .on_hover_text("每个工作区各自保存")
+            .on_hover_text("保存当前布局与分区配置快照；日常调整会自动记住")
             .clicked()
         {
-            self.remember_layout();
+            self.remember_requested = true;
             ui.close_menu();
         }
         if ui
@@ -354,6 +365,9 @@ impl Workbench {
             ui.close_menu();
         }
         ui.checkbox(&mut self.locked, "锁定布局");
+        if self.persistence.failed() && ui.button("重试保存布局").clicked() {
+            self.retry_layout_save();
+        }
         if let Some(message) = &self.message { ui.label(message); }
     }
     pub fn restore_layout(&mut self) {

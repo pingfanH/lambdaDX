@@ -117,6 +117,8 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("Shift+wheel", "Pan time without seeking"),
     ("Cmd+wheel / pinch", "Zoom around pointer; suspend follow"),
     ("Wheel", "Vertical: seek playback; horizontal: browse time"),
+    ("Click / drag beat ruler", "Seek playback"),
+    ("Shift+drag beat ruler", "Set loop range; Esc cancels"),
     ("Shift+drag overview", "Set loop range; Esc cancels"),
     ("P / O", "Cycle preview mode / toggle autoplay"),
     ("Space / Alt+Space", "Play-pause / restart playback"),
@@ -258,6 +260,7 @@ impl EditorUi {
             editor.autoplay_editor = Default::default();
             editor.autoplay_editor.restore_view(&view);
             editor.simai_editor.reset();
+            crate::simai_editor::load_source(editor, &app.chart);
             editor.pinned_note = None;
             editor.loop_range = None;
             editor.loop_enabled = false;
@@ -337,7 +340,9 @@ impl EditorUi {
                 }
             }
         }
-        self.workbench.initialize(editor.workspace);
+        if let Some(workspace) = self.workbench.initialize(editor.workspace) {
+            self.change_workspace(editor, app, workspace);
+        }
         self.workbench.capture_views(editor, self.pad_scale);
         self.workbench.activate_views(editor, &mut self.pad_scale);
         self.layout = Layout {
@@ -464,6 +469,8 @@ impl EditorUi {
                 });
             toolbar::draw_editor_settings(ui, editor, &mut self.pad_scale, &mut self.workbench);
         });
+        self.workbench.capture_views(editor, self.pad_scale);
+        self.workbench.activate_views(editor, &mut self.pad_scale);
         let workspace_blocked = overlay_was_open
             || app.show_params
             || editor.show_help
@@ -558,7 +565,6 @@ impl EditorUi {
                     &mut app.chart,
                     current_time,
                     waveform,
-                    duration,
                     raw_wheel,
                 ),
                 PaneKind::Pad => {
@@ -694,11 +700,12 @@ impl EditorUi {
         if editor.show_help {
             self.draw_help(ctx, editor);
         }
-        if editor.pending_action.is_some() && !editor.file_dialog_active {
+        if editor.pending_action.is_some() && !editor.pending_confirmed && !editor.file_dialog_active {
             self.draw_confirm(ctx, editor, &mut app.chart);
         }
         self.appearance.flush(ctx.input(|i| i.pointer.any_down()));
         self.workbench.capture_views(editor, self.pad_scale);
+        self.workbench.flush_layouts(ctx.input(|i| i.time), ctx.input(|i| i.pointer.any_down()));
     }
 
     fn apply_view_commands(&mut self, editor: &mut EditorState, app: &mut PadPreviewState) {
@@ -836,7 +843,7 @@ impl EditorUi {
         }
     }
 
-    /// Floating tool palette, timeline interaction and progress bar (the
+    /// Floating tool palette, timeline interaction and beat-ruler navigation (the
     /// timeline column). The palette overlays the timeline at the design's
     /// top-left offset rather than consuming a strip of its own.
     fn central(
@@ -846,7 +853,6 @@ impl EditorUi {
         chart: &mut crate::app::types::ChartDoc,
         current_time: f32,
         waveform: &WaveformPyramid,
-        duration: f32,
         raw_wheel: f32,
     ) {
         let progress_enabled = !self.input_blocked
@@ -864,21 +870,12 @@ impl EditorUi {
             && editor.marquee_start.is_none()
             && editor.loop_drag.is_none();
         let (timeline_rect, progress_owned) =
-            progress::draw(ui, editor, current_time, duration, progress_enabled);
+            progress::draw(ui, editor, chart, current_time, progress_enabled);
         self.layout.timeline = timeline_rect;
         editor.keyboard.rect = timeline_rect;
 
         // Floating palette at the design offset from the timeline's top-left.
-        let tools_rect = egui::Rect::from_min_size(
-            egui::pos2(
-                timeline_rect.left() + tools::PANEL_X,
-                timeline_rect.top() + tools::PANEL_Y,
-            ),
-            egui::vec2(
-                tools::PANEL_W,
-                tools::panel_height(crate::state::Tool::ALL.len()),
-            ),
-        );
+        let tools_rect = tools::panel_rect(timeline_rect, editor.hide_chart_tools);
         self.layout.tools = tools_rect;
         // Timeline menus listen to the raw secondary-click edge. This avoids
         // egui's widget-owned long-press fallback and gives note menus the same
@@ -947,8 +944,25 @@ impl EditorUi {
 
         // Register the timeline host after template selection/drag handling so
         // the template response can still pass through to note selection.
+        // The beat ruler owns seeking; the canvas must not cover its hit area.
+        let canvas_rect = match editor.layout {
+            crate::state::EditorLayout::Vertical => egui::Rect::from_min_max(
+                egui::pos2(
+                    (timeline_rect.left() + crate::timeline::geometry::LANE_GUTTER).min(timeline_rect.right()),
+                    timeline_rect.top(),
+                ),
+                timeline_rect.max,
+            ),
+            crate::state::EditorLayout::Horizontal => egui::Rect::from_min_max(
+                egui::pos2(
+                    timeline_rect.left(),
+                    (timeline_rect.top() + crate::timeline::geometry::RULER_H).min(timeline_rect.bottom()),
+                ),
+                timeline_rect.max,
+            ),
+        };
         let response = ui.interact(
-            timeline_rect,
+            canvas_rect,
             ui.id().with("editor_timeline"),
             egui::Sense::click_and_drag(),
         );

@@ -1,0 +1,20 @@
+<DOMSymbolItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://ns.adobe.com/xfl/2008/" name="Judgement/slidejudge/UI_GAM_Slide_R_Fast" itemID="6ac16000-000081d8" symbolType="movieclip" lastModified="1792411214" lastUniqueIdentifier="1">
+  <timeline>
+    <DOMTimeline name="UI_GAM_Slide_R_Fast" layerDepthEnabled="true">
+      <layers>
+        <DOMLayer name="shape" color="#9933CC" current="true" isSelected="true">
+          <frames>
+            <DOMFrame index="0" keyMode="9728">
+              <elements>
+                <DOMSymbolInstance libraryItemName="Judgement/slidejudge/UI_GAM_Slide_R_Fast_shape" symbolType="graphic" loop="single frame">
+                  <matrix><Matrix/></matrix>
+                  <transformationPoint><Point/></transformationPoint>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>

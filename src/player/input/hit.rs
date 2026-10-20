@@ -2,12 +2,12 @@
 //! zone and return a label so the pad shows hit text.
 
 use crate::app::types::zone::PadZone;
-use crate::app::types::{Mode, note_secs, sanitize_note_zone};
+use crate::app::types::{Mode, Note, note_secs, sanitize_note_zone};
 use crate::player::state::PadPreviewState;
 
 /// Label a zone press based on the nearest same-zone note, or `None` if there
 /// is no note close enough. Thresholds are loose — this only drives visuals.
-pub fn judge_label_for_zone(app: &PadPreviewState, zone: PadZone) -> Option<&'static str> {
+pub fn judgement_for_zone(app: &PadPreviewState, zone: PadZone) -> Option<(&Note, &'static str)> {
     let now = match app.mode {
         Mode::Playing | Mode::Recording => app.song_time(),
         Mode::Idle => app.timeline_view_time,
@@ -16,6 +16,7 @@ pub fn judge_label_for_zone(app: &PadPreviewState, zone: PadZone) -> Option<&'st
     let zid = zone.to_id();
 
     let mut best = f32::MAX;
+    let mut closest = None;
     for note in &app.playback_chart().notes {
         if sanitize_note_zone(note.note_type, note.lane) != zid {
             continue;
@@ -23,13 +24,14 @@ pub fn judge_label_for_zone(app: &PadPreviewState, zone: PadZone) -> Option<&'st
         let dt = (note_secs(note, bpms) - now).abs();
         if dt < best {
             best = dt;
+            closest = Some(note);
         }
     }
 
     if best <= 0.12 {
-        Some("Perfect")
+        closest.map(|note| (note, "Perfect"))
     } else if best <= 0.25 {
-        Some("Good")
+        closest.map(|note| (note, "Good"))
     } else {
         None
     }

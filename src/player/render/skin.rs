@@ -149,6 +149,22 @@ pub fn ex(app: &PadPreviewState, kind: SkinKind) -> Option<&Texture2D> {
         .and_then(|(_, tex)| tex(app))
 }
 
+pub fn note_ex<'a>(app: &'a PadPreviewState, kind: SkinKind, note: &Note) -> Option<&'a Texture2D> {
+    if note.is_break {
+        let name = match kind {
+            SkinKind::Tap => Some("tap_break_ex"),
+            SkinKind::Hold => Some("hold_break_ex"),
+            SkinKind::Star => Some("star_break_ex"),
+            SkinKind::StarDouble => Some("star_double_break_ex"),
+            _ => None,
+        };
+        if let Some(texture) = name.and_then(|name| super::textures::extra_texture(app, name)) {
+            return Some(texture);
+        }
+    }
+    ex(app, kind)
+}
+
 /// The slide trail / star kind for a note (double-star heads get their own set).
 pub fn star_kind(note: &Note) -> SkinKind {
     if note.is_star {
@@ -175,7 +191,7 @@ pub fn star_ex<'a>(app: &'a PadPreviewState, note: &Note) -> Option<&'a Texture2
         return None;
     }
     let kind = star_kind(note);
-    ex(app, kind).or_else(|| ex(app, SkinKind::Star))
+    note_ex(app, kind, note).or_else(|| note_ex(app, SkinKind::Star, note))
 }
 
 #[cfg(test)]

@@ -10,7 +10,7 @@
 //! | [`ring`] | tap + hold (radial flight) |
 //! | [`touch`] | touch + touch-hold (whole-duration fade/move) |
 //! | [`slide`] | slide adapter over `app::slide_render` |
-//! | [`feedback`] | judgment text overlay |
+//! | [`feedback`] | note/touch judgment sprites |
 //! | [`textures`] | skin texture loading |
 //! | [`scale`] | UI scale factor |
 //!
@@ -73,6 +73,7 @@ pub mod ring;
 pub mod scale;
 pub mod skin;
 pub mod slide;
+pub mod slide_judgment;
 pub mod textures;
 pub mod timing;
 pub mod touch;
@@ -187,19 +188,20 @@ pub fn draw_pad_panel(
         app.play_speed.max(0.1)
     };
     if !params::hide_notes() {
+        // Effects sit behind note sprites and share their circular mask.
+        hit_fx::draw(app, &pad, pad.outer_r, spawn_cx, scale);
         notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale);
-        slide::draw_just_overlays(app, &pad, scale, spawn_cx);
     }
 
-    // Big sensor circle + occluding ring on top of the notes. The outside
+    // Big sensor circle + occluding ring on top of notes and effects. The outside
     // occlusion stays on even with a video; only the inner disc is skipped.
     pad::draw_outer_circle(&pad, scale);
 
     // Overlay.
     if !params::hide_notes() {
-        // Hit sparks sit under the judgment text so the label stays readable.
+        // Judgment labels stay above the mask.
         judgment::draw(app, &pad, scale, spawn_cx, current_t, speed_scale);
-        hit_fx::draw(app, &pad, pad.outer_r, spawn_cx, scale);
+        slide::draw_just_overlays(app, &pad, scale, spawn_cx);
         feedback::draw(app, &pad, pad.outer_r, spawn_cx, scale);
         // Judgment-point dots on the very top.
         notes::draw_judge_dots(app, &pad, scale, spawn_cx, current_t, speed_scale);

@@ -237,6 +237,7 @@ fn draw_panel(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx, area: RectF
         app.pad.set_play_speed(1.0);
         app.pad.ui_scale_override = None;
         app.pad.mobile_ui = false;
+        app.select_note_skin(crate::app::note_skin::NoteSkin::default());
         app.status = "已恢复默认设置".to_string();
     }
     y += 56.0 * ctx.scale;
@@ -334,6 +335,25 @@ fn draw_gameplay(
 }
 
 fn draw_display(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx, x: f32, w: f32, y: &mut f32) {
+    draw_skin_picker(app, input, ctx, x, w, y);
+    draw_display_controls(app, input, ctx, x, w, y);
+}
+
+pub fn draw_skin_picker(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx, x: f32, w: f32, y: &mut f32) {
+    use crate::app::note_skin::NoteSkin;
+    draw::text(ctx.font.as_ref(), "Note 皮肤", x, *y + 16.0 * ctx.scale, 14.0 * ctx.scale, theme::TEXT);
+    *y += 30.0 * ctx.scale;
+    for (i, skin) in NoteSkin::ALL.into_iter().enumerate() {
+        let r = RectF { x: x + i as f32 * (w + 8.0 * ctx.scale) / 2.0, y: *y, w: (w - 8.0 * ctx.scale) / 2.0, h: 40.0 * ctx.scale };
+        let selected = app.pad.params.note_skin == skin;
+        if pages::button(ctx, input, "set_note_skin", i, r, skin.label(), if selected { Btn::Primary } else { Btn::Quiet }) {
+            app.select_note_skin(skin);
+        }
+    }
+    *y += 62.0 * ctx.scale;
+}
+
+fn draw_display_controls(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx, x: f32, w: f32, y: &mut f32) {
     let mut scale = app.pad.ui_scale_override.unwrap_or(1.0);
     let r = RectF { x, y: *y, w, h: 56.0 * ctx.scale };
     if pages::slider_row(ctx, input, "set_scale", 0, r, "界面缩放", &mut scale, 0.8, 1.6) {

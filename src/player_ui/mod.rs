@@ -119,7 +119,9 @@ fn hit_frame(app: &PlayerUiApp, h: &flash::Hit, idx: usize, ui_state: &flash::Fl
     let pressed = ui_state.press == Some(idx);
     match h.kind {
         flash::Kind::Button => {
-            if pressed {
+            if matches!(h.action, flash::Action::SetNoteSkin(skin) if app.pad.params.note_skin == skin) {
+                2
+            } else if pressed {
                 2
             } else if hovered {
                 1
@@ -366,7 +368,11 @@ fn draw_flash(
                 );
             }
             for t in ui.text_draws_matrix(h.sym, wf, &m, 1.0) {
+                if matches!(h.action, flash::Action::SetNoteSkin(_)) { continue; }
                 draw_flash_text(ctx.font.as_ref(), &t);
+            }
+            if let flash::Action::SetNoteSkin(skin) = h.action {
+                draw::text_centered(ctx.font.as_ref(), skin.label(), px.x(h.rect.x + h.rect.w * 0.5), px.y(h.rect.y + 30.0), 15.0 * px.scale, theme::TEXT);
             }
         }
         for t in clip.text_draws(frame, &xf) {
@@ -385,6 +391,9 @@ fn draw_flash(
             }
         }
     });
+    if page_idx == 2 {
+        draw::text(ctx.font.as_ref(), "Note 皮肤", px.x(680.0), px.y(662.0), 14.0 * px.scale, theme::TEXT);
+    }
     draw::text(
         ctx.font.as_ref(),
         &format!("FLASH  {page}   ·   1-5 切页 · ESC 退出"),
@@ -441,6 +450,7 @@ fn apply_flash_action(app: &mut PlayerUiApp, action: flash::Action, page_idx: &m
             *page_idx = 1;
         }
         flash::Action::Section(i) => app.settings_section = i,
+        flash::Action::SetNoteSkin(skin) => app.select_note_skin(skin),
         flash::Action::ToggleAudio => app.pad.audio_enabled = !app.pad.audio_enabled,
         flash::Action::ResetSettings => {
             app.pad.audio_enabled = true;
@@ -450,6 +460,7 @@ fn apply_flash_action(app: &mut PlayerUiApp, action: flash::Action, page_idx: &m
             app.pad.set_play_speed(1.0);
             app.pad.ui_scale_override = None;
             app.pad.mobile_ui = false;
+            app.select_note_skin(crate::app::note_skin::NoteSkin::default());
             app.status = "已恢复默认设置".to_string();
         }
         flash::Action::SetSlider(idx, frac) => {
@@ -604,6 +615,7 @@ pub async fn run() {
         match page.as_str() {
             "select" => app.page = Page::SongSelect,
             "settings" => app.open_settings(),
+            "settings-display" => { app.open_settings(); app.settings_section = 2; }
             "game" => {
                 let _ = app.begin_gameplay();
             }
@@ -692,6 +704,7 @@ pub async fn run() {
         // Playback remains gated until its first frame is presented, including
         // the frame that needs to upload the skin for the first time.
         ensure_gameplay_textures(&mut app, &mut note_assets_loaded, flash_page).await;
+        player::render::textures::sync_note_skin(&mut app.pad);
         let now = get_time();
         let dt = ((now - last) as f32).clamp(0.0, 0.1);
         last = now;

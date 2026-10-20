@@ -158,6 +158,14 @@ fn draw_impl(
                     egui::CollapsingHeader::new("视图与判定")
                         .default_open(true)
                         .show(ui, |ui| {
+                            ui.label("Note 皮肤");
+                            egui::ComboBox::from_id_salt("note-skin")
+                                .selected_text(p.note_skin.label())
+                                .show_ui(ui, |ui| {
+                                    for skin in crate::app::note_skin::NoteSkin::ALL {
+                                        ui.selectable_value(&mut p.note_skin, skin, skin.label());
+                                    }
+                                });
                             judgment_option(ui, &mut p);
                             ui.checkbox(&mut p.hide_notes, "隐藏 Notes");
                             ui.checkbox(&mut p.hide_zones, "隐藏感应区");
@@ -278,30 +286,7 @@ fn draw_impl(
                         ui.checkbox(&mut p.slide_sub_reverse, "slide: sub-slides reverse");
                     });
                     ui.collapsing("Slide 判定贴图 (slideok)", |ui| {
-                        for (label, adj) in [
-                            ("str_l  -", &mut p.slide_just_str_l),
-                            ("str_r  -", &mut p.slide_just_str_r),
-                            ("curv_l  <", &mut p.slide_just_curv_l),
-                            ("curv_r  >", &mut p.slide_just_curv_r),
-                            ("wifi_u", &mut p.slide_just_wifi_u),
-                            ("wifi_d", &mut p.slide_just_wifi_d),
-                        ] {
-                            ui.label(label);
-                            param(ui, &mut adj.scale, 0.02, 0.05..=3.0, "scale");
-                            param(
-                                ui,
-                                &mut adj.rot,
-                                0.02,
-                                -std::f32::consts::PI..=std::f32::consts::PI,
-                                "rot(rad)",
-                            );
-                            param(ui, &mut adj.off_x, 1.0, -400.0..=400.0, "off_x");
-                            param(ui, &mut adj.off_y, 1.0, -400.0..=400.0, "off_y");
-                            ui.horizontal(|ui| {
-                                ui.checkbox(&mut adj.flip_x, "flip_x");
-                                ui.checkbox(&mut adj.flip_y, "flip_y");
-                            });
-                        }
+                        param(ui, &mut p.slide_just_scale, 0.02, 0.05..=3.0, "scale");
                     });
                     ui.collapsing("Touch / TouchHold", |ui| {
                         param(
@@ -614,54 +599,29 @@ fn draw_impl(
                         ui.checkbox(&mut p.answer_sfx, "正解音 (answer.wav)");
                         ui.checkbox(&mut p.hit_sfx, "击打音效");
                         ui.checkbox(&mut p.fx_timeline, "fx_timeline 特效跟随时间轴(暂停即冻结)");
-                        ui.checkbox(&mut p.hit_fx, "hit_fx 启用(圆环+火花+闪光)");
-                        ui.checkbox(&mut p.hit_fx_anim, "hit_fx_anim 用Flash影片播放(ui项目)");
-                        ui.checkbox(
-                            &mut p.hit_fx_anim_tint,
-                            "hit_fx_anim_tint 按判定等级染色(关=用影片原色)",
-                        );
-                        ui.horizontal(|ui| {
-                            ui.label("clip:");
-                            ui.text_edit_singleline(&mut p.hit_fx_anim_clip);
-                        });
+                        ui.checkbox(&mut p.hit_fx, "hit_fx 击打特效");
+                        let particle_ready = app.feedback_resources.as_ref()
+                            .is_some_and(|resources| resources.effects.is_some());
                         param(ui, &mut p.hit_fx_size, 1.0, 8.0..=200.0, "hit_fx_size 大小");
-                        param(
-                            ui,
-                            &mut p.hit_fx_duration,
-                            0.01,
-                            0.05..=1.5,
-                            "hit_fx_duration 时长(s)",
-                        );
-                        param(
-                            ui,
-                            &mut p.hit_fx_alpha,
-                            5.0,
-                            0.0..=255.0,
-                            "hit_fx_alpha 透明度",
-                        );
-                        param(ui, &mut p.hit_fx_ring, 0.5, 0.5..=20.0, "hit_fx_ring 线宽");
-                        param(
-                            ui,
-                            &mut p.hit_fx_sparks,
-                            1.0,
-                            0.0..=32.0,
-                            "hit_fx_sparks 火花数",
-                        );
-                        param(
-                            ui,
-                            &mut p.hit_fx_spark_len,
-                            0.1,
-                            0.0..=5.0,
-                            "hit_fx_spark_len 火花长度",
-                        );
-                        param(ui, &mut p.hit_fx_grow, 0.05, 0.0..=4.0, "hit_fx_grow 扩散");
-                        param(
-                            ui,
-                            &mut p.hit_fx_flash,
-                            0.05,
-                            0.0..=3.0,
-                            "hit_fx_flash 中心闪光",
-                        );
+                        param(ui, &mut p.hanabi_fx_scale, 0.05, 0.05..=3.0, "hanabi_fx_scale 烟花大小");
+                        param(ui, &mut p.hit_fx_alpha, 5.0, 0.0..=255.0, "hit_fx_alpha 透明度");
+                        if !particle_ready {
+                            ui.checkbox(&mut p.hit_fx_anim, "hit_fx_anim 用Flash影片播放(ui项目)");
+                            ui.checkbox(
+                                &mut p.hit_fx_anim_tint,
+                                "hit_fx_anim_tint 按判定等级染色(关=用影片原色)",
+                            );
+                            ui.horizontal(|ui| {
+                                ui.label("clip:");
+                                ui.text_edit_singleline(&mut p.hit_fx_anim_clip);
+                            });
+                            param(ui, &mut p.hit_fx_duration, 0.01, 0.05..=1.5, "hit_fx_duration 时长(s)");
+                            param(ui, &mut p.hit_fx_ring, 0.5, 0.5..=20.0, "hit_fx_ring 线宽");
+                            param(ui, &mut p.hit_fx_sparks, 1.0, 0.0..=32.0, "hit_fx_sparks 火花数");
+                            param(ui, &mut p.hit_fx_spark_len, 0.1, 0.0..=5.0, "hit_fx_spark_len 火花长度");
+                            param(ui, &mut p.hit_fx_grow, 0.05, 0.0..=4.0, "hit_fx_grow 扩散");
+                            param(ui, &mut p.hit_fx_flash, 0.05, 0.0..=3.0, "hit_fx_flash 中心闪光");
+                        }
                     });
                     ui.collapsing("流速与播放", |ui| {
                         param(

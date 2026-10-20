@@ -12,6 +12,7 @@ struct Snapshot {
     document: u64,
     since: Instant,
     attempted: bool,
+    simai: Option<crate::simai_editor::format::Document>,
 }
 
 #[derive(PartialEq)]
@@ -36,9 +37,13 @@ struct Prepared {
 
 impl Prepared {
     fn new(source: &ChartSource, chart: &ChartDoc) -> Result<Self, String> {
+        Self::with_document(source, chart, None)
+    }
+
+    fn with_document(source: &ChartSource, chart: &ChartDoc, document: Option<&crate::simai_editor::format::Document>) -> Result<Self, String> {
         let original = Stamp::read(source)?;
         let text = std::fs::read_to_string(&original.path).map_err(|e| e.to_string())?;
-        let text = super::source_text(source, chart, &text)?;
+        let text = super::source_text_with_document(source, chart, &text, document)?;
         let file = StagedWrite::new(&original.path, &text)?;
         Ok(Self { file, original })
     }
@@ -72,12 +77,13 @@ impl AutoSave {
         self.next_poll = Some(now + Duration::from_millis(250));
         let source = editor.source.as_ref().unwrap();
         let canonical = crate::templates::document(editor, chart);
+        let simai = editor.simai_editor.document();
         let unchanged = self.observed.as_ref().is_some_and(|s|
-            s.document == document && s.source == *source && s.chart == canonical);
+            s.document == document && s.source == *source && s.chart == canonical && s.simai == simai);
         if !unchanged {
             self.pending = None;
             self.observed = Some(Snapshot { source: source.clone(), chart: canonical,
-                document, since: now, attempted: false });
+                document, since: now, attempted: false, simai });
             return;
         }
         if let Some(job) = &self.pending {
@@ -107,9 +113,10 @@ impl AutoSave {
         }
         let source = snapshot.source.clone();
         let chart = snapshot.chart.clone();
+        let simai = snapshot.simai.clone();
         let (send, receive) = mpsc::channel();
         match std::thread::Builder::new().name("editor-auto-save".into()).spawn(move || {
-            let _ = send.send(Prepared::new(&source, &chart));
+            let _ = send.send(Prepared::with_document(&source, &chart, simai.as_ref()));
         }) {
             Ok(_) => self.pending = Some(receive),
             Err(error) => editor.status = Some(format!("Auto-save: {error}")),

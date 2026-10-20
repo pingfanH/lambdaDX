@@ -26,6 +26,18 @@ pub fn panel_height(n: usize) -> f32 {
     INSET * 2.0 + n as f32 * BUTTON + gaps * (STEP - BUTTON) + SEPARATORS.len() as f32 * SEP_EXTRA
 }
 
+/// Hidden palettes reserve neither space nor a pointer exclusion area.
+pub fn panel_rect(timeline: egui::Rect, hidden: bool) -> egui::Rect {
+    if hidden {
+        egui::Rect::NOTHING
+    } else {
+        egui::Rect::from_min_size(
+            timeline.min + egui::vec2(PANEL_X, PANEL_Y),
+            egui::vec2(PANEL_W, panel_height(Tool::ALL.len())),
+        )
+    }
+}
+
 /// Palettes's keyboard shortcut + its display glyph.
 fn shortcut(tool: Tool) -> (egui::Key, &'static str) {
     match tool {
@@ -69,6 +81,9 @@ pub fn draw(
     textures: &[Option<egui::TextureHandle>],
     interactive: bool,
 ) -> bool {
+    if editor.hide_chart_tools {
+        return false;
+    }
     let radius = egui::CornerRadius::same(4);
     {
         let painter = ui.painter();
@@ -185,6 +200,36 @@ fn draw_icon(painter: &egui::Painter, c: egui::Pos2, tool: Tool, active: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hidden_chart_tools_do_not_paint_or_capture_and_keep_shortcuts() {
+        let ctx = egui::Context::default();
+        let mut editor = EditorState { hide_chart_tools: true, ..Default::default() };
+        let canvas = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let panel = panel_rect(canvas, false);
+        assert_eq!(panel_rect(canvas, true), egui::Rect::NOTHING);
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(canvas),
+                events: vec![
+                    egui::Event::PointerMoved(panel.center()),
+                    egui::Event::Key {
+                        key: egui::Key::T, physical_key: None, pressed: true,
+                        repeat: false, modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    assert!(!draw(ui, panel, &mut editor, &[], true));
+                    handle_shortcuts(ui, &mut editor);
+                });
+            },
+        );
+        assert_eq!(output.shapes.len(), 1, "only the panel background should be painted");
+        assert_eq!(editor.tool, Tool::Tap);
+    }
 
     #[test]
     fn clicking_each_palette_button_selects_tool_and_preserves_selection() {

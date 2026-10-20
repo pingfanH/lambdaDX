@@ -4,6 +4,7 @@
 import html
 import math
 import os
+import sys
 import time
 import zipfile
 import xml.etree.ElementTree as ET
@@ -282,6 +283,9 @@ def validate(files, fla_path):
 
 
 def main():
+    if "--judgments-only" in sys.argv:
+        refresh_judgments()
+        return
     assets, files = build_files()
     os.makedirs(OUT_DIR, exist_ok=True)
     for rel, data in files.items():
@@ -306,6 +310,60 @@ def main():
         "%s %d" % (group, count) for group, count in counts.items()
     )))
     print("validated XFL references and FLA ZIP integrity")
+
+
+def refresh_judgments():
+    """Add grade symbols without rewriting the existing authored symbols."""
+    global _next_id
+    _next_id = 0x8000
+    with zipfile.ZipFile(OUT_FLA) as archive:
+        files = {name: archive.read(name) for name in archive.namelist() if name != "mimetype"}
+    document = ET.fromstring(files["DOMDocument.xml"])
+    manifest = ET.fromstring(files["main.xfl"])
+    q = lambda name: "{" + XFL_NS + "}" + name
+    media = document.find(q("media"))
+    symbols = document.find(q("symbols"))
+    listed = manifest.find(q("files"))
+    changed = {}
+    count = 0
+    for asset in collect_assets():
+        if asset["group"] != "Judgement":
+            continue
+        clip = "LIBRARY/" + asset["clip"] + ".xml"
+        if clip in files:
+            continue
+        image = "LIBRARY/" + asset["bitmap"]
+        shape = "LIBRARY/" + asset["shape"] + ".xml"
+        changed[image] = open(asset["source"], "rb").read()
+        changed[shape] = bitmap_shape(asset).encode()
+        changed[clip] = bitmap_clip(asset).encode()
+        ET.SubElement(media, q("DOMBitmapItem"), {
+            "name": asset["bitmap"], "itemID": uid(), "href": asset["bitmap"],
+            "useImportedJPEGData": "false", "compressionType": "lossless",
+            "frameRight": str(asset["width"] * 20), "frameBottom": str(asset["height"] * 20),
+        })
+        for path in [shape, clip]:
+            ET.SubElement(symbols, q("Include"), {"href": path.removeprefix("LIBRARY/"), "loadImmediate": "false", "itemID": uid()})
+        for path in [image, shape, clip]:
+            ET.SubElement(listed, q("DOMFile"), {"path": path})
+        count += 1
+    if not count:
+        print("Judgement symbols already up to date")
+        return
+    changed["DOMDocument.xml"] = ET.tostring(document, encoding="utf-8")
+    changed["main.xfl"] = ET.tostring(manifest, encoding="utf-8")
+    for path, data in changed.items():
+        destination = os.path.join(OUT_DIR, path)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        with open(destination, "wb") as out:
+            out.write(data)
+    files.update(changed)
+    with zipfile.ZipFile(OUT_FLA, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        archive.writestr("mimetype", b"application/vnd.adobe.xfl", compress_type=zipfile.ZIP_STORED)
+        for path in sorted(files):
+            archive.writestr(path, files[path])
+    validate(files, OUT_FLA)
+    print(f"Added {count} Judgement symbols; existing authored symbols preserved")
 
 
 if __name__ == "__main__":

@@ -3,5 +3,11 @@ Sprite base: https://maiwiki.moe/gameresources/sprites
 Effect base: https://maiwiki.moe/gameresources/effects
 Chart: 1600 MASTER (緋色のDance)
 Judgement sprites: Critical variants loaded by the replay renderer.
+PadView judgment sprites: all note/slide/circle/fan grades in pad_sprite_manifest.json.
+Refresh PadView sprites: node tools/fetch_lambdadx_judgments.mjs
+Slide result geometry: slide_judgment_reference.json, sampled by the original SVG engine and result draw method.
+Regenerate/check: node tools/extract_slide_judgment_reference.mjs SOURCE_BUNDLE [--check]
+Slide result timeline: 0-83.33ms fade in, full until 250ms, fade out by 333.33ms.
+Break result: additive overlay on alternate 33.333ms intervals; no scale/position tween.
 Particle effects: all definitions and referenced textures from effects.json.
 Sprite effects: Break/BreakHold/BreakSlide effect sprites for design 00.

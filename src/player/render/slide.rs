@@ -11,7 +11,7 @@ use crate::app::types::{
 };
 use crate::player::render::timing::NoteTiming;
 use crate::player::render::skin;
-use crate::player::state::{PadPreviewState, SLIDE_JUST_DURATION, SlideJudgeGrade};
+use crate::player::state::{PadPreviewState, SlideJudgeGrade};
 use crate::app::params;
 
 /// Draw every sub-slide of a slide note for the current time.
@@ -284,32 +284,32 @@ fn hidden_bars_for_star(seg: &SlideSegmentation, star_dist: f32) -> usize {
     hidden.min(seg.bars.len())
 }
 
-/// Draw the `slideok` judgment overlays for every sub-slide with an active
-/// judgment, tinted by grade and faded out over [`SLIDE_JUST_DURATION`].
+/// Draw source judgment symbols, with the classic skin as a custom-path fallback.
 ///
 /// Drawn as its own pass (not inside [`draw`]) so an overlay still shows after
 /// lnmai-core has already hidden the trail/star it belongs to.
 pub fn draw_just_overlays(app: &PadPreviewState, pad: &PadGeom, scale: f32, spawn_cx: Vec2) {
-    if app.edit_solo_slide.is_some() || app.slide_judge.is_empty() || params::hide_slide_just() {
+    if app.edit_solo_slide.is_some() || params::hide_slide_just() {
         return;
     }
     let Some(ref svg) = app.pad_svg else {
         return;
     };
-    // Slide judgments may be generated while paused. Use wall time so the
-    // result is visible immediately and fades without advancing currentTime.
-    let now = app.now();
+    let now = app.fx_clock();
     for note in app.playback_chart().notes.iter() {
         if !matches!(note.note_type, NoteType::Slide) {
             continue;
         }
         for (si, sl) in note.slide.iter().enumerate() {
-            let Some(fx) = app.slide_judge.get(&(note.id, si)) else {
+            let Some(fx) = app.slide_judgment(note, si) else {
                 continue;
             };
-            let age = (now - fx.started) as f32;
-            let alpha = (1.0 - age / SLIDE_JUST_DURATION as f32).clamp(0.0, 1.0);
+            let age = now - fx.started;
+            let (alpha, additive) = super::slide_judgment::animation(age);
             if alpha <= 0.0 {
+                continue;
+            }
+            if draw_result_sprite(app, note, sl, fx.grade, age as f32, pad, spawn_cx, alpha, additive) {
                 continue;
             }
             let variant = slideok_variant(note, sl);
@@ -317,7 +317,6 @@ pub fn draw_just_overlays(app: &PadPreviewState, pad: &PadGeom, scale: f32, spaw
             let Some(tex) = app.slideok_tex.get(&stem) else {
                 continue;
             };
-            let adj = params::slide_just(variant);
             let c = fx.grade.tint();
             let tint = Color::new(c.r, c.g, c.b, alpha);
             slide_render::draw_slide_just(
@@ -330,14 +329,33 @@ pub fn draw_just_overlays(app: &PadPreviewState, pad: &PadGeom, scale: f32, spaw
                 pad.outer_r,
                 tex,
                 tint,
-                adj,
+                params::slide_just_scale(),
             );
         }
     }
 }
 
-/// Shape family of a slide, selecting both the `slideok` sprite set and its
-/// per-family tuning.
+fn draw_result_sprite(
+    app: &PadPreviewState, note: &Note, slide: &Slide, grade: SlideJudgeGrade, age: f32,
+    pad: &PadGeom, spawn: Vec2, alpha: f32, additive: bool,
+) -> bool {
+    use crate::player::feedback::Grade;
+    let Some(resources) = &app.feedback_resources else { return false };
+    let feedback = grade.feedback();
+    // The source has no shaped MISS sprite; retain the skin's miss/toofast family.
+    if feedback.grade == Grade::Miss { return false; }
+    let Some(pose) = super::slide_judgment::resolve(note, slide) else { return false };
+    let (anchor, size, rotation) = pose.screen(spawn, pad.outer_r + params::tap_target_offset());
+    let key = format!("{}_{}", pose.key, feedback.sprite_suffix(true));
+    let size = size * params::slide_just_scale();
+    let drawn = resources.draw_sprite(&key, anchor, size, rotation, alpha, age);
+    if drawn && slide.slide_is_break && additive {
+        resources.draw_sprite_additive(&format!("{key}_Break"), anchor, size, rotation, alpha, age);
+    }
+    drawn
+}
+
+/// Shape family of a slide, selecting the classic fallback sprite set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlideJustShape {
     Str,
@@ -354,8 +372,7 @@ fn slideok_shape(slide: &Slide) -> SlideJustShape {
     }
 }
 
-/// Variant key (`str_l` / `curv_r` / `wifi_u` …) selecting both the `slideok`
-/// sprite set and its per-variant tuning.
+/// Variant key selecting the classic fallback sprite set.
 fn slideok_variant(note: &Note, slide: &Slide) -> &'static str {
     let side = slideok_side(note, slide);
     match slideok_shape(slide) {

@@ -57,11 +57,7 @@ pub fn current(editor: &mut EditorState, now: f32) {
 pub fn current_chart(editor: &mut EditorState, now: f32) {
     editor.follow_view_offset = None;
     editor.follow_zoom_detached = false;
-    editor.view_start = if editor.layout == EditorLayout::Vertical {
-        now
-    } else {
-        (now - 2.0).max(0.0)
-    };
+    editor.view_start = crate::timeline::geometry::default_view_reference(editor, now);
     editor.follow_playhead = true;
     editor.keyboard.detached = false;
 }

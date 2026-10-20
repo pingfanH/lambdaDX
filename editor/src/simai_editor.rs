@@ -7,6 +7,7 @@ use crate::app::types::{BpmChange, ChartDoc, Note};
 use crate::state::EditorState;
 
 pub mod source;
+pub(crate) mod format;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ClickSeek { Off, Click, CommandClick }
@@ -41,18 +42,16 @@ struct PendingApply {
 
 #[derive(Debug, Clone)]
 struct Source {
-    notes: Vec<Note>,
-    bpms: Vec<BpmChange>,
-    bpm: f32,
+    chart: ChartDoc,
 }
 
 impl Source {
     fn new(chart: &ChartDoc) -> Self {
-        Self { notes: chart.notes.clone(), bpms: chart.bpms.clone(), bpm: chart.bpm }
+        Self { chart: chart.clone() }
     }
 
     fn matches(&self, chart: &ChartDoc) -> bool {
-        self.notes == chart.notes && self.bpms == chart.bpms && self.bpm == chart.bpm
+        self.chart.notes == chart.notes && self.chart.bpms == chart.bpms && self.chart.bpm == chart.bpm
     }
 }
 
@@ -74,6 +73,7 @@ pub struct SimaiEditor {
     cursor_time: Option<f32>,
     cursor_follow_seen: bool,
     pending_cursor_seek: Option<bool>,
+    failed_refresh: Option<Source>,
 }
 
 impl SimaiEditor {
@@ -82,6 +82,20 @@ impl SimaiEditor {
     }
 
     pub fn modified(&self) -> bool { self.modified }
+
+    pub(crate) fn document(&self) -> Option<format::Document> {
+        Some(format::Document { text: self.applied.clone(), chart: self.source.as_ref()?.chart.clone() })
+    }
+
+    pub fn load(&mut self, chart: &ChartDoc, text: String) {
+        self.source = Some(Source::new(chart));
+        self.text = text;
+        self.applied = self.text.clone();
+        self.modified = false;
+        self.error = None;
+        self.failed_refresh = None;
+        self.playback.invalidate();
+    }
 
     pub fn cursor_seek(&mut self, index: usize, jump: bool) -> Option<f32> {
         let moved = self.cursor.replace(index) != Some(index);
@@ -126,10 +140,15 @@ impl SimaiEditor {
         self.revision += 1;
         self.apply_at = None;
         self.pending = None;
-        self.source = Some(Source::new(chart));
-        match crate::io::simai::editable_body(chart) {
-            Ok(text) => { self.text = text; self.error = None; }
-            Err(error) => { self.text.clear(); self.error = Some(error); }
+        let result = if let Some(document) = self.document() { document.update(chart) }
+            else { crate::io::simai::editable_body(chart) };
+        match result {
+            Ok(text) => self.load(chart, text),
+            Err(error) => {
+                self.text = self.applied.clone();
+                self.error = Some(error);
+                self.failed_refresh = Some(Source::new(chart));
+            }
         }
         self.applied = self.text.clone();
         self.modified = false;
@@ -137,10 +156,21 @@ impl SimaiEditor {
     }
 
     pub fn sync(&mut self, chart: &ChartDoc) {
-        if !self.modified && self.source.as_ref().is_none_or(|s| !s.matches(chart)) {
+        if !self.modified && self.source.as_ref().is_none_or(|s| !s.matches(chart))
+            && !self.failed_refresh.as_ref().is_some_and(|s| s.matches(chart)) {
             self.refresh(chart);
         }
     }
+}
+
+pub fn load_source(editor: &mut EditorState, chart: &ChartDoc) {
+    let body = editor.source.as_ref().filter(|source| source.is_simai()).and_then(|source| {
+        let level = source.level?;
+        let text = std::fs::read_to_string(&source.path).ok()?;
+        crate::io::simai::body_for_level(&text, level)
+    });
+    if let Some(body) = body { editor.simai_editor.load(chart, body); }
+    else { editor.simai_editor.refresh(chart); }
 }
 
 pub fn apply(editor: &mut EditorState, chart: &mut ChartDoc) -> Result<(), String> {
@@ -296,6 +326,26 @@ fn preserve_ids(previous: &ChartDoc, parsed: &mut ChartDoc) -> Result<(), String
 #[cfg(all(test, feature = "backend-lean"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graphical_and_text_edits_keep_the_authored_body() {
+        let original = "(188){4}3h[1:2], || authored comment\n4,6h[2:9],4<5-8[8:5],E";
+        let mut chart = parse_draft(original, 188.0, 6).unwrap();
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
+        let mut editor = EditorState::default();
+        editor.simai_editor.load(&chart, original.into());
+        chart.notes[1].lane = 7;
+        editor.simai_editor.sync(&chart);
+        let graphical = original.replacen("\n4,", "\n7,", 1);
+        assert_eq!(editor.simai_editor.text, graphical);
+        editor.simai_editor.text = graphical.replace("authored comment", "new comment");
+        editor.simai_editor.changed();
+        apply(&mut editor, &mut chart).unwrap();
+        chart.notes[1].lane = 8;
+        editor.simai_editor.sync(&chart);
+        assert_eq!(editor.simai_editor.text, graphical.replace("authored comment", "new comment").replacen("\n7,", "\n8,", 1));
+        assert!(!editor.simai_editor.modified());
+    }
 
     #[test]
     fn cursor_seek_waits_for_mapping_and_skips_redundant_follow() {
