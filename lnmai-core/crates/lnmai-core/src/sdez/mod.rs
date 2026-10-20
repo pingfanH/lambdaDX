@@ -6,6 +6,7 @@
 pub mod input;
 pub mod judge;
 pub mod note;
+pub mod runtime;
 pub mod slide;
 pub mod slide_data;
 pub mod timing;
@@ -19,6 +20,8 @@ pub use note::{
 };
 
 pub use slide::SlideNote;
+
+pub use runtime::{SdezEvent, SdezNoteKind, SdezPhase, SdezRuntime};
 
 pub use slide_data::{
     hit_areas, initial_last_wait_time, slide_type_length, total_distance, SlideHitArea,
