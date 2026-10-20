@@ -13,6 +13,10 @@ pub struct SdezEvent {
     pub phase: String,
     pub etiming: String,
     pub diff_msec: f32,
+    #[serde(default)]
+    pub is_break: bool,
+    #[serde(rename = "isEX", default)]
+    pub is_ex: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

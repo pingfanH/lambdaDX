@@ -20,6 +20,8 @@ use crate::core::types::{
 };
 use crate::player::state::PadPreviewState;
 use crate::player::feedback::{FeedbackGrade, HitEffect};
+#[cfg(feature = "backend-rust")]
+use crate::player::sdez_engine::SdezEngine;
 use std::collections::{HashMap, HashSet};
 
 /// Map a pad zone to the screen sensor event family.
@@ -192,6 +194,8 @@ pub struct JudgeEngine {
     fingerprint: String,
     chart_note_ids: Option<HashMap<u64, u64>>,
     chart_slide_positions: Option<HashMap<usize, (u64, usize, usize, usize)>>,
+    #[cfg(feature = "backend-rust")]
+    sdez: Option<SdezEngine>,
 }
 
 fn ensure_runtime() {
@@ -236,6 +240,12 @@ impl JudgeEngine {
             .map_err(|e| e.json)?;
         let (slide_bindings, slide_head_timings, slide_totals) = runtime_slide_bindings(&loaded)?;
         let chart_spec = loaded.chart_spec_native().map_err(|e| e.json)?;
+        #[cfg(feature = "backend-rust")]
+        let sdez = if std::env::var("MAI2_JUDGE_MODE").ok().as_deref() == Some("sdez170") {
+            Some(SdezEngine::load(simai_text, level_index)?)
+        } else {
+            None
+        };
         Ok(JudgeEngine {
             session: loaded,
             chart_spec,
@@ -246,6 +256,8 @@ impl JudgeEngine {
             fingerprint: AutoplayPlan::fingerprint(simai_text, level_index),
             chart_note_ids: None,
             chart_slide_positions: None,
+            #[cfg(feature = "backend-rust")]
+            sdez,
         })
     }
 
@@ -386,6 +398,12 @@ impl JudgeEngine {
             }
         }
         sort_timed_input_events(&mut events);
+        #[cfg(feature = "backend-rust")]
+        if let Some(sdez) = &mut self.sdez {
+            let result = sdez.step(current_time_us, &events)?;
+            self.last_step_time_us = result.current_time;
+            return Ok(result);
+        }
         if std::env::var_os("MAI2_DEBUG_TOUCHZONE").is_some() && !events.is_empty() {
             eprintln!(
                 "[touchzone/core] current_time={} events={events:?}",
@@ -450,6 +468,10 @@ impl JudgeEngine {
     ) -> Result<SeekResult, String> {
         if !seconds.is_finite() {
             return Err("invalid seek time".into());
+        }
+        #[cfg(feature = "backend-rust")]
+        if self.sdez.is_some() {
+            return Err("seek is not implemented for the SDEZ170 backend yet".into());
         }
         let result = self
             .session

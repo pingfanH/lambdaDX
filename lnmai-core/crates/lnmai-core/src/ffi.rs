@@ -641,6 +641,8 @@ pub fn step_sdez_handle(
             },
             "etiming": etiming_str(event.judged.timing),
             "diffMsec": event.judged.diff_msec,
+            "isBreak": event.is_break,
+            "isEX": event.is_ex,
         })).collect::<Vec<_>>(),
         "currentTime": current_msec,
         "score": {

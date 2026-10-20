@@ -452,4 +452,86 @@ mod tests {
         assert!(seen.contains(&SdezNoteKind::Slide));
         assert!(seen.contains(&SdezNoteKind::Touch));
     }
+
+    fn run_real_chart(text: &str, level: usize) {
+        let chart = crate::simai::frontend::frontend_lowered_chart(text, level.into())
+            .expect("real chart parses");
+        let expected = chart.taps.len()
+            + chart.holds.len()
+            + chart.touch_holds.len()
+            + chart.touches.len()
+            + chart.slides.len();
+        assert!(expected > 0, "chart has no runtime notes");
+        let mut runtime = SdezRuntime::from_chart(&chart);
+        runtime.autoplay = AutoplayMode::Critical;
+
+        let mut end_ms = 0.0_f32;
+        for tap in &chart.taps {
+            end_ms = end_ms.max(time_point_msec(tap.timing.clone()));
+        }
+        for hold in &chart.holds {
+            end_ms = end_ms.max(
+                time_point_msec(hold.timing.clone()) + duration_msec(hold.length.clone()),
+            );
+        }
+        for hold in &chart.touch_holds {
+            end_ms = end_ms.max(
+                time_point_msec(hold.timing.clone()) + duration_msec(hold.length.clone()),
+            );
+        }
+        for touch in &chart.touches {
+            end_ms = end_ms.max(time_point_msec(touch.timing.clone()));
+        }
+        for slide in &chart.slides {
+            end_ms = end_ms.max(
+                time_point_msec(slide.start_timing.clone()) + duration_msec(slide.length.clone()),
+            );
+        }
+        end_ms += 5000.0;
+
+        let mut scored = 0usize;
+        let mut t = 0.0_f32;
+        while t <= end_ms {
+            for event in runtime.step(t) {
+                if event.kind == SdezNoteKind::Hold && event.phase == SdezPhase::Head {
+                    continue;
+                }
+                assert_eq!(
+                    event.judged.timing,
+                    ETiming::Critical,
+                    "autoplay produced {:?} at {:.3}ms for {:?}",
+                    event.judged.timing,
+                    t,
+                    event.kind
+                );
+                scored += 1;
+            }
+            t += 16.666666;
+        }
+        assert_eq!(scored, expected, "not every runtime note was scored");
+    }
+
+    #[test]
+    fn real_jack_ripper_completes() {
+        run_real_chart(
+            include_str!("../../tests/fixtures/real_charts/jack_ripper.txt"),
+            5,
+        );
+    }
+
+    #[test]
+    fn real_pandora_paraboxxx_completes() {
+        run_real_chart(
+            include_str!("../../tests/fixtures/real_charts/pandora_paraboxxx.txt"),
+            6,
+        );
+    }
+
+    #[test]
+    fn real_credit_completes() {
+        run_real_chart(
+            include_str!("../../tests/fixtures/real_charts/credit.txt"),
+            5,
+        );
+    }
 }
