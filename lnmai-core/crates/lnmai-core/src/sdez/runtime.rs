@@ -10,7 +10,7 @@ use super::note::{
 use super::slide::SlideNote;
 use super::timing::TimingSettings;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SdezNoteKind {
     Tap,
     Hold,
@@ -385,5 +385,35 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, SdezNoteKind::Slide);
         assert_eq!(events[0].judged.timing, ETiming::Critical);
+    }
+
+    #[test]
+    fn mixed_simai_chart_completes_every_note_type() {
+        let chart = crate::simai::frontend::frontend_lowered_chart(
+            "&inote_1=(120){4}1,2h[1:2],3-5[4:1],B4,E",
+            (1).into(),
+        )
+        .expect("chart");
+        let mut runtime = SdezRuntime::from_chart(&chart);
+        runtime.autoplay = AutoplayMode::Critical;
+        let mut seen = std::collections::HashSet::new();
+        let mut t = 0.0_f32;
+        while t <= 5000.0 {
+            for event in runtime.step(t) {
+                seen.insert(event.kind);
+                assert_eq!(
+                    event.judged.timing,
+                    ETiming::Critical,
+                    "autoplay must not produce {:?} for {:?}",
+                    event.judged.timing,
+                    event.kind
+                );
+            }
+            t += 16.666666;
+        }
+        assert!(seen.contains(&SdezNoteKind::Tap));
+        assert!(seen.contains(&SdezNoteKind::Hold));
+        assert!(seen.contains(&SdezNoteKind::Slide));
+        assert!(seen.contains(&SdezNoteKind::Touch));
     }
 }

@@ -130,6 +130,7 @@ impl SlideNote {
                 self.result = Some(judged);
                 return Some(judged);
             }
+            return None;
         } else if current_msec + JUDGE_ADJUST_MSEC >= self.appear_msec
             && self.hit_index < self.hit_areas.len()
         {
