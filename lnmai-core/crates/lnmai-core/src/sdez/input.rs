@@ -4,6 +4,7 @@ pub const PANEL_AREA_COUNT: usize = 35;
 
 pub const A1: usize = 0;
 pub const A2: usize = 1;
+pub const A3: usize = 2;
 pub const A8: usize = 7;
 pub const B1: usize = 8;
 pub const B8: usize = 15;

@@ -6,16 +6,19 @@
 pub mod input;
 pub mod judge;
 pub mod note;
+pub mod slide;
 pub mod slide_data;
 pub mod timing;
 
 pub use input::{
-    InputFrame, PanelLog, A1, A2, A8, B1, B8, C1, C2, D1, D8, E1, E8, PANEL_AREA_COUNT,
+    InputFrame, PanelLog, A1, A2, A3, A8, B1, B8, C1, C2, D1, D8, E1, E8, PANEL_AREA_COUNT,
 };
 
 pub use note::{
     AutoplayMode, HoldInput, HoldNote, HoldStep, JudgedNote, TapNote, TouchArea, TouchNote,
 };
+
+pub use slide::SlideNote;
 
 pub use slide_data::{
     hit_areas, initial_last_wait_time, slide_type_length, total_distance, SlideHitArea,
