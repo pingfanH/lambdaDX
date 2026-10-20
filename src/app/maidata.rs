@@ -128,8 +128,47 @@ fn strip_bom(text: &str) -> &str {
 fn from_level(text: &str, level_index: u32) -> Result<ChartDoc, String> {
     crate::core::session::ensure_runtime()
         .map_err(|_| "lnmai-core runtime failed to initialize".to_string())?;
-    let parsed = crate::core::api::parse_frontend_chart(text, level_index).map_err(|e| e.json)?;
+    let parsed = parse_with_clock(text, level_index)?;
     Ok(lean::convert(parsed, &metadata(text)))
+}
+
+#[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+fn parse_with_clock(text: &str, level_index: u32) -> Result<crate::core::types::FrontendChartResult, String> {
+    let mut parsed = crate::core::api::parse_frontend_chart(text, level_index).map_err(|e| e.json)?;
+    if let Some(body) = clock_projection(&parsed.inspection.chart.raw_body) {
+        let meta = metadata(text);
+        let bpm = text.lines().find_map(|line| line.trim().strip_prefix("&wholebpm="))
+            .unwrap_or("120");
+        let projection = format!("&first={}\n&wholebpm={bpm}\n&inote_{level_index}={body}\n", meta.audio_offset);
+        let clock = crate::core::api::parse_frontend_chart(&projection, level_index).map_err(|e| e.json)?;
+        parsed.inspection.source.events = clock.inspection.source.events;
+    }
+    Ok(parsed)
+}
+
+/// Empty comma cells do not appear in the core's source events. Retain their
+/// prefix directives and add markers when a BPM change has no note to anchor it.
+fn clock_projection(body: &str) -> Option<String> {
+    let code = body.lines().map(|line| line.split_once("||").map_or(line, |(code, _)| code))
+        .collect::<Vec<_>>().join("\n");
+    let mut out = String::new();
+    let mut needed = false;
+    for cell in code.split(',') {
+        let mut rest = cell.trim();
+        let mut tempo = false;
+        loop {
+            let close = if rest.starts_with('(') { tempo = true; ')' }
+                else if rest.starts_with('{') { '}' }
+                else if rest.starts_with("<H") { '>' }
+                else { break; };
+            let end = rest.find(close)? + 1;
+            out.push_str(&rest[..end]);
+            rest = rest[end..].trim_start();
+        }
+        needed |= tempo && (rest.is_empty() || rest == "E");
+        out.push_str("1,");
+    }
+    needed.then_some(out)
 }
 
 #[cfg(not(any(feature = "backend-lean", feature = "backend-rust")))]
@@ -150,7 +189,7 @@ pub struct SimaiFragment {
 pub fn simai_timeline(text: &str, level_index: u32) -> Result<Vec<SimaiFragment>, String> {
     crate::core::session::ensure_runtime()
         .map_err(|_| "lnmai-core runtime failed to initialize".to_string())?;
-    let parsed = crate::core::api::parse_frontend_chart(text, level_index).map_err(|e| e.json)?;
+    let parsed = parse_with_clock(text, level_index)?;
     Ok(lean::timeline(&parsed))
 }
 
@@ -423,7 +462,7 @@ mod lean {
         let hi_speed = rational_f32(&head.h_speed);
 
         let mut segments = Vec::new();
-        let mut travel = 0.0_f32;
+        let mut travel_us = 0_i64;
         for &index in group {
             let token = tokens.get(index)?;
             let body = token.slide_body.as_ref()?;
@@ -439,8 +478,12 @@ mod lean {
             let len = token
                 .length
                 .unwrap_or_else(|| note_increment_us(token));
-            travel += duration(len, token.timing, bpms);
+            travel_us = travel_us.saturating_add(len);
         }
+        // Motion starts after the head's wait. Integrating each body from the
+        // head gives the wrong span when a BPM change falls inside that wait.
+        let motion_start = head.timing.saturating_add(head.star_wait.unwrap_or(0));
+        let travel = duration(travel_us, motion_start, bpms);
 
         // Head and trail break flags are independent; a break head alone must
         // not turn its slide trail into a break slide.
@@ -601,6 +644,18 @@ mod tests {
             .notes
             .iter()
             .any(|n| matches!(n.note_type, crate::app::types::NoteType::Slide)));
+    }
+
+    #[test]
+    fn tempo_changes_in_empty_cells_keep_their_authored_measure() {
+        let text = "&wholebpm=120\n&inote_6={4},,(180),,1,E\n";
+        let chart = super::from_maidata_level(text, 6).unwrap();
+        assert_eq!(chart.notes.len(), 1, "clock markers must never become chart notes");
+        assert_eq!(chart.bpms.len(), 2);
+        assert!((chart.bpms[1].measure - 1.5).abs() < 0.00002, "{:?}", chart.bpms);
+        assert!((chart.notes[0].time - 2.0).abs() < 0.00002);
+        let fragments = super::simai_timeline(text, 6).unwrap();
+        assert!((fragments[0].time - 1.666667).abs() < 0.00002);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Editor Chart Files
 
-Updated: 2026-10-15. Primary means Command on macOS and Ctrl elsewhere.
+Updated: 2026-10-20. Primary means Command on macOS and Ctrl elsewhere.
 
 ## Commands
 
@@ -24,6 +24,11 @@ through the chart path field or MAI2_EDITOR_CHART.
 - Simai output retains BPM changes, rests, hi-speed changes, flags, zero-length
   holds, continuous slides and same-head trails. It uses the document's measure
   clock, not the preview core's temporary compilation clock.
+- Graphical edits patch authored note tokens first. Rhythm changes combine empty
+  cells and omit repeated subdivisions; ordinary Hold/Slide durations use beat
+  fractions. Insertions before or after the authored body extend its clock.
+  If local mapping fails, a validated compact rewrite retains comment content,
+  although layout and comment positions may change. See [Simai mapping](EDITOR_SIMAI.md).
 - Native JSON retains editor IDs, floating-point times, per-note speeds and
   template definitions/instances, plus authored Autoplay event overrides.
   Saving a recording wrapper replaces its chart but keeps recorded hits and

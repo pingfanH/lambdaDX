@@ -5,6 +5,8 @@ use std::ops::Range;
 use crate::app::types::{ChartDoc, Note, secs_to_measure};
 use super::source::{self, Kind, NoteSpan};
 
+mod rhythm;
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Document {
     pub text: String,
@@ -75,14 +77,28 @@ pub(super) fn equivalent(a: &ChartDoc, b: &ChartDoc) -> bool {
 impl Document {
     pub fn update(&self, chart: &ChartDoc) -> Result<String, String> {
         if equivalent(&self.chart, chart) { return Ok(self.text.clone()); }
-        let text = self.patch(chart)?;
-        let parsed = crate::app::maidata::from_maidata_level(
-            &format!("&first={}\n&wholebpm={}\n&inote_6={text}\n", self.chart.audio_offset, chart.bpm), 6,
-        )?;
-        if !equivalent(chart, &parsed) {
-            return Err("Cannot safely preserve this Simai notation after the edit; the original text has been kept".into());
+        let rhythm_changed = self.chart.notes.len() != chart.notes.len()
+            || self.chart.notes.iter().zip(&chart.notes).any(|(a, b)| a.id != b.id || !close(a.time, b.time));
+        if let Ok(text) = self.patch(chart) {
+            let text = if rhythm_changed { rhythm::compact(&text).unwrap_or(text) } else { text };
+            if self.represents(&text, chart) { return Ok(text); }
         }
-        Ok(text)
+        // A new head can precede the first authored cell or follow E. If local
+        // mapping cannot express it, rebuild the clock instead of freezing it.
+        let text = crate::io::simai::editable_body(chart)?;
+        let mut text = rhythm::compact(&text).unwrap_or(text);
+        for token in source::tokens(&self.text).into_iter().filter(|t| t.kind == Kind::Comment) {
+            text.push_str(if self.text.contains("\r\n") { "\r\n" } else { "\n" });
+            text.push_str(self.text[token.bytes].trim_end_matches('\r'));
+        }
+        if self.represents(&text, chart) { return Ok(text); }
+        Err("This edit contains note data that Simai cannot represent; save as native JSON".into())
+    }
+
+    fn represents(&self, text: &str, chart: &ChartDoc) -> bool {
+        crate::app::maidata::from_maidata_level(
+            &format!("&first={}\n&wholebpm={}\n&inote_6={text}\n", chart.audio_offset, chart.bpm), 6,
+        ).is_ok_and(|parsed| equivalent(chart, &parsed))
     }
 
     fn patch(&self, chart: &ChartDoc) -> Result<String, String> {
@@ -138,9 +154,29 @@ impl Document {
             if let Some(group) = groups.get_mut(index).filter(|_| close(cells[index].measure, note.time)) { group.push(note); }
             else { extra.push(note); }
         }
+        let mut trailing = Vec::new();
+        if let Some(last) = cells.last().filter(|cell| cell.comma.is_none()) {
+            let mut remaining = Vec::new();
+            for note in extra {
+                if note.time > last.measure { trailing.push((note.time, render(&[note], &raw, chart)?)); }
+                else { remaining.push(note); }
+            }
+            extra = remaining;
+        }
         let mut patches = Vec::new();
         for (index, cell) in cells.iter().enumerate() {
             let notes = &groups[index];
+            if cell.comma.is_none() && !trailing.is_empty() {
+                let terminator = tokens.iter().find(|token| cell.range.contains(&token.bytes.start)
+                    && &self.text[token.bytes.clone()] == "E")
+                    .ok_or("Extend an unterminated Simai body using the rhythm serializer")?;
+                let mut events = trailing.clone();
+                events.push((cell.measure, render(notes, &raw, chart)?));
+                events.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let value = rhythm::events(&events, division_value(&cell.division), true)?;
+                patches.push(Patch { range: terminator.bytes.clone(), text: value });
+                continue;
+            }
             let old_ids: HashSet<_> = cell.notes.iter().flat_map(|s| s.ids.iter().copied()).collect();
             let new_ids: HashSet<_> = notes.iter().map(|n| n.id).collect();
             let stable = old_ids.len() == new_ids.len() && old_ids.iter().all(|id| new_ids.contains(id));
@@ -259,12 +295,20 @@ fn number(value: f32) -> String {
     format!("{value:.9}").trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
+fn division_value(value: &str) -> u64 {
+    value.trim_matches(['{', '}']).parse().unwrap_or(4)
+}
+
 fn advance(gap: f32) -> Result<(String, String), String> {
     let tolerance = (gap.abs() as f64 * f32::EPSILON as f64 * 2.0).max(0.0000005);
     let steps = crate::io::simai::gap_steps(gap as f64, tolerance)?;
     let head = format!("{{{}}}", steps[0]);
     let mut tail = String::from(",");
-    for divisor in steps.into_iter().skip(1) { tail.push_str(&format!("{{{divisor}}},")); }
+    let mut active = steps[0];
+    for divisor in steps.into_iter().skip(1) {
+        if divisor != active { tail.push_str(&format!("{{{divisor}}}")); active = divisor; }
+        tail.push(',');
+    }
     Ok((head, tail))
 }
 
@@ -296,10 +340,35 @@ fn fraction(duration: f32) -> Option<String> {
 /// Generated edits use readable measure fractions whenever the timing permits.
 pub(crate) fn note_text(note: &Note, chart: &ChartDoc) -> Result<String, String> {
     let mut text = crate::core_chart::note_text(note, &chart.bpms)?;
+    let bpm = crate::app::types::bpm_at(note.time, &chart.bpms);
     if matches!(note.note_type, crate::app::types::NoteType::Hold | crate::app::types::NoteType::TouchHold) {
-        let crosses_bpm = chart.bpms.iter().skip(1).any(|b| b.measure > note.time && b.measure < note.time + note.hold_duration);
-        if let Some(value) = fraction(note.hold_duration).filter(|_| !crosses_bpm) {
-            if let Some(start) = text.find('[') { text.replace_range(start..text.len(), &format!("[{value}]")); }
+        let seconds = crate::app::types::mdur_to_secs(note.hold_duration, note.time, &chart.bpms);
+        if let Some(value) = fraction(seconds * bpm / 240.0) {
+            if let (Some(start), Some(end)) = (text.find('['), text.find(']')) {
+                text.replace_range(start..=end, &format!("[{value}]"));
+            }
+        }
+    } else if note.note_type == crate::app::types::NoteType::Slide {
+        let mut cursor = 0;
+        for slide in &note.slide {
+            if slide.segments.iter().all(|segment| segment.points.is_empty()
+                || segment.points.last().is_some_and(|point| point.zone.to_id() == 17)) { continue; }
+            let Some(start) = text[cursor..].find('[').map(|i| cursor + i) else { break; };
+            let Some(end) = text[start..].find(']').map(|i| start + i) else { break; };
+            let wait = crate::app::types::mdur_to_secs(slide.slide_start_delay, note.time, &chart.bpms);
+            let total = crate::app::types::mdur_to_secs(slide.slide_duration, note.time, &chart.bpms);
+            let motion = total - wait;
+            let value = if close(wait, 60.0 / bpm) {
+                fraction(motion * bpm / 240.0)
+            } else if wait > 0.0 {
+                let wait_bpm = 60.0 / wait;
+                fraction(motion * wait_bpm / 240.0).map(|duration| format!("{}#{duration}", number(wait_bpm)))
+            } else { None };
+            if let Some(value) = value {
+                let replacement = format!("[{value}]");
+                text.replace_range(start..=end, &replacement);
+                cursor = start + replacement.len();
+            } else { cursor = end + 1; }
         }
     }
     Ok(text)
@@ -318,7 +387,8 @@ mod tests {
     fn changed(source: &Document, chart: &ChartDoc) -> String {
         let text = source.update(chart).unwrap_or_else(|error| {
             let patched = source.patch(chart);
-            panic!("{error}\npatched={patched:?}\nexpected={:?}\nparsed={:?}", chart.notes, patched.as_ref().ok().map(|text| super::super::parse_draft(text, chart.bpm, 6)));
+            let canonical = crate::io::simai::editable_body(chart);
+            panic!("{error}\npatched={patched:?}\nexpected={chart:?}\ncanonical={canonical:?}\nparsed={:?}", canonical.as_ref().ok().map(|text| super::super::parse_draft(text, chart.bpm, 6)));
         });
         let parsed = super::super::parse_draft(&text, chart.bpm, 6).unwrap();
         assert!(equivalent(chart, &parsed), "{text}");
@@ -343,13 +413,14 @@ mod tests {
         assert!(moved.contains("1h[4:2]|| keep , braces [4:1]\n,3-5-8[4:1],C,E"), "{moved}");
         chart.notes.remove(1);
         let deleted = changed(&source, &chart);
-        assert!(deleted.contains("1h[4:2]|| keep , braces [4:1]\n,,C,E"), "{deleted}");
+        assert!(deleted.contains("1h[4:2]|| keep , braces [4:1]\n"), "{deleted}");
+        assert!(!deleted.contains("3-5-8"), "{deleted}");
         let mut note = chart.notes[0].clone();
         note.id = 999;
         note.time = 1.125;
         chart.notes.push(note);
         let inserted = changed(&source, &chart);
-        assert!(inserted.contains("1h[4:2]|| keep , braces [4:1]\n,,C,E"), "{inserted}");
+        assert!(inserted.contains("1h[4:2]|| keep , braces [4:1]\n"), "{inserted}");
     }
 
     #[test]
@@ -370,7 +441,7 @@ mod tests {
         chart.notes[0].is_break = true;
         changed(&source, &chart);
         chart.notes.remove(0);
-        assert!(changed(&source, &chart).contains("{4}2,3,E"));
+        assert!(changed(&source, &chart).contains("2,3,E"));
     }
 
     #[test]
@@ -384,4 +455,158 @@ mod tests {
         chart.bpm = 150.0;
         changed(&source, &chart);
     }
+    #[test]
+    fn moving_a_note_does_not_expand_the_source_into_empty_micro_cells() {
+        let source = document("{4}(120){16}{32}{32}1,");
+        let mut chart = source.chart.clone();
+        chart.notes[0].time = 1.1875;
+        let text = changed(&source, &chart);
+        assert!(!text.contains("{64}"), "{text}");
+        assert!(text.matches("{32}").count() <= 2, "{text}");
+        assert!(text.len() < 50, "{text}");
+    }
+
+    #[test]
+    fn moved_hold_and_slide_keep_readable_measure_durations() {
+        let source = document("(120){4}1h[1:2],2-4[1:1],E");
+        let mut chart = source.chart.clone();
+        chart.notes[0].time = 1.5;
+        chart.notes[1].time = 1.75;
+        let text = changed(&source, &chart);
+        assert!(text.contains("h[1:2]"), "{text}");
+        assert!(text.contains("[1:1]"), "{text}");
+        assert!(!text.contains("0.500000"), "{text}");
+    }
+
+    #[test]
+    fn repeated_moves_stay_compact() {
+        let mut source = document("{4}(120){16}{32}{32}1,");
+        for step in 1..40 {
+            let mut chart = source.chart.clone();
+            chart.notes[0].time = 1.0 + (step % 17) as f32 / 32.0;
+            let text = changed(&source, &chart);
+            assert!(text.len() < 70, "step {step}: {text}");
+            assert!(!text.contains("{32}{32}"), "{text}");
+            source = Document { text, chart };
+        }
+    }
+
+    #[test]
+    fn additions_before_after_e_and_without_terminator_are_representable() {
+        for text in ["(120){4},,1,E", "(120){4},,1,", "(120){4},,1", "E"] {
+            let source = document(text);
+            let mut chart = source.chart.clone();
+            for (index, time) in [1.0, 1.125, 1.5, 1.625, 2.0, 4.125].into_iter().enumerate() {
+                chart.notes.push(Note { id: 100 + index as u64, time, lane: 7, hi_speed: 1.0, ..Default::default() });
+            }
+            changed(&source, &chart);
+        }
+    }
+
+    #[test]
+    fn coarse_rests_do_not_change_implicit_slide_durations() {
+        for body in [
+            "(120){64}1w5,,,,,,,,,,,,,,,2,,,,,,,,,,,,,,,E",
+            "(120){32}1-5,,,,,,,,,,,,,,,2,,,,,,,,,,,,,,,E",
+        ] {
+            let source = document(body);
+            let mut chart = source.chart.clone();
+            chart.notes.last_mut().unwrap().time += 1.0 / 64.0;
+            let text = changed(&source, &chart);
+            assert!(!text.contains(",,,,,,,,,"), "{text}");
+        }
+    }
+
+    #[test]
+    fn generated_and_resized_holds_and_slides_use_beat_fractions() {
+        let source = document("(120){4}1h[4:1],2-4[0.500000##0.500000],E");
+        let mut chart = source.chart.clone();
+        chart.notes[0].hold_duration = 0.5;
+        chart.notes[1].slide[0].slide_duration = 0.75;
+        let text = changed(&source, &chart);
+        assert!(text.contains("1h[2:1]"), "{text}");
+        assert!(text.contains("2-4[2:1]"), "{text}");
+        assert!(!text.contains("##"), "{text}");
+        let mut slide = chart.notes[1].clone();
+        slide.id = 100;
+        slide.time = 3.0;
+        chart.notes.push(slide);
+        let text = changed(&source, &chart);
+        assert!(text.contains("2-4[2:1]"), "{text}");
+    }
+
+    #[test]
+    fn moves_across_bpm_and_speed_changes_keep_sound_timings() {
+        let source = document("(120){4}1h[2:1],<H0.75>2-5[4:1],(180),<H1.25>3,E");
+        let mut chart = source.chart.clone();
+        chart.notes[0].time = 1.625;
+        chart.notes[1].time = 2.25;
+        chart.notes[2].time = 1.125;
+        changed(&source, &chart);
+    }
+
+    #[test]
+    fn multiple_simultaneous_notes_past_e_keep_their_owner() {
+        let source = document("(120){4}1,E");
+        let mut chart = source.chart.clone();
+        for (id, time, lane) in [(10, 1.25, 2), (11, 1.5, 3), (12, 1.5, 4), (13, 2.0, 5)] {
+            chart.notes.push(Note { id, time, lane, hi_speed: 1.0, ..Default::default() });
+        }
+        changed(&source, &chart);
+    }
+
+    #[test]
+    fn off_grid_insertions_and_comments_have_a_valid_fallback() {
+        let source = document("(188){4}1, || 注释 , [2:9]\r\n2h[2:9],3-5-8[8:5],E");
+        let mut chart = source.chart.clone();
+        for (index, time) in [1.12345, 1.3333334, 3.142857, 5.77777].into_iter().enumerate() {
+            chart.notes.push(Note { id: 100 + index as u64, time, lane: 8, hi_speed: 1.0, ..Default::default() });
+        }
+        let text = changed(&source, &chart);
+        assert!(text.contains("|| 注释 , [2:9]\r\n"), "{text}");
+    }
+
+    #[test]
+    fn extending_the_body_keeps_trailing_comments() {
+        for body in ["(120){4}1,E || keep tail", "(120){4}1 || keep tail", "(120){4}1, || keep tail"] {
+            let source = document(body);
+            let mut chart = source.chart.clone();
+            chart.notes.push(Note { id: 100, time: 2.0, lane: 8, hi_speed: 1.0, ..Default::default() });
+            let text = changed(&source, &chart);
+            assert!(text.contains("|| keep tail"), "{text}");
+        }
+    }
+
+    #[test]
+    fn custom_slide_waits_and_zero_waits_keep_their_timings() {
+        let source = document("(120){4}1-5[4:1],E");
+        for (wait, motion) in [(0.125, 0.5), (0.5, 0.25), (0.0, 0.25), (0.25, 0.0)] {
+            let mut chart = source.chart.clone();
+            chart.notes[0].slide[0].slide_start_delay = wait;
+            chart.notes[0].slide[0].slide_duration = wait + motion;
+            changed(&source, &chart);
+        }
+    }
+
+    #[test]
+    fn editing_mixed_notation_repeatedly_keeps_the_parsed_document() {
+        for body in [
+            "(188){4}3h[1:2], || keep\n4,6h[2:9],4<5-8[8:5],E",
+            "(120){16}12,3-5[4:1]*-7[4:1],Ch[2:1],B3,E",
+            "(120){4}1,2-5[4:1],(180),,Ch[4:1],E",
+        ] {
+            let mut source = document(body);
+            for index in 0..12 {
+                let mut chart = source.chart.clone();
+                let target = index % chart.notes.len();
+                chart.notes[target].time = 1.0 + (index * 7 % 37) as f32 / 16.0;
+                crate::app::maichart::recompute_each(&mut chart.notes);
+                crate::app::maichart::mark_double_stars(&mut chart.notes);
+                let text = changed(&source, &chart);
+                assert!(text.len() < 2000, "{text}");
+                source = Document { text, chart };
+            }
+        }
+    }
+
 }

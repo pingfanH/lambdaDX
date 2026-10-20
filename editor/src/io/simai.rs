@@ -198,7 +198,7 @@ pub(crate) fn gap_steps(mut gap: f64, tolerance: f64) -> Result<Vec<u64>, String
     for divisor in 1..=192 {
         let count = (gap * divisor as f64).round() as usize;
         if count > 0 && (gap - count as f64 / divisor as f64).abs() <= tolerance {
-            steps.extend(std::iter::repeat_n(divisor, count));
+            steps.extend(rhythmic_steps(count, divisor));
             return Ok(steps);
         }
     }
@@ -211,4 +211,80 @@ pub(crate) fn gap_steps(mut gap: f64, tolerance: f64) -> Result<Vec<u64>, String
         gap -= 1.0 / divisor;
     }
     Ok(steps)
+}
+
+/// Minimize commas plus division directives using exact parts of this grid.
+/// Equal steps stay grouped, so short rests do not gain unnecessary braces.
+fn rhythmic_steps(count: usize, grid: u64) -> Vec<u64> {
+    let mut costs = vec![usize::MAX; count + 1];
+    let mut paths = vec![Vec::new(); count + 1];
+    costs[0] = 0;
+    for divisor in 1..=grid {
+        if grid % divisor != 0 { continue; }
+        let ticks = (grid / divisor) as usize;
+        let directive = divisor.to_string().len() + 2;
+        // Descending totals extend only paths built from coarser divisions.
+        for total in (ticks..=count).rev() {
+            for length in 1..=total / ticks {
+                let previous = total - length * ticks;
+                if costs[previous] == usize::MAX { continue; }
+                let cost = costs[previous] + directive + length;
+                if cost < costs[total] {
+                    costs[total] = cost;
+                    paths[total] = paths[previous].clone();
+                    paths[total].extend(std::iter::repeat_n(divisor, length));
+                }
+            }
+        }
+    }
+    let original_cost = grid.to_string().len() + 2 + count;
+    if costs[count] < original_cost {
+        std::mem::take(&mut paths[count])
+    } else {
+        std::iter::repeat_n(grid, count).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gap_steps;
+
+    #[test]
+    fn rhythmic_gaps_use_coarser_runs_when_shorter() {
+        for (count, grid) in [(45, 64), (29, 64), (31, 32), (47, 48), (67, 192)] {
+            let gap = count as f64 / grid as f64;
+            let steps = gap_steps(gap, 1e-10).unwrap();
+            assert!(steps.len() <= 8, "{count}/{grid}: {steps:?}");
+            assert!(steps.iter().any(|&step| step < grid), "{steps:?}");
+            let actual = steps.iter().map(|&step| 1.0 / step as f64).sum::<f64>();
+            assert!((actual - gap).abs() < 1e-10, "{steps:?}");
+            assert_eq!(gap_steps(actual, 1e-10).unwrap(), steps);
+        }
+    }
+
+    #[test]
+    fn short_rhythmic_gaps_keep_simple_repeated_steps() {
+        for (count, grid) in [(1, 64), (3, 32), (3, 16), (1, 12), (3, 8), (3, 4)] {
+            assert_eq!(gap_steps(count as f64 / grid as f64, 1e-10).unwrap(), vec![grid; count]);
+        }
+    }
+
+    #[test]
+    fn coarse_rhythmic_steps_preserve_exact_grid_time_and_do_not_expand_text() {
+        for grid in [8, 16, 24, 32, 48, 64, 96, 128, 192] {
+            for count in 1..grid {
+                let gap = count as f64 / grid as f64;
+                let steps = gap_steps(gap, 1e-10).unwrap();
+                let actual = steps.iter().map(|&step| 1.0 / step as f64).sum::<f64>();
+                assert!((actual - gap).abs() < 1e-10, "{count}/{grid}: {steps:?}");
+                let mut active = 0;
+                let mut size = 0;
+                for step in steps {
+                    if active != step { size += step.to_string().len() + 2; active = step; }
+                    size += 1;
+                }
+                assert!(size <= grid.to_string().len() + 2 + count as usize, "{count}/{grid}: {size}");
+            }
+        }
+    }
 }

@@ -151,7 +151,7 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
         ui.set_min_size(ui.available_size());
         if template { ui.colored_label(TEXT_DIM, "模板编辑中"); }
         if editor.simai_editor.conflict(chart) {
-            ui.colored_label(Color32::from_rgb(224, 177, 99), "谱面已在其他分区修改；请保留草稿后重新读取谱面。");
+            ui.colored_label(Color32::from_rgb(224, 177, 99), "主谱面和 Simai 草稿都有修改；草稿已保留，请备份后重新读取谱面。");
         }
         if let Some(error) = &editor.simai_editor.error {
             ScrollArea::vertical().id_salt("simai-errors").max_height(72.0).show(ui, |ui| {

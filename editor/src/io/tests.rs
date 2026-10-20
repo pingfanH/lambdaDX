@@ -527,3 +527,85 @@ fn save_updates_the_open_chart_and_keeps_other_difficulties() {
     assert!(saved.contains("&lv_6=14+\n"));
     assert_eq!(reopened.audio_offset, 0.125);
 }
+
+#[cfg(feature = "backend-lean")]
+#[test]
+fn simai_saves_and_exports_compact_long_fine_grid_rests() {
+    let folder = ChartFolder::new();
+    let path = folder.path().join("maidata.txt");
+    let exported = folder.path().join("export.txt");
+    let body = ",{1}(120)1,{64},,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,2,,,,,,,,,,,,,,,,,,,,,,,,,,,,,E";
+    let original = format!("&custom=Keep\n&inote_2=(100)7,E\n&inote_6={body}\n");
+    std::fs::write(&path, &original).unwrap();
+    let mut chart = crate::app::maidata::from_maidata_level(&original, 6).unwrap();
+    crate::app::maichart::assign_note_ids(&mut chart.notes);
+    let mut editor = source_editor(&path, Some(6));
+    crate::simai_editor::load_source(&mut editor, &chart);
+    chart.notes.last_mut().unwrap().time += 1.0 / 64.0;
+    editor.simai_editor.sync(&chart);
+    assert!(editor.simai_editor.error.is_none(), "{:?}", editor.simai_editor.error);
+    save_document(&mut editor, &mut chart);
+    assert!(!editor.dirty, "{:?}", editor.status);
+    export_to(&editor, &chart, &exported).unwrap();
+    let mut bodies = vec![simai::body(&chart).unwrap(), simai::editable_body(&chart).unwrap()];
+    for file in [&path, &exported] {
+        let saved = std::fs::read_to_string(file).unwrap();
+        assert!(saved.contains("&custom=Keep"));
+        assert!(saved.contains("&inote_2=(100)7,E"));
+        bodies.push(simai::body_for_level(&saved, 6).unwrap());
+    }
+    for text in bodies {
+        assert!(!text.contains(",,,,,,,,,"), "{text}");
+        assert!(text.len() < body.len(), "{text}");
+        let reopened = parse(&text);
+        assert_eq!(reopened.notes.len(), chart.notes.len());
+        for (expected, actual) in chart.notes.iter().zip(&reopened.notes) {
+            assert_eq!(expected.lane, actual.lane);
+            assert!((expected.time - actual.time).abs() < 0.00002, "{text}");
+        }
+    }
+}
+
+#[cfg(feature = "backend-lean")]
+#[test]
+fn graphical_simai_moves_additions_and_resizing_save_as_compact_beats() {
+    let folder = ChartFolder::new();
+    let path = folder.path().join("maidata.txt");
+    let original = "&custom=Keep\n&inote_2=(100){4}7,E\n&lv_6=13.0\n&inote_6=(120){4}1h[4:1],2-4[0.5##0.5],E\n";
+    std::fs::write(&path, original).unwrap();
+    let mut chart = crate::app::maidata::from_maidata_level(original, 6).unwrap();
+    crate::app::maichart::assign_note_ids(&mut chart.notes);
+    let mut editor = source_editor(&path, Some(6));
+    crate::simai_editor::load_source(&mut editor, &chart);
+    chart.notes[0].time = 1.125;
+    chart.notes[0].hold_duration = 0.5;
+    chart.notes[1].time = 1.75;
+    chart.notes[1].slide[0].slide_duration = 0.75;
+    chart.notes.push(crate::app::types::Note {
+        id: 100, time: 3.125, lane: 7, hi_speed: 1.0, ..Default::default()
+    });
+    editor.simai_editor.sync(&chart);
+    assert!(editor.simai_editor.error.is_none(), "{:?}", editor.simai_editor.error);
+    save_document(&mut editor, &mut chart);
+    assert!(!editor.dirty, "{:?}", editor.status);
+    let saved = std::fs::read_to_string(&path).unwrap();
+    assert!(saved.contains("1h[2:1]"), "{saved}");
+    assert!(saved.contains("2-4[2:1]"), "{saved}");
+    assert!(!saved.contains("##"), "{saved}");
+    assert!(saved.contains("&inote_2=(100){4}7,E"));
+    assert!(saved.contains("&lv_6=13.0"));
+    assert!(saved.contains("&custom=Keep"));
+    let reopened = crate::app::maidata::from_maidata_level(&saved, 6).unwrap();
+    assert_eq!(chart.notes.len(), reopened.notes.len());
+    for (expected, actual) in chart.notes.iter().zip(&reopened.notes) {
+        assert_eq!(expected.note_type, actual.note_type);
+        assert_eq!(expected.lane, actual.lane);
+        assert!((expected.time - actual.time).abs() < 0.00002);
+        assert!((expected.hold_duration - actual.hold_duration).abs() < 0.00002);
+        for (expected, actual) in expected.slide.iter().zip(&actual.slide) {
+            assert_eq!(expected.segments, actual.segments);
+            assert!((expected.slide_duration - actual.slide_duration).abs() < 0.00002);
+            assert!((expected.slide_start_delay - actual.slide_start_delay).abs() < 0.00002);
+        }
+    }
+}

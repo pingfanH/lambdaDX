@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use crate::app::types::{BpmChange, ChartDoc, Note};
+use crate::app::types::{BpmChange, ChartDoc, Note, NoteType};
 use crate::state::EditorState;
 
 pub mod source;
@@ -52,15 +52,38 @@ struct PendingApply {
 #[derive(Debug, Clone)]
 struct Source {
     chart: ChartDoc,
+    note_order: Vec<usize>,
 }
 
 impl Source {
     fn new(chart: &ChartDoc) -> Self {
-        Self { chart: chart.clone() }
+        let mut note_order: Vec<_> = (0..chart.notes.len()).collect();
+        note_order.sort_by_key(|&index| chart.notes[index].id);
+        Self { chart: chart.clone(), note_order }
     }
 
     fn matches(&self, chart: &ChartDoc) -> bool {
-        self.chart.notes == chart.notes && self.chart.bpms == chart.bpms && self.chart.bpm == chart.bpm
+        if self.chart.notes.len() != chart.notes.len()
+            || self.chart.bpms != chart.bpms || self.chart.bpm != chart.bpm { return false; }
+        if self.chart.notes.iter().zip(&chart.notes).all(|(a, b)| Self::same_note(a, b)) { return true; }
+        // IDs identify authored notes; sorting the storage vector is not an edit.
+        let mut current: Vec<_> = chart.notes.iter().collect();
+        current.sort_by_key(|note| note.id);
+        self.note_order.iter().zip(current).all(|(&index, note)| Self::same_note(&self.chart.notes[index], note))
+    }
+
+    fn same_note(a: &Note, b: &Note) -> bool {
+        // Keep this exhaustive so new authored fields cannot silently bypass conflicts.
+        let Note { id, time, lane, note_type, hold_duration, is_each: _, is_each_head: _,
+            is_break, is_ex, is_star, is_fake_rotate, is_hanabi, is_tapless, is_touch,
+            hi_speed, slide, template_source } = a;
+        *id == b.id && *time == b.time && *lane == b.lane && *note_type == b.note_type
+            && *hold_duration == b.hold_duration && *is_break == b.is_break && *is_ex == b.is_ex
+            // Slide double-star and Each flags are rebuilt by runtime synchronization.
+            && (*note_type == NoteType::Slide || *is_star == b.is_star)
+            && *is_fake_rotate == b.is_fake_rotate && *is_hanabi == b.is_hanabi
+            && *is_tapless == b.is_tapless && *is_touch == b.is_touch
+            && *hi_speed == b.hi_speed && *slide == b.slide && *template_source == b.template_source
     }
 }
 
@@ -276,7 +299,7 @@ fn apply_parsed(editor: &mut EditorState, chart: &mut ChartDoc, mut parsed: Char
         return Err("Exit template editing before applying Simai text".into());
     }
     if editor.simai_editor.conflict(chart) {
-        return Err("Chart changed after this draft began; copy the draft, then reload it from the chart".into());
+        return Err("Both the chart and this Simai draft have changed; the draft is kept intact. Copy it before reloading from the chart".into());
     }
     preserve_ids(chart, &mut parsed)?;
     let mut updated = chart.clone();
@@ -337,6 +360,118 @@ fn preserve_ids(previous: &ChartDoc, parsed: &mut ChartDoc) -> Result<(), String
 #[cfg(all(test, feature = "backend-lean"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draft_conflict_ignores_derived_flags_and_storage_order() {
+        let body = "(120){4}1/2,3-5[4:1]*-7[4:1],4,E";
+        let mut chart = parse_draft(body, 120.0, 6).unwrap();
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
+        for note in &mut chart.notes {
+            note.is_each = false;
+            note.is_each_head = false;
+            if note.note_type == crate::app::types::NoteType::Slide { note.is_star = false; }
+        }
+        let mut editor = EditorState::default();
+        editor.simai_editor.load(&chart, body.into());
+        editor.simai_editor.text = body.replace("4,E", "6,E");
+        editor.simai_editor.changed();
+        let draft = editor.simai_editor.text.clone();
+        crate::app::maichart::recompute_each(&mut chart.notes);
+        crate::app::maichart::mark_double_stars(&mut chart.notes);
+        assert!(!editor.simai_editor.conflict(&chart), "derived note flags are not authored edits");
+        chart.notes.reverse();
+        assert!(!editor.simai_editor.conflict(&chart), "note storage order is not an authored edit");
+        editor.simai_editor.sync(&chart);
+        assert_eq!(editor.simai_editor.text, draft);
+        apply(&mut editor, &mut chart).unwrap();
+        assert!(chart.notes.iter().any(|note| note.lane == 6));
+        assert!(!editor.simai_editor.modified());
+    }
+
+    #[test]
+    fn draft_conflict_keeps_real_graphical_edits_and_text_intact() {
+        let body = "(120){4}1,2,E";
+        let mut chart = parse_draft(body, 120.0, 6).unwrap();
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
+        let mut editor = EditorState::default();
+        editor.simai_editor.load(&chart, body.into());
+        editor.simai_editor.text = body.replace("2,E", "3,E");
+        editor.simai_editor.changed();
+        let draft = editor.simai_editor.text.clone();
+        chart.notes[0].lane = 7;
+        let graphical = chart.clone();
+        editor.simai_editor.sync(&chart);
+        assert!(editor.simai_editor.conflict(&chart));
+        assert!(apply(&mut editor, &mut chart).is_err());
+        assert_eq!(chart, graphical);
+        assert_eq!(editor.simai_editor.text, draft);
+        assert!(editor.simai_editor.modified());
+    }
+
+    #[test]
+    fn draft_conflict_still_detects_authored_note_and_clock_changes() {
+        let body = "(120){4}1,2-5[4:1],E";
+        let mut baseline = parse_draft(body, 120.0, 6).unwrap();
+        crate::app::maichart::assign_note_ids(&mut baseline.notes);
+        let mut simai = SimaiEditor::default();
+        simai.load(&baseline, body.into());
+        simai.text = body.replace("1,", "3,");
+        simai.changed();
+        let changes: &[(&str, fn(&mut ChartDoc))] = &[
+            ("id", |chart| chart.notes[0].id += 10),
+            ("time", |chart| chart.notes[0].time += 0.125),
+            ("lane", |chart| chart.notes[0].lane = 7),
+            ("type", |chart| chart.notes[0].note_type = NoteType::Hold),
+            ("hold duration", |chart| chart.notes[0].hold_duration = 0.5),
+            ("break", |chart| chart.notes[0].is_break = true),
+            ("ex", |chart| chart.notes[0].is_ex = true),
+            ("authored star", |chart| chart.notes[0].is_star = true),
+            ("fake rotation", |chart| chart.notes[0].is_fake_rotate = true),
+            ("firework", |chart| chart.notes[0].is_hanabi = true),
+            ("tapless", |chart| chart.notes[1].is_tapless = true),
+            ("touch", |chart| chart.notes[0].is_touch = true),
+            ("hi-speed", |chart| chart.notes[0].hi_speed = 0.75),
+            ("slide duration", |chart| chart.notes[1].slide[0].slide_duration += 0.25),
+            ("slide delay", |chart| chart.notes[1].slide[0].slide_start_delay += 0.125),
+            ("bpm", |chart| chart.bpm = 180.0),
+            ("bpm directive", |chart| chart.bpms[0].bpm = 180.0),
+            ("delete", |chart| { chart.notes.pop(); }),
+            ("add", |chart| { let mut note = chart.notes[0].clone(); note.id = 100; chart.notes.push(note); }),
+        ];
+        for (name, change) in changes {
+            let mut chart = baseline.clone();
+            change(&mut chart);
+            assert!(simai.conflict(&chart), "missed authored change: {name}");
+        }
+    }
+
+    #[test]
+    fn live_apply_accepts_derived_flag_changes_without_losing_the_draft() {
+        let body = "(120){4}1/2,3,E";
+        let mut chart = parse_draft(body, 120.0, 6).unwrap();
+        crate::app::maichart::assign_note_ids(&mut chart.notes);
+        for note in &mut chart.notes { note.is_each = false; note.is_each_head = false; }
+        let mut editor = EditorState::default();
+        editor.simai_editor.load(&chart, body.into());
+        editor.simai_editor.live_apply_seen = true;
+        editor.simai_editor.text = body.replace("3,E", "4,E");
+        editor.simai_editor.changed();
+        let parsed = parse_draft(&editor.simai_editor.text, 120.0, 6).unwrap();
+        editor.simai_editor.pending = Some(PendingApply {
+            revision: editor.simai_editor.revision, bpm: 120.0, level: 6,
+            result: Arc::new(Mutex::new(Some(Ok(parsed)))),
+        });
+        crate::app::maichart::recompute_each(&mut chart.notes);
+        tick(&mut editor, &mut chart, true);
+        assert!(editor.simai_editor.error.is_none(), "{:?}", editor.simai_editor.error);
+        assert!(!editor.simai_editor.modified());
+        assert!(chart.notes.iter().any(|note| note.lane == 4));
+        assert_eq!(editor.undo.len(), 1);
+        let applied = chart.clone();
+        tick(&mut editor, &mut chart, true);
+        assert_eq!(chart, applied);
+        assert_eq!(editor.undo.len(), 1);
+    }
 
     #[test]
     fn graphical_and_text_edits_keep_the_authored_body() {
