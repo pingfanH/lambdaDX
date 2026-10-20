@@ -380,9 +380,18 @@ impl JudgeEngine {
     pub fn step(
         &mut self,
         current_secs: f32,
+        events: Vec<TimedInputEvent>,
+    ) -> Result<RuntimeStepLightResult, String> {
+        self.step_us((current_secs.max(0.0) as f64 * 1e6).round() as i64, events)
+    }
+
+    /// Event timestamps must never round-trip through f32 seconds: a clock a
+    /// microsecond before its input causes the core to discard that input.
+    pub fn step_us(
+        &mut self,
+        requested_time_us: i64,
         mut events: Vec<TimedInputEvent>,
     ) -> Result<RuntimeStepLightResult, String> {
-        let requested_time_us = (current_secs.max(0.0) * 1e6) as i64;
         let current_time_us = requested_time_us.max(self.last_step_time_us);
         // A stalled frame can leave autoplay events behind the core clock.
         // Keep those events in the current zero-duration frame instead of
@@ -540,8 +549,13 @@ impl JudgeEngine {
                     track_index: update.track_index,
                     frac: 0.0,
                     hidden_until_bar: None,
+                    shared_frac: None,
                 });
             entry.frac = entry.frac.max(update.frac);
+            entry.shared_frac = match (entry.shared_frac, update.shared_frac) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            };
             entry.hidden_until_bar = match (entry.hidden_until_bar, update.hidden_until_bar) {
                 (Some(a), Some(b)) => Some(a.max(b)),
                 (a, b) => a.or(b),
@@ -576,14 +590,17 @@ impl JudgeEngine {
             } => (
                 *note_index,
                 Some(*track_index),
-                self.frac_from_remaining(*note_index, *remaining)?,
+                if self.is_wifi(*note_index)? { 0.0 }
+                    else { self.frac_from_remaining(*note_index, *remaining)? },
                 None,
             ),
             // A miss hides the whole arc.
             RenderCommand::HideAllSlideBars { note_index } => (*note_index, None, 1.0, None),
             // `HideSlideBars`/`HideSlideTrackBars.endIndex` is in trail-tile
             // units (0..sprite count), which is exactly what the renderer hides.
-            RenderCommand::HideSlideBars { .. } => return None,
+            RenderCommand::HideSlideBars { note_index, end_index } => (
+                *note_index, None, 0.0, Some(*end_index as usize),
+            ),
             RenderCommand::HideSlideTrackBars {
                 note_index,
                 track_index,
@@ -591,18 +608,36 @@ impl JudgeEngine {
             } => (
                 *note_index,
                 Some(*track_index),
-                0.0,
+                self.bar_fraction(*note_index, *track_index, *end_index)?,
                 Some(*end_index as usize),
             ),
             RenderCommand::ShowJudgeResult { .. } => return None,
         };
         let runtime_slide_index = self.runtime_slide_index(note_index)?;
+        let shared_frac = match command {
+            RenderCommand::UpdateSlideTrackProgress { remaining, .. } if self.is_wifi(note_index)? =>
+                Some(self.frac_from_track_progress(note_index, *remaining)?),
+            _ => None,
+        };
         Some(SlideArcProgress {
             runtime_slide_index,
             track_index,
             frac: frac.clamp(0.0, 1.0),
             hidden_until_bar,
+            shared_frac,
         })
+    }
+
+    fn is_wifi(&self, note_index: u64) -> Option<bool> {
+        let runtime = self.runtime_slide_index(note_index)?;
+        Some(self.chart_spec.slides.get(runtime)?.slide_kind == crate::core::types::RuntimeSlideKind::Wifi)
+    }
+
+    fn bar_fraction(&self, note_index: u64, track: u64, value: u64) -> Option<f32> {
+        let runtime = self.runtime_slide_index(note_index)?;
+        let queue = self.chart_spec.slides.get(runtime)?.judge_queues.get(track as usize)?;
+        let total = queue.iter().map(|area| area.arrow_progress_when_finished.max(area.arrow_progress_when_on)).max()?;
+        Some(if total == 0 { 0.0 } else { (value as f32 / total as f32).clamp(0.0, 1.0) })
     }
 
     fn frac_from_remaining(&self, note_index: u64, remaining: u64) -> Option<f32> {
@@ -618,6 +653,15 @@ impl JudgeEngine {
         let touched = denom.saturating_sub(remaining).min(denom);
         Some(touched as f32 / denom as f32)
     }
+
+    fn frac_from_track_progress(&self, note_index: u64, value: u64) -> Option<f32> {
+        let runtime = self.runtime_slide_index(note_index)?;
+        let spec = self.chart_spec.slides.get(runtime)?;
+        // WiFi remaining is an increasing bar cursor, not a queue length.
+        if spec.slide_kind == crate::core::types::RuntimeSlideKind::Wifi {
+            Some((value as f32 / if spec.is_classic { 8.0 } else { 9.0 }).clamp(0.0, 1.0))
+        } else { self.frac_from_remaining(note_index, value) }
+    }
 }
 
 /// Consumed fraction (0..1) of one runtime slide arc.
@@ -631,6 +675,8 @@ pub struct SlideArcProgress {
     pub frac: f32,
     /// Explicit trail-bar cutoff from `HideSlideTrackBars` (0..sprite count).
     pub hidden_until_bar: Option<usize>,
+    /// WiFi shared cursor, distinct from a branch's explicit hide frontier.
+    pub shared_frac: Option<f32>,
 }
 
 fn runtime_slide_bindings(
@@ -920,9 +966,14 @@ pub(crate) fn step_engine_events(
         return vec![engine.step(now, events)];
     }
     let mut results = Vec::with_capacity(events.len() + 1);
-    for event in events {
-        let at = (timed_input_tp(&event) as f32 / 1e6).min(now.max(0.0));
-        results.push(engine.step(at, vec![event]));
+    let mut events = events.into_iter().peekable();
+    while let Some(event) = events.next() {
+        let at = timed_input_tp(&event);
+        let mut batch = vec![event];
+        while events.peek().is_some_and(|event| timed_input_tp(event) == at) {
+            batch.push(events.next().unwrap());
+        }
+        results.push(engine.step_us(at, batch));
     }
     results.push(engine.step(now, Vec::new()));
     results
@@ -1774,6 +1825,57 @@ mod tests {
         engine
             .step(5.0, press_events_for_zone(PadZone::from(1), 5_000_000))
             .expect("press frame steps");
+    }
+
+    #[test]
+    fn wifi_progress_keeps_shared_cursor_separate_from_branch_cutoffs() {
+        let engine = JudgeEngine::load("&inote_1=(120){4}1w5[4:1],E", 1).unwrap();
+        let note = engine.chart_spec.slides[0].note_index;
+        let commands = [
+            RenderCommand::HideSlideTrackBars { note_index: note, track_index: 0, end_index: 2 },
+            RenderCommand::HideSlideTrackBars { note_index: note, track_index: 1, end_index: 4 },
+            RenderCommand::UpdateSlideTrackProgress { note_index: note, track_index: 0, remaining: 7 },
+            RenderCommand::UpdateSlideTrackProgress { note_index: note, track_index: 1, remaining: 7 },
+            RenderCommand::UpdateSlideTrackProgress { note_index: note, track_index: 2, remaining: 7 },
+        ];
+        let updates = engine.slide_progress_updates(&commands);
+        assert_eq!(updates.len(), 3);
+        assert_eq!(updates[0].hidden_until_bar, Some(2));
+        assert_eq!(updates[1].hidden_until_bar, Some(4));
+        assert_eq!(updates[2].hidden_until_bar, None);
+        assert!(updates[0].frac < updates[1].frac);
+        assert_eq!(updates[2].frac, 0.0, "shared cursor must not complete an untouched branch");
+        for update in updates { assert!((update.shared_frac.unwrap() - 7.0 / 9.0).abs() < 1e-6); }
+        for value in [0, 2, 4, 7, 9] {
+            let update = engine.slide_progress_updates(&[RenderCommand::UpdateSlideTrackProgress {
+                note_index: note, track_index: 2, remaining: value,
+            }])[0];
+            assert_eq!(update.frac, 0.0);
+            assert!((update.shared_frac.unwrap() - value as f32 / 9.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn autoplay_exact_microseconds_survive_frame_dispatch() {
+        let text = format!("&inote_1=(210){{8}}{}1,E", ",".repeat(57));
+        for sensor in [false, true] {
+            let mut engine = JudgeEngine::load(&text, 1).unwrap();
+            let mut events = engine.default_tactic().unwrap();
+            if sensor { events = events.into_iter().map(normalize_tactic_event).collect(); }
+            let mut cursor = 0;
+            let mut judged = Vec::new();
+            for frame in 0..600 {
+                let now = frame as f32 / 60.0;
+                let end = events.partition_point(|event| timed_input_tp(event) <= (now * 1e6) as i64);
+                let due = events[cursor..end].to_vec();
+                cursor = end;
+                for result in step_engine_events(&mut engine, now, due) {
+                    judged.extend(result.unwrap().events);
+                }
+            }
+            assert_eq!(judged.len(), 1, "sensor={sensor}: {judged:?}");
+            assert_eq!(judged[0].grade, JudgeGrade::Perfect, "sensor={sensor}: {judged:?}");
+        }
     }
 
     #[test]

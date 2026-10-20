@@ -1,6 +1,7 @@
 # 想法：按游戏机制生成「理论上必然 Perfect」的 autoplay
 
 > 新接口说明：[Native FFI、seek 与所有权分组](CORE_NATIVE_SEEK.md)。
+> 严格端到端验收：[Autoplay 完整回放审计](AUTOPLAY_AUDIT.md)。审计检查所有音符的严格 Perfect 和逐条进度回传, 不使用历史生成器仅统计 Slide 判定的通过标准。
 > 当前缓存输出为 version 1 的 AutoplayPlan，而非裸事件数组；运行时使用
 > native ABI 3。为保证 seek 后组的独立性，目前禁用下文历史方案中的
 > 整 arc skip / track_skip 搜索，仍保留时间偏移及 fast 搜索。

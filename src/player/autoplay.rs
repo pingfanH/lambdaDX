@@ -127,7 +127,7 @@ pub fn tick(pad: &mut PadPreviewState) {
     }
     // External tactics (from `autoplay_gen`) are already a complete sensor
     // event stream; replay them verbatim rather than re-synthesising holds.
-    if pad.external_autoplay {
+    if pad.external_autoplay || (pad.autoplay_plan.is_some() && !pad.legacy_autoplay) {
         for event in due {
             feed(pad, event);
         }
@@ -156,7 +156,7 @@ fn feed(pad: &mut PadPreviewState, event: TimedInputEvent) {
         TimedInputEvent::ButtonHold { .. } => {
             track_direct_hold(&mut pad.autoplay_direct_held, &event);
         }
-        TimedInputEvent::SensorHold { area, is_down, .. } if pad.external_autoplay => {
+        TimedInputEvent::SensorHold { area, is_down, .. } => {
             pad.autoplay_explicit_held.retain(|held| held != area);
             if *is_down {
                 pad.autoplay_explicit_held.push(*area);

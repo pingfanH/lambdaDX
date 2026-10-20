@@ -19,6 +19,10 @@ use crate::player::video::VideoBg;
 #[derive(Debug, Clone, Default)]
 pub struct SlideProgress {
     pub seg_frac: Vec<f32>,
+    /// Exact HideSlideBars cutoffs, indexed by runtime arc.
+    pub seg_hidden_until: Vec<Option<usize>>,
+    /// WiFi shared bar cursor; not an individual branch's consumed fraction.
+    pub shared_frac: f32,
     /// Wifi per-track consumed fractions (track index → 0..1), so the three
     /// tracks hide independently.
     pub track_frac: HashMap<u64, f32>,
@@ -184,8 +188,8 @@ impl PreparedEditedEngine {
         let default_plan = std::sync::Arc::new(engine.autoplay_plan()?);
         let plan = crate::app::autoplay_edit::generated_plan(chart, &engine, &default_plan, false);
         let inner_plan = crate::app::autoplay_edit::generated_plan(chart, &engine, &default_plan, true);
-        let events = plan.events();
-        let normalized_events = inner_plan.events();
+        let events = crate::app::autoplay_edit::compiled_events(&plan);
+        let normalized_events = crate::app::autoplay_edit::compiled_events(&inner_plan);
         let windows = engine.judgment_metadata(chart);
         let note_ends = chart.notes.iter()
             .map(|note| (note.id, note_end_seconds(note, &chart.bpms))).collect();
@@ -208,7 +212,7 @@ impl PreparedEditedEngine {
         };
         let reset = self.engine.seek_with_events(context.time, events, context.autoplay)?;
         self.progress = self.engine.slide_progress_updates(&reset.render_commands);
-        self.tactic = plan.retained(&reset.retained_note_indices).events();
+        self.tactic = crate::app::autoplay_edit::compiled_events(&plan.retained(&reset.retained_note_indices));
         self.tactic_cursor = self.tactic.partition_point(|event| {
             crate::player::engine::timed_input_tp(event) < (context.time * 1e6) as i64
         });
@@ -828,7 +832,7 @@ impl PadPreviewState {
         };
         let plan = updated_plan.as_ref().or(self.autoplay_plan.as_ref());
         let events = if let Some(plan) = plan {
-            plan.events()
+            crate::app::autoplay_edit::compiled_events(plan)
         } else {
             self.autoplay_tactic.clone()
         };
@@ -839,7 +843,7 @@ impl PadPreviewState {
             if let Some(plan) = plan {
                 // Bare legacy streams remain usable until a nonzero seek.
                 if !self.legacy_autoplay || t > 0.0 {
-                    self.autoplay_tactic = plan.retained(&result.retained_note_indices).events();
+                    self.autoplay_tactic = crate::app::autoplay_edit::compiled_events(&plan.retained(&result.retained_note_indices));
                     if self.legacy_autoplay {
                         self.external_autoplay = false;
                         self.legacy_autoplay = false;
@@ -1165,7 +1169,7 @@ impl PadPreviewState {
         self.autoplay_tactic = legacy.unwrap_or_else(|| {
             selected_plan
                 .as_ref()
-                .map(|p| p.events())
+                .map(crate::app::autoplay_edit::compiled_events)
                 .unwrap_or_else(|| engine.default_tactic().unwrap_or_default())
         });
         self.default_autoplay_plan = default_plan.map(std::sync::Arc::new);
@@ -1504,14 +1508,21 @@ impl PadPreviewState {
             else {
                 continue;
             };
+            let is_wifi = self.playback_chart().notes.iter().find(|note| note.id == note_id)
+                .and_then(|note| note.slide.get(slide_idx))
+                .is_some_and(|slide| slide.segments.iter().any(|segment|
+                    segment.shape == crate::app::types::SlideShape::Wifi));
             let progress = self
                 .slide_progress
                 .entry((note_id, slide_idx))
                 .or_insert_with(|| SlideProgress {
                     seg_frac: vec![0.0; seg_count],
+                    seg_hidden_until: vec![None; seg_count],
+                    shared_frac: 0.0,
                     track_frac: HashMap::new(),
                     track_hidden_until: HashMap::new(),
                 });
+            if let Some(shared) = update.shared_frac { progress.shared_frac = progress.shared_frac.max(shared); }
             // Wifi per-track progress is kept separate so each track consumes on
             // its own; everything else slots into the sub-slide's segment range.
             if let Some(track) = update.track_index {
@@ -1520,14 +1531,18 @@ impl PadPreviewState {
                     *slot = (*slot).max(bar);
                 }
                 let slot = progress.track_frac.entry(track).or_insert(0.0);
-                *slot = slot.max(update.frac);
+                if !is_wifi || update.hidden_until_bar.is_some() { *slot = slot.max(update.frac); }
                 // Also fold into `seg_frac` so non-wifi slides that emit
                 // per-track progress (conn-slides) keep consuming as before.
                 if progress.seg_frac.len() < seg_count {
                     progress.seg_frac.resize(seg_count, 0.0);
                 }
                 let slot = &mut progress.seg_frac[seg_idx];
-                *slot = slot.max(update.frac);
+                if is_wifi {
+                    let all = (0..3).map(|track| progress.track_frac.get(&track).copied().unwrap_or(0.0))
+                        .fold(1.0_f32, f32::min);
+                    *slot = slot.max(all);
+                } else { *slot = slot.max(update.frac); }
                 continue;
             }
             if progress.seg_frac.len() < seg_count {
@@ -1535,15 +1550,13 @@ impl PadPreviewState {
             }
             let slot = &mut progress.seg_frac[seg_idx];
             *slot = slot.max(update.frac);
-        }
-
-        // A segment can only be reached once the ones before it are consumed, so
-        // any segment ahead of the furthest active arc is fully done.
-        for progress in self.slide_progress.values_mut() {
-            if let Some(last) = progress.seg_frac.iter().rposition(|f| *f > 0.0) {
-                for f in &mut progress.seg_frac[..last] {
-                    *f = 1.0;
-                }
+            if let Some(bar) = update.hidden_until_bar {
+                progress.seg_hidden_until.resize(seg_count, None);
+                let slot = &mut progress.seg_hidden_until[seg_idx];
+                *slot = Some(slot.unwrap_or(0).max(bar));
+            }
+            if is_wifi && update.frac >= 1.0 {
+                for track in 0..3 { progress.track_frac.insert(track, 1.0); }
             }
         }
 
@@ -1611,6 +1624,43 @@ fn note_end_seconds(note: &crate::app::types::Note, bpms: &[crate::app::types::B
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "backend-lean")]
+    #[test]
+    fn core_progress_keeps_wifi_branches_and_connected_arcs_independent() {
+        use crate::core::types::RenderCommand;
+        let source = "&inote_1=(120){4}1w5[4:1],2-4[4:1]-6[4:1],E";
+        let chart = crate::app::maidata::from_maidata(source, None).unwrap();
+        let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        pad.load_engine(source, 1).unwrap();
+        let engine = pad.judge_engine.as_ref().unwrap();
+        let spec = engine.chart_spec().unwrap();
+        let commands = [
+            RenderCommand::HideSlideTrackBars { note_index: spec.slides[0].note_index, track_index: 0, end_index: 7 },
+            RenderCommand::HideSlideTrackBars { note_index: spec.slides[0].note_index, track_index: 1, end_index: 2 },
+            RenderCommand::UpdateSlideTrackProgress { note_index: spec.slides[0].note_index, track_index: 2, remaining: 9 },
+            RenderCommand::HideSlideBars { note_index: spec.slides[1].note_index, end_index: 3 },
+            RenderCommand::UpdateSlideTrackProgress { note_index: spec.slides[2].note_index, track_index: 0, remaining: 0 },
+        ];
+        let wifi = engine.slide_position(&pad.chart, 0).unwrap();
+        let first = engine.slide_position(&pad.chart, 1).unwrap();
+        let second = engine.slide_position(&pad.chart, 2).unwrap();
+        assert_eq!((first.0, first.1), (second.0, second.1));
+        let updates = engine.slide_progress_updates(&commands);
+        pad.apply_core_slide_progress_updates(&updates);
+        let state = &pad.slide_progress[&(wifi.0, wifi.1)];
+        assert_eq!(state.track_hidden_until.get(&0), Some(&7));
+        assert_eq!(state.track_hidden_until.get(&1), Some(&2));
+        assert!(!state.track_hidden_until.contains_key(&2));
+        assert_eq!(state.track_frac[&0], 1.0);
+        assert_eq!(state.track_frac[&2], 0.0);
+        assert_eq!(state.seg_frac[0], 0.0, "leading branches must not hide an untouched branch");
+        assert_eq!(state.shared_frac, 1.0);
+        let state = &pad.slide_progress[&(first.0, first.1)];
+        assert_eq!(state.seg_hidden_until[first.2], Some(3));
+        assert_eq!(state.seg_frac[first.2], 0.0, "later arc must not synthesize earlier completion");
+        assert_eq!(state.seg_frac[second.2], 1.0);
+    }
 
     #[test]
     fn slide_judgment_expires_after_source_animation_finishes() {

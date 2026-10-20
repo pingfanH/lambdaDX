@@ -58,6 +58,10 @@ path = "src/lambdadx_effect_preview.rs"
 name = "autoplay_gen"
 path = "src/autoplay_gen/main.rs"
 
+[[bin]]
+name = "autoplay_audit"
+path = "src/autoplay_audit/main.rs"
+
 [dependencies]
 macroquad = { version = "0.4", default-features = false }
 # Adobe Animate sparrow / texture-atlas parser + renderer (test bin only).

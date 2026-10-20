@@ -94,6 +94,7 @@ pub struct SlideArcProgress {
     pub frac: f32,
     /// Explicit wifi trail-bar cutoff (`HideSlideTrackBars`), if any.
     pub hidden_until_bar: Option<usize>,
+    pub shared_frac: Option<f32>,
 }
 
 /// Whether the `MAI2_DEBUG_SLIDE` diagnostic trace is enabled (never here).

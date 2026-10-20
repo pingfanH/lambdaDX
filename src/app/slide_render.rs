@@ -641,6 +641,7 @@ pub fn draw_slide(
     // Wifi per-track explicit trail-bar cutoffs (`HideSlideTrackBars`); takes
     // precedence over the fraction-derived cutoff.
     track_bars: [Option<usize>; 3],
+    hidden_until_bar: Option<usize>,
     core_driven: bool,
     layer: SlideLayer,
     // True when this call renders one arc of a chained slide (the trail is split
@@ -1201,7 +1202,7 @@ pub fn draw_slide(
     // instead, otherwise the bar slides on its own.
     let star_hidden = hidden_bars_for_star(&segmentation, star_dist_along.max(0.0));
     let hidden_until = if chain_arc || core_driven {
-        core_hidden
+        hidden_until_bar.unwrap_or(core_hidden)
     } else {
         star_hidden
     }

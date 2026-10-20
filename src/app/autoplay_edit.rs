@@ -233,3 +233,80 @@ pub fn apply(chart: &ChartDoc, engine: &JudgeEngine, plan: &mut AutoplayPlan) {
         });
     }
 }
+
+/// Compile each owner's held intervals, not the last down/up event per area.
+pub fn compiled_events(plan: &AutoplayPlan) -> Vec<TimedInputEvent> {
+    use crate::core::types::timed_input_event_sort_key;
+    use std::collections::{HashMap, HashSet};
+    let mut owned: Vec<_> = plan.groups.iter().flat_map(|group| &group.parts).enumerate()
+        .flat_map(|(owner, part)| part.events.iter().cloned().map(move |event| (owner, event)))
+        .collect();
+    owned.sort_by_key(|(_, event)| timed_input_event_sort_key(event));
+    let mut active = HashSet::new();
+    let mut counts = HashMap::<u8, usize>::new();
+    let mut result = Vec::with_capacity(owned.len());
+    for (owner, event) in owned {
+        let (channel, down) = match &event {
+            TimedInputEvent::ButtonHold { zone, is_down, .. } => (crate::player::engine::zone_for_button(*zone).to_id(), *is_down),
+            TimedInputEvent::SensorHold { area, is_down, .. } => (8 + crate::player::engine::zone_for_sensor(*area).to_id(), *is_down),
+            _ => { result.push(event); continue; }
+        };
+        let count = counts.entry(channel).or_default();
+        if down && active.insert((owner, channel)) {
+            if *count == 0 { result.push(event); }
+            *count += 1;
+        } else if !down && active.remove(&(owner, channel)) {
+            *count -= 1;
+            if *count == 0 { result.push(event); }
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::types::{ButtonZone, SensorArea};
+
+    fn plan(parts: Vec<Vec<TimedInputEvent>>) -> AutoplayPlan {
+        AutoplayPlan {
+            version: 1, chart_fingerprint: String::new(),
+            groups: parts.into_iter().enumerate().map(|(id, events)| AutoplayGroup {
+                id: id as u64, kind: 4, runtime_note_indices: vec![id as u64],
+                depends_on_group_ids: Vec::new(),
+                parts: vec![AutoplayPart { runtime_note_index: id as u64, role: 2, track_index: None, events }],
+            }).collect(),
+        }
+    }
+
+    fn hold(tp: i64, is_down: bool) -> TimedInputEvent {
+        TimedInputEvent::SensorHold { tp, area: SensorArea::A4, is_down }
+    }
+
+    #[test]
+    fn compiled_holds_keep_overlapping_owners_and_every_click() {
+        let click = TimedInputEvent::SensorClick { tp: 10, area: SensorArea::A4 };
+        let plan = plan(vec![vec![hold(0, true), hold(20, false)],
+            vec![click.clone(), hold(10, true), hold(100, false)]]);
+        let original = plan.clone();
+        assert_eq!(compiled_events(&plan), vec![hold(0, true), click, hold(100, false)]);
+        assert_eq!(plan, original, "compilation must preserve editable ownership");
+        let retained = plan.retained(&[1]);
+        assert_eq!(compiled_events(&retained), retained.events());
+    }
+
+    #[test]
+    fn compiled_holds_keep_button_and_sensor_channels_separate() {
+        let button_down = TimedInputEvent::ButtonHold { tp: 0, zone: ButtonZone::K4, is_down: true };
+        let button_up = TimedInputEvent::ButtonHold { tp: 30, zone: ButtonZone::K4, is_down: false };
+        let plan = plan(vec![vec![button_down.clone(), button_up.clone()],
+            vec![hold(10, true), hold(20, false)]]);
+        assert_eq!(compiled_events(&plan), vec![button_down, hold(10, true), hold(20, false), button_up]);
+    }
+
+    #[test]
+    fn compiled_holds_ignore_duplicate_down_without_leaving_stuck_inputs() {
+        let plan = plan(vec![vec![hold(0, true), hold(5, true), hold(10, false), hold(20, true), hold(30, false)]]);
+        assert_eq!(compiled_events(&plan), vec![hold(0, true), hold(10, false), hold(20, true), hold(30, false)]);
+    }
+}

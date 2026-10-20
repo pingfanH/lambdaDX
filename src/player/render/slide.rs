@@ -98,7 +98,7 @@ pub fn draw(
         };
         // Wifi hides each of its three tracks independently: hand `draw_slide`
         // the per-track fractions (falling back to the sub-slide's overall one).
-        let mut track_fracs = [0.0_f32; 3];
+        let mut track_fracs: [f32; 3];
         let mut track_bars: [Option<usize>; 3] = [None; 3];
         let seg_frac: &[f32] = if let Some(progress) = progress {
             let is_wifi = sl
@@ -125,8 +125,8 @@ pub fn draw(
                 track_fracs[1] = longest;
                 track_bars =
                     std::array::from_fn(|j| progress.track_hidden_until.get(&(j as u64)).copied());
-                if let Some(longest_bar) = track_bars.iter().flatten().copied().min() {
-                    track_bars[1] = Some(longest_bar);
+                if track_bars.iter().any(Option::is_some) {
+                    track_bars[1] = Some(track_bars.iter().map(|bar| bar.unwrap_or(0)).min().unwrap_or(0));
                 }
                 &track_fracs
             } else {
@@ -189,6 +189,7 @@ pub fn draw(
                         params::slide_fade_in(),
                         &seg_frac_one,
                         [None; 3],
+                        progress.and_then(|p| p.seg_hidden_until.get(seg_idx).copied().flatten()),
                         core_driven,
                         SlideLayer::Trail,
                         true,
@@ -226,6 +227,7 @@ pub fn draw(
                 params::slide_fade_in(),
                 seg_frac,
                 track_bars,
+                progress.and_then(|p| p.seg_hidden_until.first().copied().flatten()),
                 core_driven,
                 layer,
                 false,
