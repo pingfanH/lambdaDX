@@ -522,6 +522,141 @@ pub(crate) fn registry() -> &'static Mutex<RuntimeRegistry> {
     REG.get_or_init(|| Mutex::new(RuntimeRegistry::with_field_defaults()))
 }
 
+// ---------------------------------------------------------------------------
+// SDEZ170 runtime registry
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+pub struct SdezRegistry {
+    pub next_handle: u64,
+    pub sessions: std::collections::HashMap<u64, crate::sdez::SdezRuntime>,
+}
+
+impl SdezRegistry {
+    fn with_field_defaults() -> Self {
+        Self {
+            next_handle: 1,
+            sessions: std::collections::HashMap::new(),
+        }
+    }
+}
+
+fn sdez_registry() -> &'static Mutex<SdezRegistry> {
+    static REG: OnceLock<Mutex<SdezRegistry>> = OnceLock::new();
+    REG.get_or_init(|| Mutex::new(SdezRegistry::with_field_defaults()))
+}
+
+pub fn create_sdez_session_handle() -> String {
+    let mut reg = sdez_registry().lock().unwrap();
+    let handle = reg.next_handle;
+    reg.next_handle = handle.wrapping_add(1);
+    ok_json(json!({ "handle": handle.to_string() }))
+}
+
+pub fn load_sdez_chart_text(
+    handle: u64,
+    content: &str,
+    level_index: u32,
+    autoplay: u8,
+) -> String {
+    let chart = match crate::simai::frontend::frontend_lowered_chart(
+        content,
+        (level_index as usize).into(),
+    ) {
+        Ok(chart) => chart,
+        Err(error) => return error_json("parse_error", &error.message),
+    };
+    let mut runtime = crate::sdez::SdezRuntime::from_chart(&chart);
+    runtime.autoplay = match autoplay {
+        1 => crate::sdez::AutoplayMode::Critical,
+        2 => crate::sdez::AutoplayMode::Perfect,
+        3 => crate::sdez::AutoplayMode::Great,
+        4 => crate::sdez::AutoplayMode::Good,
+        5 => crate::sdez::AutoplayMode::Miss,
+        _ => crate::sdez::AutoplayMode::None,
+    };
+    sdez_registry().lock().unwrap().sessions.insert(handle, runtime);
+    ok_json(json!({ "handle": handle.to_string(), "state": "loaded" }))
+}
+
+fn etiming_str(timing: crate::sdez::ETiming) -> &'static str {
+    use crate::sdez::ETiming::*;
+    match timing {
+        TooFast => "TooFast",
+        FastGood => "FastGood",
+        FastGreat3rd => "FastGreat3rd",
+        FastGreat2nd => "FastGreat2nd",
+        FastGreat => "FastGreat",
+        FastPerfect2nd => "FastPerfect2nd",
+        FastPerfect => "FastPerfect",
+        Critical => "Critical",
+        LatePerfect => "LatePerfect",
+        LatePerfect2nd => "LatePerfect2nd",
+        LateGreat => "LateGreat",
+        LateGreat2nd => "LateGreat2nd",
+        LateGreat3rd => "LateGreat3rd",
+        LateGood => "LateGood",
+        TooLate => "TooLate",
+        End => "End",
+    }
+}
+
+fn sdez_kind_str(kind: crate::sdez::SdezNoteKind) -> &'static str {
+    match kind {
+        crate::sdez::SdezNoteKind::Tap => "tap",
+        crate::sdez::SdezNoteKind::Hold => "hold",
+        crate::sdez::SdezNoteKind::Slide => "slide",
+        crate::sdez::SdezNoteKind::Touch => "touch",
+    }
+}
+
+pub fn step_sdez_handle(
+    handle: u64,
+    current_msec: f32,
+    buttons_down: u16,
+    buttons_push: u16,
+    panel_state: u64,
+    panel_new_frame: bool,
+) -> String {
+    let mut reg = sdez_registry().lock().unwrap();
+    let Some(runtime) = reg.sessions.get_mut(&handle) else {
+        return error_json(
+            "invalid_runtime_handle",
+            &format!("unknown SDEZ runtime handle: {handle}"),
+        );
+    };
+    runtime
+        .input
+        .update_panel(panel_state, panel_new_frame);
+    runtime.input.set_buttons(buttons_down, buttons_push);
+    let events = runtime.step(current_msec);
+    ok_json(json!({
+        "events": events.iter().map(|event| json!({
+            "noteIndex": event.note_index,
+            "kind": sdez_kind_str(event.kind),
+            "phase": match event.phase {
+                crate::sdez::SdezPhase::Head => "head",
+                crate::sdez::SdezPhase::Tail => "tail",
+            },
+            "etiming": etiming_str(event.judged.timing),
+            "diffMsec": event.judged.diff_msec,
+        })).collect::<Vec<_>>(),
+        "currentTime": current_msec,
+    }))
+}
+
+pub fn free_sdez_handle(handle: u64) -> String {
+    let removed = sdez_registry().lock().unwrap().sessions.remove(&handle);
+    if removed.is_some() {
+        ok_json(json!({ "freed": true }))
+    } else {
+        error_json(
+            "invalid_runtime_handle",
+            &format!("unknown SDEZ runtime handle: {handle}"),
+        )
+    }
+}
+
 fn loaded_summary_json(spec: &ChartSpec) -> Value {
     LoadedChartSummary::from_chart(spec).to_json()
 }
@@ -1111,5 +1246,26 @@ mod tests {
         assert!(state["result"]["slides"].is_array());
 
         parse(&free_game_state_handle(handle));
+    }
+
+    #[test]
+    fn sdez_session_roundtrip() {
+        let created = parse(&create_sdez_session_handle());
+        let handle = created["result"]["handle"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let loaded = parse(&load_sdez_chart_text(handle, MAIDATA, 1, 1));
+        assert_eq!(loaded["ok"], true);
+
+        let stepped = parse(&step_sdez_handle(handle, 110.0, 0, 0, 0, true));
+        assert_eq!(stepped["ok"], true);
+        let events = stepped["result"]["events"].as_array().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["etiming"], "Critical");
+        assert_eq!(events[0]["kind"], "tap");
+
+        assert_eq!(parse(&free_sdez_handle(handle))["ok"], true);
     }
 }
