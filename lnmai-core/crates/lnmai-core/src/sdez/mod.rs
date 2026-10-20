@@ -6,6 +6,7 @@
 pub mod input;
 pub mod judge;
 pub mod note;
+pub mod slide_data;
 pub mod timing;
 
 pub use input::{
@@ -14,6 +15,11 @@ pub use input::{
 
 pub use note::{
     AutoplayMode, HoldInput, HoldNote, HoldStep, JudgedNote, TapNote, TouchArea, TouchNote,
+};
+
+pub use slide_data::{
+    hit_areas, initial_last_wait_time, slide_type_length, total_distance, SlideHitArea,
+    LENGTH_COUNT, ROTATION_COUNT, SHAPE_COUNT,
 };
 
 pub use judge::{
