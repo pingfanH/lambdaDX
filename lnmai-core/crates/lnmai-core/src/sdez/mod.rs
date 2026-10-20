@@ -8,6 +8,7 @@ pub mod judge;
 pub mod mapping;
 pub mod note;
 pub mod runtime;
+pub mod score;
 pub mod slide;
 pub mod slide_data;
 pub mod timing;
@@ -25,6 +26,8 @@ pub use slide::SlideNote;
 pub use mapping::{slide_end_for_shape, slide_type_for_shape};
 
 pub use runtime::{SdezEvent, SdezNoteKind, SdezPhase, SdezRuntime};
+
+pub use score::{SdezScore, NOTE_TYPE_COUNT, TIMING_COUNT};
 
 pub use slide_data::{
     hit_areas, initial_last_wait_time, slide_type_length, total_distance, SlideHitArea,

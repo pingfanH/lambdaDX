@@ -630,6 +630,7 @@ pub fn step_sdez_handle(
         .update_panel(panel_state, panel_new_frame);
     runtime.input.set_buttons(buttons_down, buttons_push);
     let events = runtime.step(current_msec);
+    let score = &runtime.score;
     ok_json(json!({
         "events": events.iter().map(|event| json!({
             "noteIndex": event.note_index,
@@ -642,6 +643,16 @@ pub fn step_sdez_handle(
             "diffMsec": event.judged.diff_msec,
         })).collect::<Vec<_>>(),
         "currentTime": current_msec,
+        "score": {
+            "combo": score.combo,
+            "maxCombo": score.max_combo,
+            "counts": score.counts,
+            "totalBase": score.total_base,
+            "earnedBase": score.earned_base,
+            "totalBreakBonus": score.total_break_bonus,
+            "earnedBreakBonus": score.earned_break_bonus,
+            "dxScore": score.dx_score,
+        },
     }))
 }
 

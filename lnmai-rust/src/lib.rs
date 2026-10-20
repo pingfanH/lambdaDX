@@ -6,5 +6,6 @@
 
 pub mod api;
 pub mod native;
+pub mod sdez;
 pub mod session;
 pub mod types;

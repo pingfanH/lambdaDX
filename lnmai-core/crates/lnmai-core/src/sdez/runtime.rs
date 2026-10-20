@@ -7,6 +7,7 @@ use super::input::InputFrame;
 use super::note::{
     AutoplayMode, HoldInput, HoldNote, JudgedNote, TapNote, TouchArea, TouchNote,
 };
+use super::score::SdezScore;
 use super::slide::SlideNote;
 use super::timing::TimingSettings;
 
@@ -29,26 +30,36 @@ pub struct SdezEvent {
     pub note_index: u64,
     pub kind: SdezNoteKind,
     pub phase: SdezPhase,
+    pub is_break: bool,
+    pub is_ex: bool,
     pub judged: JudgedNote,
 }
 
 struct TapSlot {
     note_index: u64,
+    is_break: bool,
+    is_ex: bool,
     note: TapNote,
 }
 
 struct HoldSlot {
     note_index: u64,
+    is_break: bool,
+    is_ex: bool,
     note: HoldNote,
 }
 
 struct TouchSlot {
     note_index: u64,
+    is_break: bool,
+    is_ex: bool,
     note: TouchNote,
 }
 
 struct SlideSlot {
     note_index: u64,
+    is_break: bool,
+    is_ex: bool,
     note: SlideNote,
 }
 
@@ -60,6 +71,7 @@ pub struct SdezRuntime {
     holds: Vec<HoldSlot>,
     touches: Vec<TouchSlot>,
     slides: Vec<SlideSlot>,
+    pub score: SdezScore,
     current_msec: f32,
 }
 
@@ -74,6 +86,8 @@ impl SdezRuntime {
             .iter()
             .map(|tap| TapSlot {
                 note_index: tap.note_index.to_word(),
+                is_break: tap.is_break,
+                is_ex: tap.is_ex,
                 note: TapNote::new(
                     settings.chart_time_to_appear(time_point_msec(tap.timing.clone())),
                     slot_button(tap.slot),
@@ -98,6 +112,8 @@ impl SdezRuntime {
             .iter()
             .map(|touch| TouchSlot {
                 note_index: touch.note_index.to_word(),
+                is_break: touch.is_break,
+                is_ex: false,
                 note: TouchNote::new(
                     settings.chart_time_to_appear(time_point_msec(touch.timing.clone())),
                     touch_area(touch.sensor_pos),
@@ -116,6 +132,8 @@ impl SdezRuntime {
                 let star_arrive = star_launch + duration_msec(slide.length.clone());
                 SlideSlot {
                     note_index: slide.note_index.to_word(),
+                    is_break: slide.is_break,
+                    is_ex: slide.is_ex,
                     note: SlideNote::new(
                         slide.sdez_slide_type as usize,
                         start,
@@ -138,6 +156,7 @@ impl SdezRuntime {
             holds,
             touches,
             slides,
+            score: SdezScore::default(),
             current_msec: 0.0,
         }
     }
@@ -162,6 +181,8 @@ impl SdezRuntime {
                     note_index: slot.note_index,
                     kind: SdezNoteKind::Tap,
                     phase: SdezPhase::Head,
+                    is_break: slot.is_break,
+                    is_ex: slot.is_ex,
                     judged,
                 });
             }
@@ -180,6 +201,8 @@ impl SdezRuntime {
                     note_index: slot.note_index,
                     kind: SdezNoteKind::Hold,
                     phase: SdezPhase::Head,
+                    is_break: slot.is_break,
+                    is_ex: slot.is_ex,
                     judged,
                 });
             }
@@ -188,6 +211,8 @@ impl SdezRuntime {
                     note_index: slot.note_index,
                     kind: SdezNoteKind::Hold,
                     phase: SdezPhase::Tail,
+                    is_break: slot.is_break,
+                    is_ex: slot.is_ex,
                     judged,
                 });
             }
@@ -204,6 +229,8 @@ impl SdezRuntime {
                     note_index: slot.note_index,
                     kind: SdezNoteKind::Touch,
                     phase: SdezPhase::Head,
+                    is_break: slot.is_break,
+                    is_ex: slot.is_ex,
                     judged,
                 });
             }
@@ -221,11 +248,16 @@ impl SdezRuntime {
                     note_index: slot.note_index,
                     kind: SdezNoteKind::Slide,
                     phase: SdezPhase::Head,
+                    is_break: slot.is_break,
+                    is_ex: slot.is_ex,
                     judged,
                 });
             }
         }
 
+        for event in &events {
+            self.score.fold(event);
+        }
         events
     }
 }
@@ -252,6 +284,8 @@ fn hold_slot(hold: &HoldChartNote, settings: TimingSettings) -> HoldSlot {
     };
     HoldSlot {
         note_index: hold.note_index.to_word(),
+        is_break: hold.is_break,
+        is_ex: hold.is_ex,
         note: HoldNote::new(
             appear,
             tail,
@@ -271,6 +305,8 @@ fn touch_hold_slot(
     let tail = appear + duration_msec(hold.length.clone());
     HoldSlot {
         note_index: hold.note_index.to_word(),
+        is_break: hold.is_break,
+        is_ex: hold.is_ex,
         note: HoldNote::new(
             appear,
             tail,
