@@ -6,6 +6,7 @@ use crate::simai_editor::{Options, ClickSeek, NoteHighlight, source::{Kind, toke
 use crate::theme::{BG_PANEL, TEXT, TEXT_DIM, ACCENT_BLUE, ACCENT_RED};
 use crate::player::state::PadPreviewState;
 use super::style::{glyph, icon};
+mod editing;
 
 fn code_font() -> FontId { FontId::new(13.0, FontFamily::Name("editor_code".into())) }
 
@@ -37,6 +38,17 @@ impl cache::ComputerMut<&str, text::LayoutJob> for Highlighter {
 }
 
 pub fn options(ui: &mut Ui, options: &mut Options) {
+    ui.label("编辑模式");
+    ui.horizontal(|ui| {
+        use crate::simai_editor::modal::Style;
+        ui.selectable_value(&mut options.edit_style, Style::Standard, "标准");
+        ui.selectable_value(&mut options.edit_style, Style::Vim, "Vim");
+        ui.selectable_value(&mut options.edit_style, Style::Helix, "Helix");
+    });
+    ui.checkbox(&mut options.completion, "代码补全");
+    ui.add_enabled_ui(options.completion, |ui| { ui.checkbox(&mut options.auto_completion, "自动弹出候选"); });
+    ui.checkbox(&mut options.auto_pairs, "括号自动配对");
+    ui.separator();
     ui.checkbox(&mut options.highlight, "语法高亮");
     ui.checkbox(&mut options.follow, "代码跟随播放");
     ui.checkbox(&mut options.follow_cursor, "时间轴跟随文本光标")
@@ -76,6 +88,8 @@ pub fn header(ui: &mut Ui, editor: &mut EditorState, chart: &mut ChartDoc) {
         ui.menu_button(glyph(Icon::SlidersHorizontal, 14.0), |ui| options(ui, &mut editor.simai_editor.options))
             .response.on_hover_text("Simai 编辑设置");
         if ui.available_width() > 100.0 {
+            let mode = editor.simai_editor.input.modal.label(editor.simai_editor.options.edit_style);
+            if !mode.is_empty() { ui.add(Label::new(RichText::new(mode).monospace().color(ACCENT_BLUE)).truncate()); }
             ui.label(RichText::new(if modified { "未应用" } else { "主谱面" })
                 .color(if modified { ACCENT_BLUE } else { TEXT_DIM }));
         }
@@ -98,6 +112,9 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
     let jump_cursor = enabled && !template && owns_keyboard && !editor.keyboard.ime
         && ui.input_mut(|i| consume_cursor_shortcuts(&mut i.events, &mut editor.simai_editor.options.follow_cursor));
     if enabled && !template && editor.simai_editor.options.space_playback
+        && editor.simai_editor.input.modal.search.is_none()
+        && (editor.simai_editor.options.edit_style == crate::simai_editor::modal::Style::Standard
+            || !editor.simai_editor.input.inserting(&editor.simai_editor.options))
         && owns_keyboard
         && ui.input_mut(|i| consume_play_space(&mut i.events, editor.keyboard.ime)) {
         editor.keyboard.transport.push(crate::keyboard::Transport::Toggle);
@@ -118,6 +135,8 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
             editor.open_dialog = true;
         }
     }
+    let prepared = editing::prepare(ui, &mut editor.simai_editor, text_id,
+        enabled && !template && owns_keyboard, editor.keyboard.ime);
     let active = if !template && !editor.simai_editor.modified() {
         let simai = &mut editor.simai_editor;
         simai.playback.update(&simai.text, chart);
@@ -168,11 +187,19 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
                         .code_editor().font(font).text_color(TEXT).frame(false).margin(Vec2::ZERO)
                         .desired_width(f32::INFINITY).min_size(vec2((width - gutter - 8.0).max(40.0), height));
                     if editor.simai_editor.options.highlight { edit = edit.layouter(&mut layouter); }
-                    let output = edit.show(ui);
-                    if output.response.changed() {
+                    let cursor_style = ui.visuals().text_cursor.clone();
+                    if editor.simai_editor.input.owns_text(&editor.simai_editor.options) {
+                        ui.visuals_mut().text_cursor.stroke = Stroke::NONE;
+                        ui.visuals_mut().text_cursor.preview = false;
+                    }
+                    let mut output = edit.show(ui);
+                    ui.visuals_mut().text_cursor = cursor_style;
+                    let edited = editing::finish(ui, &mut editor.simai_editor, &mut output, &prepared, enabled && !template);
+                    if output.response.changed() || edited {
                         editor.simai_editor.changed();
                         ui.data_mut(|d| d.insert_temp::<Option<usize>>(follow_id, None));
-                    } else if !template && !editor.simai_editor.modified() {
+                    }
+                    if !template {
                         let mut shapes = Vec::new();
                         let mut offset = 0;
                         let row_starts: Vec<_> = output.galley.rows.iter().map(|row| {
@@ -180,13 +207,18 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
                             offset += row.char_count_including_newline();
                             start
                         }).collect();
+                        for range in editor.simai_editor.input.modal.search_ranges(&editor.simai_editor.text) {
+                            range_background(&output, &row_starts, &range, ui.clip_rect(),
+                                Color32::from_rgba_unmultiplied(210, 170, 50, 90), &mut shapes);
+                        }
                         let map = &editor.simai_editor.playback;
-                        for cell in &map.cells {
+                        let mapped = !editor.simai_editor.modified();
+                        for cell in map.cells.iter().filter(|_| mapped) {
                             if editor.loop_enabled && editor.loop_range.is_some_and(|(a, b)| cell.time >= a && cell.time < b) {
                                 for range in &cell.code { range_background(&output, &row_starts, range, ui.clip_rect(), loop_color(), &mut shapes); }
                             }
                         }
-                        for cell in &map.cells {
+                        for cell in map.cells.iter().filter(|_| mapped) {
                             for note in &cell.notes {
                                 let highlight = match editor.simai_editor.options.note_highlight {
                                     NoteHighlight::Off => false,
@@ -205,13 +237,13 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
                             ClickSeek::Click => ui.input(|i| !i.modifiers.shift && !i.modifiers.alt),
                             ClickSeek::CommandClick => ui.input(|i| i.modifiers.command && !i.modifiers.shift && !i.modifiers.alt),
                         };
-                        if enabled && seek && output.response.clicked()
+                        if mapped && enabled && seek && output.response.clicked()
                             && let Some(pos) = output.response.interact_pointer_pos()
                             && let Some(index) = hit_character(&output, pos)
                             && let Some(cell) = map.at_char(index) {
                             seek_time = Some(cell.time);
                         }
-                        if let Some(cell) = &active {
+                        if let Some(cell) = active.as_ref().filter(|_| mapped) {
                         let cursor = output.galley.pos_from_ccursor(text::CCursor::new(cell.chars.start))
                             .translate(output.galley_pos.to_vec2());
                         ui.painter().vline(cursor.left(), cursor.y_range(), Stroke::new(2.0_f32, ACCENT_RED));
@@ -225,8 +257,12 @@ pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, no
                         }
                     }
                     if enabled && !template && !editor.keyboard.ime && (owns_keyboard || output.response.has_focus())
-                        && let Some(range) = output.cursor_range
-                        && let Some(time) = editor.simai_editor.cursor_seek(range.primary.ccursor.index, jump_cursor) {
+                        && output.cursor_range.is_some()
+                        && let Some(time) = {
+                            let simai = &mut editor.simai_editor;
+                            let index = simai.input.cursor(&simai.text, &simai.options);
+                            simai.cursor_seek(index, jump_cursor)
+                        } {
                         seek_time = Some(time);
                     }
                 });

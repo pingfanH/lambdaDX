@@ -1075,6 +1075,156 @@ fn simai_playback_space_blocks_separate_text_events_and_preserves_paste() {
 }
 
 #[test]
+fn simai_modal_modes_preserve_input_ownership_and_text_history() {
+    use crate::simai_editor::modal::{Mode as EditMode, Style};
+    for style in [Style::Vim, Style::Helix] {
+        let mut f = Fixture::new();
+        f.ui.workbench.set_visible(PaneKind::Simai, true);
+        f.frame(Vec::new());
+        f.editor.simai_editor.options.edit_style = style;
+        f.editor.simai_editor.options.live_apply = false;
+        f.editor.simai_editor.options.auto_completion = false;
+        let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+        f.ctx.memory_mut(|m| m.request_focus(id));
+        f.frame(Vec::new());
+        let original = f.editor.simai_editor.text.clone();
+        let notes = f.app.chart.notes.clone();
+        f.key(egui::Key::I, egui::Modifiers::NONE);
+        f.frame(vec![egui::Event::Text("i".into())]);
+        assert_eq!(f.editor.simai_editor.input.modal.mode, EditMode::Insert);
+        f.key(egui::Key::Space, egui::Modifiers::NONE);
+        f.frame(vec![egui::Event::Text(" ".into())]);
+        assert_eq!(f.app.mode, Mode::Idle, "Insert Space must not start playback");
+        assert_eq!(f.editor.simai_editor.text.len(), original.len() + 1);
+        f.key(egui::Key::Escape, egui::Modifiers::NONE);
+        assert_eq!(f.editor.simai_editor.input.modal.mode, EditMode::Normal);
+        assert!(f.ctx.memory(|m| m.has_focus(id)), "Esc keeps text focus");
+        f.frame(vec![egui::Event::Text("u".into())]);
+        assert_eq!(f.editor.simai_editor.text, original);
+        if style == Style::Vim { f.key(egui::Key::R, egui::Modifiers::CTRL); }
+        else { f.frame(vec![egui::Event::Text("U".into())]); }
+        assert_eq!(f.editor.simai_editor.text.len(), original.len() + 1);
+        assert_eq!(f.app.chart.notes, notes, "modal keys never place chart notes");
+    }
+}
+
+#[test]
+fn simai_completion_accept_escape_and_snippet_tab_are_undoable() {
+    let mut f = Fixture::new();
+    f.ui.workbench.set_visible(PaneKind::Simai, true);
+    f.frame(Vec::new());
+    f.editor.simai_editor.options.live_apply = false;
+    f.editor.simai_editor.options.space_playback = false;
+    let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+    f.ctx.memory_mut(|m| m.request_focus(id));
+    f.frame(Vec::new());
+    let original = f.editor.simai_editor.text.clone();
+    f.frame(vec![egui::Event::Text("[".into())]);
+    assert!(f.editor.simai_editor.input.completion.open());
+    f.key(egui::Key::Tab, egui::Modifiers::NONE);
+    assert!(f.editor.simai_editor.text.contains("[4:1]"));
+    assert!(!f.editor.simai_editor.input.completion.fields.is_empty());
+    f.frame(vec![egui::Event::Text("16".into())]);
+    f.key(egui::Key::Tab, egui::Modifiers::NONE);
+    assert!(f.editor.simai_editor.text.contains("[16:1]"));
+    f.key(egui::Key::Escape, egui::Modifiers::NONE);
+    f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+    f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+    assert_eq!(f.editor.simai_editor.text, format!("[]{original}"));
+    assert!(f.ctx.memory(|m| m.has_focus(id)));
+}
+
+#[test]
+fn simai_completion_can_be_accepted_with_a_pointer_click() {
+    let mut f = Fixture::new();
+    f.ui.workbench.set_visible(PaneKind::Simai, true); f.frame(Vec::new());
+    f.editor.simai_editor.options.live_apply = false;
+    let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+    f.ctx.memory_mut(|m| m.request_focus(id)); f.frame(Vec::new());
+    f.frame(vec![egui::Event::Text("[".into())]);
+    let output = f.frame(Vec::new());
+    let at = text_position(&output, "[4:1]  时值");
+    f.click(at);
+    assert!(f.editor.simai_editor.text.contains("[4:1]"));
+    assert!(!f.editor.simai_editor.input.completion.open());
+    assert!(f.ctx.memory(|m| m.has_focus(id)));
+}
+
+#[test]
+fn simai_helix_block_cursor_covers_the_selected_character() {
+    use crate::simai_editor::modal::Style;
+    let mut f = Fixture::new();
+    f.ui.workbench.set_visible(PaneKind::Simai, true);
+    f.frame(Vec::new());
+    let body = "1234,\n56,E";
+    f.editor.simai_editor.load(&f.app.chart, body.into());
+    f.editor.simai_editor.options.edit_style = Style::Helix;
+    f.editor.simai_editor.options.live_apply = false;
+    let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+    let mut state = egui::text_edit::TextEditState::load(&f.ctx, id).unwrap();
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(0))));
+    state.store(&f.ctx, id);
+    f.ctx.memory_mut(|m| m.request_focus(id));
+    f.frame(Vec::new());
+    let output = f.frame(vec![egui::Event::Text("l".into())]);
+    assert_eq!(f.editor.simai_editor.input.selection.range(), 1..2);
+    let text = output.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.text() == body => Some(t), _ => None,
+    }).unwrap();
+    let expected = text.galley.pos_from_ccursor(egui::text::CCursor::new(1)).translate(text.pos.to_vec2());
+    let block = output.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Rect(r) if r.fill == egui::Color32::from_rgba_unmultiplied(120, 195, 235, 100) => Some(r.rect), _ => None,
+    }).unwrap();
+    assert!((block.left() - expected.left()).abs() < 0.01, "block={block:?}, character={expected:?}");
+}
+
+#[test]
+fn simai_helix_seek_uses_block_character_not_exclusive_selection_end() {
+    use crate::simai_editor::{modal::Style, source};
+    let mut f = Fixture::new();
+    f.ui.workbench.set_visible(PaneKind::Simai, true); f.frame(Vec::new());
+    let body = "(120){4}1,2,E";
+    f.editor.simai_editor.load(&f.app.chart, body.into());
+    f.editor.simai_editor.options.edit_style = Style::Helix;
+    f.editor.simai_editor.options.live_apply = false;
+    f.editor.simai_editor.playback.cells = source::timeline(body, 120.0).unwrap();
+    let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+    let mut state = egui::text_edit::TextEditState::load(&f.ctx, id).unwrap();
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+        egui::text::CCursor::new(8), egui::text::CCursor::new(9))));
+    state.store(&f.ctx, id); f.ctx.memory_mut(|m| m.request_focus(id));
+    f.frame(Vec::new());
+    f.key(egui::Key::Enter, egui::Modifiers::ALT);
+    assert_eq!(f.app.timeline_view_time, 0.0, "character 1 belongs to the first cell, not the following rest");
+}
+
+#[test]
+fn simai_reverse_search_highlights_without_editing_and_starts_insert_at_match() {
+    use crate::simai_editor::modal::Style;
+    let mut f = Fixture::new();
+    f.ui.workbench.set_visible(PaneKind::Simai, true); f.frame(Vec::new());
+    let body = "1h[4:1],2h[4:1],E";
+    f.editor.simai_editor.load(&f.app.chart, body.into());
+    f.editor.simai_editor.options.edit_style = Style::Vim;
+    f.editor.simai_editor.options.live_apply = false;
+    let id = egui::Id::new(("simai-text", f.editor.simai_editor.generation));
+    let mut state = egui::text_edit::TextEditState::load(&f.ctx, id).unwrap();
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(0))));
+    state.store(&f.ctx, id); f.ctx.memory_mut(|m| m.request_focus(id)); f.frame(Vec::new());
+    f.frame(vec![egui::Event::Text("?h".into())]);
+    let output = f.key(egui::Key::Enter, egui::Modifiers::NONE);
+    assert_eq!(f.editor.simai_editor.input.selection.head, 9);
+    assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Vec(shapes) if shapes.iter().any(|s|
+        matches!(s, egui::Shape::Rect(r) if r.fill == egui::Color32::from_rgba_unmultiplied(210, 170, 50, 90))))));
+    assert_eq!(f.editor.simai_editor.text, body);
+    f.frame(vec![egui::Event::Text("n".into())]);
+    assert_eq!(f.editor.simai_editor.input.selection.head, 1);
+    f.frame(vec![egui::Event::Text("i".into())]);
+    f.frame(vec![egui::Event::Text("b".into())]);
+    assert_eq!(f.editor.simai_editor.text, "1bh[4:1],2h[4:1],E");
+}
+
+#[test]
 fn cursor_shortcuts_seek_and_toggle_follow_in_chart_and_simai() {
     let mut f = Fixture::new();
     f.app.chart.notes[0].time = 6.0;

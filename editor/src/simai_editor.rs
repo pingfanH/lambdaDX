@@ -8,6 +8,10 @@ use crate::state::EditorState;
 
 pub mod source;
 pub(crate) mod format;
+pub mod editing;
+pub mod modal;
+pub mod completion;
+pub mod input;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ClickSeek { Off, Click, CommandClick }
@@ -18,6 +22,10 @@ pub enum NoteHighlight { Off, Visible, Current }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Options {
+    pub edit_style: modal::Style,
+    pub completion: bool,
+    pub auto_completion: bool,
+    pub auto_pairs: bool,
     pub highlight: bool,
     pub follow: bool,
     pub follow_cursor: bool,
@@ -28,7 +36,8 @@ pub struct Options {
 }
 
 impl Default for Options {
-    fn default() -> Self { Self { highlight: true, follow: true, follow_cursor: false, space_playback: true,
+    fn default() -> Self { Self { edit_style: modal::Style::Standard, completion: true, auto_completion: true, auto_pairs: true,
+        highlight: true, follow: true, follow_cursor: false, space_playback: true,
         click_seek: ClickSeek::CommandClick, note_highlight: NoteHighlight::Visible, live_apply: true } }
 }
 
@@ -62,6 +71,7 @@ pub struct SimaiEditor {
     pub generation: u64,
     pub options: Options,
     pub playback: source::PlaybackMap,
+    pub input: input::Input,
     source: Option<Source>,
     applied: String,
     modified: bool,
@@ -88,6 +98,7 @@ impl SimaiEditor {
     }
 
     pub fn load(&mut self, chart: &ChartDoc, text: String) {
+        self.input = Default::default();
         self.source = Some(Source::new(chart));
         self.text = text;
         self.applied = self.text.clone();

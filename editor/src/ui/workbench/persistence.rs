@@ -400,6 +400,27 @@ mod tests {
     }
 
     #[test]
+    fn simai_modal_preferences_survive_a_real_layout_restart() {
+        use crate::simai_editor::modal::Style;
+        let file = TestFile::new();
+        let mut workbench = file.workbench();
+        workbench.workspace = 3;
+        let mut editor = crate::state::EditorState::default(); let mut scale = 1.0;
+        workbench.activate_views(&mut editor, &mut scale);
+        editor.simai_editor.options.edit_style = Style::Helix;
+        editor.simai_editor.options.auto_completion = false;
+        editor.simai_editor.options.auto_pairs = false;
+        workbench.capture_views(&editor, scale);
+        workbench.persist_current_layout().unwrap();
+        let mut restored = file.workbench(); restored.load_layouts();
+        let mut editor = crate::state::EditorState::default();
+        restored.activate_views(&mut editor, &mut scale);
+        assert_eq!(editor.simai_editor.options.edit_style, Style::Helix);
+        assert!(!editor.simai_editor.options.auto_completion);
+        assert!(!editor.simai_editor.options.auto_pairs);
+    }
+
+    #[test]
     fn restart_persistence_preserves_manual_snapshot_separately() {
         let file = TestFile::new();
         let mut workbench = file.workbench();

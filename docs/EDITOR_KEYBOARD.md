@@ -53,6 +53,13 @@ Hold 尾端可为零长度。Star 非法端点或早于启动拍的尾端不会�
 
 ## 编辑与历史
 
+Simai 文本分区可选择标准、Vim、Helix 模式，并支持上下文补全、括号配对和片段字段。
+完整首版键位与边界见 [Simai 模态编辑与代码补全](EDITOR_SIMAI_EDITING.md)。
+Vim/Helix 的 Insert 模式下 Space 输入空格，不触发播放；Normal 模式保留播放开关。
+Ctrl+Space 打开补全，Up/Down 选择，Tab/Enter 接受，Esc 先关闭候选或片段再退出模式。
+块状光标、滚动跟随与 Alt+Enter 使用相同的当前字符位置；上下移动经过短行后仍恢复原列。
+支持 `iw/aw` 单词对象、`2gg/3G` 行号跳转、`?` 反向搜索及 `n/N` 重复搜索，匹配以黄色背景标出。
+
 - 选中单个 Star 后 E 进入/退出轨迹编辑; Tab 切同头子 slide, Primary+Left/Right 切连接段。
 - 键盘轨迹修改使用形状键与 lane 键, Enter 提交, Esc 取消草稿。Primary+Shift+D 新建同头轨迹。
 - 鼠标轨迹编辑保留原逻辑: 形状键后按 lane 立即修改路径。
