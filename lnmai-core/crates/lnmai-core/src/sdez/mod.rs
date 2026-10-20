@@ -5,10 +5,15 @@
 
 pub mod input;
 pub mod judge;
+pub mod note;
 pub mod timing;
 
 pub use input::{
     InputFrame, PanelLog, A1, A2, A8, B1, B8, C1, C2, D1, D8, E1, E8, PANEL_AREA_COUNT,
+};
+
+pub use note::{
+    AutoplayMode, HoldInput, HoldNote, HoldStep, JudgedNote, TapNote, TouchArea, TouchNote,
 };
 
 pub use judge::{
