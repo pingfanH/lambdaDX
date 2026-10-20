@@ -5,6 +5,7 @@
 
 pub mod input;
 pub mod judge;
+pub mod mapping;
 pub mod note;
 pub mod runtime;
 pub mod slide;
@@ -20,6 +21,8 @@ pub use note::{
 };
 
 pub use slide::SlideNote;
+
+pub use mapping::{slide_end_for_shape, slide_type_for_shape};
 
 pub use runtime::{SdezEvent, SdezNoteKind, SdezPhase, SdezRuntime};
 

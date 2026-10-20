@@ -9,6 +9,7 @@ use crate::chart_loader::{
 use crate::integer::Integer;
 use crate::natural::Natural;
 use crate::rat::Rat;
+use crate::sdez::mapping::{slide_end_for_shape, slide_type_for_shape};
 use crate::simai::ir::{
     NormalizedChart, NormalizedHold, NormalizedSlide, NormalizedSlideDebug, NormalizedTap,
     NormalizedTouch, NormalizedTouchHold,
@@ -703,6 +704,8 @@ pub fn to_chart_spec(chart: &NormalizedChart) -> ChartSpec {
                 is_ex: note.is_ex,
                 multiple: note.multiple.clone(),
                 logical_slide_id: note.note_index.clone(),
+                sdez_slide_type: slide_type_for_shape(&note.simai_shape, note.slot),
+                sdez_end: slide_end_for_shape(&note.simai_shape, note.slot),
                 note_index: note.note_index.clone(),
                 judge_queues: note.judge_queues.clone(),
                 debug_simai: slide_debug_for(chart, note.note_index.clone()).map(|dbg| {

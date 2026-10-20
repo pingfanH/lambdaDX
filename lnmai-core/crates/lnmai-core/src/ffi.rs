@@ -354,6 +354,7 @@ pub(crate) fn slide_chart_note_json(n: &crate::chart_loader::SlideChartNote) -> 
         "totalJudgeQueueLen": n.total_judge_queue_len, "trackCount": n.track_count,
         "judgeAt": n.judge_at.clone().map(time_point_json), "isBreak": n.is_break, "isEX": n.is_ex,
         "multiple": n.multiple, "logicalSlideId": n.logical_slide_id, "noteIndex": n.note_index,
+        "sdezSlideType": n.sdez_slide_type, "sdezEnd": n.sdez_end,
         "judgeQueues": n.judge_queues.iter().map(|q|
             q.iter().map(slide_area_spec_json).collect::<Vec<_>>()).collect::<Vec<_>>(),
         // Lean tuples are nested `Prod`, so a 3-tuple serializes as `[a,[b,c]]`.

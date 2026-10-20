@@ -807,6 +807,8 @@ impl Decode for SlideChartNote {
             length,
             note_index,
             logical_slide_id,
+            sdez_slide_type: field::<usize>(v, "sdezSlideType").unwrap_or(1) as u8,
+            sdez_end: field::<usize>(v, "sdezEnd").unwrap_or(0) as u8,
             start_timing: field(v, "startTiming").unwrap_or(TimePoint::zero()),
             group_start_timing: field(v, "groupStartTiming").unwrap_or(None),
             slide_kind: field(v, "slideKind").unwrap_or(SlideKind::Single),

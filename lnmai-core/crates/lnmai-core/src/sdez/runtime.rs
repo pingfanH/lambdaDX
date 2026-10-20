@@ -7,12 +7,14 @@ use super::input::InputFrame;
 use super::note::{
     AutoplayMode, HoldInput, HoldNote, JudgedNote, TapNote, TouchArea, TouchNote,
 };
+use super::slide::SlideNote;
 use super::timing::TimingSettings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SdezNoteKind {
     Tap,
     Hold,
+    Slide,
     Touch,
 }
 
@@ -45,6 +47,11 @@ struct TouchSlot {
     note: TouchNote,
 }
 
+struct SlideSlot {
+    note_index: u64,
+    note: SlideNote,
+}
+
 pub struct SdezRuntime {
     pub settings: TimingSettings,
     pub autoplay: AutoplayMode,
@@ -52,6 +59,7 @@ pub struct SdezRuntime {
     taps: Vec<TapSlot>,
     holds: Vec<HoldSlot>,
     touches: Vec<TouchSlot>,
+    slides: Vec<SlideSlot>,
     current_msec: f32,
 }
 
@@ -98,6 +106,30 @@ impl SdezRuntime {
                 ),
             })
             .collect();
+        let slides = chart
+            .slides
+            .iter()
+            .map(|slide| {
+                let start = slot_button(slide.slot);
+                let star_launch =
+                    settings.chart_time_to_appear(time_point_msec(slide.start_timing.clone()));
+                let star_arrive = star_launch + duration_msec(slide.length.clone());
+                SlideSlot {
+                    note_index: slide.note_index.to_word(),
+                    note: SlideNote::new(
+                        slide.sdez_slide_type as usize,
+                        start,
+                        slide.sdez_end as usize,
+                        start,
+                        settings.chart_time_to_appear(time_point_msec(slide.head_timing.clone())),
+                        star_arrive,
+                        star_launch,
+                        star_arrive,
+                        slide.is_break,
+                    ),
+                }
+            })
+            .collect();
         Self {
             settings,
             autoplay: AutoplayMode::None,
@@ -105,6 +137,7 @@ impl SdezRuntime {
             taps,
             holds,
             touches,
+            slides,
             current_msec: 0.0,
         }
     }
@@ -170,6 +203,23 @@ impl SdezRuntime {
                 events.push(SdezEvent {
                     note_index: slot.note_index,
                     kind: SdezNoteKind::Touch,
+                    phase: SdezPhase::Head,
+                    judged,
+                });
+            }
+        }
+
+        for slot in &mut self.slides {
+            if let Some(judged) = slot.note.step(
+                current_msec,
+                delta,
+                &mut self.input,
+                self.settings,
+                self.autoplay,
+            ) {
+                events.push(SdezEvent {
+                    note_index: slot.note_index,
+                    kind: SdezNoteKind::Slide,
                     phase: SdezPhase::Head,
                     judged,
                 });
@@ -313,6 +363,27 @@ mod tests {
         runtime.input.update_panel(1 << A1, true);
         let events = runtime.step(60.0);
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].judged.timing, ETiming::Critical);
+    }
+
+    #[test]
+    fn slide_chart_spec_completes_with_autoplay() {
+        let mut chart = ChartSpec::default();
+        chart.slides.push(crate::chart_loader::SlideChartNote {
+            head_timing: TimePoint::from_micros(0),
+            slot: OuterSlot::S1,
+            start_timing: TimePoint::from_micros(0),
+            length: crate::time::Duration::from_micros(1_000_000),
+            sdez_slide_type: 1,
+            sdez_end: 2,
+            note_index: (9).into(),
+            ..Default::default()
+        });
+        let mut runtime = SdezRuntime::from_chart(&chart);
+        runtime.autoplay = AutoplayMode::Critical;
+        let events = runtime.step(1060.0);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, SdezNoteKind::Slide);
         assert_eq!(events[0].judged.timing, ETiming::Critical);
     }
 }
