@@ -92,6 +92,104 @@ fn note_args(target: &SnapshotRef, offset: usize, limit: usize) -> Value {
     json!({"schema_version":1,"target":target,"offset":offset,"limit":limit})
 }
 #[test]
+fn graphical_delete_without_simai_pane_allows_agent_proposal() {
+    let (mut service, mut editor, mut app) = fixture();
+    let text = "|| 保留注释\r\n(120){4}1,2,3,E\r\n";
+    app.chart = crate::simai_editor::parse_draft(text, 120.0, 5).unwrap();
+    crate::app::maichart::assign_note_ids(&mut app.chart.notes);
+    let mut sync = crate::runtime::ChartSync::new(&mut app.chart);
+    editor.simai_editor.load(&app.chart, text.into());
+    editor.auto_save = false;
+    let deleted = app.chart.notes[0].id;
+    let remaining = app.chart.notes[1].id;
+    let old = context(&mut service, &mut editor, &app);
+
+    // Use the same edit operation as the chart canvas, without drawing Simai.
+    editor.delete_note(&mut app.chart, deleted);
+    assert!(!editor.simai_editor.modified());
+    service.maintenance(&mut editor, &mut app, &mut sync, true);
+    let ctx = context(&mut service, &mut editor, &app);
+    let source = editor.simai_editor.text.clone();
+    let generation = editor.simai_editor.generation;
+    assert!(context(&mut service, &mut editor, &app).simai_matches_chart);
+    assert_eq!(editor.simai_editor.text, source, "repeated reads do not rewrite source");
+    assert_eq!(editor.simai_editor.generation, generation);
+    let old_source: SimaiSlice = serde_json::from_value(call(
+        &mut service, &mut editor, &app, "chart_read_simai",
+        json!({"schema_version":1,"target":old.target,
+            "range":{"start_char":0,"end_char":text.chars().count()}}),
+    ).unwrap()).unwrap();
+    assert_eq!(old_source.text, text, "old snapshots stay immutable");
+    let stale: ProposeRequest = serde_json::from_value(json!({
+        "schema_version":1,"target":old.target,"operation_id":"stale-delete","summary":"Stale proposal",
+        "edits":[{"kind":"delete_notes","note_ids":[remaining.to_string()]}],
+    })).unwrap();
+    let error = service.proposals.create(
+        stale, service.client.session(), &service.snapshots, &editor, &app, true,
+    ).unwrap_err();
+    assert_eq!(error.code, ErrorCode::DocumentChanged);
+    let pending = service.client().call(
+        "chart_propose_edit",
+        json!({"schema_version":1,"target":ctx.target,"operation_id":"after-delete",
+            "summary":"Delete another explicitly selected note",
+            "edits":[{"kind":"delete_notes","note_ids":[remaining.to_string()]}]}),
+        Permissions { read: true, focus: false, propose: true },
+        Duration::from_secs(30),
+    ).unwrap();
+    service.maintenance(&mut editor, &mut app, &mut sync, true);
+    service.tick(&mut editor, &app, true, false);
+    let result = pending.poll().expect("proposal request completed");
+    assert!(result.is_ok(), "proposal after graphical deletion: {result:?}");
+    assert!(ctx.simai_matches_chart);
+    assert!(!ctx.unapplied_draft);
+    assert!(!ctx.draft_conflict);
+    assert!(editor.simai_editor.error.is_none());
+    assert!(editor.simai_editor.text.contains("|| 保留注释\r\n"));
+    let parsed = crate::simai_editor::parse_draft(&editor.simai_editor.text, 120.0, 5).unwrap();
+    assert!(crate::simai_editor::format::equivalent(&parsed, &app.chart));
+    assert_eq!(app.chart.notes.len(), 2, "proposal has not been applied");
+    let start = Instant::now();
+    loop {
+        service.maintenance(&mut editor, &mut app, &mut sync, true);
+        let proposal = service.proposals.pending().expect("proposal remains reviewable");
+        if proposal.result.state == ProposalState::AwaitingApproval { break; }
+        assert!(start.elapsed() < Duration::from_secs(5), "preflight timed out");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(editor.undo.len(), 1, "only the graphical deletion is in history");
+    editor.undo(&mut app.chart);
+    assert_eq!(app.chart.notes.len(), 3);
+    assert_eq!(editor.simai_editor.text, text, "undo restores exact source");
+}
+#[test]
+fn context_preserves_simai_draft_after_graphical_delete_and_proposals_stay_blocked() {
+    let (mut service, mut editor, mut app) = fixture();
+    let text = "(120){4}1,2,3,E";
+    app.chart = crate::simai_editor::parse_draft(text, 120.0, 5).unwrap();
+    crate::app::maichart::assign_note_ids(&mut app.chart.notes);
+    editor.simai_editor.load(&app.chart, text.into());
+    editor.simai_editor.text.push_str(" || 未应用草稿\r\n");
+    editor.simai_editor.changed();
+    let draft = editor.simai_editor.text.clone();
+    let deleted = app.chart.notes[0].id;
+    editor.delete_note(&mut app.chart, deleted);
+    let ctx = context(&mut service, &mut editor, &app);
+    assert!(ctx.unapplied_draft);
+    assert!(ctx.draft_conflict);
+    assert!(!ctx.simai_matches_chart);
+    assert_eq!(editor.simai_editor.text, draft);
+    let pending = service.client().call(
+        "chart_propose_edit",
+        json!({"schema_version":1,"target":ctx.target,"operation_id":"keep-draft","summary":"Blocked by draft",
+            "edits":[{"kind":"delete_notes","note_ids":[app.chart.notes[0].id.to_string()]}]}),
+        Permissions { read: true, focus: false, propose: true }, Duration::from_secs(30),
+    ).unwrap();
+    service.tick(&mut editor, &app, true, false);
+    assert_eq!(pending.poll().unwrap().unwrap_err().code, ErrorCode::UnappliedDraft);
+    assert_eq!(editor.simai_editor.text, draft);
+    assert_eq!(app.chart.notes.len(), 2);
+}
+#[test]
 fn queries_use_the_open_document_without_mutating_document_or_transport() {
     let (mut service, mut editor, app) = fixture();
     let chart = app.chart.clone();

@@ -208,6 +208,17 @@ impl EditorHost for Host<'_> {
                         "Finish the active edit before capturing a snapshot",
                     ));
                 }
+                // Graphical edits can leave clean source stale while the Simai
+                // pane is hidden. Rebase it before exposing a new snapshot,
+                // rather than depending on whether that pane has been drawn.
+                // Keep absent source and user drafts intact; sync also retains
+                // errors when the chart cannot be represented by Simai.
+                if self.app.mode == crate::app::types::Mode::Idle
+                    && !self.editor.keyboard.ime
+                    && self.editor.simai_editor.has_history_source()
+                {
+                    self.editor.simai_editor.sync(&self.app.chart);
+                }
                 value(
                     self.snapshots
                         .capture(self.editor, self.app, self.core_current)?,
