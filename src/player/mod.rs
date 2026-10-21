@@ -13,6 +13,8 @@ pub mod judge_windows;
 pub mod layout;
 pub mod params_panel;
 pub mod render;
+#[cfg(feature = "backend-rust")]
+pub mod sdez_engine;
 pub mod sfx;
 pub mod state;
 pub mod video;

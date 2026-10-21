@@ -73,6 +73,14 @@ impl<State> Session<State> {
     }
 }
 
+impl<State> Drop for Session<State> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            let _ = lnmai_core_rs::ffi::free_game_state_handle(handle);
+        }
+    }
+}
+
 /// No-op: the Rust core has no separate runtime to initialize.
 pub fn ensure_runtime() -> std::result::Result<(), ()> {
     Ok(())
@@ -109,6 +117,21 @@ fn handle_from_json(json: &str) -> Result<u64> {
 }
 
 impl Session<Empty> {
+    /// Create a session through the in-process ABI-3 bridge.
+    pub fn create_native() -> Result<Self> {
+        Self::create()
+    }
+
+    /// Load chart text through the in-process ABI-3 bridge.
+    pub fn load_chart_text_native(
+        self,
+        content: &str,
+        level_index: u32,
+    ) -> Result<Session<Loaded>> {
+        self.load_chart_text(content, level_index)
+            .map(|(session, _envelope)| session)
+    }
+
     pub fn create() -> Result<Self> {
         let json = lnmai_core_rs::ffi::create_empty_session_handle();
         Ok(Self::new(handle_from_json(&json)?))
@@ -145,6 +168,105 @@ impl Session<Empty> {
 }
 
 impl Session<Loaded> {
+    pub fn step_native(
+        &mut self,
+        batch: &types::TimedInputBatch,
+    ) -> Result<types::RuntimeStepLightResult> {
+        let json = serde_json::to_string(batch).map_err(|error| LnmaiError {
+            json: error.to_string(),
+        })?;
+        let envelope = ok_or_error(lnmai_core_rs::ffi::step_game_state_handle_light(
+            self.handle(),
+            &json,
+        ))?;
+        envelope
+            .decode_result()
+            .map_err(|error| LnmaiError {
+                json: error.to_string(),
+            })
+    }
+
+    pub fn seek(&mut self, target_us: i64) -> Result<types::SeekResult> {
+        self.seek_with_events(target_us, &[], false)
+    }
+
+    pub fn seek_with_events(
+        &mut self,
+        target_us: i64,
+        events: &[types::TimedInputEvent],
+        keep_held: bool,
+    ) -> Result<types::SeekResult> {
+        let batch = types::TimedInputBatch {
+            current_time: target_us,
+            events: events.to_vec(),
+        };
+        let json = serde_json::to_string(&batch).map_err(|error| LnmaiError {
+            json: error.to_string(),
+        })?;
+        let envelope = ok_or_error(lnmai_core_rs::ffi::seek_game_state_handle(
+            self.handle(),
+            &json,
+            keep_held,
+        ))?;
+        envelope
+            .decode_result()
+            .map_err(|error| LnmaiError {
+                json: error.to_string(),
+            })
+    }
+
+    pub fn autoplay_plan(&self) -> Result<types::AutoplayPlan> {
+        let envelope = ok_or_error(lnmai_core_rs::ffi::get_autoplay_plan_json_by_handle(
+            self.handle(),
+        ))?;
+        envelope
+            .decode_result()
+            .map_err(|error| LnmaiError {
+                json: error.to_string(),
+            })
+    }
+
+    pub fn chart_spec_native(&self) -> Result<types::ChartSpec> {
+        let envelope = ok_or_error(lnmai_core_rs::ffi::get_lowered_chart_json_by_handle(
+            self.handle(),
+        ))?;
+        envelope
+            .decode_result()
+            .map_err(|error| LnmaiError {
+                json: error.to_string(),
+            })
+    }
+
+    pub fn slide_bindings_native(&self) -> Result<Vec<types::RuntimeSlideBinding>> {
+        let envelope = ok_or_error(lnmai_core_rs::ffi::get_slide_bindings_json_by_handle(
+            self.handle(),
+        ))?;
+        let values: Vec<serde_json::Value> = envelope
+            .decode_result()
+            .map_err(|error| LnmaiError {
+                json: error.to_string(),
+            })?;
+        values
+            .into_iter()
+            .map(|value| {
+                let field = |name: &str| {
+                    value.get(name).and_then(serde_json::Value::as_u64).ok_or_else(|| {
+                        LnmaiError {
+                            json: format!("missing slide binding field {name}"),
+                        }
+                    })
+                };
+                Ok(types::RuntimeSlideBinding {
+                    note_index: field("noteIndex")?,
+                    head_timing: field("headTiming")? as i64,
+                    total_judge_queue_len: field("totalJudgeQueueLen")?,
+                    track_count: field("trackCount")?,
+                    initial_queue_remaining: field("initialQueueRemaining")?,
+                })
+            })
+            .collect()
+    }
+
     pub fn get_lowered_chart_json(&self) -> Result<FfiEnvelope> {
         ok_or_error(lnmai_core_rs::ffi::get_lowered_chart_json_by_handle(
             self.handle(),

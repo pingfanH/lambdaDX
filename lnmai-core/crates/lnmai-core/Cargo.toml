@@ -1,0 +1,14 @@
+[package]
+name = "lnmai_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[dependencies]
+lnmai_core_verify = { path = "../lnmai-core-verify" }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+serde = "1"
+num-bigint = "0.4"
+num-traits = "0.2"
