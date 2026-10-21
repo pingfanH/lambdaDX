@@ -25,10 +25,11 @@ pub enum PaneKind {
     Templates,
     History,
     Simai,
+    Agent,
 }
 
 impl PaneKind {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Chart,
         Self::Pad,
         Self::Properties,
@@ -37,6 +38,7 @@ impl PaneKind {
         Self::Templates,
         Self::History,
         Self::Simai,
+        Self::Agent,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -48,6 +50,7 @@ impl PaneKind {
             Self::Templates => "模板 / Scene",
             Self::History => "历史",
             Self::Simai => "Simai",
+            Self::Agent => "Agent",
         }
     }
     fn icon(self) -> Icon {
@@ -60,6 +63,7 @@ impl PaneKind {
             Self::Templates => Icon::Library,
             Self::History => Icon::History,
             Self::Simai => Icon::FileCode2,
+            Self::Agent => Icon::MessageSquare,
         }
     }
     fn workspace(self) -> Option<Workspace> {
@@ -222,6 +226,10 @@ impl Workbench {
         self.docks[self.workspace]
             .iter_all_tabs()
             .any(|(_, p)| p.kind == kind)
+    }
+    /// Includes inactive workspaces and panes hidden by maximize.
+    pub fn contains_anywhere(&self, kind: PaneKind) -> bool {
+        self.docks.iter().any(|dock| dock.iter_all_tabs().any(|(_, pane)| pane.kind == kind))
     }
     pub fn visible(&self, kind: PaneKind) -> bool {
         self.docks[self.workspace]

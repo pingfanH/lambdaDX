@@ -12,6 +12,8 @@ pub mod contract;
 pub mod proposal;
 #[cfg(feature = "mcp")]
 pub mod mcp;
+#[cfg(feature = "agent")]
+pub mod agent;
 
 #[cfg(test)]
 mod tests;

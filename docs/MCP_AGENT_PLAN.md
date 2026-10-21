@@ -1,6 +1,6 @@
 # MCP 与轻量 Agent 实现计划
 
-状态: **P0–P3 已实现并验收; P4 实施中; P5 待实现**。
+状态: **P0–P4 已实现并验收; P5 待实现**。
 更新日期: 2026-10-21。工作分支: `agent`。设计调查基线: `62df204`;
 实施基线: `9af3500`。下文未勾选项描述后续目标, 不代表已有网络或 Agent 入口。
 
@@ -9,6 +9,7 @@
 库的一手资料、版本与待验证限制见 [依赖研究](MCP_AGENT_RESEARCH.md)。
 现有行为另见 [Simai 编辑](EDITOR_SIMAI_EDITING.md)、[文件保存](EDITOR_FILES.md)、
 [工作台](EDITOR_WORKBENCH_DESIGN.md)、[交互规范](EDITOR_INTERACTION_SPEC.md)。
+内置 Agent 的启动、连接配置与审核流程见 [Agent 使用说明](EDITOR_AGENT.md)。
 
 ## 1. 目标与首版范围
 
@@ -348,8 +349,8 @@ Prompts 可后置, 例如解释选区/检查节奏, 不影响首版闭环。
 ### 配置与凭据
 
 - 配置至少有 provider、model、可选 base URL、凭据引用和上下文/工具权限。
-- 首版验证一个实际工具调用 provider, 再验证一个兼容 endpoint 或本地模型路径;
-  支持列表按实测列出, 不把 SDK 声称支持误当所有模型都支持同一种 tool 行为。
+- P4 验证一个实际工具调用 provider/endpoint/model 组合; 第二 provider 或本地模型
+  的验收在 P5。支持列表按实测列出, 不把 SDK 声称支持误当所有模型都支持同一种 tool 行为。
 - 环境变量/系统凭据引用优先, 不把明文 Key 写进工作区布局、谱面或 git。
 - 仅保存非秘密配置和环境变量名; 不默认读取不相关凭据, endpoint 的变更须显式确认。
 - 连接测试必须说明会产生联网请求; MCP-only 和 fake provider 测试不需要 Key。
@@ -450,13 +451,46 @@ backend-none 的 editor 测试构建被既有 autoplay_editor/curve.rs 中 Judge
 
 ### P4: 轻量 Agent 与工作台分区
 
-- [ ] 首先用 fake provider 驱动完整 tool loop/流式事件/取消与预算。
-- [ ] 用 genai 适配经过验证的 provider, 正确关联完整 tool calls/results。
-- [ ] Agent 分区、设置、提案与工具记录, 旧布局兼容。
-- [ ] 分别验证 HTTP 直连 MCP 与不启用 MCP 的内置 Agent 走同一 host。
+- [x] 首先用 fake provider 驱动完整 tool loop/流式事件/取消与预算。
+- [x] 用 genai 适配经过验证的 provider, 正确关联完整 tool calls/results。
+- [x] Agent 分区、设置、提案与工具记录, 旧布局兼容。
+- [x] 分别验证 HTTP 直连 MCP 与不启用 MCP 的内置 Agent 走同一 host。
 
 验收: 自然语言“检查这几小节并给出修改建议”能引用实际 note;
 “把选中音符移动一拍”给出明确小节单位和差异, 等用户确认, Stop 后无迟到写入。
+
+实现: 共享 crate 提供单次串行 tool loop, 限制 8 轮/24 次工具/120 秒,
+单次网络 60 秒、单工具 30 秒、会话 256 KiB。每个调用保留 ID 与工具名,
+无效、重复、跳过或取消均形成结果; 不完整流与失败 finish reason 不执行工具。
+genai 0.7 的 OpenAI 流只捕获同一 delta 数组的第一个调用, 因此通过公开 raw-frame hook
+有界拼接全部调用, 用真实 TCP SSE 分片回归验证多调用 ID 和完整参数。
+流式事件队列有界, 终态使用独立保留通道, UI 不消费事件时安全失败。
+
+编辑器实例持有一个内存会话, 多个分区/工作区不复制运行。每次启动默认禁用;
+非秘密配置与凭据环境变量名保存在缓存目录, endpoint/权限变更须确认。
+只随消息附带显式选中 ID, 其他内容按需查询。提案停在 AwaitingApproval;
+用户审核后记录审核结果与应用快照, 再次发送才调用模型。Stop、清空、文档重载
+与关闭最后一个 Agent 分区会取消运行和待审提案, 切工作区或最大化不误取消。
+
+真实 provider 验收: `OpenAICompatible`, endpoint
+`https://api.commandcode.ai/provider/v1`, model `deepseek/deepseek-v4.1-flash`。
+显式运行 `live_agent_smoke` 后, 模型实际调用 `chart_get_context`、
+`chart_query_notes`、`chart_propose_edit`, 仅将指定的两个 note 各后移 `0.25` 小节,
+返回两条差异并等待审核。测试中的真实编辑器 host 保持原谱面与 dirty 不变,
+未确认、未保存。凭据只在进程环境中读取, 未写入测试、文档或版本库。
+OpenAI/Ollama 的配置入口已实现, 其真实服务/模型未验收, 不列为已验证兼容组合。
+
+自动验证: 共享 crate all-features 23 项通过; editor-agent 单独启用时 automation
+17 项通过/1 项网络测试默认忽略, 与 editor-mcp 同时启用时 18 项通过/1 项忽略。
+涵盖真实 host 提案、人工批准后单步撤销、Stop 撤销待审提案, 以及直接 HTTP MCP
+初始化/查询/提案与断连取消。旧布局与 Agent 分区持久化 1 项通过。默认全部 bins、
+editor 的 feature-off/mcp-only/agent-only/both 构建检查通过。
+会话审核生命周期另有 2 项回归: 审核结果与应用快照进入上下文但不启动新 run,
+提案记录过期/不可用时结束等待并允许用户重新发送。
+
+以上 editor 验证在 P3 基线的隔离 worktree 上排除并发改动, 临时修正了既有
+`simai_editor/completion.rs` 的 Range::contains 引用层级编译错误; 该修正未纳入 P4。
+未进行实际图形窗口的端到端操作、跨平台或第二 provider 验收。
 
 ### P5: 扩展与打磨
 
@@ -495,8 +529,8 @@ maichart 难度、Autoplay 时值、Slide handles、UI 快捷键和 Jack Ripper 
 确定采用: 双入口、共享 typed tools、主线程拥有状态、只读优先、UI 审批提案、
 保留原文的单步撤销、显式自动保存语义、rmcp + genai 可选集成。
 
-P0 已验证共享 crate、依赖精确版本/features/MSRV 与隔离。后续仍须验证
-Streamable HTTP + stdio 代理的真实客户端行为及 provider 流式 tools。
+P0–P4 已完成共享契约、只读工具、人工审核事务、真实 HTTP/stdio 客户端与
+一个真实 provider 的流式 tools 闭环。已验证的模型组合与测试边界见 P4 记录。
 
-下一步为 **P3 MCP 外部入口**。P2 已在无模型情况下通过，继续接 MCP 与 Agent,
-避免把领域编辑错误和模型行为混在一起排查。后续实施必须同步更新本文状态与使用文档。
+下一步为 **P5 扩展与打磨**, 包括第二 provider/本地模型、精确 Simai 范围替换、
+更多检查和按需工具。本轮目标止于 P4; 后续实施继续同步更新本文状态与使用文档。

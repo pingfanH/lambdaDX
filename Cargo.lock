@@ -1668,16 +1668,19 @@ dependencies = [
 name = "lambdadx-automation"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "genai",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "reqwest",
  "rmcp",
  "schemars 1.2.2",
  "serde",
  "serde_json",
  "tokio",
  "tokio-util",
+ "url",
  "uuid",
 ]
 

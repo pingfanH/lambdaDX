@@ -24,6 +24,8 @@ mod core;
 #[path = "../../src/player/mod.rs"]
 mod player;
 
+#[cfg(feature = "editor-agent")]
+mod agent;
 mod appearance;
 mod audio;
 #[cfg(feature = "editor-automation")]

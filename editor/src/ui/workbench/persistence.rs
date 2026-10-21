@@ -3,6 +3,30 @@ use crate::app::platform;
 use egui_dock::{Node, Tree};
 
 const FILE: &str = "editor_workspaces.json";
+#[cfg(test)]
+mod agent_layout_tests {
+    use super::*;
+    #[test]
+    fn old_layouts_load_and_agent_pane_roundtrips_without_session_data() {
+        let old: Layouts = serde_json::from_str(r#"{"version":1,"layouts":[{"Pane":"Chart"},{"Pane":"Simai"}]}"#).unwrap();
+        assert!(old.valid());
+        let mut layouts = old;
+        layouts.current = vec![Some(SavedNode::Pane(PaneKind::Agent))];
+        let text = serde_json::to_string(&layouts).unwrap();
+        let restored: Layouts = serde_json::from_str(&text).unwrap();
+        assert!(restored.valid());
+        assert_eq!(restored, layouts);
+        assert!(!text.contains("credential"));
+        assert!(!text.contains("messages"));
+        let mut workbench = Workbench::default();
+        workbench.set_visible(PaneKind::Agent, true);
+        assert!(workbench.contains_anywhere(PaneKind::Agent));
+        workbench.workspace = 1;
+        assert!(workbench.contains_anywhere(PaneKind::Agent));
+        assert!(!workbench.has(PaneKind::Agent));
+    }
+}
+
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Layouts {

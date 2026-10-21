@@ -187,6 +187,8 @@ const AUTOPLAY_SHORTCUTS: &[(&str, &str)] = &[
 
 /// Chrome-owned state that survives across frames (unrelated to the document).
 pub struct EditorUi {
+    #[cfg(feature = "editor-agent")]
+    pub agent: crate::agent::Session,
     #[cfg(feature = "editor-automation")]
     pub automation: crate::automation::Service,
     pub appearance: crate::appearance::Appearance,
@@ -229,6 +231,8 @@ impl Default for EditorUi {
 impl EditorUi {
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "editor-agent")]
+            agent: Default::default(),
             #[cfg(feature = "editor-automation")]
             automation: crate::automation::Service::new(),
             appearance: Default::default(),
@@ -474,6 +478,8 @@ impl EditorUi {
             toolbar::draw_editor_settings(ui, editor, &mut self.pad_scale, &mut self.workbench);
             #[cfg(feature = "editor-automation")]
             self.automation.settings_ui(ui);
+            #[cfg(feature = "editor-agent")]
+            self.agent.settings_ui(ui);
         });
         self.workbench.capture_views(editor, self.pad_scale);
         self.workbench.activate_views(editor, &mut self.pad_scale);
@@ -519,6 +525,11 @@ impl EditorUi {
         // Only a pane closed from its own header clears the request. Rewriting
         // it from `has()` every frame dropped a deferred add (the pane was then
         // removed again, flashing the neighbouring split panes).
+        #[cfg(feature = "editor-agent")]
+        {
+            if !self.workbench.contains_anywhere(PaneKind::Agent) { self.agent.stop(); }
+            self.agent.tick(&self.automation, app.document_revision());
+        }
         if templates_before_show && !self.workbench.has(PaneKind::Templates) {
             editor.template_panel = false;
         }
@@ -557,6 +568,12 @@ impl EditorUi {
             }
             let mut ui = region.ui(ctx);
             match region.kind {
+                PaneKind::Agent => {
+                    #[cfg(feature = "editor-agent")]
+                    self.agent.draw(&mut ui, &mut self.automation, editor, app);
+                    #[cfg(not(feature = "editor-agent"))]
+                    ui.label("此构建未启用 editor-agent；分区布局已保留");
+                }
                 PaneKind::Simai => simai::draw(
                     &mut ui,
                     editor,

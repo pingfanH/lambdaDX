@@ -15,6 +15,8 @@ mod snapshot;
 mod proposal;
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, feature = "editor-agent"))]
+mod agent_tests;
 
 pub struct Service {
     client: Client,
@@ -135,6 +137,10 @@ impl Service {
         }
     }
 
+    #[cfg(feature = "editor-agent")]
+    pub fn agent_proposal_status(&self, id: &str, session: &bridge::Session) -> ToolResult<ProposalResult> {
+        self.proposals.status(id, session)
+    }
     pub fn proposal_ui(&mut self, ui: &mut egui::Ui, editor: &EditorState) {
         let Some(p) = self.proposals.pending() else { ui.label("没有等待审核的修改提案"); return; };
         ui.heading("修改提案：需要人工确认");
