@@ -11,6 +11,12 @@ const HISTORY_FILE: &str = "editor_file_dialogs.json";
 
 pub type DialogResult = Result<Option<PathBuf>, String>;
 
+/// Whether [`Dialogs::start`] can present a real native picker. Linux and
+/// Windows use the editor's in-app path prompt instead.
+pub const fn native_picker_available() -> bool {
+    cfg!(target_os = "macos")
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Request {
     Open,

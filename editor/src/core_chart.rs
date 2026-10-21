@@ -225,7 +225,7 @@ fn slide_body(slide: &Slide) -> Result<(String, usize), String> {
     Ok((body, parts))
 }
 
-#[cfg(all(test, feature = "backend-lean"))]
+#[cfg(all(test, any(feature = "backend-lean", feature = "backend-rust")))]
 mod tests {
     use super::*;
     use crate::player::engine::JudgeEngine;
@@ -375,5 +375,66 @@ mod tests {
             .bind_editor_chart(compiled.note_ids, compiled.slide_positions)
             .unwrap();
         assert!(engine.chart_spec().unwrap().taps.is_empty());
+    }
+
+    #[test]
+    fn many_off_grid_notes_load_in_bounded_time() {
+        // A real chart edited in the native (chart.json) workspace compiles one
+        // measure/tempo per note. This used to grow the core's rational clock
+        // without bound, leaving the editor on a blank window for minutes.
+        let notes = (0..300)
+            .map(|i| (i % 8 + 1).to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut chart =
+            crate::app::maidata::from_maidata_level(&format!("&inote_6=(120){{4}}{notes},E"), 6)
+                .unwrap();
+        assert_eq!(chart.notes.len(), 300);
+        for (index, note) in chart.notes.iter_mut().enumerate() {
+            note.time = 1.0 + index as f32 * 0.0137;
+        }
+        let started = std::time::Instant::now();
+        let compiled = compile(&chart, 6).unwrap();
+        let engine = JudgeEngine::load(&compiled.text, 6).unwrap();
+        let spec = engine.chart_spec().unwrap();
+        assert_eq!(spec.taps.len(), 300);
+        let expected: Vec<i64> = chart
+            .notes
+            .iter()
+            .map(|note| (note_secs(note, &chart.bpms) * 1e6).round() as i64)
+            .collect();
+        for (index, tap) in spec.taps.iter().enumerate() {
+            let difference = (tap.timing - expected[index]).abs();
+            assert!(
+                difference <= 2_000,
+                "note {index} drifted by {difference}µs"
+            );
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "compiled native chart took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn bundled_native_jack_ripper_loads_within_budget() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/charts/jack_ripper/chart.json");
+        let chart = crate::app::chart::load_chart_from_path(&path, None).expect("bundled chart");
+        assert!(chart.notes.len() > 500, "notes = {}", chart.notes.len());
+        let level = chart.simai_level.max(1);
+        let started = std::time::Instant::now();
+        let compiled = compile(&chart, level).unwrap();
+        let engine = JudgeEngine::load(&compiled.text, level).unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "bundled native chart took {:?}",
+            started.elapsed()
+        );
+        let spec = engine.chart_spec().unwrap();
+        assert!(!spec.taps.is_empty());
+        assert!(!spec.holds.is_empty());
+        assert!(!spec.slides.is_empty());
     }
 }

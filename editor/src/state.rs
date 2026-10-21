@@ -356,6 +356,13 @@ pub struct EditorState {
     pub save_as_request: bool,
     /// A native picker is running in the background; keep drawing, but freeze edits.
     pub file_dialog_active: bool,
+    /// In-editor path prompt used when the platform has no native picker.
+    pub path_prompt: Option<crate::io::dialogs::Request>,
+    pub path_prompt_text: String,
+    pub path_prompt_error: Option<String>,
+    pub path_prompt_focus: bool,
+    /// Path confirmed by the prompt; the runtime consumes it after the UI pass.
+    pub pending_path: Option<(crate::io::dialogs::Request, std::path::PathBuf)>,
     /// Set while dragging the playhead/overview; the runtime applies it to the
     /// player's clock (`timeline_view_time` / `mode_song_offset`).
     pub pending_seek: Option<f32>,
@@ -460,6 +467,11 @@ impl Default for EditorState {
             export_request: false,
             save_as_request: false,
             file_dialog_active: false,
+            path_prompt: None,
+            path_prompt_text: String::new(),
+            path_prompt_error: None,
+            path_prompt_focus: false,
+            pending_path: None,
             pending_seek: None,
             scrubbing: false,
             cursor: None,

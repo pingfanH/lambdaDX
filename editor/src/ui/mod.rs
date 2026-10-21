@@ -15,6 +15,7 @@ pub mod history;
 pub mod inspector;
 pub mod layout;
 pub mod navigation;
+pub mod path_prompt;
 mod progress;
 pub mod sensors;
 mod simai;
@@ -291,7 +292,8 @@ impl EditorUi {
             || editor.show_help
             || editor.pending_action.is_some()
             || editor.keyboard.dialog.is_some()
-            || editor.file_dialog_active;
+            || editor.file_dialog_active
+            || editor.path_prompt.is_some();
         let canvas_tab = (self.workbench.focused(PaneKind::Chart)
             || self.workbench.focused(PaneKind::Autoplay))
             && !overlay_was_open
@@ -726,6 +728,7 @@ impl EditorUi {
         if editor.pending_action.is_some() && !editor.pending_confirmed && !editor.file_dialog_active {
             self.draw_confirm(ctx, editor, &mut app.chart);
         }
+        path_prompt::draw(ctx, editor);
         self.appearance.flush(ctx.input(|i| i.pointer.any_down()));
         self.workbench.capture_views(editor, self.pad_scale);
         self.workbench.flush_layouts(ctx.input(|i| i.time), ctx.input(|i| i.pointer.any_down()));

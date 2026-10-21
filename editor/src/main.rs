@@ -312,7 +312,7 @@ async fn run() {
         } else {
             1.0
         };
-        let (fb_w, _fb_h) = macroquad::miniquad::window::screen_size();
+        let (fb_w, fb_h) = macroquad::miniquad::window::screen_size();
         let s_phys = if egui_screen_w > 1.0 {
             fb_w / egui_screen_w
         } else {
@@ -363,7 +363,11 @@ async fn run() {
                         && (p.x - pad.cx).hypot(p.y - pad.cy) <= pad.outer_r)
             })
             .collect();
-        let scale = ui::layout::preview_note_scale(pad.outer_r, player::render::ui_scale(&app));
+        // The preview radius already encodes the host window size; passing the
+        // player's window-wide ui_scale here would scale notes twice. Keep the
+        // user override for an explicit content scale only.
+        let content_scale = app.ui_scale_override.unwrap_or(1.0);
+        let scale = ui::layout::preview_note_scale(pad.outer_r, content_scale);
         app::params::set_pad_scale(scale * app::params::pad_zoom());
         if !pad_events.is_empty() {
             player::input::handle_touch_controls(&mut app, pad, &pad_events);
@@ -465,7 +469,7 @@ async fn run() {
         // Pad preview, scissored to its region.
         let preview = ui.layout.preview;
         if preview.width() > 1.0 && preview.height() > 1.0 {
-            let scissor = to_scissor(preview, s_phys, fb_w);
+            let scissor = to_scissor(preview, s_phys, fb_w, fb_h);
             unsafe { get_internal_gl() }.quad_gl.scissor(Some(scissor));
             player::render::pad::draw_pad_sim_transparent(
                 &app,
@@ -484,7 +488,7 @@ async fn run() {
         // Timeline (macroquad, behind the transparent central egui panel).
         let timeline = ui.layout.timeline;
         if timeline.width() > 1.0 && timeline.height() > 1.0 {
-            let scissor = to_scissor(timeline, s_phys, fb_w);
+            let scissor = to_scissor(timeline, s_phys, fb_w, fb_h);
             unsafe { get_internal_gl() }.quad_gl.scissor(Some(scissor));
             let rect = Rect::new(
                 timeline.left() * to_mq,
@@ -559,12 +563,27 @@ fn player_time(app: &PadPreviewState) -> f32 {
 }
 
 /// Convert an egui-points rect to a macroquad scissor (raw framebuffer pixels).
-fn to_scissor(rect: egui::Rect, s_phys: f32, fb_w: f32) -> (i32, i32, i32, i32) {
+fn to_scissor(rect: egui::Rect, s_phys: f32, fb_w: f32, fb_h: f32) -> (i32, i32, i32, i32) {
     let left = (rect.left() * s_phys).floor().clamp(0.0, fb_w) as i32;
-    let top = (rect.top() * s_phys).floor().clamp(0.0, fb_w) as i32;
+    let top = (rect.top() * s_phys).floor().clamp(0.0, fb_h) as i32;
     let right = (rect.right() * s_phys).ceil().clamp(0.0, fb_w) as i32;
-    let bottom = (rect.bottom() * s_phys).ceil().clamp(0.0, fb_w) as i32;
+    let bottom = (rect.bottom() * s_phys).ceil().clamp(0.0, fb_h) as i32;
     (left, top, (right - left).max(0), (bottom - top).max(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scissor_clamps_vertical_extent_to_the_framebuffer_height() {
+        let rect = egui::Rect::from_min_max(egui::pos2(100.0, 100.0), egui::pos2(500.0, 600.0));
+        assert_eq!(to_scissor(rect, 2.0, 1600.0, 900.0), (200, 200, 800, 700));
+        // A portrait window used to clamp both vertical edges to its width,
+        // collapsing panes below y = width into an empty scissor.
+        let low = egui::Rect::from_min_max(egui::pos2(100.0, 1000.0), egui::pos2(500.0, 1500.0));
+        assert_eq!(to_scissor(low, 1.0, 900.0, 1600.0), (100, 1000, 400, 500));
+    }
 }
 
 /// Apply editor-raised IO requests (native picker / reload / export) before the
@@ -579,6 +598,23 @@ fn apply_io_requests(
     workbench: &mut ui::workbench::Workbench,
 ) {
     use io::dialogs::Request;
+    if let Some((request, path)) = editor.pending_path.take() {
+        editor.file_dialog_active = false;
+        match request {
+            Request::Open => load_editor_chart(editor, app, &path, None),
+            Request::Save { save_as, .. } => {
+                io::finish_export(editor, &app.chart, save_as, &path)
+            }
+            Request::Background => {
+                appearance.request_image(path.to_string_lossy().into_owned())
+            }
+        }
+        return;
+    }
+    if editor.path_prompt.is_some() {
+        editor.file_dialog_active = true;
+        return;
+    }
     if let Some((request, result)) = dialogs.poll() {
         match result {
             Ok(Some(path)) => match request {
@@ -658,6 +694,10 @@ fn start_file_dialog(
     let hint = hint
         .or_else(|| editor.source.as_ref().map(|source| source.path.clone()))
         .or_else(|| Some(std::path::PathBuf::from(&editor.chart_dir)));
+    if !io::dialogs::native_picker_available() {
+        ui::path_prompt::begin(editor, request, hint);
+        return;
+    }
     match dialogs.start(request, hint) {
         Ok(()) => {
             editor.file_dialog_active = true;
