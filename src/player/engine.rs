@@ -241,10 +241,10 @@ impl JudgeEngine {
         let (slide_bindings, slide_head_timings, slide_totals) = runtime_slide_bindings(&loaded)?;
         let chart_spec = loaded.chart_spec_native().map_err(|e| e.json)?;
         #[cfg(feature = "backend-rust")]
-        let sdez = if std::env::var("MAI2_JUDGE_MODE").ok().as_deref() == Some("sdez170") {
-            Some(SdezEngine::load(simai_text, level_index)?)
-        } else {
+        let sdez = if std::env::var("MAI2_JUDGE_MODE").ok().as_deref() == Some("legacy") {
             None
+        } else {
+            Some(SdezEngine::load(simai_text, level_index)?)
         };
         Ok(JudgeEngine {
             session: loaded,
@@ -421,6 +421,14 @@ impl JudgeEngine {
         result
     }
 
+    pub fn set_autoplay(&mut self, enabled: bool) {
+        #[cfg(feature = "backend-rust")]
+        if let Some(sdez) = &mut self.sdez {
+            sdez.set_autoplay(enabled);
+        }
+        let _ = enabled;
+    }
+
     pub fn runtime_slide_index(&self, note_index: u64) -> Option<usize> {
         self.slide_bindings.get(&note_index).copied()
     }
@@ -470,8 +478,10 @@ impl JudgeEngine {
             return Err("invalid seek time".into());
         }
         #[cfg(feature = "backend-rust")]
-        if self.sdez.is_some() {
-            return Err("seek is not implemented for the SDEZ170 backend yet".into());
+        if let Some(sdez) = &mut self.sdez {
+            let result = sdez.seek((seconds.max(0.0) * 1e6) as i64, events)?;
+            self.last_step_time_us = result.current_time;
+            return Ok(result);
         }
         let result = self
             .session
@@ -490,6 +500,10 @@ impl JudgeEngine {
     }
 
     pub fn default_tactic(&self) -> Result<Vec<TimedInputEvent>, String> {
+        #[cfg(feature = "backend-rust")]
+        if let Some(sdez) = &self.sdez {
+            sdez.enable_autoplay();
+        }
         Ok(self.autoplay_plan()?.events())
     }
 
@@ -831,6 +845,7 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
     play_hold_head_hits(app, &events);
     let results = {
         let engine = app.judge_engine.as_mut().unwrap();
+        engine.set_autoplay(app.autoplay);
         step_engine_events(engine, now, events)
     };
     for result in results {

@@ -1,19 +1,28 @@
 //! SDEZ170 backend adapter for the player.
 
 use std::collections::BTreeMap;
+use std::cell::Cell;
 
 use crate::core::sdez::{SdezEvent, SdezSession, SdezStepResult};
 use crate::core::types::{
     AudioCommand, ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, JudgePhase,
-    NoteTypeJudgeCounts, RenderCommand, RuntimePos, RuntimeStepLightResult, ScoreState, SensorArea,
-    TimedInputEvent,
+    NoteTypeJudgeCounts, RenderCommand, RuntimePos, RuntimeStepLightResult, ScoreState,
+    SeekResult, SensorArea, TimedInputEvent,
 };
+
+/// SDEZ chart notes are shifted by the default 60 ms AdjustTiming and the
+/// 50 ms judge-table center. Player-facing timestamps are chart/song time.
+pub const SDEZ_INPUT_OFFSET_US: i64 = 110_000;
 
 pub struct SdezEngine {
     session: SdezSession,
     panel_state: u64,
     buttons_push: u16,
     last_time_us: i64,
+    text: String,
+    level_index: u32,
+    autoplay: Cell<bool>,
+    applied_autoplay: Cell<Option<bool>>,
 }
 
 impl SdezEngine {
@@ -27,6 +36,10 @@ impl SdezEngine {
             panel_state: 0,
             buttons_push: 0,
             last_time_us: 0,
+            text: text.to_string(),
+            level_index,
+            autoplay: Cell::new(false),
+            applied_autoplay: Cell::new(None),
         })
     }
 
@@ -35,11 +48,19 @@ impl SdezEngine {
         current_time_us: i64,
         events: &[TimedInputEvent],
     ) -> Result<RuntimeStepLightResult, String> {
+        let wanted = self.autoplay.get();
+        if self.applied_autoplay.get() != Some(wanted) {
+            self.session
+                .set_autoplay(if wanted { 1 } else { 0 })
+                .map_err(|e| e.json)?;
+            self.applied_autoplay.set(Some(wanted));
+        }
         let (buttons_down, panel_state, new_frame) = self.apply_events(events);
+        let judged_time_us = current_time_us + SDEZ_INPUT_OFFSET_US;
         let result = self
             .session
             .step(
-                current_time_us as f32 / 1000.0,
+                judged_time_us as f32 / 1000.0,
                 buttons_down,
                 self.buttons_push,
                 panel_state,
@@ -48,6 +69,16 @@ impl SdezEngine {
             .map_err(|e| e.json)?;
         self.last_time_us = current_time_us;
         Ok(self.to_runtime_result(result, current_time_us))
+    }
+
+    pub fn set_autoplay(&mut self, enabled: bool) {
+        self.autoplay.set(enabled);
+        self.applied_autoplay.set(None);
+    }
+
+    pub fn enable_autoplay(&self) {
+        self.autoplay.set(true);
+        self.applied_autoplay.set(None);
     }
 
     fn apply_events(&mut self, events: &[TimedInputEvent]) -> (u16, u64, bool) {
@@ -88,6 +119,51 @@ impl SdezEngine {
         (down, self.panel_state, new_frame)
     }
 
+    pub fn seek(
+        &mut self,
+        target_us: i64,
+        events: &[TimedInputEvent],
+    ) -> Result<SeekResult, String> {
+        let mut session = SdezSession::create().map_err(|e| e.json)?;
+        let autoplay = if events.is_empty() { 1 } else { 0 };
+        session
+            .load_text(&self.text, self.level_index, autoplay)
+            .map_err(|e| e.json)?;
+        self.session = session;
+        self.autoplay.set(events.is_empty());
+        self.applied_autoplay.set(None);
+        self.panel_state = 0;
+        self.buttons_push = 0;
+        self.last_time_us = 0;
+
+        let mut sorted = events.to_vec();
+        sorted.sort_by_key(|event| event_tp(event));
+        let mut cursor = 0usize;
+        let mut frame_us = 0i64;
+        let mut last = None;
+        while frame_us < target_us {
+            frame_us = (frame_us + 16_667).min(target_us);
+            let mut frame_events = Vec::new();
+            while cursor < sorted.len() && event_tp(&sorted[cursor]) <= frame_us {
+                frame_events.push(sorted[cursor].clone());
+                cursor += 1;
+            }
+            last = Some(self.step(frame_us, &frame_events)?);
+        }
+        let last = match last {
+            Some(last) => last,
+            None => self.step(target_us, &[])?,
+        };
+        Ok(SeekResult {
+            score: last.score,
+            current_time: target_us,
+            terminated: false,
+            retained_note_indices: Vec::new(),
+            skipped_note_indices: Vec::new(),
+            render_commands: last.render_commands,
+        })
+    }
+
     fn to_runtime_result(
         &self,
         result: SdezStepResult,
@@ -108,16 +184,30 @@ impl SdezEngine {
                 note_index: event.note_index,
             })
             .collect();
-        let render_commands = events
-            .iter()
-            .map(|event| RenderCommand::ShowJudgeResult {
+        let mut render_commands = Vec::with_capacity(events.len());
+        for (source, event) in result.events.iter().zip(events.iter()) {
+            render_commands.push(RenderCommand::ShowJudgeResult {
                 kind: event.kind,
                 grade: event.grade,
                 is_break: event.is_break,
                 diff: event.diff,
                 note_index: event.note_index,
-            })
-            .collect();
+            });
+            if event.kind == JudgeEventKind::Slide {
+                render_commands.push(RenderCommand::HideAllSlideBars {
+                    note_index: event.note_index,
+                });
+                if source.is_wifi {
+                    for track_index in 0..3 {
+                        render_commands.push(RenderCommand::HideSlideTrackBars {
+                            note_index: event.note_index,
+                            track_index,
+                            end_index: 11,
+                        });
+                    }
+                }
+            }
+        }
         let score = result
             .score
             .as_ref()
@@ -142,15 +232,9 @@ fn judge_event(event: &SdezEvent, current_time_us: i64) -> JudgeEvent {
         _ if event.is_break => JudgeEventKind::Break,
         _ => JudgeEventKind::Tap,
     };
-    let position = match kind {
-        JudgeEventKind::Touch | JudgeEventKind::Slide => RuntimePos {
-            button: None,
-            sensor: Some(SensorArea::A1),
-        },
-        _ => RuntimePos {
-            button: Some(ButtonZone::K1),
-            sensor: None,
-        },
+    let position = RuntimePos {
+        button: event.button.and_then(button_zone),
+        sensor: event.sensor.and_then(sensor_area),
     };
     JudgeEvent {
         kind,
@@ -358,6 +442,68 @@ fn sensor_bits(area: SensorArea) -> u64 {
     }
 }
 
+fn event_tp(event: &TimedInputEvent) -> i64 {
+    match event {
+        TimedInputEvent::ButtonClick { tp, .. }
+        | TimedInputEvent::ButtonHold { tp, .. }
+        | TimedInputEvent::SensorClick { tp, .. }
+        | TimedInputEvent::SensorHold { tp, .. } => *tp,
+    }
+}
+
+fn button_zone(index: u8) -> Option<ButtonZone> {
+    Some(match index {
+        0 => ButtonZone::K1,
+        1 => ButtonZone::K2,
+        2 => ButtonZone::K3,
+        3 => ButtonZone::K4,
+        4 => ButtonZone::K5,
+        5 => ButtonZone::K6,
+        6 => ButtonZone::K7,
+        7 => ButtonZone::K8,
+        _ => return None,
+    })
+}
+
+fn sensor_area(index: u8) -> Option<SensorArea> {
+    Some(match index {
+        0 => SensorArea::A1,
+        1 => SensorArea::A2,
+        2 => SensorArea::A3,
+        3 => SensorArea::A4,
+        4 => SensorArea::A5,
+        5 => SensorArea::A6,
+        6 => SensorArea::A7,
+        7 => SensorArea::A8,
+        8 => SensorArea::B1,
+        9 => SensorArea::B2,
+        10 => SensorArea::B3,
+        11 => SensorArea::B4,
+        12 => SensorArea::B5,
+        13 => SensorArea::B6,
+        14 => SensorArea::B7,
+        15 => SensorArea::B8,
+        16 | 17 => SensorArea::C,
+        18 => SensorArea::D1,
+        19 => SensorArea::D2,
+        20 => SensorArea::D3,
+        21 => SensorArea::D4,
+        22 => SensorArea::D5,
+        23 => SensorArea::D6,
+        24 => SensorArea::D7,
+        25 => SensorArea::D8,
+        26 => SensorArea::E1,
+        27 => SensorArea::E2,
+        28 => SensorArea::E3,
+        29 => SensorArea::E4,
+        30 => SensorArea::E5,
+        31 => SensorArea::E6,
+        32 => SensorArea::E7,
+        33 => SensorArea::E8,
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,15 +513,23 @@ mod tests {
         let mut engine =
             SdezEngine::load("&inote_1=(120){4}1,E", 1).expect("SDEZ engine");
         let events = [TimedInputEvent::ButtonClick {
-            tp: 110_000,
+            tp: 0,
             zone: ButtonZone::K1,
         }];
-        let result = engine.step(110_000, &events).expect("step");
+        let result = engine.step(0, &events).expect("step");
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].grade, JudgeGrade::Perfect);
         assert_eq!(result.score.combo, 1);
         assert_eq!(result.score.earned_base, 500);
         assert_eq!(result.audio_commands.len(), 1);
         assert_eq!(result.render_commands.len(), 1);
+    }
+
+    #[test]
+    fn seek_rebuilds_and_fast_forwards_the_sdez_session() {
+        let mut engine = SdezEngine::load("&inote_1=(120){4}1,E", 1).expect("SDEZ engine");
+        let result = engine.seek(500_000, &[]).expect("seek");
+        assert_eq!(result.current_time, 500_000);
+        assert_eq!(result.score.combo, 1);
     }
 }

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::areas::{OuterSlot, SensorArea};
-use crate::chart_loader::{ChartSpec, HoldChartNote};
+use crate::chart_loader::{ChartSpec, HoldChartNote, SlideChartNote};
 
 use super::input::InputFrame;
 use super::note::{
@@ -11,6 +11,8 @@ use super::note::{
 };
 use super::score::SdezScore;
 use super::slide::SlideNote;
+use super::slide_fan::SlideFanNote;
+use super::slide_data::SlideHitArea;
 use super::timing::TimingSettings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,6 +36,9 @@ pub struct SdezEvent {
     pub phase: SdezPhase,
     pub is_break: bool,
     pub is_ex: bool,
+    pub button: Option<u8>,
+    pub sensor: Option<u8>,
+    pub is_wifi: bool,
     pub judged: JudgedNote,
 }
 
@@ -57,6 +62,8 @@ struct HoldSlot {
     is_ex: bool,
     touch_hold_group_id: Option<u64>,
     touch_hold_group_size: u32,
+    button: Option<u8>,
+    sensor: Option<u8>,
     note: HoldNote,
 }
 
@@ -66,6 +73,7 @@ struct TouchSlot {
     is_ex: bool,
     group_id: Option<u64>,
     group_size: u32,
+    sensor: u8,
     note: TouchNote,
 }
 
@@ -73,7 +81,14 @@ struct SlideSlot {
     note_index: u64,
     is_break: bool,
     is_ex: bool,
-    note: SlideNote,
+    button: u8,
+    note: SlideRuntimeNote,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SlideRuntimeNote {
+    Single(SlideNote),
+    Fan(SlideFanNote),
 }
 
 pub struct SdezRuntime {
@@ -136,6 +151,7 @@ impl SdezRuntime {
                     .as_ref()
                     .and_then(|size| size.to_usize())
                     .unwrap_or(1) as u32,
+                sensor: sensor_index(touch.sensor_pos),
                 note: TouchNote::new(
                     settings.chart_time_to_appear(time_point_msec(touch.timing.clone())),
                     touch_area(touch.sensor_pos),
@@ -147,28 +163,8 @@ impl SdezRuntime {
         let slides: Vec<SlideSlot> = chart
             .slides
             .iter()
-            .map(|slide| {
-                let start = slot_button(slide.slot);
-                let star_launch =
-                    settings.chart_time_to_appear(time_point_msec(slide.start_timing.clone()));
-                let star_arrive = star_launch + duration_msec(slide.length.clone());
-                SlideSlot {
-                    note_index: slide.note_index.to_word(),
-                    is_break: slide.is_break,
-                    is_ex: slide.is_ex,
-                    note: SlideNote::new(
-                        slide.sdez_slide_type as usize,
-                        start,
-                        slide.sdez_end as usize,
-                        start,
-                        settings.chart_time_to_appear(time_point_msec(slide.head_timing.clone())),
-                        star_arrive,
-                        star_launch,
-                        star_arrive,
-                        slide.is_break,
-                    ),
-                }
-            })
+            .filter(|slide| slide.parent_note_index.is_none())
+            .map(|slide| slide_slot(chart, slide, settings))
             .collect();
         let mut ordinary_order = Vec::with_capacity(taps.len() + holds.len() + touches.len());
         ordinary_order.extend((0..taps.len()).map(OrdinaryRef::Tap));
@@ -238,6 +234,9 @@ impl SdezRuntime {
                             phase: SdezPhase::Head,
                             is_break: slot.is_break,
                             is_ex: slot.is_ex,
+                            button: Some(slot.note.button as u8),
+                            sensor: None,
+                            is_wifi: false,
                             judged,
                         });
                     }
@@ -258,6 +257,9 @@ impl SdezRuntime {
                             phase: SdezPhase::Head,
                             is_break: slot.is_break,
                             is_ex: slot.is_ex,
+                            button: slot.button,
+                            sensor: slot.sensor,
+                            is_wifi: false,
                             judged,
                         });
                     }
@@ -268,6 +270,9 @@ impl SdezRuntime {
                             phase: SdezPhase::Tail,
                             is_break: slot.is_break,
                             is_ex: slot.is_ex,
+                            button: slot.button,
+                            sensor: slot.sensor,
+                            is_wifi: false,
                             judged,
                         });
                     }
@@ -286,6 +291,9 @@ impl SdezRuntime {
                             phase: SdezPhase::Head,
                             is_break: slot.is_break,
                             is_ex: slot.is_ex,
+                            button: None,
+                            sensor: Some(slot.sensor),
+                            is_wifi: false,
                             judged,
                         });
                     }
@@ -297,19 +305,32 @@ impl SdezRuntime {
         self.force_touch_hold_groups(current_msec, &mut events);
 
         for slot in &mut self.slides {
-            if let Some(judged) = slot.note.step(
-                current_msec,
-                delta,
-                &mut self.input,
-                self.settings,
-                self.autoplay,
-            ) {
+            let judged = match &mut slot.note {
+                SlideRuntimeNote::Single(note) => note.step(
+                    current_msec,
+                    delta,
+                    &mut self.input,
+                    self.settings,
+                    self.autoplay,
+                ),
+                SlideRuntimeNote::Fan(note) => note.step(
+                    current_msec,
+                    delta,
+                    &mut self.input,
+                    self.settings,
+                    self.autoplay,
+                ),
+            };
+            if let Some(judged) = judged {
                 events.push(SdezEvent {
                     note_index: slot.note_index,
                     kind: SdezNoteKind::Slide,
                     phase: SdezPhase::Head,
                     is_break: slot.is_break,
                     is_ex: slot.is_ex,
+                    button: Some(slot.button),
+                    sensor: None,
+                    is_wifi: matches!(&slot.note, SlideRuntimeNote::Fan(_)),
                     judged,
                 });
             }
@@ -354,6 +375,9 @@ impl SdezRuntime {
                         phase: SdezPhase::Head,
                         is_break: slot.is_break,
                         is_ex: slot.is_ex,
+                        button: None,
+                        sensor: Some(slot.sensor),
+                        is_wifi: false,
                         judged,
                     });
                 }
@@ -394,6 +418,9 @@ impl SdezRuntime {
                         phase: SdezPhase::Head,
                         is_break: slot.is_break,
                         is_ex: slot.is_ex,
+                        button: slot.button,
+                        sensor: slot.sensor,
+                        is_wifi: false,
                         judged,
                     });
                 }
@@ -422,6 +449,82 @@ fn slot_button(slot: OuterSlot) -> usize {
     slot.to_index()
 }
 
+fn slide_slot(chart: &ChartSpec, slide: &SlideChartNote, settings: TimingSettings) -> SlideSlot {
+    let start = slot_button(slide.slot);
+    let appear = settings.chart_time_to_appear(time_point_msec(slide.head_timing.clone()));
+    let star_launch =
+        settings.chart_time_to_appear(time_point_msec(slide.start_timing.clone()));
+    let mut tail = star_launch + duration_msec(slide.length.clone());
+
+    if slide.sdez_slide_type == 13 {
+        return SlideSlot {
+            note_index: slide.note_index.to_word(),
+            is_break: slide.is_break,
+            is_ex: slide.is_ex,
+            button: start as u8,
+            note: SlideRuntimeNote::Fan(SlideFanNote::new(
+                start,
+                slide.sdez_end as usize,
+                start,
+                appear,
+                tail,
+                star_launch,
+                tail,
+                slide.is_break,
+            )),
+        };
+    }
+
+    let mut areas: Vec<SlideHitArea> = super::slide_data::hit_areas(
+        slide.sdez_slide_type as usize,
+        start,
+        slide.sdez_end as usize,
+        start,
+    )
+    .to_vec();
+    let mut current = slide.note_index.clone();
+    for _ in 0..64 {
+        let Some(child) = chart
+            .slides
+            .iter()
+            .find(|candidate| candidate.parent_note_index.as_ref() == Some(&current))
+        else {
+            break;
+        };
+        let child_start = slot_button(child.slot);
+        let child_areas = super::slide_data::hit_areas(
+            child.sdez_slide_type as usize,
+            child_start,
+            child.sdez_end as usize,
+            child_start,
+        );
+        areas.extend(child_areas.iter().skip(1).cloned());
+        tail =
+            settings.chart_time_to_appear(time_point_msec(child.start_timing.clone()))
+                + duration_msec(child.length.clone());
+        current = child.note_index.clone();
+    }
+
+    SlideSlot {
+        note_index: slide.note_index.to_word(),
+        is_break: slide.is_break,
+        is_ex: slide.is_ex,
+        button: start as u8,
+        note: SlideRuntimeNote::Single(SlideNote::from_areas(
+            slide.sdez_slide_type as usize,
+            start,
+            slide.sdez_end as usize,
+            start,
+            appear,
+            tail,
+            star_launch,
+            tail,
+            slide.is_break,
+            areas,
+        )),
+    }
+}
+
 fn hold_slot(hold: &HoldChartNote, settings: TimingSettings) -> HoldSlot {
     let appear = settings.chart_time_to_appear(time_point_msec(hold.timing.clone()));
     let tail = appear + duration_msec(hold.length.clone());
@@ -446,6 +549,16 @@ fn hold_slot(hold: &HoldChartNote, settings: TimingSettings) -> HoldSlot {
                 .unwrap_or(1) as u32
         } else {
             1
+        },
+        button: if is_touch_hold {
+            None
+        } else {
+            Some(slot_button(hold.slot) as u8)
+        },
+        sensor: if is_touch_hold {
+            Some(sensor_index(sensor_area_for_slot(hold.slot)))
+        } else {
+            None
         },
         note: HoldNote::new(
             appear,
@@ -474,6 +587,8 @@ fn touch_hold_slot(
             .as_ref()
             .and_then(|size| size.to_usize())
             .unwrap_or(1) as u32,
+        button: None,
+        sensor: Some(sensor_index(hold.sensor_pos)),
         note: HoldNote::new(
             appear,
             tail,
@@ -487,6 +602,57 @@ fn touch_hold_slot(
 
 fn sensor_touch_area(slot: OuterSlot) -> TouchArea {
     TouchArea::A(slot.to_index())
+}
+
+fn sensor_area_for_slot(slot: OuterSlot) -> SensorArea {
+    match slot {
+        OuterSlot::S1 => SensorArea::A1,
+        OuterSlot::S2 => SensorArea::A2,
+        OuterSlot::S3 => SensorArea::A3,
+        OuterSlot::S4 => SensorArea::A4,
+        OuterSlot::S5 => SensorArea::A5,
+        OuterSlot::S6 => SensorArea::A6,
+        OuterSlot::S7 => SensorArea::A7,
+        OuterSlot::S8 => SensorArea::A8,
+    }
+}
+
+fn sensor_index(area: SensorArea) -> u8 {
+    match area {
+        SensorArea::A1 => 0,
+        SensorArea::A2 => 1,
+        SensorArea::A3 => 2,
+        SensorArea::A4 => 3,
+        SensorArea::A5 => 4,
+        SensorArea::A6 => 5,
+        SensorArea::A7 => 6,
+        SensorArea::A8 => 7,
+        SensorArea::B1 => 8,
+        SensorArea::B2 => 9,
+        SensorArea::B3 => 10,
+        SensorArea::B4 => 11,
+        SensorArea::B5 => 12,
+        SensorArea::B6 => 13,
+        SensorArea::B7 => 14,
+        SensorArea::B8 => 15,
+        SensorArea::C => 16,
+        SensorArea::D1 => 18,
+        SensorArea::D2 => 19,
+        SensorArea::D3 => 20,
+        SensorArea::D4 => 21,
+        SensorArea::D5 => 22,
+        SensorArea::D6 => 23,
+        SensorArea::D7 => 24,
+        SensorArea::D8 => 25,
+        SensorArea::E1 => 26,
+        SensorArea::E2 => 27,
+        SensorArea::E3 => 28,
+        SensorArea::E4 => 29,
+        SensorArea::E5 => 30,
+        SensorArea::E6 => 31,
+        SensorArea::E7 => 32,
+        SensorArea::E8 => 33,
+    }
 }
 
 fn touch_area(area: SensorArea) -> TouchArea {
@@ -651,7 +817,11 @@ mod tests {
             + chart.holds.len()
             + chart.touch_holds.len()
             + chart.touches.len()
-            + chart.slides.len();
+            + chart
+                .slides
+                .iter()
+                .filter(|slide| slide.parent_note_index.is_none())
+                .count();
         assert!(expected > 0, "chart has no runtime notes");
         let mut runtime = SdezRuntime::from_chart(&chart);
         runtime.autoplay = AutoplayMode::Critical;

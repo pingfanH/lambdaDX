@@ -643,6 +643,9 @@ pub fn step_sdez_handle(
             "diffMsec": event.judged.diff_msec,
             "isBreak": event.is_break,
             "isEX": event.is_ex,
+            "button": event.button,
+            "sensor": event.sensor,
+            "isWifi": event.is_wifi,
         })).collect::<Vec<_>>(),
         "currentTime": current_msec,
         "score": {
@@ -668,6 +671,25 @@ pub fn free_sdez_handle(handle: u64) -> String {
             &format!("unknown SDEZ runtime handle: {handle}"),
         )
     }
+}
+
+pub fn set_sdez_autoplay(handle: u64, autoplay: u8) -> String {
+    let mut reg = sdez_registry().lock().unwrap();
+    let Some(runtime) = reg.sessions.get_mut(&handle) else {
+        return error_json(
+            "invalid_runtime_handle",
+            &format!("unknown SDEZ runtime handle: {handle}"),
+        );
+    };
+    runtime.autoplay = match autoplay {
+        1 => crate::sdez::AutoplayMode::Critical,
+        2 => crate::sdez::AutoplayMode::Perfect,
+        3 => crate::sdez::AutoplayMode::Great,
+        4 => crate::sdez::AutoplayMode::Good,
+        5 => crate::sdez::AutoplayMode::Miss,
+        _ => crate::sdez::AutoplayMode::None,
+    };
+    ok_json(json!({ "autoplay": autoplay }))
 }
 
 fn loaded_summary_json(spec: &ChartSpec) -> Value {

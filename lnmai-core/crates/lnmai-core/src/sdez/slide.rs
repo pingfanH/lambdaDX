@@ -21,7 +21,7 @@ pub struct SlideNote {
     pub star_launch_msec: f32,
     pub star_arrive_msec: f32,
     pub is_break: bool,
-    pub hit_areas: &'static [SlideHitArea],
+    pub hit_areas: Vec<SlideHitArea>,
     pub hit_index: usize,
     pub hit_in: bool,
     pub last_wait_time: f32,
@@ -43,9 +43,44 @@ impl SlideNote {
         star_arrive_msec: f32,
         is_break: bool,
     ) -> Self {
-        let hit_areas = hit_areas(slide_type, start, end, star_button);
+        let hit_areas = hit_areas(slide_type, start, end, star_button).to_vec();
         let initial_wait =
-            initial_last_wait_time(hit_areas, star_launch_msec, star_arrive_msec);
+            initial_last_wait_time(&hit_areas, star_launch_msec, star_arrive_msec);
+        Self {
+            slide_type,
+            start,
+            end,
+            star_button,
+            appear_msec,
+            tail_msec,
+            star_launch_msec,
+            star_arrive_msec,
+            is_break,
+            hit_areas,
+            hit_index: 0,
+            hit_in: false,
+            last_wait_time: initial_wait,
+            last_wait_time_for_judge: initial_wait,
+            pending: None,
+            result: None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_areas(
+        slide_type: usize,
+        start: usize,
+        end: usize,
+        star_button: usize,
+        appear_msec: f32,
+        tail_msec: f32,
+        star_launch_msec: f32,
+        star_arrive_msec: f32,
+        is_break: bool,
+        hit_areas: Vec<SlideHitArea>,
+    ) -> Self {
+        let initial_wait =
+            initial_last_wait_time(&hit_areas, star_launch_msec, star_arrive_msec);
         Self {
             slide_type,
             start,

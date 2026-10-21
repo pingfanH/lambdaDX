@@ -96,6 +96,9 @@ mod tests {
             phase,
             is_break,
             is_ex: false,
+            button: None,
+            sensor: None,
+            is_wifi: false,
             judged: JudgedNote {
                 timing,
                 diff_msec: 0.0,

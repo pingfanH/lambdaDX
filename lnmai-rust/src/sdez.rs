@@ -17,6 +17,12 @@ pub struct SdezEvent {
     pub is_break: bool,
     #[serde(rename = "isEX", default)]
     pub is_ex: bool,
+    #[serde(default)]
+    pub button: Option<u8>,
+    #[serde(default)]
+    pub sensor: Option<u8>,
+    #[serde(default)]
+    pub is_wifi: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -102,6 +108,13 @@ impl SdezSession {
             panel_new_frame,
         );
         decode_result(json)
+    }
+
+    pub fn set_autoplay(&mut self, autoplay: u8) -> Result<()> {
+        expect_ok(lnmai_core_rs::ffi::set_sdez_autoplay(
+            self.handle(),
+            autoplay,
+        ))
     }
 
     pub fn handle(&self) -> u64 {

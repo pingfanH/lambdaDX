@@ -11,6 +11,7 @@ pub mod runtime;
 pub mod score;
 pub mod slide;
 pub mod slide_data;
+pub mod slide_fan;
 pub mod timing;
 
 pub use input::{
@@ -22,6 +23,7 @@ pub use note::{
 };
 
 pub use slide::SlideNote;
+pub use slide_fan::SlideFanNote;
 
 pub use mapping::{slide_end_for_shape, slide_type_for_shape};
 
