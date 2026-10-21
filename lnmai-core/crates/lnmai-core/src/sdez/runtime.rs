@@ -1,5 +1,7 @@
 //! Minimal SDEZ170 runtime over ChartSpec for Tap, Hold, and Touch.
 
+use std::collections::HashMap;
+
 use crate::areas::{OuterSlot, SensorArea};
 use crate::chart_loader::{ChartSpec, HoldChartNote};
 
@@ -35,6 +37,13 @@ pub struct SdezEvent {
     pub judged: JudgedNote,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum OrdinaryRef {
+    Tap(usize),
+    Hold(usize),
+    Touch(usize),
+}
+
 struct TapSlot {
     note_index: u64,
     is_break: bool,
@@ -46,6 +55,8 @@ struct HoldSlot {
     note_index: u64,
     is_break: bool,
     is_ex: bool,
+    touch_hold_group_id: Option<u64>,
+    touch_hold_group_size: u32,
     note: HoldNote,
 }
 
@@ -53,6 +64,8 @@ struct TouchSlot {
     note_index: u64,
     is_break: bool,
     is_ex: bool,
+    group_id: Option<u64>,
+    group_size: u32,
     note: TouchNote,
 }
 
@@ -71,6 +84,9 @@ pub struct SdezRuntime {
     holds: Vec<HoldSlot>,
     touches: Vec<TouchSlot>,
     slides: Vec<SlideSlot>,
+    ordinary_order: Vec<OrdinaryRef>,
+    touch_groups: HashMap<u64, Vec<usize>>,
+    touch_hold_groups: HashMap<u64, Vec<usize>>,
     pub score: SdezScore,
     current_msec: f32,
 }
@@ -81,7 +97,7 @@ impl SdezRuntime {
     }
 
     pub fn from_chart_with_settings(chart: &ChartSpec, settings: TimingSettings) -> Self {
-        let taps = chart
+        let taps: Vec<TapSlot> = chart
             .taps
             .iter()
             .map(|tap| TapSlot {
@@ -96,7 +112,7 @@ impl SdezRuntime {
                 ),
             })
             .collect();
-        let holds = chart
+        let holds: Vec<HoldSlot> = chart
             .holds
             .iter()
             .map(|hold| hold_slot(hold, settings))
@@ -107,13 +123,19 @@ impl SdezRuntime {
                     .map(|hold| touch_hold_slot(hold, settings)),
             )
             .collect();
-        let touches = chart
+        let touches: Vec<TouchSlot> = chart
             .touches
             .iter()
             .map(|touch| TouchSlot {
                 note_index: touch.note_index.to_word(),
                 is_break: touch.is_break,
                 is_ex: false,
+                group_id: touch.touch_group_id.as_ref().map(|id| id.to_word()),
+                group_size: touch
+                    .touch_group_size
+                    .as_ref()
+                    .and_then(|size| size.to_usize())
+                    .unwrap_or(1) as u32,
                 note: TouchNote::new(
                     settings.chart_time_to_appear(time_point_msec(touch.timing.clone())),
                     touch_area(touch.sensor_pos),
@@ -122,7 +144,7 @@ impl SdezRuntime {
                 ),
             })
             .collect();
-        let slides = chart
+        let slides: Vec<SlideSlot> = chart
             .slides
             .iter()
             .map(|slide| {
@@ -148,6 +170,33 @@ impl SdezRuntime {
                 }
             })
             .collect();
+        let mut ordinary_order = Vec::with_capacity(taps.len() + holds.len() + touches.len());
+        ordinary_order.extend((0..taps.len()).map(OrdinaryRef::Tap));
+        ordinary_order.extend((0..holds.len()).map(OrdinaryRef::Hold));
+        ordinary_order.extend((0..touches.len()).map(OrdinaryRef::Touch));
+        let time_of = |reference: &OrdinaryRef| match reference {
+            OrdinaryRef::Tap(index) => taps[*index].note.appear_msec,
+            OrdinaryRef::Hold(index) => holds[*index].note.appear_msec,
+            OrdinaryRef::Touch(index) => touches[*index].note.appear_msec,
+        };
+        ordinary_order.sort_by(|left, right| {
+            time_of(left)
+                .partial_cmp(&time_of(right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| ordinary_rank(*left).cmp(&ordinary_rank(*right)))
+        });
+        let mut touch_groups: HashMap<u64, Vec<usize>> = HashMap::new();
+        for (index, touch) in touches.iter().enumerate() {
+            if let Some(group) = touch.group_id {
+                touch_groups.entry(group).or_default().push(index);
+            }
+        }
+        let mut touch_hold_groups: HashMap<u64, Vec<usize>> = HashMap::new();
+        for (index, hold) in holds.iter().enumerate() {
+            if let Some(group) = hold.touch_hold_group_id {
+                touch_hold_groups.entry(group).or_default().push(index);
+            }
+        }
         Self {
             settings,
             autoplay: AutoplayMode::None,
@@ -156,6 +205,9 @@ impl SdezRuntime {
             holds,
             touches,
             slides,
+            ordinary_order,
+            touch_groups,
+            touch_hold_groups,
             score: SdezScore::default(),
             current_msec: 0.0,
         }
@@ -170,71 +222,79 @@ impl SdezRuntime {
         self.current_msec = current_msec;
         let mut events = Vec::new();
 
-        for slot in &mut self.taps {
-            if let Some(judged) = slot.note.step(
-                current_msec,
-                &mut self.input,
-                self.settings,
-                self.autoplay,
-            ) {
-                events.push(SdezEvent {
-                    note_index: slot.note_index,
-                    kind: SdezNoteKind::Tap,
-                    phase: SdezPhase::Head,
-                    is_break: slot.is_break,
-                    is_ex: slot.is_ex,
-                    judged,
-                });
+        for item in self.ordinary_order.clone() {
+            match item {
+                OrdinaryRef::Tap(index) => {
+                    let slot = &mut self.taps[index];
+                    if let Some(judged) = slot.note.step(
+                        current_msec,
+                        &mut self.input,
+                        self.settings,
+                        self.autoplay,
+                    ) {
+                        events.push(SdezEvent {
+                            note_index: slot.note_index,
+                            kind: SdezNoteKind::Tap,
+                            phase: SdezPhase::Head,
+                            is_break: slot.is_break,
+                            is_ex: slot.is_ex,
+                            judged,
+                        });
+                    }
+                }
+                OrdinaryRef::Hold(index) => {
+                    let slot = &mut self.holds[index];
+                    let out = slot.note.step(
+                        current_msec,
+                        delta,
+                        &mut self.input,
+                        self.settings,
+                        self.autoplay,
+                    );
+                    if let Some(judged) = out.head {
+                        events.push(SdezEvent {
+                            note_index: slot.note_index,
+                            kind: SdezNoteKind::Hold,
+                            phase: SdezPhase::Head,
+                            is_break: slot.is_break,
+                            is_ex: slot.is_ex,
+                            judged,
+                        });
+                    }
+                    if let Some(judged) = out.tail {
+                        events.push(SdezEvent {
+                            note_index: slot.note_index,
+                            kind: SdezNoteKind::Hold,
+                            phase: SdezPhase::Tail,
+                            is_break: slot.is_break,
+                            is_ex: slot.is_ex,
+                            judged,
+                        });
+                    }
+                }
+                OrdinaryRef::Touch(index) => {
+                    let slot = &mut self.touches[index];
+                    if let Some(judged) = slot.note.step(
+                        current_msec,
+                        &mut self.input,
+                        self.settings,
+                        self.autoplay,
+                    ) {
+                        events.push(SdezEvent {
+                            note_index: slot.note_index,
+                            kind: SdezNoteKind::Touch,
+                            phase: SdezPhase::Head,
+                            is_break: slot.is_break,
+                            is_ex: slot.is_ex,
+                            judged,
+                        });
+                    }
+                }
             }
         }
 
-        for slot in &mut self.holds {
-            let out = slot.note.step(
-                current_msec,
-                delta,
-                &mut self.input,
-                self.settings,
-                self.autoplay,
-            );
-            if let Some(judged) = out.head {
-                events.push(SdezEvent {
-                    note_index: slot.note_index,
-                    kind: SdezNoteKind::Hold,
-                    phase: SdezPhase::Head,
-                    is_break: slot.is_break,
-                    is_ex: slot.is_ex,
-                    judged,
-                });
-            }
-            if let Some(judged) = out.tail {
-                events.push(SdezEvent {
-                    note_index: slot.note_index,
-                    kind: SdezNoteKind::Hold,
-                    phase: SdezPhase::Tail,
-                    is_break: slot.is_break,
-                    is_ex: slot.is_ex,
-                    judged,
-                });
-            }
-        }
-
-        for slot in &mut self.touches {
-            if let Some(judged) = slot.note.step(
-                current_msec,
-                &mut self.input,
-                self.settings,
-                self.autoplay,
-            ) {
-                events.push(SdezEvent {
-                    note_index: slot.note_index,
-                    kind: SdezNoteKind::Touch,
-                    phase: SdezPhase::Head,
-                    is_break: slot.is_break,
-                    is_ex: slot.is_ex,
-                    judged,
-                });
-            }
-        }
+        self.force_touch_groups(current_msec, &mut events);
+        self.force_touch_hold_groups(current_msec, &mut events);
 
         for slot in &mut self.slides {
             if let Some(judged) = slot.note.step(
@@ -259,6 +319,94 @@ impl SdezRuntime {
             self.score.fold(event);
         }
         events
+    }
+
+    fn force_touch_groups(&mut self, current_msec: f32, events: &mut Vec<SdezEvent>) {
+        let groups: Vec<(Vec<usize>, usize)> = self
+            .touch_groups
+            .values()
+            .filter(|members| !members.is_empty())
+            .map(|members| {
+                (
+                    members.clone(),
+                    self.touches[members[0]].group_size as usize,
+                )
+            })
+            .collect();
+        for (members, size) in groups {
+            let total = members.len().max(size).max(1);
+            let judged = members
+                .iter()
+                .filter(|index| self.touches[**index].note.result().is_some())
+                .count();
+            if judged < ((total as f32 * 0.51).ceil() as usize) {
+                continue;
+            }
+            for index in members {
+                let slot = &mut self.touches[index];
+                if slot.note.result().is_some() {
+                    continue;
+                }
+                if let Some(judged) = slot.note.force_judge(current_msec, self.settings) {
+                    events.push(SdezEvent {
+                        note_index: slot.note_index,
+                        kind: SdezNoteKind::Touch,
+                        phase: SdezPhase::Head,
+                        is_break: slot.is_break,
+                        is_ex: slot.is_ex,
+                        judged,
+                    });
+                }
+            }
+        }
+    }
+
+    fn force_touch_hold_groups(&mut self, current_msec: f32, events: &mut Vec<SdezEvent>) {
+        let groups: Vec<(Vec<usize>, usize)> = self
+            .touch_hold_groups
+            .values()
+            .filter(|members| !members.is_empty())
+            .map(|members| {
+                (
+                    members.clone(),
+                    self.holds[members[0]].touch_hold_group_size as usize,
+                )
+            })
+            .collect();
+        for (members, size) in groups {
+            let total = members.len().max(size).max(1);
+            let judged = members
+                .iter()
+                .filter(|index| self.holds[**index].note.head_judged())
+                .count();
+            if judged < ((total as f32 * 0.51).ceil() as usize) {
+                continue;
+            }
+            for index in members {
+                let slot = &mut self.holds[index];
+                if slot.note.head_judged() {
+                    continue;
+                }
+                if let Some(judged) = slot.note.force_head(current_msec, self.settings) {
+                    events.push(SdezEvent {
+                        note_index: slot.note_index,
+                        kind: SdezNoteKind::Hold,
+                        phase: SdezPhase::Head,
+                        is_break: slot.is_break,
+                        is_ex: slot.is_ex,
+                        judged,
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn ordinary_rank(reference: OrdinaryRef) -> u8 {
+    match reference {
+        OrdinaryRef::Tap(_) => 0,
+        OrdinaryRef::Hold(_) => 1,
+        OrdinaryRef::Touch(_) => 2,
     }
 }
 
@@ -286,6 +434,19 @@ fn hold_slot(hold: &HoldChartNote, settings: TimingSettings) -> HoldSlot {
         note_index: hold.note_index.to_word(),
         is_break: hold.is_break,
         is_ex: hold.is_ex,
+        touch_hold_group_id: if is_touch_hold {
+            hold.touch_hold_group_id.as_ref().map(|id| id.to_word())
+        } else {
+            None
+        },
+        touch_hold_group_size: if is_touch_hold {
+            hold.touch_hold_group_size
+                .as_ref()
+                .and_then(|size| size.to_usize())
+                .unwrap_or(1) as u32
+        } else {
+            1
+        },
         note: HoldNote::new(
             appear,
             tail,
@@ -307,6 +468,12 @@ fn touch_hold_slot(
         note_index: hold.note_index.to_word(),
         is_break: hold.is_break,
         is_ex: hold.is_ex,
+        touch_hold_group_id: hold.touch_hold_group_id.as_ref().map(|id| id.to_word()),
+        touch_hold_group_size: hold
+            .touch_hold_group_size
+            .as_ref()
+            .and_then(|size| size.to_usize())
+            .unwrap_or(1) as u32,
         note: HoldNote::new(
             appear,
             tail,
@@ -451,6 +618,30 @@ mod tests {
         assert!(seen.contains(&SdezNoteKind::Hold));
         assert!(seen.contains(&SdezNoteKind::Slide));
         assert!(seen.contains(&SdezNoteKind::Touch));
+    }
+
+    #[test]
+    fn touch_chain_forces_the_remaining_members_after_fifty_one_percent() {
+        let mut chart = ChartSpec::default();
+        for (index, area) in [SensorArea::A1, SensorArea::A2, SensorArea::A3]
+            .into_iter()
+            .enumerate()
+        {
+            chart.touches.push(crate::chart_loader::TouchChartNote {
+                timing: TimePoint::from_micros(0),
+                sensor_pos: area,
+                note_index: (index as u64).into(),
+                touch_group_id: Some((0).into()),
+                touch_group_size: Some((3).into()),
+                ..Default::default()
+            });
+        }
+        let mut runtime = SdezRuntime::from_chart(&chart);
+        runtime
+            .input
+            .update_panel((1 << A1) | (1 << 1), true);
+        let events = runtime.step(60.0);
+        assert_eq!(events.len(), 3, "the third touch must be chain-judged");
     }
 
     fn run_real_chart(text: &str, level: usize) {

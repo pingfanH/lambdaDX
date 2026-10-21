@@ -228,6 +228,10 @@ impl TouchNote {
         }
     }
 
+    pub fn result(&self) -> Option<JudgedNote> {
+        self.result
+    }
+
     pub fn step(
         &mut self,
         current_msec: f32,
@@ -273,6 +277,27 @@ impl TouchNote {
             return Some(judged);
         }
         None
+    }
+
+    /// Chain resolution: judge the note at the current time without requiring
+    /// a fresh input edge or ownership.
+    pub fn force_judge(
+        &mut self,
+        current_msec: f32,
+        settings: TimingSettings,
+    ) -> Option<JudgedNote> {
+        if self.result.is_some() {
+            return None;
+        }
+        let ty = if self.is_ex {
+            EJudgeType::ExTap
+        } else {
+            EJudgeType::Touch
+        };
+        let (timing, diff_msec) = judge_tap_like(current_msec, self.appear_msec, settings, ty);
+        let judged = JudgedNote { timing, diff_msec };
+        self.result = Some(judged);
+        Some(judged)
     }
 }
 
@@ -331,6 +356,10 @@ impl HoldNote {
 
     pub fn head_result(&self) -> Option<JudgedNote> {
         self.head_result
+    }
+
+    pub fn head_judged(&self) -> bool {
+        self.head_judged
     }
 
     pub fn result(&self) -> Option<JudgedNote> {
@@ -461,6 +490,29 @@ impl HoldNote {
             out.tail = Some(judged);
         }
         out
+    }
+
+    /// Touch-hold chain resolution for an unjudged head.
+    pub fn force_head(
+        &mut self,
+        current_msec: f32,
+        settings: TimingSettings,
+    ) -> Option<JudgedNote> {
+        if self.head_judged || self.head_result.is_some() {
+            return None;
+        }
+        let head_ty = if self.is_touch_hold {
+            EJudgeType::Touch
+        } else {
+            head_type(self.is_break, self.is_ex)
+        };
+        let (timing, diff_msec) =
+            judge_tap_like(current_msec, self.appear_msec, settings, head_ty);
+        let judged = JudgedNote { timing, diff_msec };
+        self.head_result = Some(judged);
+        self.head_judged = true;
+        self.body_on = true;
+        Some(judged)
     }
 }
 
