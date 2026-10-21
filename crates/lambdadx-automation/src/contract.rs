@@ -1,4 +1,5 @@
 use schemars::JsonSchema;
+pub use crate::proposal::*;
 use serde::{Deserialize, Serialize};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -190,10 +191,14 @@ pub enum Request {
     ReadSimai(ReadSimaiRequest),
     Check(CheckRequest),
     Focus(FocusRequest),
+    Propose(ProposeRequest),
+    ProposalStatus(ProposalStatusRequest),
 }
 impl Request {
     pub fn permission(&self) -> Permission {
-        if matches!(self, Self::Focus(_)) {
+        if matches!(self, Self::Propose(_)) {
+            Permission::Propose
+        } else if matches!(self, Self::Focus(_)) {
             Permission::Focus
         } else {
             Permission::Read
@@ -238,6 +243,16 @@ impl Request {
                     range.validate()?;
                 }
                 (r.schema_version, Some(&r.target))
+            }
+            Self::Propose(r) => {
+                r.validate()?;
+                (r.schema_version, Some(&r.target))
+            }
+            Self::ProposalStatus(r) => {
+                if r.proposal_id.is_empty() || r.proposal_id.len() > 128 {
+                    return Err(ToolError::invalid("Invalid proposal ID"));
+                }
+                (r.schema_version, None)
             }
             Self::Focus(r) => {
                 r.range.validate()?;

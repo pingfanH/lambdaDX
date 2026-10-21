@@ -8,9 +8,11 @@ use lambdadx_automation::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use egui_macroquad::egui;
 
 mod query;
 mod snapshot;
+mod proposal;
 #[cfg(test)]
 mod tests;
 
@@ -18,6 +20,9 @@ pub struct Service {
     client: Client,
     inbox: Inbox,
     snapshots: snapshot::Store,
+    proposals: proposal::Store,
+    consent_auto_save: bool,
+    approve_requested: bool,
 }
 impl Service {
     pub fn new() -> Self {
@@ -26,6 +31,9 @@ impl Service {
             client,
             inbox,
             snapshots: snapshot::Store::new(),
+            proposals: proposal::Store::default(),
+            consent_auto_save: false,
+            approve_requested: false,
         }
     }
     pub fn client(&self) -> Client {
@@ -41,8 +49,11 @@ impl Service {
         core_current: bool,
     ) {
         self.snapshots.observe(editor, app);
+        self.proposals.tick(&self.snapshots, editor, app);
         let mut host = Host {
             snapshots: &mut self.snapshots,
+            proposals: &mut self.proposals,
+            session: self.client.session(),
             editor,
             app,
             idle,
@@ -50,9 +61,52 @@ impl Service {
         };
         self.inbox.drain(&mut host);
     }
+
+    pub fn maintenance(&mut self, editor: &mut EditorState, app: &mut PadPreviewState, sync: &mut crate::runtime::ChartSync, idle: bool) {
+        self.snapshots.observe(editor, app);
+        self.proposals.tick(&self.snapshots, editor, app);
+        if std::mem::take(&mut self.approve_requested) {
+            if let Err(e) = self.proposals.approve(editor, app, &mut self.snapshots, idle, self.consent_auto_save) { editor.status = Some(e.message); }
+            self.consent_auto_save = false;
+        }
+        self.proposals.schedule(editor, app, sync, idle);
+    }
+
+    pub fn review_window(&mut self, ctx: &egui::Context, editor: &EditorState) {
+        if self.proposals.pending().is_some() {
+            egui::Window::new("Automation · 修改审核").id(egui::Id::new("automation-review")).default_width(520.0).show(ctx, |ui| self.proposal_ui(ui, editor));
+        }
+    }
+
+    pub fn proposal_ui(&mut self, ui: &mut egui::Ui, editor: &EditorState) {
+        let Some(p) = self.proposals.pending() else { ui.label("没有等待审核的修改提案"); return; };
+        ui.heading("修改提案：需要人工确认");
+        ui.label(&p.result.summary);
+        ui.label(format!("{:?} · {} 个音符差异", p.result.state, p.result.changes.len()));
+        for warning in &p.result.warnings { ui.label(warning); }
+        egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+            for d in &p.result.changes {
+                ui.collapsing(format!("音符 {}", d.id), |ui| {
+                    ui.monospace(format!("之前：{}", serde_json::to_string(&d.before).unwrap()));
+                    ui.monospace(format!("之后：{}", serde_json::to_string(&d.after).unwrap()));
+                });
+            }
+            if let Some((before, after)) = p.source_diff() {
+                ui.collapsing("精确 Simai 原文：之前 / 之后", |ui| { ui.label("之前"); ui.monospace(before); ui.separator(); ui.label("之后"); ui.monospace(after); });
+            }
+        });
+        if editor.auto_save { ui.checkbox(&mut self.consent_auto_save, "允许本次修改按现有自动保存规则写回当前来源"); }
+        let ready = p.result.state == ProposalState::AwaitingApproval && (!editor.auto_save || self.consent_auto_save);
+        ui.horizontal(|ui| {
+            if ui.add_enabled(ready, egui::Button::new("确认应用（可撤销）")).clicked() { self.approve_requested = true; }
+            if ui.button("拒绝").clicked() { self.proposals.reject(); self.consent_auto_save = false; }
+        });
+    }
 }
 struct Host<'a> {
     snapshots: &'a mut snapshot::Store,
+    proposals: &'a mut proposal::Store,
+    session: bridge::Session,
     editor: &'a mut EditorState,
     app: &'a PadPreviewState,
     idle: bool,
@@ -63,6 +117,7 @@ fn value<T: Serialize>(data: T) -> ToolResult<Value> {
         .map_err(|e| ToolError::new(ErrorCode::ValidationFailed, e.to_string()))
 }
 impl EditorHost for Host<'_> {
+    fn execute_scoped(&mut self, request: Request, session: bridge::Session) -> ToolResult<Value> { self.session = session; self.execute(request) }
     fn execute(&mut self, request: Request) -> ToolResult<Value> {
         request.validate()?;
         if self.editor.template_session.is_some() {
@@ -72,6 +127,8 @@ impl EditorHost for Host<'_> {
             ));
         }
         match request {
+            Request::Propose(r) => value(self.proposals.create(r, self.session.clone(), self.snapshots, self.editor, self.app, self.idle)?),
+            Request::ProposalStatus(r) => value(self.proposals.status(&r.proposal_id, &self.session)?),
             Request::Context(_) => {
                 if !self.idle {
                     return Err(ToolError::new(

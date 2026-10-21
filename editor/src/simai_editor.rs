@@ -130,6 +130,19 @@ impl SimaiEditor {
         Some(format::Document { text: self.applied.clone(), chart: self.source.as_ref()?.chart.clone() })
     }
 
+    #[cfg(feature = "editor-automation")]
+    pub(crate) fn install_validated(&mut self, chart: &ChartDoc, text: String) {
+        self.revision += 1;
+        self.generation += 1;
+        self.pending = None;
+        self.apply_at = None;
+        self.cursor = None;
+        self.cursor_time = None;
+        self.pending_cursor_seek = None;
+        self.load(chart, text);
+        self.input.external_change(&self.text);
+    }
+
     pub fn load(&mut self, chart: &ChartDoc, text: String) {
         self.input = Default::default();
         self.source = Some(Arc::new(Source::new(chart)));
@@ -241,7 +254,7 @@ fn apply_draft(editor: &mut EditorState, chart: &mut ChartDoc) -> Result<(), Str
     apply_parsed(editor, chart, parsed)
 }
 
-fn parse_draft(body: &str, bpm: f32, level: u32) -> Result<ChartDoc, String> {
+pub(crate) fn parse_draft(body: &str, bpm: f32, level: u32) -> Result<ChartDoc, String> {
     let body = body.trim();
     if body.is_empty() { return Err("Simai text is empty; use E for an empty chart".into()); }
     if body.lines().any(|line| line.trim_start().starts_with('&')) {

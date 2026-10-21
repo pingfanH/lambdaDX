@@ -268,6 +268,8 @@ async fn run() {
                 &waveform,
                 mouse_wheel().1,
             );
+            #[cfg(feature = "editor-automation")]
+            automation.review_window(ctx, &editor);
             let preview_keys_enabled = editor.workspace == Workspace::Chart
                 && !ui.input_blocked
                 && !ctx.wants_keyboard_input()
@@ -420,6 +422,8 @@ async fn run() {
             app.document_revision(),
             document_idle,
         );
+        #[cfg(feature = "editor-automation")]
+        automation.maintenance(&mut editor, &mut app, &mut chart_sync, document_idle);
         let chart_current = match chart_sync.update(&mut app, gesture_active) {
             Ok(current) => current,
             Err(error) => {

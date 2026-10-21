@@ -3,7 +3,7 @@ use crate::{catalog, contract::*};
 use serde_json::Value;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
     mpsc,
 };
 use std::time::{Duration, Instant};
@@ -14,32 +14,48 @@ pub const MAX_REQUESTS_PER_FRAME: usize = 1;
 
 pub trait EditorHost {
     fn execute(&mut self, request: Request) -> ToolResult<Value>;
+    fn execute_scoped(&mut self, request: Request, _session: Session) -> ToolResult<Value> { self.execute(request) }
+}
+#[derive(Clone)]
+pub struct Session { id: u64, active: Arc<AtomicBool>, request: Option<Arc<AtomicU8>> }
+impl Default for Session {
+    fn default() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self { id: NEXT.fetch_add(1, Ordering::Relaxed), active: Arc::new(AtomicBool::new(true)), request: None }
+    }
+}
+impl Session {
+    pub fn id(&self) -> u64 { self.id }
+    pub fn active(&self) -> bool { self.active.load(Ordering::Acquire) && self.request.as_ref().is_none_or(|r| r.load(Ordering::Acquire) != 2) }
+    pub fn cancel(&self) { self.active.store(false, Ordering::Release); }
 }
 
 #[derive(Clone)]
 pub struct Client {
     sender: mpsc::SyncSender<Envelope>,
+    session: Session,
 }
 pub struct Inbox {
     receiver: mpsc::Receiver<Envelope>,
 }
 pub struct Pending {
     receiver: mpsc::Receiver<ToolResult<Value>>,
-    cancelled: Arc<AtomicBool>,
+    cancelled: Arc<AtomicU8>,
     deadline: Instant,
 }
 struct Envelope {
+    session: Session,
     request: Request,
     reply: mpsc::SyncSender<ToolResult<Value>>,
-    cancelled: Arc<AtomicBool>,
+    cancelled: Arc<AtomicU8>,
     deadline: Instant,
 }
 pub fn channel() -> (Client, Inbox) {
     let (sender, receiver) = mpsc::sync_channel(QUEUE_CAPACITY);
-    (Client { sender }, Inbox { receiver })
+    (Client { sender, session: Session::default() }, Inbox { receiver })
 }
-fn active(cancelled: &AtomicBool, deadline: Instant) -> ToolResult<()> {
-    if cancelled.load(Ordering::Acquire) {
+fn active(cancelled: &AtomicU8, deadline: Instant) -> ToolResult<()> {
+    if cancelled.load(Ordering::Acquire) == 2 {
         return Err(ToolError::new(ErrorCode::Cancelled, "Request cancelled"));
     }
     if Instant::now() >= deadline {
@@ -51,6 +67,8 @@ fn active(cancelled: &AtomicBool, deadline: Instant) -> ToolResult<()> {
     Ok(())
 }
 impl Client {
+    pub fn scoped(&self) -> Self { Self { sender: self.sender.clone(), session: Session::default() } }
+    pub fn session(&self) -> Session { self.session.clone() }
     pub fn call(
         &self,
         name: &str,
@@ -59,6 +77,7 @@ impl Client {
         timeout: Duration,
     ) -> ToolResult<Pending> {
         let request = catalog::parse(name, arguments)?;
+        if !self.session.active() { return Err(ToolError::new(ErrorCode::Cancelled, "Session ended")); }
         if !permissions.allows(request.permission()) {
             return Err(ToolError::new(
                 ErrorCode::PermissionDenied,
@@ -71,9 +90,11 @@ impl Client {
             ));
         }
         let deadline = Instant::now() + timeout;
-        let cancelled = Arc::new(AtomicBool::new(false));
+        // 0 = awaiting delivery, 1 = consumed, 2 = cancelled/abandoned.
+        let cancelled = Arc::new(AtomicU8::new(0));
         let (reply, receiver) = mpsc::sync_channel(1);
         let envelope = Envelope {
+            session: Session { request: Some(cancelled.clone()), ..self.session.clone() },
             request,
             reply,
             cancelled: cancelled.clone(),
@@ -99,16 +120,22 @@ impl Client {
 }
 impl Pending {
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancelled.store(2, Ordering::Release);
     }
     pub fn poll(&self) -> Option<ToolResult<Value>> {
-        if let Err(error) = active(&self.cancelled, self.deadline) {
-            self.cancel();
-            return Some(Err(error));
-        }
         match self.receiver.try_recv() {
-            Ok(result) => Some(result),
-            Err(mpsc::TryRecvError::Empty) => None,
+            Ok(result) => {
+                self.cancelled.store(if result.is_ok() { 1 } else { 2 }, Ordering::Release);
+                Some(result)
+            },
+            Err(mpsc::TryRecvError::Empty) => {
+                if let Err(error) = active(&self.cancelled, self.deadline) {
+                    self.cancel();
+                    Some(Err(error))
+                } else {
+                    None
+                }
+            }
             Err(mpsc::TryRecvError::Disconnected) => Some(Err(ToolError::new(
                 ErrorCode::Cancelled,
                 "Editor host has stopped",
@@ -118,7 +145,7 @@ impl Pending {
 }
 impl Drop for Pending {
     fn drop(&mut self) {
-        self.cancel();
+        let _ = self.cancelled.compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire);
     }
 }
 impl Inbox {
@@ -129,7 +156,10 @@ impl Inbox {
         for envelope in self.receiver.try_iter().take(MAX_REQUESTS_PER_FRAME) {
             count += 1;
             let result = active(&envelope.cancelled, envelope.deadline)
-                .and_then(|()| host.execute(envelope.request));
+                .and_then(|()| {
+                    if !envelope.session.active() { return Err(ToolError::new(ErrorCode::Cancelled, "Session ended")); }
+                    host.execute_scoped(envelope.request, envelope.session)
+                });
             let result = result.and_then(|value| {
                 active(&envelope.cancelled, envelope.deadline)?;
                 if serde_json::to_vec(&value)
@@ -143,7 +173,8 @@ impl Inbox {
                 }
                 Ok(value)
             });
-            let _ = envelope.reply.try_send(result);
+            if result.is_err() { envelope.cancelled.store(2, Ordering::Release); }
+            if envelope.reply.try_send(result).is_err() { envelope.cancelled.store(2, Ordering::Release); }
         }
         count
     }

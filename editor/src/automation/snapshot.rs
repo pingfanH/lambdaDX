@@ -19,6 +19,7 @@ struct Identity {
     level: u32,
     isolation: Option<String>,
 }
+#[derive(Clone)]
 pub(super) struct Snapshot {
     pub target: SnapshotRef,
     pub chart: ChartDoc,
@@ -26,8 +27,8 @@ pub(super) struct Snapshot {
     pub text: Option<String>,
     pub draft: bool,
     pub matches_chart: bool,
-    created: Instant,
-    bytes: usize,
+    pub(super) created: Instant,
+    pub(super) bytes: usize,
 }
 pub(super) struct Store {
     instance_id: String,
@@ -83,6 +84,7 @@ impl Store {
             self.bytes -= s.bytes;
         }
     }
+    pub fn owns_document(&self, target: &SnapshotRef) -> bool { target.document_id == self.document_id }
     pub fn get(&self, target: &SnapshotRef) -> ToolResult<&Snapshot> {
         if target.document_id == self.document_id {
             if let Some(snapshot) = self

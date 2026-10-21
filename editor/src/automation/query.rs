@@ -43,7 +43,7 @@ fn finite(note: &ChartNote) -> bool {
                     .all(|p| p.beat_offset.is_finite())
         })
 }
-fn dto(note: &ChartNote) -> ToolResult<Note> {
+pub(super) fn dto(note: &ChartNote) -> ToolResult<Note> {
     if !finite(note) {
         return Err(ToolError::new(
             ErrorCode::ValidationFailed,

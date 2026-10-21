@@ -186,7 +186,7 @@ fn argument_sizes_and_numeric_boundaries_are_rejected() {
     let mut args = query();
     args["target"]["snapshot_token"] = json!("x".repeat(MAX_INPUT_BYTES));
     assert!(catalog::parse("chart_query_notes", args).is_err());
-    assert_eq!(catalog::tools().len(), 5);
+    assert_eq!(catalog::tools().len(), 7);
     assert!(std::ptr::eq(catalog::tools(), catalog::tools()));
 }
 
@@ -200,4 +200,31 @@ fn background_runtime_runs_and_shuts_down_without_an_editor_or_network() {
     });
     assert_eq!(receiver.recv_timeout(Duration::from_secs(5)).unwrap(), 42);
     runtime.shutdown();
+}
+
+#[test]
+fn consumed_reply_keeps_session_alive_and_delivered_errors_win() {
+    struct Scoped(Option<Session>, bool);
+    impl EditorHost for Scoped {
+        fn execute(&mut self, _: Request) -> ToolResult<Value> { unreachable!() }
+        fn execute_scoped(&mut self, _: Request, session: Session) -> ToolResult<Value> {
+            self.0 = Some(session);
+            if self.1 { Err(ToolError::new(ErrorCode::DocumentChanged, "real error")) } else { Ok(json!({})) }
+        }
+    }
+    let (client, inbox) = channel();
+    let mut host = Scoped(None, false);
+    let pending = request(&client);
+    inbox.drain(&mut host);
+    assert!(pending.poll().unwrap().is_ok());
+    drop(pending);
+    assert!(host.0.as_ref().unwrap().active());
+    client.session().cancel();
+    assert!(!host.0.as_ref().unwrap().active());
+    let (client, inbox) = channel();
+    let pending = request(&client);
+    host.1 = true;
+    inbox.drain(&mut host);
+    pending.cancel();
+    assert_eq!(pending.poll().unwrap().unwrap_err().code, ErrorCode::DocumentChanged);
 }

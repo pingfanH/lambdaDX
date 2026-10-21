@@ -65,6 +65,8 @@ impl Retired {
 }
 
 enum Task {
+    #[cfg(feature = "editor-automation")]
+    Preflight { document: crate::simai_editor::format::Document, chart: ChartDoc, reply: mpsc::SyncSender<Result<String, String>> },
     Build {
         version: Version,
         context: EditedEngineContext,
@@ -139,6 +141,8 @@ impl ChartSync {
                             Completion::Ready { version, result }
                         }
                         Task::Dispose => Completion::Disposed,
+                        #[cfg(feature = "editor-automation")]
+                        Task::Preflight { document, chart, reply } => { let _ = reply.send(document.update_strict(&chart)); Completion::Disposed }
                     };
                     if responses.send(completion).is_err() {
                         break;
@@ -170,6 +174,15 @@ impl ChartSync {
             sender,
             receiver,
         }
+    }
+
+    #[cfg(feature = "editor-automation")]
+    pub fn preflight(&mut self, app: &mut PadPreviewState, document: crate::simai_editor::format::Document, chart: ChartDoc) -> Option<mpsc::Receiver<Result<String, String>>> {
+        if self.busy || self.ready.is_some() || app.mode != crate::app::types::Mode::Idle { return None; }
+        self.detach(app); self.current = false; self.failed = false;
+        let (reply, receiver) = mpsc::sync_channel(1);
+        self.send(Task::Preflight { document, chart, reply }).ok()?;
+        Some(receiver)
     }
 
     fn detach(&mut self, app: &mut PadPreviewState) {
@@ -355,6 +368,8 @@ mod tests {
                 Completion::Ready { version, result }
             }
             Task::Dispose => Completion::Disposed,
+            #[cfg(feature = "editor-automation")]
+            Task::Preflight { document, chart, reply } => { let _ = reply.send(document.update_strict(&chart)); Completion::Disposed }
         }
     }
 

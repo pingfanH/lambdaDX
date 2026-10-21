@@ -95,6 +95,14 @@ pub(crate) fn equivalent(a: &ChartDoc, b: &ChartDoc) -> bool {
 }
 
 impl Document {
+    /// External edits may patch existing cells, but never normalize the whole body.
+    #[cfg(feature = "editor-automation")]
+    pub fn update_strict(&self, chart: &ChartDoc) -> Result<String, String> {
+        if equivalent(&self.chart, chart) { return Ok(self.text.clone()); }
+        let text = self.patch(chart)?;
+        if self.represents(&text, chart) { Ok(text) }
+        else { Err("Cannot preserve the authored Simai for this edit".into()) }
+    }
     pub fn update(&self, chart: &ChartDoc) -> Result<String, String> {
         if equivalent(&self.chart, chart) { return Ok(self.text.clone()); }
         let rhythm_changed = self.chart.notes.len() != chart.notes.len()

@@ -34,6 +34,8 @@ fn tool<I: JsonSchema, O: JsonSchema>(
 pub fn tools() -> &'static [Tool] {
     static TOOLS: OnceLock<Vec<Tool>> = OnceLock::new();
     TOOLS.get_or_init(|| vec![
+        tool::<ProposeRequest, ProposalResult>("chart_propose_edit", "Prepare an immutable typed proposal for explicit note IDs. Only the editor user can approve; this never applies or saves. Reuse operation_id only with identical arguments.", Permission::Propose, |v| decode(v).map(Request::Propose)),
+        tool::<ProposalStatusRequest, ProposalResult>("chart_proposal_status", "Read a proposal owned by this session. Never approves or applies.", Permission::Read, |v| decode(v).map(Request::ProposalStatus)),
         tool::<ContextRequest, Context>("chart_get_context", "Capture the current authored chart and Simai draft as an immutable snapshot. Measures start at 1; durations are in measures. Template expansion is excluded.", Permission::Read, |v| decode(v).map(Request::Context)),
         tool::<QueryNotesRequest, NotesPage>("chart_query_notes", "Read authored notes from a snapshot, sorted by measure then numeric note ID. Ranges are half-open; paginate with the same target and filters.", Permission::Read, |v| decode(v).map(Request::QueryNotes)),
         tool::<ReadSimaiRequest, SimaiSlice>("chart_read_simai", "Read the exact current Simai body, including an unapplied draft. Ranges use zero-based Unicode scalar indices; returned line/column coordinates are one-based. No parsing or normalization.", Permission::Read, |v| decode(v).map(Request::ReadSimai)),
