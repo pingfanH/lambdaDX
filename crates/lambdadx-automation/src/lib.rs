@@ -10,6 +10,8 @@ pub mod bridge;
 pub mod catalog;
 pub mod contract;
 pub mod proposal;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 
 #[cfg(test)]
 mod tests;

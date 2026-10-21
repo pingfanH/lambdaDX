@@ -207,8 +207,6 @@ async fn run() {
     let start_time = get_time();
     let mut chart_sync = runtime::ChartSync::new(&mut app.chart);
     let mut auto_save = io::autosave::AutoSave::default();
-    #[cfg(feature = "editor-automation")]
-    let mut automation = automation::Service::new();
     let mut cover_art = appearance::CoverArt::default();
 
     // `MAI2_EDITOR_FPS=1` prints a once-per-second frame-time summary to stderr
@@ -269,7 +267,7 @@ async fn run() {
                 mouse_wheel().1,
             );
             #[cfg(feature = "editor-automation")]
-            automation.review_window(ctx, &editor);
+            ui.automation.review_window(ctx, &editor);
             let preview_keys_enabled = editor.workspace == Workspace::Chart
                 && !ui.input_blocked
                 && !ctx.wants_keyboard_input()
@@ -423,7 +421,7 @@ async fn run() {
             document_idle,
         );
         #[cfg(feature = "editor-automation")]
-        automation.maintenance(&mut editor, &mut app, &mut chart_sync, document_idle);
+        ui.automation.maintenance(&mut editor, &mut app, &mut chart_sync, document_idle);
         let chart_current = match chart_sync.update(&mut app, gesture_active) {
             Ok(current) => current,
             Err(error) => {
@@ -432,7 +430,7 @@ async fn run() {
             }
         };
         #[cfg(feature = "editor-automation")]
-        automation.tick(&mut editor, &app, document_idle, chart_current);
+        ui.automation.tick(&mut editor, &app, document_idle, chart_current);
         runtime::tick_player(&mut app, chart_current).await;
         let current_time = player_time(&app);
         runtime::follow_playhead_during_playback(

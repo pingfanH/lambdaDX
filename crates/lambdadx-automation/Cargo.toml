@@ -7,7 +7,7 @@ publish = false
 
 [features]
 default = []
-mcp = ["dep:rmcp", "dep:tokio"]
+mcp = ["dep:rmcp", "dep:tokio", "dep:tokio-util", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:uuid"]
 agent = ["dep:genai", "dep:tokio"]
 stdio-bridge = ["mcp", "rmcp/client", "rmcp/transport-io", "rmcp/transport-streamable-http-client-reqwest", "rmcp/reqwest"]
 
@@ -18,3 +18,13 @@ schemars = "=1.2.2"
 rmcp = { version = "=3.6.0", default-features = false, features = ["server", "schemars", "transport-streamable-http-server"], optional = true }
 genai = { version = "=0.7.0", default-features = false, features = ["rustls-tls"], optional = true }
 tokio = { version = "=1.53.1", features = ["rt-multi-thread", "time", "sync", "net"], optional = true }
+tokio-util = { version = "0.7", optional = true }
+hyper = { version = "1", features = ["server", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+
+[[bin]]
+name = "lambdadx_mcp"
+path = "src/bin/lambdadx_mcp.rs"
+required-features = ["stdio-bridge"]

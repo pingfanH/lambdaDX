@@ -1,4 +1,5 @@
 //! Owned once by the editor session, never by a dock pane or an individual call.
+pub use tokio::runtime::Handle;
 pub struct BackgroundRuntime(tokio::runtime::Runtime);
 impl BackgroundRuntime {
     pub fn new() -> std::io::Result<Self> {

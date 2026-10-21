@@ -187,6 +187,8 @@ const AUTOPLAY_SHORTCUTS: &[(&str, &str)] = &[
 
 /// Chrome-owned state that survives across frames (unrelated to the document).
 pub struct EditorUi {
+    #[cfg(feature = "editor-automation")]
+    pub automation: crate::automation::Service,
     pub appearance: crate::appearance::Appearance,
     /// Screen regions computed last frame.
     pub layout: Layout,
@@ -227,6 +229,8 @@ impl Default for EditorUi {
 impl EditorUi {
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "editor-automation")]
+            automation: crate::automation::Service::new(),
             appearance: Default::default(),
             layout: Layout::default(),
             pad_scale: 1.0,
@@ -468,6 +472,8 @@ impl EditorUi {
                     self.appearance.controls(ui);
                 });
             toolbar::draw_editor_settings(ui, editor, &mut self.pad_scale, &mut self.workbench);
+            #[cfg(feature = "editor-automation")]
+            self.automation.settings_ui(ui);
         });
         self.workbench.capture_views(editor, self.pad_scale);
         self.workbench.activate_views(editor, &mut self.pad_scale);

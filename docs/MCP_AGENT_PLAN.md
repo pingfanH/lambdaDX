@@ -1,6 +1,6 @@
 # MCP 与轻量 Agent 实现计划
 
-状态: **P0–P2 已实现并验收; P3/P4 实施中; P5 待实现**。
+状态: **P0–P3 已实现并验收; P4 实施中; P5 待实现**。
 更新日期: 2026-10-21。工作分支: `agent`。设计调查基线: `62df204`;
 实施基线: `9af3500`。下文未勾选项描述后续目标, 不代表已有网络或 Agent 入口。
 
@@ -379,7 +379,7 @@ Prompts 可后置, 例如解释选区/检查节奏, 不影响首版闭环。
 - [x] 定义 DTO、共享工具目录、错误、实例/文档/快照令牌与权限模型。
 - [x] 定义单实例 runtime、bridge 的容量、截止时间与关闭流程。
 - [x] 可选依赖隔离: feature-off 依赖图不包含 automation/Tokio/rmcp/genai。
-- [ ] 独立 stdio bin 不链接图形/Lean (P3 实现; 当前仅验证依赖 feature)。
+- [x] 独立 stdio bin 不链接图形/Lean (P3 独立构建及依赖图验证)。
 
 验收: fake EditorHost 能列工具、读取快照、拒绝无效/过期请求, 没有网络与模型依赖。
 
@@ -439,12 +439,14 @@ backend-none 的 editor 测试构建被既有 autoplay_editor/curve.rs 中 Judge
 
 ### P3: MCP 外部入口
 
-- [ ] 实现 rmcp Streamable HTTP、loopback/token/Origin 防护与设置开关。
-- [ ] 实例发现、权限、断连取消、结构化结果及有限 Resources。
-- [ ] 独立 stdio 代理与日志隔离, 多实例指定。
-- [ ] 用真实 MCP client 跑初始化、list/call/read、错误和取消集成测试。
+- [x] 实现 rmcp Streamable HTTP、loopback/token/Origin 防护与设置开关。
+- [x] 实例发现、权限、断连取消、结构化结果及有限 Resources。
+- [x] 独立 stdio 代理与日志隔离, 多实例指定。
+- [x] 用真实 MCP client 跑初始化、list/call/read、错误和取消集成测试。
 
 验收: 外部客户端可解释/检查谱面并提交提案, 但不能绕过编辑器确认修改或保存。
+
+验证: stdio-bridge 的 11 项测试通过。真实 rmcp client 完成 HTTP 初始化、工具/资源发现、读取、结构化结果、isError、权限、取消与 stdio relay；覆盖 token/Host/Origin 拒绝、8 会话上限及私有发现记录权限/清理。编辑器设置已接入启停、实例信息与权限撤销。代理独立构建通过，依赖图不包含图形/Lean。私有发现记录目前仅实现 Unix 权限，Windows 明确拒绝启用；未做实际图形窗口端到端测试。
 
 ### P4: 轻量 Agent 与工作台分区
 

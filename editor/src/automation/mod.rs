@@ -23,6 +23,13 @@ pub struct Service {
     proposals: proposal::Store,
     consent_auto_save: bool,
     approve_requested: bool,
+    #[cfg(any(feature = "editor-mcp", feature = "editor-agent"))]
+    runtime: Option<lambdadx_automation::runtime::BackgroundRuntime>,
+    #[cfg(feature = "editor-mcp")]
+    mcp: Option<lambdadx_automation::mcp::http::Server>,
+    #[cfg(feature = "editor-mcp")]
+    starting: Option<std::sync::mpsc::Receiver<std::io::Result<lambdadx_automation::mcp::http::Server>>>,
+    adapter_error: Option<String>,
 }
 impl Service {
     pub fn new() -> Self {
@@ -34,10 +41,60 @@ impl Service {
             proposals: proposal::Store::default(),
             consent_auto_save: false,
             approve_requested: false,
+            #[cfg(any(feature = "editor-mcp", feature = "editor-agent"))]
+            runtime: None,
+            #[cfg(feature = "editor-mcp")]
+            mcp: None,
+            #[cfg(feature = "editor-mcp")]
+            starting: None,
+            adapter_error: None,
         }
     }
     pub fn client(&self) -> Client {
         self.client.clone()
+    }
+    #[cfg(any(feature = "editor-mcp", feature = "editor-agent"))]
+    pub fn background(&mut self) -> std::io::Result<lambdadx_automation::runtime::Handle> {
+        if self.runtime.is_none() { self.runtime = Some(lambdadx_automation::runtime::BackgroundRuntime::new()?); }
+        Ok(self.runtime.as_ref().unwrap().handle())
+    }
+    pub fn settings_ui(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("MCP 与 Agent").show(ui, |ui| {
+            #[cfg(feature = "editor-mcp")]
+            {
+                if let Some(receiver) = &self.starting {
+                    match receiver.try_recv() {
+                        Ok(Ok(server)) => { self.mcp = Some(server); self.starting = None; },
+                        Ok(Err(e)) => { self.adapter_error = Some(e.to_string()); self.starting = None; },
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => { self.adapter_error = Some("MCP 启动任务结束".into()); self.starting = None; },
+                        _ => {}
+                    }
+                }
+                if let Some(server) = &self.mcp {
+                    ui.label(format!("Endpoint: {}", server.endpoint));
+                    ui.label(format!("实例: {} · 会话: {}", server.instance_id, server.session_count()));
+                    ui.monospace(format!("lambdadx_mcp --instance {}", server.instance_id));
+                    let mut permissions = server.permissions();
+                    let mut changed = ui.checkbox(&mut permissions.focus, "允许定位视图").changed();
+                    changed |= ui.checkbox(&mut permissions.propose, "允许创建修改提案（仍需人工审核）").changed();
+                    if changed { server.set_permissions(permissions); }
+                    if ui.button("关闭 MCP 并撤销所有会话权限").clicked() { self.mcp = None; }
+                } else if self.starting.is_some() { ui.label("正在启动 MCP…"); }
+                else if ui.button("启用本机 MCP（默认只读）").clicked() {
+                    match self.background() {
+                        Ok(runtime) => {
+                            let client = self.client(); let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+                            runtime.spawn(async move { let _ = sender.send(lambdadx_automation::mcp::http::Server::start(client).await); });
+                            self.starting = Some(receiver);
+                        },
+                        Err(e) => self.adapter_error = Some(e.to_string()),
+                    }
+                }
+            }
+            #[cfg(not(feature = "editor-mcp"))]
+            ui.label("此构建未启用 editor-mcp");
+            if let Some(error) = &self.adapter_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+        });
     }
     /// Called after ChartSync publishes the canonical chart. No work is queued
     /// by default, and an idle frame never clones or scans the chart.
@@ -101,6 +158,15 @@ impl Service {
             if ui.add_enabled(ready, egui::Button::new("确认应用（可撤销）")).clicked() { self.approve_requested = true; }
             if ui.button("拒绝").clicked() { self.proposals.reject(); self.consent_auto_save = false; }
         });
+    }
+}
+impl Drop for Service {
+    fn drop(&mut self) {
+        self.client.session().cancel();
+        #[cfg(feature = "editor-mcp")]
+        { self.mcp = None; self.starting = None; }
+        #[cfg(any(feature = "editor-mcp", feature = "editor-agent"))]
+        if let Some(runtime) = self.runtime.take() { runtime.shutdown(); }
     }
 }
 struct Host<'a> {
