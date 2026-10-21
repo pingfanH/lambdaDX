@@ -8,6 +8,10 @@ pub fn load() -> Result<Settings, String> {
     if cfg!(test) {
         return Ok(Settings::default());
     }
+    load_saved()?.with_environment().map_err(|e| e.message)
+}
+
+fn load_saved() -> Result<Settings, String> {
     let path = path()?;
     if let Ok(metadata) = std::fs::metadata(&path) {
         if metadata.len() > 8192 {

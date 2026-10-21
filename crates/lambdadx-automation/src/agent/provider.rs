@@ -46,6 +46,11 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    /// Overlay LDX_AGENT_* from the process environment and nearest .env.
+    pub fn with_environment(self) -> ToolResult<Self> {
+        super::environment::settings(self)
+    }
+
     pub fn validate(&self) -> ToolResult<()> {
         if self.model.trim().is_empty() || self.model.len() > 256 {
             return Err(ToolError::invalid("Specify a model (at most 256 bytes)"));
@@ -131,9 +136,7 @@ impl Genai {
         let key = if settings.credential_env.is_empty() {
             String::new()
         } else {
-            std::env::var(&settings.credential_env).map_err(|_| {
-                ToolError::invalid("Configured credential environment variable is unavailable")
-            })?
+            super::environment::credential(&settings.credential_env)?
         };
         Self::with_key(settings, key)
     }

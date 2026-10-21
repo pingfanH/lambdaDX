@@ -25,7 +25,7 @@ Agent 分区, 显示功能未启用, 不启动模型连接。
 打开设置（F1 或 Primary+,）, 展开“内置 Agent · 模型连接”:
 
 1. 勾选“启用内置 Agent（本次编辑器会话）”。每次启动都需要重新启用。
-2. 选择 Provider, 填写 Model、Base URL 和凭据**环境变量名**。此处不要填写密钥。
+2. 确认自动读取的模型配置, 或选择 Provider, 填写 Model、Base URL 和凭据**环境变量名**。此处不要填写密钥。
 3. 按需允许定位视图、创建提案。只读查询默认可用; 提案权限不会授予自动应用权限。
 4. 点击“确认 endpoint 与权限并保存配置”。连接或权限有未确认的更改时不能发送。
 
@@ -41,19 +41,22 @@ Agent 分区, 显示功能未启用, 不启动模型连接。
 模型名中的 `/` 是端点要求的实际拼写。OpenAI 与 Ollama 的配置入口已实现,
 尚未对其真实服务/模型完成工具调用验收; 其他兼容端点也需要分别验证。
 
-凭据必须在启动编辑器的进程环境中。编辑器**不会自动加载 `.env`**。如果已经在自己的
-`.env` 中配置上述变量, 可以在终端加载后从同一终端启动:
+编辑器启动时自动读取当前工作目录（或最近上级目录）中的 `.env`。在项目根目录
+配置后直接运行编辑器即可, 无需先 `source .env`:
 
 ```sh
-set -a
-source .env
-set +a
-cargo run --locked --bin lambda_dx_editor --features editor-agent
+LDX_AGENT_PROVIDER=https://api.commandcode.ai/provider/v1
+LDX_AGENT_MODEL=deepseek/deepseek-v4.1-flash
+LDX_AGENT_SECRET=你的密钥
 ```
 
-`LDX_AGENT_PROVIDER` 与 `LDX_AGENT_MODEL` 用于手动网络测试; 编辑器界面中的
-Base URL 与 Model 仍需按设置填写。运行开始时只读取所填写的凭据变量,
-不会扫描其他凭据。配置文件为应用缓存目录下的 `editor_agent.json`, 只保存模型、
+`LDX_AGENT_PROVIDER` 是兼容端点的 Base URL, 配置它时自动选择 `OpenAICompatible`;
+`LDX_AGENT_MODEL` 填入 Model; 检测到 `LDX_AGENT_SECRET` 时自动将凭据变量名设为
+`LDX_AGENT_SECRET`。同名非空进程环境变量优先于 `.env`, 两者都未配置时使用缓存设置。
+运行期间修改 `.env` 后, 点击“重新读取 .env 模型配置”, 再确认保存。每次发送都会
+重新读取所指定的凭据变量, 从进程环境或 `.env` 获取密钥; 不会修改进程环境。
+手动选择 `OpenAI` 时也支持从 `.env` 读取 `OPENAI_API_KEY` 或指定的其他凭据变量。
+配置文件为应用缓存目录下的 `editor_agent.json`, 只保存模型、
 endpoint、环境变量名与权限; 聊天正文、密钥、运行和提案不随配置或布局保存。
 
 Base URL 接受 HTTPS 或本机 loopback HTTP, 不接受 URL 中的凭据、query 或 fragment。
@@ -91,7 +94,8 @@ host 验证无 MCP 的 Agent、HTTP MCP 查询/提案、人工应用、单步撤
 布局测试覆盖旧配置与 Agent 分区恢复, 会话测试覆盖审核后不自动续跑和过期审核退出。
 
 显式网络测试 `live_agent_smoke` 默认忽略。需要运行时, 在环境中提供
-`LDX_AGENT_PROVIDER`（endpoint URL）、`LDX_AGENT_MODEL` 与 `LDX_AGENT_SECRET`, 然后执行:
+`LDX_AGENT_PROVIDER`（endpoint URL）、`LDX_AGENT_MODEL` 与 `LDX_AGENT_SECRET`
+（也可直接配置在 `.env`）, 然后执行:
 
 ```sh
 cargo test --locked --bin lambda_dx_editor --features editor-agent live_agent_smoke -- --ignored --nocapture

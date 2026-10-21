@@ -149,12 +149,13 @@ fn agent_proposal_requires_user_approval_and_is_one_undo_step() {
 fn live_agent_smoke() {
     let settings = provider::Settings {
         provider: provider::ProviderKind::OpenAICompatible,
-        base_url: std::env::var("LDX_AGENT_PROVIDER").expect("endpoint URL"),
-        model: std::env::var("LDX_AGENT_MODEL").expect("model"),
         credential_env: "LDX_AGENT_SECRET".into(),
         allow_focus: false,
         allow_proposals: true,
-    };
+        ..provider::Settings::default()
+    }
+    .with_environment()
+    .unwrap();
     let provider = provider::Genai::new(&settings).unwrap();
     let (host, _, _, run) = drive(provider);
     let proposal = &host.proposals.pending().unwrap().result;

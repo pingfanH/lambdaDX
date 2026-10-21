@@ -200,6 +200,16 @@ impl Session {
                 self.stop();
             }
             ui.label("发送后，对话、显式选区 ID 和按需查询的谱面数据将发送到下面的 endpoint。");
+            ui.small("启动时自动读取当前目录或上级目录的 .env；同名进程环境变量优先。");
+            if ui.button("重新读取 .env 模型配置").clicked() {
+                match self.draft.clone().with_environment() {
+                    Ok(settings) => {
+                        self.draft = settings;
+                        self.error = None;
+                    }
+                    Err(error) => self.error = Some(error.message),
+                }
+            }
             egui::ComboBox::from_id_salt("agent-provider")
                 .selected_text(format!("{:?}", self.draft.provider))
                 .show_ui(ui, |ui| {
