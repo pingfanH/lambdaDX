@@ -303,7 +303,7 @@ fn candidates(text: &str, at: usize, manual: bool) -> (Range<usize>, Vec<Candida
     }
     let head = code
         .first()
-        .filter(|c| ('1'..='8').contains(c))
+        .filter(|c| ('1'..='8').contains(*c))
         .map(|_| code_start);
     if let Some(head) = head {
         let lane = chars[head].to_digit(10).unwrap() as u8;
