@@ -1,4 +1,5 @@
-//! One memory-only conversation per editor; dock panes never own a runtime.
+//! One conversation per editor, with a local transcript; panes never own a runtime.
+mod history;
 mod settings;
 #[cfg(test)]
 mod tests;
@@ -11,6 +12,7 @@ use lambdadx_automation::{
     },
     contract::{ProposalResult, ProposalState},
 };
+use std::time::{Duration, Instant};
 
 pub struct Session {
     draft: Settings,
@@ -26,30 +28,63 @@ pub struct Session {
     revision: Option<u64>,
     error: Option<String>,
     usage: String,
+    history: history::Store,
+    history_dirty: bool,
+    history_saved_at: Instant,
+    history_error: Option<String>,
 }
 impl Default for Session {
     fn default() -> Self {
         let loaded = settings::load();
         let error = loaded.as_ref().err().cloned();
-        let applied = loaded.unwrap_or_default();
-        Self {
+        let history = history::Store::open();
+        let history_error = history.as_ref().err().cloned();
+        let mut session = Self::restore(loaded.unwrap_or_default(), history.unwrap_or_default());
+        session.error = error;
+        if history_error.is_some() {
+            session.history_error = history_error;
+        }
+        session
+    }
+}
+impl Session {
+    fn restore(saved: settings::Saved, history: history::Store) -> Self {
+        let applied = saved.connection;
+        let loaded = history.load();
+        let history_error = loaded.as_ref().err().cloned();
+        let saved_history = loaded.unwrap_or_default();
+        let mut session = Self {
             draft: applied.clone(),
             applied,
-            enabled: false,
+            enabled: saved.enabled,
             input: String::new(),
             messages: Vec::new(),
-            log: Vec::new(),
-            stream: String::new(),
+            log: saved_history.log,
+            stream: saved_history.stream,
             state: State::Idle,
             run: None,
             proposal: None,
             revision: None,
-            error,
+            error: None,
             usage: "未知".into(),
+            history,
+            history_dirty: false,
+            history_saved_at: Instant::now(),
+            history_error,
+        };
+        session.flush_stream("助手（上次运行未完成）");
+        if !session.log.is_empty() {
+            session.record(
+                "编辑器",
+                if saved_history.interrupted {
+                    "已恢复本地记录。上次运行已中断，待审提案未恢复；再次发送将开始新的模型会话。"
+                } else {
+                    "已恢复本地记录。再次发送将开始新的模型会话，并重新读取当前谱面。"
+                },
+            );
         }
+        session
     }
-}
-impl Session {
     fn busy(&self) -> bool {
         matches!(
             self.state,
@@ -58,22 +93,41 @@ impl Session {
     }
     fn record(&mut self, title: impl Into<String>, text: impl Into<String>) {
         self.log.push((title.into(), text.into()));
-        while self.log.len() > 128
-            || self
-                .log
-                .iter()
-                .map(|(a, b)| a.len() + b.len())
-                .sum::<usize>()
-                > MAX_CONTEXT_BYTES
+        history::trim(&mut self.log);
+        self.history_dirty = true;
+    }
+    fn flush_stream(&mut self, title: &str) {
+        if !self.stream.is_empty() {
+            let text = std::mem::take(&mut self.stream);
+            self.record(title, text);
+        }
+    }
+    fn save_history(&mut self, force: bool) {
+        if !self.history_dirty
+            || (!force && self.history_saved_at.elapsed() < Duration::from_secs(1))
         {
-            self.log.remove(0);
+            return;
+        }
+        self.history_saved_at = Instant::now();
+        match self.history.save(
+            &self.log,
+            &self.stream,
+            self.busy() || self.state == State::AwaitingApproval,
+        ) {
+            Ok(()) => {
+                self.history_dirty = false;
+                self.history_error = None;
+            }
+            Err(error) => self.history_error = Some(error),
         }
     }
     pub fn stop(&mut self) {
+        let active = self.busy() || self.state == State::AwaitingApproval;
         if let Some(run) = self.run.take() {
             run.stop();
         }
-        if self.busy() || self.state == State::AwaitingApproval {
+        if active {
+            self.flush_stream("助手（已中断）");
             self.state = State::Cancelled;
             self.messages.push(Message::user(
                 r#"{"editor_event":"Run stopped by user; unfinished work and pending proposals cancelled. No approval was granted."}"#,
@@ -81,6 +135,11 @@ impl Session {
             self.record("编辑器", "运行已停止，待审提案已撤销");
         }
         self.proposal = None;
+        self.save_history(active);
+    }
+    /// The editor exits without dropping UI state; flush before that exit path.
+    pub fn checkpoint(&mut self) {
+        self.save_history(true);
     }
     fn clear(&mut self) {
         self.stop();
@@ -90,14 +149,35 @@ impl Session {
         self.error = None;
         self.state = State::Idle;
         self.usage = "未知".into();
+        self.history_dirty = true;
+        self.save_history(true);
+    }
+    fn reset_context(&mut self, reason: &str) {
+        self.stop();
+        self.messages.clear();
+        self.error = None;
+        self.state = State::Idle;
+        self.usage = "未知".into();
+        self.record("编辑器", reason);
+        self.save_history(true);
+    }
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.stop();
+        }
+        // Persist only confirmed settings, never an unfinished connection draft.
+        if let Err(error) = settings::save(&self.applied, enabled) {
+            self.error = Some(error);
+        }
     }
     pub fn tick(&mut self, host: &Service, revision: u64) {
         if self.revision.is_some_and(|old| old != revision) {
-            self.clear();
-            self.record("编辑器", "文档已切换，会话已清空");
+            self.reset_context("文档已切换，模型会话已重置，之前的对话保留在本地记录中。");
         }
         self.revision = Some(revision);
         let mut events = Vec::new();
+        let mut save_now = false;
         if let Some(run) = &self.run {
             events.extend(run.events.try_iter().take(128));
             if let Ok(event) = run.finished.try_recv() {
@@ -109,10 +189,14 @@ impl Session {
         }
         for event in events {
             match event {
-                Event::State(state) => self.state = state,
+                Event::State(state) => {
+                    self.state = state;
+                    self.history_dirty = true;
+                }
                 Event::Text(text) => {
                     if self.stream.len() + text.len() <= 64 * 1024 {
                         self.stream.push_str(&text);
+                        self.history_dirty = true;
                     }
                 }
                 Event::Usage(usage) => {
@@ -122,6 +206,8 @@ impl Session {
                         .unwrap_or_else(|| "未知（provider 未报告完整 usage）".into())
                 }
                 Event::Tool { id, name, result } => {
+                    save_now = true;
+                    self.flush_stream("助手");
                     if name == "chart_propose_edit" {
                         if let Ok(value) = &result {
                             self.proposal = value
@@ -141,13 +227,15 @@ impl Session {
                     messages,
                     error,
                 } => {
+                    save_now = true;
                     self.state = state;
                     self.messages = messages;
                     self.error = error.map(|e| e.message);
-                    if !self.stream.is_empty() {
-                        let text = std::mem::take(&mut self.stream);
-                        self.record("助手", text);
+                    self.flush_stream("助手");
+                    if let Some(error) = self.error.clone() {
+                        self.record("错误", error);
                     }
+                    self.history_dirty = true;
                     if state != State::AwaitingApproval {
                         self.run = None;
                     }
@@ -167,6 +255,7 @@ impl Session {
                     }
                     Ok(_) => {}
                     Err(error) => {
+                        save_now = true;
                         let event = serde_json::json!({"editor_review_error":error});
                         self.messages.push(Message::user(event.to_string()));
                         self.record("编辑器审核已结束", event.to_string());
@@ -178,6 +267,8 @@ impl Session {
                 }
             }
         }
+        // Text checkpoints and retries are throttled; tool/terminal events save now.
+        self.save_history(save_now);
     }
     fn reviewed(&mut self, result: ProposalResult) {
         let event = serde_json::json!({"editor_review":result});
@@ -189,15 +280,15 @@ impl Session {
         self.state = State::Completed;
         self.proposal = None;
         self.run = None;
+        self.save_history(true);
     }
     pub fn settings_ui(&mut self, ui: &mut egui::Ui) {
         ui.collapsing("内置 Agent · 模型连接", |ui| {
             if ui
-                .checkbox(&mut self.enabled, "启用内置 Agent（本次编辑器会话）")
+                .checkbox(&mut self.enabled, "启用内置 Agent（记住此设置）")
                 .changed()
-                && !self.enabled
             {
-                self.stop();
+                self.set_enabled(self.enabled);
             }
             ui.label("发送后，对话、显式选区 ID 和按需查询的谱面数据将发送到下面的 endpoint。");
             ui.small("启动时自动读取当前目录或上级目录的 .env；同名进程环境变量优先。");
@@ -235,11 +326,11 @@ impl Session {
             ui.label("兼容端点与本地模型的工具支持取决于实际模型。更改连接或权限后需确认设置。");
             if ui.button("确认 endpoint 与权限并保存配置").clicked() {
                 match self.draft.validate().and_then(|()| {
-                    settings::save(&self.draft)
+                    settings::save(&self.draft, self.enabled)
                         .map_err(lambdadx_automation::contract::ToolError::invalid)
                 }) {
                     Ok(()) => {
-                        self.clear();
+                        self.reset_context("模型连接或权限已更新，后续消息使用新的模型会话。");
                         self.applied = self.draft.clone();
                     }
                     Err(error) => self.error = Some(error.message),
@@ -266,6 +357,7 @@ impl Session {
             self.applied.model, self.applied.base_url
         ));
         ui.small(format!("Usage: {}", self.usage));
+        ui.small("对话自动保存在本机；重启后恢复记录，模型从新会话开始。");
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(self.run.is_some(), egui::Button::new("Stop / 撤销待审提案"))
@@ -273,7 +365,7 @@ impl Session {
             {
                 self.stop();
             }
-            if ui.button("清空会话").clicked() {
+            if ui.button("清空会话与本地记录").clicked() {
                 self.clear();
             }
         });
@@ -286,9 +378,11 @@ impl Session {
             .max_height(log_height)
             .stick_to_bottom(true)
             .show(ui, |ui| {
-                for (title, text) in &self.log {
-                    ui.collapsing(title, |ui| {
-                        ui.label(text);
+                for (index, (title, text)) in self.log.iter().enumerate() {
+                    ui.push_id(index, |ui| {
+                        ui.collapsing(title, |ui| {
+                            ui.label(text);
+                        });
                     });
                 }
                 if !self.stream.is_empty() {
@@ -296,6 +390,12 @@ impl Session {
                 }
                 if let Some(error) = &self.error {
                     ui.colored_label(egui::Color32::LIGHT_RED, error);
+                }
+                if let Some(error) = &self.history_error {
+                    ui.colored_label(
+                        egui::Color32::LIGHT_RED,
+                        format!("本地对话记录读写失败：{error}"),
+                    );
                 }
             });
         if self.state == State::AwaitingApproval {
@@ -318,7 +418,9 @@ impl Session {
             .clicked()
         {
             if let Err(error) = self.send(host, editor, app) {
+                self.record("错误", error.clone());
                 self.error = Some(error);
+                self.save_history(true);
             }
         }
     }
@@ -352,6 +454,7 @@ impl Session {
         self.error = None;
         self.stream.clear();
         self.state = State::Requesting;
+        self.save_history(true);
         self.run = Some(Run::start(
             &runtime,
             provider,
@@ -360,5 +463,11 @@ impl Session {
             self.applied.permissions(),
         ));
         Ok(())
+    }
+}
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.stop();
+        self.checkpoint();
     }
 }

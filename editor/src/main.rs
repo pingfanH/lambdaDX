@@ -293,6 +293,11 @@ async fn run() {
         if let Some(action) = editor.template_action.take() {
             templates::apply(&mut editor, &mut app, action);
         }
+        // Quit uses process::exit, so Agent transcripts need an explicit flush.
+        #[cfg(feature = "editor-agent")]
+        if editor.pending_confirmed && matches!(editor.pending_action, Some(PendingAction::Quit)) {
+            ui.agent.checkpoint();
+        }
         apply_io_requests(&mut editor, &mut app, &mut file_dialogs, &mut ui.appearance, &mut ui.workbench);
         ui.input_blocked |= editor.file_dialog_active;
         if let Some(error) = cover_art.update(editor.source.as_ref(), &mut app) {
