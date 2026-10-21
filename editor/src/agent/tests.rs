@@ -116,6 +116,105 @@ fn review_result_is_recorded_without_starting_another_run() {
 }
 
 #[test]
+fn next_run_drops_large_tool_payloads_and_compacts_review_events() {
+    let changes = (0..256)
+        .map(|id| serde_json::json!({"id":id,"before":{"measure":1.0},"after":{"measure":2.0}}))
+        .collect::<Vec<_>>();
+    let review = serde_json::json!({"editor_review":{"state":"applied","summary":"Move selected notes","changes":changes}}).to_string();
+    let messages = vec![
+        Message::user("Move the selected notes"),
+        Message::assistant(lambdadx_automation::agent::ToolCall {
+            call_id: "query-1".into(),
+            fn_name: "chart_query_notes".into(),
+            fn_arguments: serde_json::json!({}),
+            thought_signatures: None,
+        }),
+        Message::from(
+            lambdadx_automation::agent::ToolResponse::new(
+                "query-1",
+                serde_json::json!({"isError":false,"result":"x".repeat(56_862)}).to_string(),
+            )
+            .with_fn_name("chart_query_notes"),
+        ),
+        Message::user(review),
+        Message::assistant("The selected notes were moved."),
+    ];
+
+    let compacted = compact_for_next_run(&messages);
+    let bytes = compacted.iter().map(Message::size).sum::<usize>();
+    let transcript = format!("{compacted:?}");
+    assert!(bytes < 4_000, "retained model context was {bytes} bytes");
+    assert!(transcript.contains("Move the selected notes"));
+    assert!(transcript.contains("The selected notes were moved."));
+    assert!(transcript.contains("state=applied"));
+    assert!(!transcript.contains(&"x".repeat(128)));
+    assert!(!transcript.contains("changes"));
+}
+
+#[test]
+fn next_run_preserves_query_failures_and_unknown_results() {
+    use lambdadx_automation::agent::ToolResponse;
+    let messages = vec![
+        Message::from(
+            ToolResponse::new(
+                "error",
+                r#"{"isError":true,"error":{"code":"DOCUMENT_CHANGED"}}"#,
+            )
+            .with_fn_name("chart_query_notes"),
+        ),
+        Message::from(
+            ToolResponse::new("unknown", "unexpected query response")
+                .with_fn_name("chart_query_notes"),
+        ),
+    ];
+    let compacted = format!("{:?}", compact_for_next_run(&messages));
+    assert!(compacted.contains("DOCUMENT_CHANGED"));
+    assert!(compacted.contains("unexpected query response"));
+}
+
+#[test]
+fn next_run_refreshes_snapshot_without_losing_followup_or_library_context() {
+    use lambdadx_automation::agent::{ContentPart, MessageContent, ToolCall, ToolResponse};
+    let mut messages = vec![
+        Message::user("Design an alternating pattern; keep these choices for later"),
+        Message::user(serde_json::json!({"editor_context": {"target": "stale-token", "selected_notes": "x".repeat(32_000)}}).to_string()),
+        Message::assistant("A is dense, B uses alternating hands."),
+        Message::assistant(ToolCall { call_id: "lib".into(), fn_name: "library_read".into(),
+            fn_arguments: serde_json::json!({"id":"interaction"}), thought_signatures: None }),
+        Message::from(ToolResponse::new("lib", r#"{"isError":false,"result":{"text":"左右手逐击交替"}}"#).with_fn_name("library_read")),
+        Message::user("B，再稀一半"),
+    ];
+    // Compaction must not mutate live messages or leave orphan tool responses.
+    let before = format!("{messages:?}");
+    let compacted = compact_for_next_run(&messages);
+    assert_eq!(before, format!("{messages:?}"));
+    let transcript = format!("{compacted:?}");
+    for kept in ["B，再稀一半", "A is dense", "左右手逐击交替", "interaction"] {
+        assert!(transcript.contains(kept));
+    }
+    assert!(!transcript.contains("stale-token"));
+    assert!(
+        compacted
+            .iter()
+            .flat_map(|m| m.content.parts())
+            .all(|p| matches!(p, ContentPart::Text(_)))
+    );
+    assert_eq!(
+        format!("{:?}", compact_for_next_run(&compacted)),
+        transcript,
+        "compaction is idempotent"
+    );
+    messages.push(Message::user("user content before a separate context part"));
+    messages.last_mut().unwrap().content = MessageContent::from_parts(vec![
+        ContentPart::Text("user content before a separate context part".into()),
+        ContentPart::Text(r#"{"editor_context":{"target":"second-stale-token"}}"#.into()),
+    ]);
+    let compacted = format!("{:?}", compact_for_next_run(&messages));
+    assert!(compacted.contains("user content before a separate context part"));
+    assert!(!compacted.contains("second-stale-token"));
+}
+
+#[test]
 fn restart_restores_transcript_and_enabled_without_reviving_model_or_proposals() {
     let dir = TestDir::new();
     let path = dir.file("history.json");

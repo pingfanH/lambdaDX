@@ -34,13 +34,15 @@ cargo build --locked -p lambdadx-automation --features stdio-bridge --bin lambda
 
 | 工具 | 用途 |
 | --- | --- |
-| chart_get_context | 获取当前谱面与 Simai 状态及不可变快照 |
+| chart_get_context | 获取状态、不可变快照、选中 ID 和有界 selected_notes；本轮已有新鲜 editor_context 时复用 |
 | chart_query_notes | 读取范围内音符、精确 ID、时长和滑条结构，必要时翻页 |
 | chart_read_simai | 从快照读取原文；这是 Unicode 字符索引，区别于 library_read 的字节游标 |
 | chart_check | 分页结构诊断；不验证音乐性、两手手法或完整核心运行 |
 | chart_propose_edit | 创建带快照约束的类型化提案，不应用或保存 |
 | chart_proposal_status | 查询本会话提案状态 |
 | editor_focus_range | 有独立权限时定位范围，不选择或移动音符 |
+
+选区信息足够时直接提交 typed edits，不必重复查询或读取整首 Simai。selection_notes_truncated 表示详情不完整，补查使用同一 target，note_ids 每批最多 256 个，limit 为 1..128，翻页复制 next_offset。需要处理段落衔接、手法或大范围任务时自主扩读，保留完整推理与工具能力。
 
 提案的 operations、音符结构和新增 ID 规则以当前工具 schema 为准，不从旧示例猜参数。改已有音符必须先拿精确 ID；新增、删除和移动共同组成一次完整编辑，避免提交诊断探针。
 

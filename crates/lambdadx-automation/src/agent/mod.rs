@@ -10,7 +10,7 @@ use crate::{
 };
 use genai::chat::ChatMessage;
 pub use genai::chat::ChatMessage as Message;
-pub use genai::chat::{ChatRequest, ContentPart, ToolCall, ToolResponse};
+pub use genai::chat::{ChatRequest, ChatRole, ContentPart, MessageContent, ToolCall, ToolResponse};
 use provider::Provider;
 use std::{
     collections::HashSet,
@@ -80,6 +80,27 @@ impl Run {
         messages: Vec<ChatMessage>,
         permissions: Permissions,
     ) -> Self {
+        Self::start_inner(runtime, provider, client, messages, permissions, false)
+    }
+    /// Capture fresh editor context through the same scoped host bridge before
+    /// the first model request. No model/tool capability is reduced.
+    pub fn start_with_context(
+        runtime: &tokio::runtime::Handle,
+        provider: impl Provider + 'static,
+        client: Client,
+        messages: Vec<ChatMessage>,
+        permissions: Permissions,
+    ) -> Self {
+        Self::start_inner(runtime, provider, client, messages, permissions, true)
+    }
+    fn start_inner(
+        runtime: &tokio::runtime::Handle,
+        provider: impl Provider + 'static,
+        client: Client,
+        messages: Vec<ChatMessage>,
+        permissions: Permissions,
+        prefetch: bool,
+    ) -> Self {
         let client = client.scoped();
         let session = client.session();
         let stop = CancellationToken::new();
@@ -93,7 +114,7 @@ impl Run {
                         ToolError::new(ErrorCode::QueueFull, "Agent event queue is full or closed")
                     })
                 };
-                let report = run(
+                let report = run_inner(
                     provider,
                     client.clone(),
                     messages,
@@ -101,6 +122,7 @@ impl Run {
                     Budget::default(),
                     stop,
                     &emit,
+                    prefetch,
                 )
                 .await;
                 if report.state != State::AwaitingApproval {
@@ -141,6 +163,27 @@ pub struct Report {
     pub error: Option<ToolError>,
 }
 pub async fn run(
+    provider: impl Provider,
+    client: Client,
+    messages: Vec<ChatMessage>,
+    permissions: Permissions,
+    budget: Budget,
+    stop: CancellationToken,
+    emit: &Emit<'_>,
+) -> Report {
+    run_inner(
+        provider,
+        client,
+        messages,
+        permissions,
+        budget,
+        stop,
+        emit,
+        false,
+    )
+    .await
+}
+async fn run_inner(
     mut provider: impl Provider,
     client: Client,
     mut messages: Vec<ChatMessage>,
@@ -148,16 +191,50 @@ pub async fn run(
     budget: Budget,
     stop: CancellationToken,
     emit: &Emit<'_>,
+    prefetch: bool,
 ) -> Report {
-    let result = drive(
-        &mut provider,
-        &client,
-        &mut messages,
-        permissions,
-        budget,
-        &stop,
-        emit,
-    )
+    let deadline = Instant::now() + budget.total.min(Duration::from_secs(120));
+    let result = async {
+        check_context_size(&messages)?;
+        if prefetch {
+            if budget.tools == 0 || Instant::now() >= deadline {
+                return Err(exhausted());
+            }
+            emit(Event::State(State::ExecutingTools))?;
+            let result = execute(
+                &client,
+                "chart_get_context",
+                serde_json::json!({"schema_version":SCHEMA_VERSION}),
+                permissions,
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_secs(30)),
+                &stop,
+            )
+            .await;
+            emit(Event::Tool {
+                id: "editor-context".into(),
+                name: "chart_get_context".into(),
+                result: result.clone(),
+            })?;
+            let context = result?;
+            messages.push(ChatMessage::user(
+                serde_json::json!({"editor_context":context}).to_string(),
+            ));
+        }
+        drive(
+            &mut provider,
+            &client,
+            &mut messages,
+            permissions,
+            budget,
+            &stop,
+            emit,
+            deadline,
+            usize::from(prefetch),
+        )
+        .await
+    }
     .await;
     match result {
         Ok(state) => Report {
@@ -187,19 +264,15 @@ async fn drive(
     budget: Budget,
     stop: &CancellationToken,
     emit: &Emit<'_>,
+    deadline: Instant,
+    mut calls: usize,
 ) -> ToolResult<State> {
-    let deadline = Instant::now() + budget.total.min(Duration::from_secs(120));
     let mut seen = HashSet::new();
-    let mut calls = 0usize;
     for _ in 0..budget.rounds.min(8) {
         if stop.is_cancelled() || !client.session().active() {
             return Err(cancelled());
         }
-        if messages.iter().map(ChatMessage::size).sum::<usize>() > MAX_CONTEXT_BYTES {
-            return Err(ToolError::invalid(
-                "Conversation exceeds 256 KiB; clear the session or narrow the task",
-            ));
-        }
+        check_context_size(messages)?;
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(exhausted());
@@ -264,26 +337,17 @@ async fn drive(
                     "Missing, oversized or duplicate tool call ID",
                 ))
             } else {
-                match client.call(
+                execute(
+                    client,
                     &call.fn_name,
                     call.fn_arguments.clone(),
                     permissions,
                     deadline
                         .saturating_duration_since(Instant::now())
                         .min(Duration::from_secs(30)),
-                ) {
-                    Err(error) => Err(error),
-                    Ok(pending) => loop {
-                        if let Some(result) = pending.poll() {
-                            break result;
-                        }
-                        tokio::select! {
-                            biased;
-                            _ = stop.cancelled() => { pending.cancel(); break Err(cancelled()); },
-                            _ = tokio::time::sleep(Duration::from_millis(5)) => {}
-                        }
-                    },
-                }
+                    stop,
+                )
+                .await
             };
             if call.fn_name == "chart_propose_edit" && result.is_ok() {
                 proposal = true;
@@ -316,6 +380,44 @@ async fn drive(
         }
     }
     Err(exhausted())
+}
+fn check_context_size(messages: &[ChatMessage]) -> ToolResult<()> {
+    if messages.iter().map(ChatMessage::size).sum::<usize>() > MAX_CONTEXT_BYTES {
+        return Err(ToolError::invalid(
+            "Conversation exceeds 256 KiB; clear the session or narrow the task",
+        ));
+    }
+    Ok(())
+}
+async fn execute(
+    client: &Client,
+    name: &str,
+    arguments: serde_json::Value,
+    permissions: Permissions,
+    timeout: Duration,
+    stop: &CancellationToken,
+) -> ToolResult<serde_json::Value> {
+    if stop.is_cancelled() || !client.session().active() {
+        return Err(cancelled());
+    }
+    if timeout.is_zero() {
+        return Err(exhausted());
+    }
+    let pending = client.call(name, arguments, permissions, timeout)?;
+    loop {
+        if stop.is_cancelled() || !client.session().active() {
+            pending.cancel();
+            return Err(cancelled());
+        }
+        if let Some(result) = pending.poll() {
+            return result;
+        }
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => { pending.cancel(); return Err(cancelled()); },
+            _ = tokio::time::sleep(Duration::from_millis(5)) => {}
+        }
+    }
 }
 fn cancelled() -> ToolError {
     ToolError::new(ErrorCode::Cancelled, "Agent stopped")

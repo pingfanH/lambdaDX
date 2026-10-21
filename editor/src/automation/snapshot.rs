@@ -84,7 +84,9 @@ impl Store {
             self.bytes -= s.bytes;
         }
     }
-    pub fn owns_document(&self, target: &SnapshotRef) -> bool { target.document_id == self.document_id }
+    pub fn owns_document(&self, target: &SnapshotRef) -> bool {
+        target.document_id == self.document_id
+    }
     pub fn get(&self, target: &SnapshotRef) -> ToolResult<&Snapshot> {
         if target.document_id == self.document_id {
             if let Some(snapshot) = self
@@ -164,6 +166,31 @@ impl Store {
             .filter(|id| authored.contains(id))
             .collect();
         selected.sort_unstable();
+        let selected_set: std::collections::HashSet<_> = selected.iter().copied().collect();
+        let mut selected_notes = Vec::new();
+        let mut selection_bytes = 0usize;
+        for &index in &order {
+            let note = &chart.notes[index];
+            if !selected_set.contains(&note.id) {
+                continue;
+            }
+            // A malformed note must remain inspectable through chart_check.
+            let Ok(note) = super::query::dto(note) else {
+                continue;
+            };
+            let bytes = serde_json::to_vec(&note)
+                .map_err(|e| ToolError::invalid(e.to_string()))?
+                .len()
+                + 1;
+            if selected_notes.len() >= MAX_PAGE_SIZE
+                || selection_bytes + bytes > MAX_RESULT_BYTES / 2
+            {
+                break;
+            }
+            selection_bytes += bytes;
+            selected_notes.push(note);
+        }
+        let selection_notes_truncated = selected_notes.len() < selected.len();
         let mut warnings = vec![
             "Queries refer to this immutable snapshot; capture a new context to see later edits."
                 .into(),
@@ -177,7 +204,7 @@ impl Store {
         if !chart.templates.is_empty() {
             warnings.push("Only authored main-chart notes are queried; template definitions and expanded notes are excluded.".into());
         }
-        let context = Context {
+        let mut context = Context {
             schema_version: SCHEMA_VERSION,
             instance_id: self.instance_id.clone(),
             target: target.clone(),
@@ -206,6 +233,8 @@ impl Store {
             template_count: chart.templates.len(),
             template_instance_count: chart.template_instances.len(),
             selected_note_ids: selected.into_iter().map(|id| id.to_string()).collect(),
+            selected_notes,
+            selection_notes_truncated,
             has_simai_source: has_source,
             unapplied_draft: editor.simai_editor.modified(),
             draft_conflict: editor.simai_editor.conflict(&app.chart),
@@ -217,14 +246,17 @@ impl Store {
             editor_busy: false,
             warnings,
         };
-        if serde_json::to_vec(&context)
+        while serde_json::to_vec(&context)
             .map_err(|e| ToolError::invalid(e.to_string()))?
             .len()
             > MAX_RESULT_BYTES
         {
-            return Err(ToolError::invalid(
-                "Context exceeds 64 KiB; snapshot was not captured",
-            ));
+            if context.selected_notes.pop().is_none() {
+                return Err(ToolError::invalid(
+                    "Context metadata exceeds 64 KiB; snapshot was not captured",
+                ));
+            }
+            context.selection_notes_truncated = true;
         }
         while self.snapshots.len() >= MAX_SNAPSHOTS || self.bytes + bytes > MAX_STORE_BYTES {
             self.evict();

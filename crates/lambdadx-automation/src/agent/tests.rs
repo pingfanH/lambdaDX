@@ -126,13 +126,20 @@ fn multiple_sequential_tools_preserve_results_and_continuation() {
 #[test]
 fn note_design_library_is_available_to_agent_without_editor_requests() {
     let provider = fake(vec![
-        ChatMessage::assistant(vec![call("lookup", "library_search", json!({"schema_version":1,"query":"交互","limit":3}))]),
+        ChatMessage::assistant(vec![call(
+            "lookup",
+            "library_search",
+            json!({"schema_version":1,"query":"交互","limit":3}),
+        )]),
         ChatMessage::assistant("done"),
     ]);
     let requests = provider.requests.clone();
     let (report, host, _) = exercise(provider, Budget::default());
     assert_eq!(report.state, State::Completed);
-    assert!(host.0.is_empty(), "Library reads must bypass the editor frame thread");
+    assert!(
+        host.0.is_empty(),
+        "Library reads must bypass the editor frame thread"
+    );
     let results = responses(&report);
     assert_eq!(results.len(), 1);
     assert!(format!("{:?}", results[0]).contains("interaction"));
@@ -245,6 +252,152 @@ fn stop_cancels_queued_tools_before_host_delivery() {
     assert!(host.0.is_empty());
     runtime.shutdown();
 }
+#[test]
+fn prefetched_run_can_query_broader_context_before_proposing() {
+    let target = json!({"document_id":"doc","snapshot_token":"snap"});
+    let provider = fake(vec![
+        ChatMessage::assistant(vec![
+            call(
+                "neighbors",
+                "chart_query_notes",
+                json!({"schema_version":1,"target":target,"range":{"start_measure":1.0,"end_measure":17.0},"limit":128}),
+            ),
+            call(
+                "check",
+                "chart_check",
+                json!({"schema_version":1,"target":target,"level":"structure","limit":128}),
+            ),
+        ]),
+        ChatMessage::assistant(call(
+            "edit",
+            "chart_propose_edit",
+            json!({"schema_version":1,"target":target,"operation_id":"broader","summary":"Use surrounding chart before editing selection","edits":[{"kind":"transform_notes","note_ids":["1"],"delta_measures":0.25,"lane_rotation":0}]}),
+        )),
+    ]);
+    let requests = provider.requests.clone();
+    let runtime = crate::runtime::BackgroundRuntime::new().unwrap();
+    let (client, inbox) = bridge::channel();
+    let mut host = Host::default();
+    let report = runtime.handle().block_on(async {
+        tokio::select! {
+            report = run_inner(provider, client, vec![ChatMessage::user("Improve the selection in the context of the surrounding section")],
+                Permissions { read:true, focus:false, propose:true }, Budget::default(), CancellationToken::new(), &|_| Ok(()), true) => report,
+            _ = async { loop { inbox.drain(&mut host); tokio::time::sleep(Duration::from_millis(1)).await; } } => unreachable!(),
+        }
+    });
+    assert_eq!(report.state, State::AwaitingApproval, "{:?}", report.error);
+    assert!(matches!(
+        host.0.as_slice(),
+        [
+            Request::Context(_),
+            Request::QueryNotes(_),
+            Request::Check(_),
+            Request::Propose(_)
+        ]
+    ));
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(format!("{:?}", requests[0]).contains("editor_context"));
+    assert!(format!("{:?}", requests[1]).contains("neighbors"));
+    for request in requests.iter() {
+        for name in [
+            "chart_get_context",
+            "chart_query_notes",
+            "chart_read_simai",
+            "chart_check",
+            "library_search",
+            "library_read",
+            "chart_propose_edit",
+        ] {
+            assert!(format!("{request:?}").contains(name), "lost tool {name}");
+        }
+    }
+    runtime.shutdown();
+}
+
+#[test]
+fn prefetch_failures_do_not_request_a_model_or_leave_queued_work() {
+    struct Busy;
+    impl EditorHost for Busy {
+        fn execute(&mut self, _: Request) -> ToolResult<Value> {
+            Err(ToolError::new(ErrorCode::EditorBusy, "Finish active input"))
+        }
+    }
+    let runtime = crate::runtime::BackgroundRuntime::new().unwrap();
+    for (permissions, drain, expected) in [
+        (Permissions::READ_ONLY, true, ErrorCode::EditorBusy),
+        (
+            Permissions {
+                read: false,
+                focus: false,
+                propose: false,
+            },
+            true,
+            ErrorCode::PermissionDenied,
+        ),
+        (Permissions::READ_ONLY, false, ErrorCode::DeadlineExceeded),
+    ] {
+        let (client, inbox) = bridge::channel();
+        let session = client.session();
+        let provider = fake(vec![]);
+        let requests = provider.requests.clone();
+        let report = runtime.handle().block_on(async {
+            tokio::select! {
+                report = run_inner(provider, client, vec![ChatMessage::user("move selection")], permissions,
+                    Budget { total:Duration::from_millis(20), ..Budget::default() },
+                    CancellationToken::new(), &|_| Ok(()), true) => report,
+                _ = async {
+                    loop {
+                        if drain { inbox.drain(&mut Busy); }
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                } => unreachable!(),
+            }
+        });
+        assert_eq!(report.state, State::Failed);
+        assert_eq!(report.error.unwrap().code, expected);
+        assert!(requests.lock().unwrap().is_empty());
+        assert!(!session.active());
+        let mut host = Host::default();
+        inbox.drain(&mut host);
+        assert!(host.0.is_empty(), "failed prefetch cannot execute late");
+    }
+    runtime.shutdown();
+}
+
+#[test]
+fn stop_during_prefetch_cancels_before_model_or_host_execution() {
+    let runtime = crate::runtime::BackgroundRuntime::new().unwrap();
+    let (client, inbox) = bridge::channel();
+    let provider = fake(vec![]);
+    let requests = provider.requests.clone();
+    let run = Run::start_with_context(
+        &runtime.handle(),
+        provider,
+        client,
+        vec![],
+        Permissions::READ_ONLY,
+    );
+    assert!(matches!(
+        run.events.recv_timeout(Duration::from_secs(2)).unwrap(),
+        Event::State(State::ExecutingTools)
+    ));
+    run.stop();
+    assert!(matches!(
+        run.finished.recv_timeout(Duration::from_secs(2)).unwrap(),
+        Event::Finished {
+            state: State::Cancelled,
+            ..
+        }
+    ));
+    let mut host = Host::default();
+    inbox.drain(&mut host);
+    assert!(host.0.is_empty());
+    assert!(requests.lock().unwrap().is_empty());
+    drop(run);
+    runtime.shutdown();
+}
+
 #[test]
 fn terminal_event_survives_stream_queue_overflow() {
     struct Flood;

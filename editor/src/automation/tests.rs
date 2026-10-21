@@ -92,6 +92,46 @@ fn note_args(target: &SnapshotRef, offset: usize, limit: usize) -> Value {
     json!({"schema_version":1,"target":target,"offset":offset,"limit":limit})
 }
 #[test]
+fn context_bounds_selected_records_and_keeps_ids_queryable() {
+    let (mut service, mut editor, mut app) = fixture();
+    app.chart.notes = (1..=200)
+        .rev()
+        .map(|id| ChartNote {
+            id,
+            time: 1.0 + id as f32 / 16.0,
+            lane: 1,
+            hi_speed: 1.0,
+            ..Default::default()
+        })
+        .collect();
+    editor.selected = (1..=200).collect();
+    editor.simai_editor = Default::default();
+    let ctx = context(&mut service, &mut editor, &app);
+    assert_eq!(ctx.selected_note_ids.len(), 200);
+    assert!(ctx.selection_notes_truncated);
+    assert!(!ctx.selected_notes.is_empty());
+    assert!(ctx.selected_notes.len() <= MAX_PAGE_SIZE);
+    assert!(serde_json::to_vec(&ctx).unwrap().len() <= MAX_RESULT_BYTES);
+    assert!(serde_json::to_vec(&ctx.selected_notes).unwrap().len() <= MAX_RESULT_BYTES / 2 + 2);
+    assert!(
+        ctx.selected_notes
+            .windows(2)
+            .all(|w| w[0].measure < w[1].measure)
+    );
+    let mut ids = Vec::new();
+    for offset in [0, 128] {
+        let page: NotesPage = serde_json::from_value(call(&mut service, &mut editor, &app,
+            "chart_query_notes", json!({"schema_version":1,"target":ctx.target,"note_ids":ctx.selected_note_ids,"offset":offset,"limit":128})
+        ).unwrap()).unwrap();
+        ids.extend(page.notes.into_iter().map(|n| n.id));
+    }
+    assert_eq!(
+        ids, ctx.selected_note_ids,
+        "truncated context never drops selection IDs"
+    );
+}
+
+#[test]
 fn graphical_delete_without_simai_pane_allows_agent_proposal() {
     let (mut service, mut editor, mut app) = fixture();
     let text = "|| 保留注释\r\n(120){4}1,2,3,E\r\n";
@@ -198,6 +238,15 @@ fn queries_use_the_open_document_without_mutating_document_or_transport() {
     assert_eq!(ctx.difficulty_slot, Some(5));
     assert_eq!(ctx.authored_note_count, 3);
     assert_eq!(ctx.selected_note_ids, ["11", "12"]);
+    assert_eq!(
+        ctx.selected_notes
+            .iter()
+            .map(|note| note.id.as_str())
+            .collect::<Vec<_>>(),
+        ["11", "12"],
+        "context should include complete selected-note data without a second query",
+    );
+    assert!(!ctx.selection_notes_truncated);
     assert!(ctx.simai_matches_chart);
     assert!(!ctx.core_available);
     assert!(!ctx.core_current);

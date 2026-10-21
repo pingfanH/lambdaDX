@@ -132,6 +132,168 @@ fn agent_without_mcp_proposes_through_real_host_and_stop_revokes_review() {
     assert_eq!(app.chart.notes[0].time, 1.0);
     assert!(!editor.dirty);
 }
+
+#[test]
+fn prefetched_selection_proposes_48_notes_in_one_model_request() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    struct Direct(Arc<AtomicUsize>);
+    impl Provider for Direct {
+        fn complete<'a>(
+            &'a mut self,
+            request: agent::ChatRequest,
+            _: &'a agent::Emit<'a>,
+        ) -> Completion<'a> {
+            Box::pin(async move {
+                assert_eq!(
+                    self.0.fetch_add(1, Ordering::SeqCst),
+                    0,
+                    "unnecessary model request"
+                );
+                let context = request
+                    .messages
+                    .iter()
+                    .flat_map(|m| m.content.parts())
+                    .find_map(|part| {
+                        let agent::ContentPart::Text(text) = part else {
+                            return None;
+                        };
+                        serde_json::from_str::<Value>(text)
+                            .ok()?
+                            .get("editor_context")
+                            .cloned()
+                    })
+                    .expect("first request must include a real host snapshot");
+                assert_eq!(context["selected_notes"].as_array().unwrap().len(), 48);
+                assert_eq!(context["selection_notes_truncated"], false);
+                for name in [
+                    "chart_get_context",
+                    "chart_query_notes",
+                    "chart_read_simai",
+                    "chart_check",
+                    "library_search",
+                    "library_read",
+                    "chart_propose_edit",
+                ] {
+                    assert!(format!("{request:?}").contains(name), "lost tool {name}");
+                }
+                Ok(Turn {
+                    message: tool(
+                        "direct",
+                        "chart_propose_edit",
+                        json!({
+                            "schema_version":1, "target":context["target"], "operation_id":"direct",
+                            "summary":"Move 48 selected notes by one beat",
+                            "edits":[{"kind":"transform_notes", "note_ids":context["selected_note_ids"],
+                                "delta_measures":0.25, "lane_rotation":0}]
+                        }),
+                    ),
+                    usage: None,
+                })
+            })
+        }
+    }
+    let (mut host, mut editor, mut app) = fixture();
+    app.chart.notes = (1..=49)
+        .map(|id| crate::app::types::Note {
+            id,
+            time: if id == 49 {
+                20.0
+            } else {
+                1.0 + (id - 1) as f32 / 16.0
+            },
+            lane: ((id - 1) % 8 + 1) as u8,
+            hi_speed: 1.0,
+            ..Default::default()
+        })
+        .collect();
+    editor.selected = (1..=48).collect();
+    let mut sync = crate::runtime::ChartSync::new(&mut app.chart);
+    let text = crate::io::simai::editable_body(&app.chart).expect("representable fixture");
+    let text = format!("|| 选区性能回归\r\n{text}");
+    editor.simai_editor.load(&app.chart, text.clone());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let runtime = host.background().unwrap();
+    let start = Instant::now();
+    let run = Run::start_with_context(
+        &runtime,
+        Direct(calls.clone()),
+        host.client(),
+        vec![Message::user("Move the selected notes one beat later")],
+        Permissions {
+            read: true,
+            focus: false,
+            propose: true,
+        },
+    );
+    let mut tools = Vec::new();
+    loop {
+        host.tick(&mut editor, &app, true, false);
+        for event in run.events.try_iter() {
+            if let Event::Tool { name, .. } = event {
+                tools.push(name);
+            }
+        }
+        if let Ok(Event::Finished { state, error, .. }) = run.finished.try_recv() {
+            assert_eq!(state, State::AwaitingApproval, "{error:?}");
+            for event in run.events.try_iter() {
+                if let Event::Tool { name, .. } = event {
+                    tools.push(name);
+                }
+            }
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "prefetched run stalled"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let model_done = start.elapsed();
+    let preflight = Instant::now();
+    loop {
+        host.maintenance(&mut editor, &mut app, &mut sync, true);
+        if host.proposals.pending().unwrap().result.state == ProposalState::AwaitingApproval {
+            break;
+        }
+        assert!(
+            preflight.elapsed() < Duration::from_secs(3),
+            "Simai preflight stalled"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let result = &host.proposals.pending().unwrap().result;
+    assert_eq!(result.changes.len(), 48);
+    assert!(result.changes.iter().all(|c| c.id != "49"));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(app.chart.notes[0].time, 1.0, "approval remains required");
+    assert!(!editor.dirty);
+    assert_eq!(
+        tools,
+        ["chart_get_context", "chart_propose_edit"],
+        "no unnecessary whole-chart or Simai reads"
+    );
+    assert_eq!(
+        editor.simai_editor.text, text,
+        "live source remains unchanged before approval"
+    );
+    assert!(
+        host.proposals
+            .pending()
+            .unwrap()
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("|| 选区性能回归\r\n")
+    );
+    eprintln!(
+        "prefetched 48 notes: fake-provider proposal={model_done:?}, Simai preflight={:?}, ready_for_review={:?}, model_requests=1",
+        preflight.elapsed(),
+        start.elapsed()
+    );
+}
 #[test]
 fn agent_proposal_requires_user_approval_and_is_one_undo_step() {
     let (mut host, mut editor, mut app, _run) = drive(Fake(0));

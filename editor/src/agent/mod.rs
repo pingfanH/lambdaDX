@@ -1,5 +1,7 @@
 //! One conversation per editor, with a local transcript; panes never own a runtime.
+mod context;
 mod history;
+use context::{compact_for_next_run, compact_review};
 mod settings;
 #[cfg(test)]
 mod tests;
@@ -271,8 +273,8 @@ impl Session {
         self.save_history(save_now);
     }
     fn reviewed(&mut self, result: ProposalResult) {
+        self.messages.push(Message::user(compact_review(&result)));
         let event = serde_json::json!({"editor_review":result});
-        self.messages.push(Message::user(event.to_string()));
         self.record(
             "编辑器审核结果（再次发送才会调用模型）",
             serde_json::to_string_pretty(&event).unwrap_or_default(),
@@ -349,7 +351,7 @@ impl Session {
         ui: &mut egui::Ui,
         host: &mut Service,
         editor: &EditorState,
-        app: &PadPreviewState,
+        _app: &PadPreviewState,
     ) {
         ui.label(format!("Agent · {:?}", self.state));
         ui.small(format!(
@@ -417,45 +419,31 @@ impl Session {
             .add_enabled(ready, egui::Button::new("发送到所选 endpoint"))
             .clicked()
         {
-            if let Err(error) = self.send(host, editor, app) {
+            if let Err(error) = self.send(host) {
                 self.record("错误", error.clone());
                 self.error = Some(error);
                 self.save_history(true);
             }
         }
     }
-    fn send(
-        &mut self,
-        host: &mut Service,
-        editor: &EditorState,
-        app: &PadPreviewState,
-    ) -> Result<(), String> {
-        let mut selected: Vec<_> = editor.selected.iter().copied().collect();
-        selected.sort_unstable();
-        if selected.len() > 256 {
-            return Err("显式选区超过 256 个音符，请缩小选区".into());
-        }
-        let context = serde_json::json!({"selected_note_ids":selected.iter().map(u64::to_string).collect::<Vec<_>>(),"selection_is_explicit":true,"measure_units":"measure 1 is start; in 4/4 a beat is 0.25 measures","document_revision":app.document_revision()});
-        let prompt = format!(
-            "{}\n\nEditor selection context (data): {}",
-            self.input.trim(),
-            context
-        );
-        if self.messages.iter().map(Message::size).sum::<usize>() + prompt.len() > MAX_CONTEXT_BYTES
-        {
+    fn send(&mut self, host: &mut Service) -> Result<(), String> {
+        let prompt = self.input.trim().to_owned();
+        let mut messages = compact_for_next_run(&self.messages);
+        if messages.iter().map(Message::size).sum::<usize>() + prompt.len() > MAX_CONTEXT_BYTES {
             return Err("会话超过 256 KiB，请清空会话或缩小任务".into());
         }
         let provider = Genai::new(&self.applied).map_err(|e| e.message)?;
         let runtime = host.background().map_err(|e| e.to_string())?;
         self.stop();
-        self.messages.push(Message::user(prompt));
+        messages.push(Message::user(prompt));
+        self.messages = messages;
         let text = std::mem::take(&mut self.input);
         self.record("用户", text);
         self.error = None;
         self.stream.clear();
         self.state = State::Requesting;
         self.save_history(true);
-        self.run = Some(Run::start(
+        self.run = Some(Run::start_with_context(
             &runtime,
             provider,
             host.client(),

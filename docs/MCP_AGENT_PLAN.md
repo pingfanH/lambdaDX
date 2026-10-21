@@ -492,6 +492,26 @@ editor 的 feature-off/mcp-only/agent-only/both 构建检查通过。
 `simai_editor/completion.rs` 的 Range::contains 引用层级编译错误; 该修正未纳入 P4。
 未进行实际图形窗口的端到端操作、跨平台或第二 provider 验收。
 
+### P4 后续: 选区生成延迟
+
+首轮模型请求前通过同一 scoped host bridge 预取新鲜 Context, 包含全部有效选中 ID
+与最多 128 条、约 32 KiB 的选区 note DTO; Context 总量仍限制 64 KiB。
+详情不足时明确标记并通过同一快照分页补查。简单操作可直接 typed edits 提案,
+省去模型先查询 context/选区再生成的网络往返, 不要求读取或重写整首 Simai。
+复杂任务仍能扩读邻域、全谱与配置库, 不按 note 数切模型或减少推理与工具。
+预取受原有 idle、权限、草稿、同步、取消、工具预算与总 deadline 保护。
+
+已结束会话在下次发送前压缩: 移除旧 context 和成功的谱面查询/检查结果,
+审核保留摘要与变更 ID; 用户原文、方案讨论、编辑意图、配置定义与工具错误保留。
+当前运行消息不压缩, 完整结果仍按原有容量规则记录到本地日志。
+
+隔离 worktree 验证: 共享 crate all-features 40 项、编辑器 Agent 会话 15 项、
+automation 21 项通过, 1 项真实网络测试忽略。48-note 回归从实际 host 预取到
+Simai 预检完成并可审核, 仅一次 fake provider 请求、两次工具调用; 本机本地链路
+约 77–118 ms, 其中 Simai 预检约 60–99 ms, 未计网络与真实模型推理。
+20,000-note 捕获约 3.699 ms、查询 0.293 ms、检查 0.672 ms。这些测量不代表
+真实模型稳定一秒完成; 本轮未对真实 provider 延迟作验收。
+
 ### P5: 扩展与打磨
 
 - [ ] 第二 provider/本地模型适配, 明确 tools 不支持时的只读聊天降级。

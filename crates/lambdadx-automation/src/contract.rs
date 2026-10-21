@@ -302,6 +302,12 @@ pub struct Context {
     pub template_count: usize,
     pub template_instance_count: usize,
     pub selected_note_ids: Vec<String>,
+    /// Complete selected-note records, bounded by page and response byte limits.
+    #[serde(default)]
+    pub selected_notes: Vec<Note>,
+    /// If true, query selected_note_ids with pagination for the remaining records.
+    #[serde(default)]
+    pub selection_notes_truncated: bool,
     pub has_simai_source: bool,
     pub unapplied_draft: bool,
     pub draft_conflict: bool,
