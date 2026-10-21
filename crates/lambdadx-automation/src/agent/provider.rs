@@ -175,13 +175,46 @@ impl Genai {
     }
 }
 
+// SSE envelopes repeat on every token. Budget transport separately from the
+// decoded text/tool limits so metadata does not consume the content allowance.
+const MAX_WIRE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_STREAM_FRAMES: usize = 65_536;
+const MAX_TEXT_BYTES: usize = 64 * 1024;
+const MAX_TOOL_BYTES: usize = super::MAX_CONTEXT_BYTES;
+const MAX_REASONING_BYTES: usize = 256 * 1024;
+
+#[derive(Default)]
+struct WireBudget {
+    bytes: usize,
+    frames: usize,
+}
+impl WireBudget {
+    fn charge(&mut self, frame: RawFrameRef<'_>) -> ToolResult<()> {
+        self.bytes = self.bytes.saturating_add(frame.data.len());
+        self.frames = frame.index as usize + 1;
+        if self.frames > MAX_STREAM_FRAMES {
+            return Err(ToolError::invalid(format!(
+                "Provider stream exceeds frame limit ({} > {} frames; {} bytes); no tools executed",
+                self.frames, MAX_STREAM_FRAMES, self.bytes
+            )));
+        }
+        if self.bytes > MAX_WIRE_BYTES {
+            return Err(ToolError::invalid(format!(
+                "Provider stream exceeds wire byte limit ({} > {} bytes across {} frames); no tools executed",
+                self.bytes, MAX_WIRE_BYTES, self.frames
+            )));
+        }
+        Ok(())
+    }
+}
+
 /// genai 0.7's OpenAI streamer only captures the first call in a regular
 /// delta array. Its public frame hook lets us assemble every call without
 /// retaining raw frames, while genai still owns HTTP, text, usage and finish.
 #[derive(Default)]
 struct OpenAiCalls {
     calls: BTreeMap<u64, (String, String, String)>,
-    bytes: usize,
+    wire: WireBudget,
     error: Option<ToolError>,
 }
 impl OpenAiCalls {
@@ -189,9 +222,8 @@ impl OpenAiCalls {
         if self.error.is_some() {
             return;
         }
-        self.bytes += frame.data.len();
-        if self.bytes > 1024 * 1024 || frame.index >= 16384 {
-            self.error = Some(ToolError::invalid("Provider stream exceeds wire budget"));
+        if let Err(error) = self.wire.charge(frame) {
+            self.error = Some(error);
             return;
         }
         let Some(value) = frame.json() else {
@@ -236,7 +268,7 @@ impl OpenAiCalls {
             .values()
             .map(|(id, name, args)| id.len() + name.len() + args.len())
             .sum::<usize>()
-            > 256 * 1024
+            > MAX_TOOL_BYTES
         {
             self.error = Some(ToolError::invalid("Model tool stream exceeds 256 KiB"));
         }
@@ -272,9 +304,25 @@ mod tests {
         )
     }
     fn streamed_calls(chunks: Vec<serde_json::Value>, finish: bool) -> ToolResult<Turn> {
+        streamed_frames(
+            chunks
+                .into_iter()
+                .map(|calls| {
+                    serde_json::json!({
+                        "choices":[{"index":0,"delta":{"tool_calls":calls},"finish_reason":null}]
+                    })
+                })
+                .collect(),
+            finish,
+        )
+    }
+    fn streamed_frames(frames: Vec<serde_json::Value>, finish: bool) -> ToolResult<Turn> {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = format!("http://{}/v1/", listener.local_addr().unwrap());
-        let chunks: String = chunks.into_iter().map(|calls| format!("data: {}\n\n", serde_json::json!({"choices":[{"index":0,"delta":{"tool_calls":calls},"finish_reason":null}]}))).collect();
+        let chunks: String = frames
+            .into_iter()
+            .map(|frame| format!("data: {frame}\n\n"))
+            .collect();
         let body = format!(
             "{chunks}{}data: [DONE]\n\n",
             if finish {
@@ -386,6 +434,140 @@ mod tests {
             assert_eq!(call.fn_arguments["schema_version"], 1);
         }
     }
+
+    #[test]
+    fn small_fragmented_tool_response_with_metadata_does_not_exhaust_wire_budget() {
+        let arguments =
+            serde_json::json!({"schema_version":1,"summary":"x".repeat(5000)}).to_string();
+        let frames: Vec<_> = arguments
+            .chars()
+            .enumerate()
+            .map(|(index, ch)| {
+                let mut call =
+                    serde_json::json!({"index":0,"function":{"arguments":ch.to_string()}});
+                if index == 0 {
+                    call["id"] = "live-id".into();
+                    call["type"] = "function".into();
+                    call["function"]["name"] = "chart_get_context".into();
+                }
+                serde_json::json!({
+                    "id":"chatcmpl-fixture-0123456789abcdef0123456789abcdef",
+                    "object":"chat.completion.chunk",
+                    "created":1792512000u64,
+                    "model":"deepseek/deepseek-v4.1-flash",
+                    "system_fingerprint":"fixture-fingerprint",
+                    "choices":[{"index":0,"delta":{"tool_calls":[call]},"finish_reason":null}]
+                })
+            })
+            .collect();
+        assert!(arguments.len() < 8 * 1024);
+        assert!(frames.iter().map(|v| v.to_string().len()).sum::<usize>() > 1024 * 1024);
+        let turn = streamed_frames(frames, true).unwrap();
+        let ContentPart::ToolCall(call) = &turn.message.content.parts()[0] else {
+            panic!("expected complete tool call")
+        };
+        assert_eq!(call.fn_arguments.to_string(), arguments);
+    }
+
+    #[test]
+    fn fragmented_reasoning_can_exceed_old_frame_limit_before_a_complete_tool_call() {
+        let mut frames: Vec<_> = (0..17_000)
+            .map(|_| {
+                serde_json::json!({
+                    "id":"reasoning-fixture",
+                    "model":"deepseek/deepseek-v4.1-flash",
+                    "choices":[{"index":0,"delta":{"reasoning_content":"想"},"finish_reason":null}]
+                })
+            })
+            .collect();
+        frames.push(serde_json::json!({
+            "choices":[{"index":0,"delta":{"tool_calls":[{
+                "index":0,"id":"after-reasoning","type":"function",
+                "function":{"name":"chart_get_context","arguments":"{\"schema_version\":1}"}
+            }]},"finish_reason":null}]
+        }));
+        let turn = streamed_frames(frames, true).unwrap();
+        let ContentPart::ToolCall(call) = &turn.message.content.parts()[0] else {
+            panic!("expected complete tool call")
+        };
+        assert_eq!(call.call_id, "after-reasoning");
+        assert_eq!(call.fn_arguments["schema_version"], 1);
+    }
+
+    #[test]
+    fn excessive_reasoning_still_fails_before_returning_executable_calls() {
+        let frames = vec![serde_json::json!({
+            "choices":[{"index":0,"delta":{"reasoning_content":"x".repeat(MAX_REASONING_BYTES+1)},"finish_reason":null}]
+        })];
+        let error = streamed_frames(frames, true)
+            .err()
+            .expect("must reject oversized reasoning");
+        assert!(
+            error.message.contains("Model reasoning exceeds 256 KiB"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn larger_wire_allowance_preserves_text_and_tool_content_limits() {
+        let error = streamed(&"x".repeat(MAX_TOOL_BYTES + 1), true)
+            .err()
+            .expect("must reject oversized tool arguments");
+        assert!(
+            error.message.contains("Model tool stream exceeds 256 KiB"),
+            "{error:?}"
+        );
+        let error = streamed_frames(
+            vec![serde_json::json!({
+                "choices":[{"index":0,"delta":{"content":"x".repeat(MAX_TEXT_BYTES+1)},"finish_reason":null}]
+            })],
+            true,
+        )
+        .err()
+        .expect("must reject oversized text");
+        assert!(
+            error.message.contains("Model response exceeds 64 KiB"),
+            "{error:?}"
+        );
+    }
+
+    fn capture(calls: &mut OpenAiCalls, index: u32, data: &str) {
+        calls.capture(RawFrameRef {
+            index,
+            event: None,
+            data,
+            elapsed_us: 0,
+        });
+    }
+
+    #[test]
+    fn wire_limits_report_which_limit_failed_and_discard_partial_calls() {
+        let initial = serde_json::json!({"choices":[{"delta":{"tool_calls":[{
+            "index":0,"id":"partial","function":{"name":"chart_get_context","arguments":"{"}
+        }]}}]})
+        .to_string();
+        let mut calls = OpenAiCalls::default();
+        capture(&mut calls, 0, &initial);
+        let metadata = serde_json::json!({"padding":"x".repeat(1024 * 1024)}).to_string();
+        for i in 1..=32 {
+            capture(&mut calls, i, &metadata);
+        }
+        let error = calls.take().unwrap_err();
+        assert!(error.message.contains("wire byte limit"), "{error:?}");
+        assert!(error.message.contains("33554432 bytes"), "{error:?}");
+
+        let mut calls = OpenAiCalls::default();
+        capture(&mut calls, 0, &initial);
+        // Frame indices are contiguous and zero-based in the SDK.
+        for i in 1..MAX_STREAM_FRAMES as u32 {
+            capture(&mut calls, i, "{}");
+        }
+        assert!(calls.error.is_none());
+        capture(&mut calls, MAX_STREAM_FRAMES as u32, "{}");
+        let error = calls.take().unwrap_err();
+        assert!(error.message.contains("frame limit"), "{error:?}");
+        assert!(error.message.contains("65537 > 65536 frames"), "{error:?}");
+    }
 }
 impl Provider for Genai {
     fn complete<'a>(&'a mut self, request: ChatRequest, emit: &'a Emit<'a>) -> Completion<'a> {
@@ -407,6 +589,7 @@ impl Provider for Genai {
                 .await
                 .map_err(provider_error)?;
             let mut bytes = 0usize;
+            let mut reasoning_bytes = 0usize;
             let mut tool_sizes = HashMap::new();
             let mut events = 0usize;
             while let Some(event) = response.stream.next().await {
@@ -414,23 +597,39 @@ impl Provider for Genai {
                     return Err(error.clone());
                 }
                 events += 1;
-                if events > 16384 {
-                    return Err(ToolError::invalid("Model stream exceeds event limit"));
+                // Start and End are SDK events in addition to the wire frames.
+                if events > MAX_STREAM_FRAMES + 2 {
+                    return Err(ToolError::invalid(format!(
+                        "Model stream exceeds event limit ({} > {} events); no tools executed",
+                        events,
+                        MAX_STREAM_FRAMES + 2
+                    )));
                 }
                 match event.map_err(provider_error)? {
                     ChatStreamEvent::Chunk(chunk) => {
                         bytes += chunk.content.len();
-                        if bytes > 64 * 1024 {
+                        if bytes > MAX_TEXT_BYTES {
                             return Err(ToolError::invalid("Model response exceeds 64 KiB"));
                         }
                         emit(Event::Text(chunk.content))?;
+                    }
+                    ChatStreamEvent::ReasoningChunk(chunk) => {
+                        // Reasoning is not displayed or retained, but must have
+                        // its own limit rather than spending the wire allowance.
+                        reasoning_bytes += chunk.content.len();
+                        if reasoning_bytes > MAX_REASONING_BYTES {
+                            return Err(ToolError::invalid(format!(
+                                "Model reasoning exceeds 256 KiB ({} bytes); no tools executed",
+                                reasoning_bytes
+                            )));
+                        }
                     }
                     ChatStreamEvent::ToolCallChunk(chunk) => {
                         // genai emits cumulative arguments. Count each call's latest
                         // size rather than charging every prefix a second time.
                         tool_sizes.insert(chunk.tool_call.call_id.clone(), chunk.tool_call.size());
                         if tool_sizes.len() > 64
-                            || tool_sizes.values().sum::<usize>() + bytes > 256 * 1024
+                            || tool_sizes.values().sum::<usize>() + bytes > MAX_TOOL_BYTES
                         {
                             return Err(ToolError::invalid(
                                 "Model tool stream exceeds 256 KiB or 64 calls",
@@ -467,6 +666,11 @@ impl Provider for Genai {
                             content = MessageContent::from_parts(parts);
                         }
                         let message = ChatMessage::assistant(content);
+                        if message.size() > super::MAX_CONTEXT_BYTES {
+                            return Err(ToolError::invalid(
+                                "Model response exceeds 256 KiB; no tools executed",
+                            ));
+                        }
                         return Ok(Turn {
                             message,
                             usage: end.captured_usage,
