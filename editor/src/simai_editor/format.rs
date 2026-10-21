@@ -287,7 +287,12 @@ impl Document {
             let at = tokens.iter().filter(|t| cell.range.contains(&t.bytes.start)
                 && matches!(t.kind, Kind::Bpm | Kind::Division | Kind::Speed))
                 .map(|t| t.bytes.end).max().unwrap_or(cell.range.start);
-            patches.push(Patch { range: at..at, text: directive });
+            // A new note in an empty cell may already insert at this boundary.
+            // Simai clock directives must precede that note; a suffix such as
+            // `3{8},` can make the parser discard the head.
+            if let Some(patch) = patches.iter_mut().find(|p| p.range == (at..at)) {
+                patch.text.insert_str(0, &directive);
+            } else { patches.push(Patch { range: at..at, text: directive }); }
             let mut cursor = 0;
             while cursor < events.len() {
                 let time = events[cursor].0;
@@ -319,8 +324,12 @@ impl Document {
 }
 
 fn insertion(text: &str, cell: &Cell, tokens: &[source::Token]) -> usize {
+    let after_directives = tokens.iter().filter(|t| cell.range.contains(&t.bytes.start)
+        && matches!(t.kind, Kind::Bpm | Kind::Division | Kind::Speed))
+        .map(|t| t.bytes.end).max().unwrap_or(cell.range.start);
     tokens.iter().filter(|t| cell.range.contains(&t.bytes.start))
-        .find(|t| t.kind == Kind::Comment || &text[t.bytes.clone()] == "E")
+        .find(|t| t.bytes.start >= after_directives
+            && (t.kind == Kind::Comment || &text[t.bytes.clone()] == "E"))
         .map(|t| t.bytes.start).unwrap_or(cell.range.end)
 }
 
@@ -447,6 +456,70 @@ mod tests {
         let mut chart = source.chart.clone();
         chart.notes[0].lane = 2;
         assert_eq!(changed(&source, &chart), source.text.replacen("1h", "2h", 1));
+    }
+
+    #[cfg(feature = "editor-automation")]
+    #[test]
+    fn strict_intro_interaction_addition_preserves_existing_source() {
+        let source = document("{1}(210),,,,{8}4,3,4,5,2,1,7,8,E");
+        let mut chart = source.chart.clone();
+        for measure in 1..=2 {
+            for step in 0..8 {
+                chart.notes.push(Note {
+                    id: 100 + chart.notes.len() as u64,
+                    time: measure as f32 + step as f32 / 8.0,
+                    lane: if measure == 1 { if step % 2 == 0 { 3 } else { 6 } }
+                        else if step % 2 == 0 { 2 } else { 7 },
+                    hi_speed: 1.0,
+                    ..Default::default()
+                });
+            }
+        }
+        for (measure, holding, answering) in [(3.0, 3, 6), (4.0, 6, 3)] {
+            chart.notes.push(Note {
+                id: 100 + chart.notes.len() as u64, time: measure, lane: holding,
+                note_type: crate::app::types::NoteType::Hold, hold_duration: 0.75,
+                hi_speed: 1.0, ..Default::default()
+            });
+            for step in 1..=3 {
+                chart.notes.push(Note {
+                    id: 100 + chart.notes.len() as u64, time: measure + step as f32 / 4.0,
+                    lane: answering, hi_speed: 1.0, ..Default::default()
+                });
+            }
+        }
+        assert_eq!(chart.notes.len(), source.chart.notes.len() + 24);
+        let text = source.update_strict(&chart).unwrap();
+        assert!(source.represents(&text, &chart), "{text}");
+        assert!(text.ends_with("{8}4,3,4,5,2,1,7,8,E"), "{text}");
+
+        // Also cover completing the interaction after its first tap was applied.
+        let mut first = source.chart.clone();
+        first.notes.push(chart.notes[source.chart.notes.len()].clone());
+        let first_text = source.update_strict(&first).unwrap();
+        let source = Document { text: first_text, chart: first };
+        let completed = source.update_strict(&chart).unwrap();
+        assert!(source.represents(&completed, &chart), "{completed}");
+        assert!(completed.ends_with("{8}4,3,4,5,2,1,7,8,E"), "{completed}");
+    }
+
+    #[cfg(feature = "editor-automation")]
+    #[test]
+    fn strict_subdivision_precedes_new_heads_in_empty_cells() {
+        for body in ["{1}(210),,4,E", "(210){1},,4,E", "(210){1}1,,4,E",
+            "|| 保留注释\r\n{1}(210),,4,E\r\n"] {
+            for start in [1.0, 2.0] {
+                let source = document(body);
+                let mut chart = source.chart.clone();
+                for (id, time, lane) in [(100, start, 3), (101, start + 0.125, 6)] {
+                    chart.notes.push(Note { id, time, lane, hi_speed: 1.0, ..Default::default() });
+                }
+                let text = source.update_strict(&chart).unwrap_or_else(|error| panic!("{body} at {start}: {error}; patched: {}", source.patch(&chart).unwrap()));
+                assert!(source.represents(&text, &chart), "{body} => {text}");
+                assert!(text.ends_with("4,E") || text.ends_with("4,E\r\n"), "{text}");
+                if body.contains("||") { assert!(text.starts_with("|| 保留注释\r\n"), "{text}"); }
+            }
+        }
     }
 
     #[test]
