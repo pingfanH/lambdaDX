@@ -776,6 +776,9 @@ dependencies = [
  "egui",
  "getrandom 0.2.17",
  "miniquad",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "quad-rand",
  "quad-url",
 ]

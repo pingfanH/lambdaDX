@@ -96,6 +96,8 @@
 //! }
 //! ```
 
+#[cfg(target_os = "macos")]
+mod ime;
 mod input;
 mod painter;
 
@@ -136,6 +138,8 @@ pub struct EguiMq {
     painter: painter::Painter,
     #[cfg(target_os = "macos")]
     clipboard: Option<copypasta::ClipboardContext>,
+    #[cfg(target_os = "macos")]
+    ime: ime::Ime,
     shapes: Option<Vec<egui::epaint::ClippedShape>>,
     textures_delta: egui::TexturesDelta,
 }
@@ -152,6 +156,8 @@ impl EguiMq {
             egui_input: egui::RawInput::default(),
             #[cfg(target_os = "macos")]
             clipboard: init_clipboard(),
+            #[cfg(target_os = "macos")]
+            ime: ime::Ime::new(),
             shapes: None,
             textures_delta: Default::default(),
         }
@@ -171,6 +177,8 @@ impl EguiMq {
         mut run_ui: impl FnMut(&mut dyn mq::RenderingBackend, &egui::Context),
     ) {
         input::on_frame_start(&mut self.egui_input, &self.egui_ctx);
+        #[cfg(target_os = "macos")]
+        self.ime.drain(&mut self.egui_input.events);
 
         if self.native_dpi_scale != miniquad::window::dpi_scale() {
             // DPI scale change (maybe new monitor?). Tell egui to change:
@@ -204,11 +212,18 @@ impl EguiMq {
         let egui::PlatformOutput {
             commands,
             cursor_icon,
-            events: _,                    // no screen reader
-            ime: _,                       // no IME
-            mutable_text_under_cursor: _, // no IME
+            events: _, // no screen reader
+            ime,
             ..
         } = platform_output;
+        #[cfg(target_os = "macos")]
+        self.ime.update(
+            ime,
+            self.egui_ctx.memory(|memory| memory.focused()),
+            pixels_per_point / self.native_dpi_scale,
+        );
+        #[cfg(not(target_os = "macos"))]
+        let _ = ime;
 
         for command in commands {
             match command {

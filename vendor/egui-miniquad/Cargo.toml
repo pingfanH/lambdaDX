@@ -7,6 +7,8 @@ description = "Bindings between egui and miniquad"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/not-fl3/egui-miniquad"
 
+[workspace]
+
 [dependencies]
 bytemuck = "1.9"
 egui = { version = "0.31.1", features = ["bytemuck"] }
@@ -19,3 +21,6 @@ quad-rand = "0.2.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 copypasta = "0.10.0"
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSArray", "NSAttributedString", "NSString", "NSThread"] }
+objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSEvent", "NSGraphicsContext", "NSResponder", "NSView", "NSWindow", "NSTextInputClient", "NSTextInputContext"] }

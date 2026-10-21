@@ -3,8 +3,33 @@
 Based on egui-miniquad 0.16.0, upstream commit
 `2c6528c6064003e0085dce323619201e15046b68` in
 `https://github.com/not-fl3/egui-miniquad`. The original MIT and Apache-2.0
-licenses are included. `src/lib.rs` and `src/input.rs` are unchanged; the
-manifest omits upstream examples and development dependencies.
+licenses are included. `src/input.rs` is unchanged; the manifest omits
+upstream examples and development dependencies.
+
+## macOS text input
+
+Miniquad 0.4.11's macOS view forwards raw key characters but does not implement
+`NSTextInputClient`, so Chinese input methods cannot compose or commit text.
+`src/ime.rs` adds a zero-size child NSView implementing that protocol. It owns
+the native first responder while an egui text field is focused, converts
+marked/committed text into egui events, and positions the candidate window
+from egui's cursor rectangle. Editing commands and Command/Control shortcuts
+continue through miniquad; keys used to select IME candidates are consumed.
+Text focus changes discard the old native composition and return keyboard
+ownership to the rendering view when appropriate. Other targets are unchanged.
+
+The native regression example opens a short-lived window on AppKit's main
+thread, invokes the responder's real text callbacks, and asserts the resulting
+TextEdit buffer. It covers Chinese preedit/commit, cancellation, ASCII, native
+keyDown routing, Return during composition, ordinary Return and focus release:
+
+```sh
+cargo run --manifest-path vendor/egui-miniquad/Cargo.toml --example ime_regression --target-dir target/ime-regression
+```
+
+Before the patch it fails because the focused responder does not implement
+the composition callback. It passes with the patch. This does not simulate a
+particular third-party input method or verify its visual candidate panel.
 
 ## Buffer Reuse
 
