@@ -13,6 +13,9 @@ use crate::core::types::{
 /// SDEZ chart notes are shifted by the default 60 ms AdjustTiming and the
 /// 50 ms judge-table center. Player-facing timestamps are chart/song time.
 pub const SDEZ_INPUT_OFFSET_US: i64 = 110_000;
+/// Autoplay is not driven by a human input edge. Its judge tick should land on
+/// the chart note time so the hit SFX and answer cue share one timeline.
+pub const SDEZ_AUTOPLAY_OFFSET_US: i64 = 60_000;
 
 pub struct SdezEngine {
     session: SdezSession,
@@ -56,7 +59,12 @@ impl SdezEngine {
             self.applied_autoplay.set(Some(wanted));
         }
         let (buttons_down, panel_state, new_frame) = self.apply_events(events);
-        let judged_time_us = current_time_us + SDEZ_INPUT_OFFSET_US;
+        let offset = if wanted {
+            SDEZ_AUTOPLAY_OFFSET_US
+        } else {
+            SDEZ_INPUT_OFFSET_US
+        };
+        let judged_time_us = current_time_us + offset;
         let result = self
             .session
             .step(
@@ -531,5 +539,26 @@ mod tests {
         let result = engine.seek(500_000, &[]).expect("seek");
         assert_eq!(result.current_time, 500_000);
         assert_eq!(result.score.combo, 1);
+    }
+
+    #[test]
+    fn autoplay_hit_sfx_lands_on_chart_time() {
+        let mut engine = SdezEngine::load("&inote_1=(60){4},1,E", 1).expect("SDEZ engine");
+        engine.set_autoplay(true);
+        let mut judged_at = None;
+        let mut t = 0i64;
+        while t <= 1_500_000 {
+            let result = engine.step(t, &[]).expect("step");
+            if result.events.iter().any(|event| event.kind == JudgeEventKind::Tap) {
+                judged_at = Some(t);
+                break;
+            }
+            t += 16_667;
+        }
+        let judged_at = judged_at.expect("autoplay tap");
+        assert!(
+            (980_000..=1_010_000).contains(&judged_at),
+            "autoplay hit SFX should land on chart time, got {judged_at}us"
+        );
     }
 }
