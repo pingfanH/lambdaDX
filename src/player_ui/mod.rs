@@ -41,45 +41,10 @@ pub struct UiCtx {
     pub dt: f32,
 }
 
-/// Candidate system fonts, most preferred first. `MAI2_FONT_PATH` wins.
-fn font_candidates() -> Vec<std::path::PathBuf> {
-    use std::path::PathBuf;
-    let mut out = Vec::new();
-    if let Some(p) = std::env::var_os("MAI2_FONT_PATH") {
-        out.push(PathBuf::from(p));
-    }
-    for p in [
-        // Plain `.ttf` first: fontdue rejects many `.ttc` collections.
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        "/Library/Fonts/Arial Unicode.ttf",
-        "/System/Library/Fonts/PingFang.ttc",
-        "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        "/System/Library/Fonts/STHeiti Medium.ttc",
-        "/System/Library/Fonts/Supplemental/Songti.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto-cjk/NotoSansCJK-VF.otf.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "C:\\Windows\\Fonts\\msyh.ttc",
-        "C:\\Windows\\Fonts\\msyh.ttf",
-    ] {
-        out.push(PathBuf::from(p));
-    }
-    out
-}
-
-/// Load the first font that parses. Falls back to the bundled Arial (ASCII
-/// only), then to macroquad's built-in font.
+/// Use the shared CJK-aware resolver (env override, standard paths, then
+/// fontconfig / font-directory discovery).
 fn load_font() -> Option<Font> {
-    for path in font_candidates() {
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        if let Ok(font) = load_ttf_font_from_bytes(&bytes) {
-            println!("player-ui: font {}", path.display());
-            return Some(font);
-        }
-    }
-    load_ttf_font_from_bytes(include_bytes!("../../assets/Arial.ttf")).ok()
+    player::font::handle()
 }
 
 /// Paint a minimal boot frame (uses macroquad's built-in font).

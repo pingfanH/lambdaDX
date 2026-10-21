@@ -4,7 +4,7 @@
 //! large pad panel. `compute_pad_geom` then centers a circle in that panel.
 
 use crate::app::types::{Layout, PadGeom, RectF};
-use crate::player::render::ui_scale;
+use crate::player::render::ui_scale_for;
 use crate::player::state::PadPreviewState;
 use macroquad::prelude::{screen_height, screen_width};
 
@@ -16,7 +16,7 @@ pub fn compute_layout(app: &PadPreviewState) -> Layout {
 /// Same as [`compute_layout`] but for an explicit framebuffer size (used by the
 /// offscreen video export, which renders at its own resolution).
 pub fn compute_layout_sized(app: &PadPreviewState, sw: f32, sh: f32) -> Layout {
-    let scale = ui_scale(app);
+    let scale = ui_scale_for(app, sw, sh);
     let margin = if app.mobile_ui { 12.0 } else { 20.0 } * scale;
     let header_h = 76.0 * scale;
 

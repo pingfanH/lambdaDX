@@ -78,7 +78,7 @@ pub mod textures;
 pub mod timing;
 pub mod touch;
 
-pub use scale::ui_scale;
+pub use scale::{ui_scale, ui_scale_for};
 pub use textures::load_note_textures;
 
 use macroquad::math::vec2;

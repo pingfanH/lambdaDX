@@ -92,6 +92,14 @@ lnmai-core-rust = { path = "lnmai-rust", optional = true }
 # fontdue's existing parallel parser. Keep web builds on the serial path.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 fontdue = { version = "0.9", features = ["parallel"] }
+# fontdue disables ttf-parser's default features. We use the parser directly to
+# validate CJK outlines and to detect CFF2 variable collections, which fontdue
+# rasterizes as solid boxes; Cargo unifies this feature set into fontdue.
+ttf-parser = { version = "0.25", default-features = false, features = [
+    "opentype-layout",
+    "no-std-float",
+    "variable-fonts",
+] }
 
 # Desktop Linux multi-touch touchscreen input (kernel Type-B evdev).
 [target.'cfg(target_os = "linux")'.dependencies]
