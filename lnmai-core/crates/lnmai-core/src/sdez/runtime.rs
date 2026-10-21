@@ -42,6 +42,17 @@ pub struct SdezEvent {
     pub judged: JudgedNote,
 }
 
+/// Per-frame visual progress of one live slide (note index in the runtime
+/// chart). `tracks` is only meaningful for WiFi, where each branch consumes
+/// independently.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SdezSlideProgress {
+    pub note_index: u64,
+    pub is_wifi: bool,
+    pub progress: f32,
+    pub tracks: [f32; 3],
+}
+
 #[derive(Debug, Clone, Copy)]
 enum OrdinaryRef {
     Tap(usize),
@@ -216,9 +227,13 @@ impl SdezRuntime {
     pub fn step(&mut self, current_msec: f32) -> Vec<SdezEvent> {
         let delta = (current_msec - self.current_msec).max(0.0);
         self.current_msec = current_msec;
+        // `GameInputFrameOnceInput` is cleared every hardware frame in the
+        // official input manager; ownership is only valid for one frame.
+        self.input.clear_used();
         let mut events = Vec::new();
 
-        for item in self.ordinary_order.clone() {
+        for index in 0..self.ordinary_order.len() {
+            let item = self.ordinary_order[index];
             match item {
                 OrdinaryRef::Tap(index) => {
                     let slot = &mut self.taps[index];
@@ -340,6 +355,49 @@ impl SdezRuntime {
             self.score.fold(event);
         }
         events
+    }
+
+    /// Trail consumption for every slide that has not finished yet, plus the
+    /// final 1.0 frame for a slide judged in this step.
+    pub fn slide_progress(&self) -> Vec<SdezSlideProgress> {
+        let mut out = Vec::with_capacity(self.slides.len());
+        let autoplay = self.autoplay != AutoplayMode::None;
+        for slot in &self.slides {
+            match &slot.note {
+                SlideRuntimeNote::Single(note) => {
+                    if note.result().is_some() {
+                        continue;
+                    }
+                    let progress = note.progress(self.current_msec, autoplay);
+                    if progress <= 0.0 {
+                        continue;
+                    }
+                    out.push(SdezSlideProgress {
+                        note_index: slot.note_index,
+                        is_wifi: false,
+                        progress,
+                        tracks: [progress; 3],
+                    });
+                }
+                SlideRuntimeNote::Fan(note) => {
+                    if note.result().is_some() {
+                        continue;
+                    }
+                    let tracks = note.progress(self.current_msec, autoplay);
+                    let progress = tracks.iter().copied().fold(0.0_f32, f32::max);
+                    if progress <= 0.0 {
+                        continue;
+                    }
+                    out.push(SdezSlideProgress {
+                        note_index: slot.note_index,
+                        is_wifi: true,
+                        progress,
+                        tracks,
+                    });
+                }
+            }
+        }
+        out
     }
 
     fn force_touch_groups(&mut self, current_msec: f32, events: &mut Vec<SdezEvent>) {

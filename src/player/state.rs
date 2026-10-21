@@ -212,6 +212,7 @@ impl PreparedEditedEngine {
         };
         let reset = self.engine.seek_with_events(context.time, events, context.autoplay)?;
         self.progress = self.engine.slide_progress_updates(&reset.render_commands);
+        self.progress.extend(self.engine.take_slide_progress());
         self.tactic = crate::app::autoplay_edit::compiled_events(&plan.retained(&reset.retained_note_indices));
         self.tactic_cursor = self.tactic.partition_point(|event| {
             crate::player::engine::timed_input_tp(event) < (context.time * 1e6) as i64
@@ -840,6 +841,7 @@ impl PadPreviewState {
         if let Some(engine) = self.judge_engine.as_mut() {
             let result = engine.seek_with_events(t, &events, self.autoplay)?;
             progress_updates = engine.slide_progress_updates(&result.render_commands);
+            progress_updates.extend(engine.take_slide_progress());
             if let Some(plan) = plan {
                 // Bare legacy streams remain usable until a nonzero seek.
                 if !self.legacy_autoplay || t > 0.0 {
@@ -1531,7 +1533,14 @@ impl PadPreviewState {
                     *slot = (*slot).max(bar);
                 }
                 let slot = progress.track_frac.entry(track).or_insert(0.0);
-                if !is_wifi || update.hidden_until_bar.is_some() { *slot = slot.max(update.frac); }
+                // SDEZ reports a real per-track fraction (`shared_frac` is
+                // None); the legacy WiFi cursor stays out of the branch frac.
+                if !is_wifi
+                    || update.hidden_until_bar.is_some()
+                    || update.shared_frac.is_none()
+                {
+                    *slot = slot.max(update.frac);
+                }
                 // Also fold into `seg_frac` so non-wifi slides that emit
                 // per-track progress (conn-slides) keep consuming as before.
                 if progress.seg_frac.len() < seg_count {

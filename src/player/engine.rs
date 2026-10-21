@@ -22,6 +22,8 @@ use crate::player::state::PadPreviewState;
 use crate::player::feedback::{FeedbackGrade, HitEffect};
 #[cfg(feature = "backend-rust")]
 use crate::player::sdez_engine::SdezEngine;
+#[cfg(feature = "backend-rust")]
+use crate::core::sdez::SdezSlideProgress;
 use std::collections::{HashMap, HashSet};
 
 /// Map a pad zone to the screen sensor event family.
@@ -196,6 +198,10 @@ pub struct JudgeEngine {
     chart_slide_positions: Option<HashMap<usize, (u64, usize, usize, usize)>>,
     #[cfg(feature = "backend-rust")]
     sdez: Option<SdezEngine>,
+    /// Slide trail progress reported by the SDEZ runtime, keyed by the legacy
+    /// runtime arc index the renderer already understands.
+    #[cfg(feature = "backend-rust")]
+    sdez_progress: Vec<SlideArcProgress>,
 }
 
 fn ensure_runtime() {
@@ -258,6 +264,8 @@ impl JudgeEngine {
             chart_slide_positions: None,
             #[cfg(feature = "backend-rust")]
             sdez,
+            #[cfg(feature = "backend-rust")]
+            sdez_progress: Vec::new(),
         })
     }
 
@@ -401,7 +409,9 @@ impl JudgeEngine {
         #[cfg(feature = "backend-rust")]
         if let Some(sdez) = &mut self.sdez {
             let result = sdez.step(current_time_us, &events)?;
+            let progress = sdez.take_slide_progress();
             self.last_step_time_us = result.current_time;
+            self.map_sdez_progress(progress);
             return Ok(result);
         }
         if std::env::var_os("MAI2_DEBUG_TOUCHZONE").is_some() && !events.is_empty() {
@@ -433,9 +443,60 @@ impl JudgeEngine {
         self.slide_bindings.get(&note_index).copied()
     }
 
+    /// True when the SDEZ170 backend owns judgment. SDEZ scores a slide once at
+    /// its tail and never emits a separate slide-head note.
+    pub fn is_sdez(&self) -> bool {
+        #[cfg(feature = "backend-rust")]
+        {
+            self.sdez.is_some()
+        }
+        #[cfg(not(feature = "backend-rust"))]
+        {
+            false
+        }
+    }
+
     /// Number of slides in the loaded runtime chart.
     pub fn slide_count(&self) -> usize {
         self.slide_bindings.len()
+    }
+
+    /// Trail progress produced by the SDEZ core since the last call.
+    #[cfg(feature = "backend-rust")]
+    pub fn take_slide_progress(&mut self) -> Vec<SlideArcProgress> {
+        std::mem::take(&mut self.sdez_progress)
+    }
+
+    #[cfg(feature = "backend-rust")]
+    fn map_sdez_progress(&mut self, progress: Vec<SdezSlideProgress>) {
+        let mut mapped = Vec::new();
+        for slide in progress {
+            let Some(runtime) = self.slide_bindings.get(&slide.note_index).copied() else {
+                continue;
+            };
+            if slide.is_wifi {
+                for (track, frac) in slide.tracks.iter().enumerate() {
+                    mapped.push(SlideArcProgress {
+                        runtime_slide_index: runtime,
+                        track_index: Some(track as u64),
+                        frac: frac.clamp(0.0, 1.0),
+                        hidden_until_bar: None,
+                        // SDEZ reports a real per-track fraction, not the
+                        // legacy shared cursor.
+                        shared_frac: None,
+                    });
+                }
+            } else {
+                mapped.push(SlideArcProgress {
+                    runtime_slide_index: runtime,
+                    track_index: None,
+                    frac: slide.progress.clamp(0.0, 1.0),
+                    hidden_until_bar: None,
+                    shared_frac: None,
+                });
+            }
+        }
+        self.sdez_progress = mapped;
     }
 
     /// Core slide head timing (µs) at `runtime_slide_index`.
@@ -479,8 +540,10 @@ impl JudgeEngine {
         }
         #[cfg(feature = "backend-rust")]
         if let Some(sdez) = &mut self.sdez {
-            let result = sdez.seek((seconds.max(0.0) * 1e6) as i64, events)?;
+            let result = sdez.seek((seconds.max(0.0) * 1e6) as i64, events, keep_held)?;
+            let progress = sdez.take_slide_progress();
             self.last_step_time_us = result.current_time;
+            self.map_sdez_progress(progress);
             return Ok(result);
         }
         let result = self
@@ -852,11 +915,12 @@ pub fn step_judge_engine(app: &mut PadPreviewState) {
         match result {
             Ok(result) => {
                 app.core_score = Some(result.score.clone());
-                if let Some(engine) = app.judge_engine.as_ref() {
+                if let Some(engine) = app.judge_engine.as_mut() {
                     if debug_slide_enabled() {
                         log_lnmai_slide_state(engine, now, &result);
                     }
-                    let updates = engine.slide_progress_updates(&result.render_commands);
+                    let mut updates = engine.slide_progress_updates(&result.render_commands);
+                    updates.extend(engine.take_slide_progress());
                     app.apply_core_slide_progress_updates(&updates);
                 }
                 handle_engine_result(app, result);
@@ -1464,6 +1528,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sdez_autoplay_survives_a_mid_song_seek() {
+        let text = include_str!("../../lnmai-core/crates/lnmai-core/tests/fixtures/real_charts/jack_ripper.txt");
+        let mut engine = JudgeEngine::load(text, 5).unwrap();
+        engine.set_autoplay(true);
+        engine.seek_with_events(60.0, &[], true).unwrap();
+        let mut t = 60.0_f32;
+        let mut last = None;
+        while t < 150.0 {
+            t += 1.0 / 60.0;
+            last = Some(engine.step(t, Vec::new()).unwrap());
+        }
+        let score = last.unwrap().score;
+        assert_eq!(score.lost_base, 0, "seeked autoplay must not lose notes");
+        assert_eq!(score.earned_base, score.total_base);
+    }
+
+    #[test]
+    fn sdez_manual_plan_replay_survives_a_mid_song_seek() {
+        let text = include_str!("../../lnmai-core/crates/lnmai-core/tests/fixtures/real_charts/jack_ripper.txt");
+        let mut engine = JudgeEngine::load(text, 5).unwrap();
+        let events = engine.autoplay_plan().unwrap().events();
+        engine.set_autoplay(false);
+        engine.seek_with_events(60.0, &events, false).unwrap();
+        let mut cursor = events
+            .iter()
+            .position(|event| timed_input_tp(event) >= 60_000_000)
+            .unwrap_or(events.len());
+        let mut t = 60.0_f32;
+        let mut last = None;
+        while t < 150.0 {
+            let now_us = (t * 1e6) as i64;
+            let mut due = Vec::new();
+            while cursor < events.len() && timed_input_tp(&events[cursor]) <= now_us {
+                due.push(events[cursor].clone());
+                cursor += 1;
+            }
+            for result in step_engine_events(&mut engine, t, due) {
+                last = Some(result.unwrap());
+            }
+            t += 1.0 / 60.0;
+        }
+        let score = last.unwrap().score;
+        assert_eq!(score.lost_base, 0, "plan replay after seek must not lose notes");
+        assert_eq!(score.earned_base, score.total_base);
+    }
+
+    #[test]
     fn slide_completion_uses_slide_judgment_without_tap_particles() {
         for source in ["&inote_1=(120){4}1-5[4:1],,,,E", "&inote_1=(120){4}1-5b[4:1],,,,E"] {
             let chart = crate::app::maidata::from_maidata(source, None).unwrap();
@@ -1922,7 +2033,9 @@ mod tests {
         while t < 180.0 {
             t += 0.2;
             let result = engine.step(t, Vec::new()).expect("step");
-            for update in engine.slide_progress_updates(&result.render_commands) {
+            let mut updates = engine.slide_progress_updates(&result.render_commands);
+            updates.extend(engine.take_slide_progress());
+            for update in updates {
                 assert!(
                     chart_slide_key(&chart, update.runtime_slide_index).is_some(),
                     "runtime slide {} must map to a chart slide",
@@ -2076,7 +2189,9 @@ mod tests {
                 cursor += 1;
             }
             let result = engine.step(t, events).expect("step");
-            for u in engine.slide_progress_updates(&result.render_commands) {
+            let mut updates = engine.slide_progress_updates(&result.render_commands);
+            updates.extend(engine.take_slide_progress());
+            for u in updates {
                 if let Some(bar) = u.hidden_until_bar {
                     tracks.insert(u.track_index);
                     max_bar = max_bar.max(bar);

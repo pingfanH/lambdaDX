@@ -91,6 +91,32 @@ pub fn total_distance(areas: &[SlideHitArea]) -> f64 {
         .sum()
 }
 
+/// Rotate one ring-local hit point to the stage position for `button`.
+///
+/// The tables store canonical A1/B1/... coordinates; the official
+/// `InputManager.ConvertTouchPanelRotatePush` adds the star/start button for
+/// the A, B, D and E rings. The C ring has no rotation.
+pub fn rotate_point(point: usize, button: usize) -> usize {
+    match point {
+        0..=7 => (point + button) % 8,
+        8..=15 => 8 + (point - 8 + button) % 8,
+        18..=25 => 18 + (point - 18 + button) % 8,
+        26..=33 => 26 + (point - 26 + button) % 8,
+        _ => point,
+    }
+}
+
+pub fn rotate_areas(areas: &mut [SlideHitArea], button: usize) {
+    if button == 0 {
+        return;
+    }
+    for area in areas {
+        for point in &mut area.points {
+            *point = rotate_point(*point, button);
+        }
+    }
+}
+
 /// SlideRoot.Initialize lastWaitTime initialization.
 pub fn initial_last_wait_time(
     areas: &[SlideHitArea],

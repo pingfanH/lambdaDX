@@ -705,7 +705,13 @@ pub fn to_chart_spec(chart: &NormalizedChart) -> ChartSpec {
                 multiple: note.multiple.clone(),
                 logical_slide_id: note.note_index.clone(),
                 sdez_slide_type: slide_type_for_shape(&note.simai_shape, note.slot),
-                sdez_end: slide_end_for_shape(&note.simai_shape, note.slot),
+                sdez_end: note
+                    .judge_queues
+                    .get(if note.judge_queues.len() > 1 { 1 } else { 0 })
+                    .and_then(|queue| queue.last())
+                    .and_then(|area| area.target_areas.iter().find_map(|a| a.to_outer_slot()))
+                    .map(|end| end.to_index() as u8)
+                    .unwrap_or_else(|| slide_end_for_shape(&note.simai_shape, note.slot)),
                 note_index: note.note_index.clone(),
                 judge_queues: note.judge_queues.clone(),
                 debug_simai: slide_debug_for(chart, note.note_index.clone()).map(|dbg| {

@@ -529,7 +529,14 @@ pub(crate) fn registry() -> &'static Mutex<RuntimeRegistry> {
 #[derive(Default)]
 pub struct SdezRegistry {
     pub next_handle: u64,
-    pub sessions: std::collections::HashMap<u64, crate::sdez::SdezRuntime>,
+    pub sessions: std::collections::HashMap<u64, SdezLoaded>,
+}
+
+/// A loaded SDEZ session keeps the parsed chart so seek can rebuild the
+/// runtime without re-parsing (or re-lowering) the Simai source.
+pub struct SdezLoaded {
+    pub chart: ChartSpec,
+    pub runtime: crate::sdez::SdezRuntime,
 }
 
 impl SdezRegistry {
@@ -575,7 +582,11 @@ pub fn load_sdez_chart_text(
         5 => crate::sdez::AutoplayMode::Miss,
         _ => crate::sdez::AutoplayMode::None,
     };
-    sdez_registry().lock().unwrap().sessions.insert(handle, runtime);
+    sdez_registry()
+        .lock()
+        .unwrap()
+        .sessions
+        .insert(handle, SdezLoaded { chart, runtime });
     ok_json(json!({ "handle": handle.to_string(), "state": "loaded" }))
 }
 
@@ -619,17 +630,19 @@ pub fn step_sdez_handle(
     panel_new_frame: bool,
 ) -> String {
     let mut reg = sdez_registry().lock().unwrap();
-    let Some(runtime) = reg.sessions.get_mut(&handle) else {
+    let Some(session) = reg.sessions.get_mut(&handle) else {
         return error_json(
             "invalid_runtime_handle",
             &format!("unknown SDEZ runtime handle: {handle}"),
         );
     };
+    let runtime = &mut session.runtime;
     runtime
         .input
         .update_panel(panel_state, panel_new_frame);
     runtime.input.set_buttons(buttons_down, buttons_push);
     let events = runtime.step(current_msec);
+    let slides = runtime.slide_progress();
     let score = &runtime.score;
     ok_json(json!({
         "events": events.iter().map(|event| json!({
@@ -648,6 +661,12 @@ pub fn step_sdez_handle(
             "isWifi": event.is_wifi,
         })).collect::<Vec<_>>(),
         "currentTime": current_msec,
+        "slides": slides.iter().map(|slide| json!({
+            "noteIndex": slide.note_index,
+            "isWifi": slide.is_wifi,
+            "progress": slide.progress,
+            "tracks": slide.tracks,
+        })).collect::<Vec<_>>(),
         "score": {
             "combo": score.combo,
             "maxCombo": score.max_combo,
@@ -675,12 +694,13 @@ pub fn free_sdez_handle(handle: u64) -> String {
 
 pub fn set_sdez_autoplay(handle: u64, autoplay: u8) -> String {
     let mut reg = sdez_registry().lock().unwrap();
-    let Some(runtime) = reg.sessions.get_mut(&handle) else {
+    let Some(session) = reg.sessions.get_mut(&handle) else {
         return error_json(
             "invalid_runtime_handle",
             &format!("unknown SDEZ runtime handle: {handle}"),
         );
     };
+    let runtime = &mut session.runtime;
     runtime.autoplay = match autoplay {
         1 => crate::sdez::AutoplayMode::Critical,
         2 => crate::sdez::AutoplayMode::Perfect,
@@ -690,6 +710,33 @@ pub fn set_sdez_autoplay(handle: u64, autoplay: u8) -> String {
         _ => crate::sdez::AutoplayMode::None,
     };
     ok_json(json!({ "autoplay": autoplay }))
+}
+
+/// Rebuild the runtime from the cached chart, dropping all judgments and
+/// progress. Seek uses this to avoid re-parsing the chart on every drag frame.
+pub fn reset_sdez_handle(handle: u64, autoplay: u8) -> String {
+    let mut reg = sdez_registry().lock().unwrap();
+    let Some(session) = reg.sessions.get_mut(&handle) else {
+        return error_json(
+            "invalid_runtime_handle",
+            &format!("unknown SDEZ runtime handle: {handle}"),
+        );
+    };
+    let mut runtime = crate::sdez::SdezRuntime::from_chart(&session.chart);
+    runtime.autoplay = autoplay_mode(autoplay);
+    session.runtime = runtime;
+    ok_json(json!({ "handle": handle.to_string(), "state": "reset" }))
+}
+
+fn autoplay_mode(autoplay: u8) -> crate::sdez::AutoplayMode {
+    match autoplay {
+        1 => crate::sdez::AutoplayMode::Critical,
+        2 => crate::sdez::AutoplayMode::Perfect,
+        3 => crate::sdez::AutoplayMode::Great,
+        4 => crate::sdez::AutoplayMode::Good,
+        5 => crate::sdez::AutoplayMode::Miss,
+        _ => crate::sdez::AutoplayMode::None,
+    }
 }
 
 fn loaded_summary_json(spec: &ChartSpec) -> Value {

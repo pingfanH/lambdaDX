@@ -26,17 +26,15 @@ pub const SLIDE_FAN: u8 = 13;
 ///
 /// Directional variants use the parser's mirror bit. CircleUp is classified by
 /// its canonical mirror state because the original body kind is not retained.
-pub fn slide_type_for_shape(shape: &SlideShape, slot: OuterSlot) -> u8 {
+pub fn slide_type_for_shape(shape: &SlideShape, _slot: OuterSlot) -> u8 {
     let mirrored = is_mirrored(shape.symmetry);
     match &shape.canonical {
         CanonicalSlideShape::Line(_) => SLIDE_STRAIGHT,
         CanonicalSlideShape::Circle(_) => {
-            let upper = matches!(
-                slot,
-                OuterSlot::S7 | OuterSlot::S8 | OuterSlot::S1 | OuterSlot::S2
-            );
-            let right = if upper { !mirrored } else { mirrored };
-            if right {
+            // `<` (unmirrored) walks the A/B ring upward; `>` is its mirror.
+            // The official Circle_R table is the increasing path, so the
+            // direction follows the shape mirror bit, not the start quadrant.
+            if !mirrored {
                 SLIDE_CIRCLE_R
             } else {
                 SLIDE_CIRCLE_L
@@ -44,10 +42,13 @@ pub fn slide_type_for_shape(shape: &SlideShape, slot: OuterSlot) -> u8 {
         }
         CanonicalSlideShape::V(_) => SLIDE_CORNER,
         CanonicalSlideShape::Turn(_) => {
+            // Simai V/turn notation walks the same seven-area ring path as the
+            // official Skip tables; Bend's hit sequence diverges at the second
+            // area (C2/B6 instead of C/B7).
             if mirrored {
-                SLIDE_BEND_R
+                SLIDE_SKIP_R
             } else {
-                SLIDE_BEND_L
+                SLIDE_SKIP_L
             }
         }
         CanonicalSlideShape::Pq(_) => {
@@ -81,11 +82,13 @@ pub fn slide_end_for_shape(shape: &SlideShape, slot: OuterSlot) -> u8 {
     let rel_end = shape_rel_end(shape)
         .and_then(|value| value.to_usize())
         .unwrap_or(5);
-    if rel_end == 8 {
-        slot.to_index() as u8
-    } else {
-        ((slot.to_index() + rel_end - 1) % 8) as u8
+    // `rel_end == 8` is a full loop only for Circle. For P/Q, V and Turn it
+    // means seven steps forward (the end is one step before the start), so the
+    // normal relative-end formula is correct there.
+    if rel_end == 8 && matches!(shape.canonical, CanonicalSlideShape::Circle(_)) {
+        return slot.to_index() as u8;
     }
+    ((slot.to_index() + rel_end - 1) % 8) as u8
 }
 
 #[cfg(test)]
@@ -125,4 +128,27 @@ mod tests {
         assert_eq!(slide.sdez_slide_type, SLIDE_STRAIGHT);
         assert_eq!(slide.sdez_end, 2);
     }
+
+    #[test]
+    fn terminal_slot_comes_from_the_written_end_position() {
+        for (body, slide_type, end) in [
+            ("3<6", 3, 5),
+            ("6>3", 2, 2),
+            ("1>8", 3, 7),
+            ("8<1", 2, 0),
+            ("5p4", 4, 3),
+            ("1p8", 4, 7),
+            ("1V37", 12, 6),
+            ("8V62", 11, 1),
+            ("1w5", 13, 4),
+        ] {
+            let text = format!("&inote_1=(120){{4}}{body}[4:1],E");
+            let chart =
+                crate::simai::frontend::frontend_lowered_chart(&text, (1).into()).unwrap();
+            let slide = chart.slides.first().expect(body);
+            assert_eq!(slide.sdez_slide_type, slide_type, "{body}");
+            assert_eq!(slide.sdez_end, end, "{body}");
+        }
+    }
+
 }

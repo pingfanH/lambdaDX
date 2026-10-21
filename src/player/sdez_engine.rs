@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::cell::Cell;
 
-use crate::core::sdez::{SdezEvent, SdezSession, SdezStepResult};
+use crate::core::sdez::{SdezEvent, SdezSession, SdezSlideProgress, SdezStepResult};
 use crate::core::types::{
     AudioCommand, ButtonZone, JudgeEvent, JudgeEventKind, JudgeGrade, JudgePhase,
     NoteTypeJudgeCounts, RenderCommand, RuntimePos, RuntimeStepLightResult, ScoreState,
@@ -19,13 +19,15 @@ pub const SDEZ_AUTOPLAY_OFFSET_US: i64 = 60_000;
 
 pub struct SdezEngine {
     session: SdezSession,
+    /// Panel bits held by explicit hold events (clicks last one frame only).
     panel_state: u64,
+    /// Button bits held by explicit hold events.
     buttons_push: u16,
     last_time_us: i64,
-    text: String,
-    level_index: u32,
     autoplay: Cell<bool>,
     applied_autoplay: Cell<Option<bool>>,
+    /// Trail progress reported by the last step/seek, consumed by `JudgeEngine`.
+    step_progress: Vec<SdezSlideProgress>,
 }
 
 impl SdezEngine {
@@ -39,10 +41,9 @@ impl SdezEngine {
             panel_state: 0,
             buttons_push: 0,
             last_time_us: 0,
-            text: text.to_string(),
-            level_index,
             autoplay: Cell::new(false),
             applied_autoplay: Cell::new(None),
+            step_progress: Vec::new(),
         })
     }
 
@@ -58,24 +59,28 @@ impl SdezEngine {
                 .map_err(|e| e.json)?;
             self.applied_autoplay.set(Some(wanted));
         }
-        let (buttons_down, panel_state, new_frame) = self.apply_events(events);
+        let (buttons_down, buttons_push, panel_state, _) = self.apply_events(events);
         let offset = if wanted {
             SDEZ_AUTOPLAY_OFFSET_US
         } else {
             SDEZ_INPUT_OFFSET_US
         };
         let judged_time_us = current_time_us + offset;
-        let result = self
+        let mut result = self
             .session
             .step(
                 judged_time_us as f32 / 1000.0,
                 buttons_down,
-                self.buttons_push,
+                buttons_push,
                 panel_state,
-                new_frame,
+                // Every host frame is a hardware input frame. Sending `false`
+                // on empty frames would leave `now` latched at the last click
+                // and suppress the next `TriggerOn` on the same area.
+                true,
             )
             .map_err(|e| e.json)?;
         self.last_time_us = current_time_us;
+        self.step_progress = std::mem::take(&mut result.slides);
         Ok(self.to_runtime_result(result, current_time_us))
     }
 
@@ -89,15 +94,17 @@ impl SdezEngine {
         self.applied_autoplay.set(None);
     }
 
-    fn apply_events(&mut self, events: &[TimedInputEvent]) -> (u16, u64, bool) {
+    fn apply_events(&mut self, events: &[TimedInputEvent]) -> (u16, u16, u64, bool) {
         let mut down = 0u16;
+        let mut click_buttons = 0u16;
+        let mut click_panels = 0u64;
         let mut new_frame = false;
         for event in events {
             match event {
                 TimedInputEvent::ButtonClick { zone, .. } => {
                     let bit = button_bit(*zone);
                     down |= bit;
-                    self.buttons_push |= bit;
+                    click_buttons |= bit;
                     new_frame = true;
                 }
                 TimedInputEvent::ButtonHold { zone, is_down, .. } => {
@@ -111,7 +118,7 @@ impl SdezEngine {
                     new_frame = true;
                 }
                 TimedInputEvent::SensorClick { area, .. } => {
-                    self.panel_state |= sensor_bits(*area);
+                    click_panels |= sensor_bits(*area);
                     new_frame = true;
                 }
                 TimedInputEvent::SensorHold { area, is_down, .. } => {
@@ -124,44 +131,57 @@ impl SdezEngine {
                 }
             }
         }
-        (down, self.panel_state, new_frame)
+        // A click is a one-frame touch: keeping its bit in the held state would
+        // suppress every later `TriggerOn` on the same area.
+        (
+            down,
+            self.buttons_push | click_buttons,
+            self.panel_state | click_panels,
+            new_frame,
+        )
     }
 
     pub fn seek(
         &mut self,
         target_us: i64,
-        events: &[TimedInputEvent],
+        _events: &[TimedInputEvent],
+        autoplay: bool,
     ) -> Result<SeekResult, String> {
-        let mut session = SdezSession::create().map_err(|e| e.json)?;
-        let autoplay = if events.is_empty() { 1 } else { 0 };
-        session
-            .load_text(&self.text, self.level_index, autoplay)
+        // Rebuild from the chart cached inside the core session. Re-parsing the
+        // Simai source here made every scrub frame cost a full chart load.
+        self.session
+            .reset(1)
             .map_err(|e| e.json)?;
-        self.session = session;
-        self.autoplay.set(events.is_empty());
-        self.applied_autoplay.set(None);
+        // The fast-forward below runs in core autoplay; the first real step
+        // switches the session back to the caller's input mode.
+        self.autoplay.set(true);
+        self.applied_autoplay.set(Some(true));
         self.panel_state = 0;
         self.buttons_push = 0;
         self.last_time_us = 0;
+        self.step_progress.clear();
 
-        let mut sorted = events.to_vec();
-        sorted.sort_by_key(|event| event_tp(event));
-        let mut cursor = 0usize;
         let mut frame_us = 0i64;
         let mut last = None;
+        // Autoplay judges from the clock, so a coarse forward step is exact and
+        // keeps scrubbing responsive. The score after a seek is the autoplay
+        // reconstruction in both modes; the player hides past notes by chart
+        // time and resumes real input judgment on the next frame.
         while frame_us < target_us {
-            frame_us = (frame_us + 16_667).min(target_us);
-            let mut frame_events = Vec::new();
-            while cursor < sorted.len() && event_tp(&sorted[cursor]) <= frame_us {
-                frame_events.push(sorted[cursor].clone());
-                cursor += 1;
-            }
-            last = Some(self.step(frame_us, &frame_events)?);
+            frame_us = (frame_us + 200_000).min(target_us);
+            last = Some(self.step(frame_us, &[])?);
+        }
+        self.autoplay.set(autoplay);
+        if !autoplay {
+            // Restore manual input mode and rebuild hit-based progress at the
+            // target time.
+            last = Some(self.step(target_us, &[])?);
         }
         let last = match last {
             Some(last) => last,
             None => self.step(target_us, &[])?,
         };
+        self.last_time_us = target_us;
         Ok(SeekResult {
             score: last.score,
             current_time: target_us,
@@ -170,6 +190,11 @@ impl SdezEngine {
             skipped_note_indices: Vec::new(),
             render_commands: last.render_commands,
         })
+    }
+
+    /// Trail progress from the most recent step, drained once per frame.
+    pub fn take_slide_progress(&mut self) -> Vec<SdezSlideProgress> {
+        std::mem::take(&mut self.step_progress)
     }
 
     fn to_runtime_result(
@@ -202,6 +227,22 @@ impl SdezEngine {
                 note_index: event.note_index,
             });
             if event.kind == JudgeEventKind::Slide {
+                // Emit the terminal progress before hiding: consumers (and the
+                // autoplay audit) use it to confirm the arc was fully consumed.
+                if source.is_wifi {
+                    for track_index in 0..3 {
+                        render_commands.push(RenderCommand::UpdateSlideTrackProgress {
+                            note_index: event.note_index,
+                            track_index,
+                            remaining: 9,
+                        });
+                    }
+                } else {
+                    render_commands.push(RenderCommand::UpdateSlideProgress {
+                        note_index: event.note_index,
+                        remaining: 0,
+                    });
+                }
                 render_commands.push(RenderCommand::HideAllSlideBars {
                     note_index: event.note_index,
                 });
@@ -450,14 +491,6 @@ fn sensor_bits(area: SensorArea) -> u64 {
     }
 }
 
-fn event_tp(event: &TimedInputEvent) -> i64 {
-    match event {
-        TimedInputEvent::ButtonClick { tp, .. }
-        | TimedInputEvent::ButtonHold { tp, .. }
-        | TimedInputEvent::SensorClick { tp, .. }
-        | TimedInputEvent::SensorHold { tp, .. } => *tp,
-    }
-}
 
 fn button_zone(index: u8) -> Option<ButtonZone> {
     Some(match index {
@@ -536,7 +569,7 @@ mod tests {
     #[test]
     fn seek_rebuilds_and_fast_forwards_the_sdez_session() {
         let mut engine = SdezEngine::load("&inote_1=(120){4}1,E", 1).expect("SDEZ engine");
-        let result = engine.seek(500_000, &[]).expect("seek");
+        let result = engine.seek(500_000, &[], true).expect("seek");
         assert_eq!(result.current_time, 500_000);
         assert_eq!(result.score.combo, 1);
     }

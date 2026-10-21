@@ -27,7 +27,7 @@ pub use slide_fan::SlideFanNote;
 
 pub use mapping::{slide_end_for_shape, slide_type_for_shape};
 
-pub use runtime::{SdezEvent, SdezNoteKind, SdezPhase, SdezRuntime};
+pub use runtime::{SdezEvent, SdezNoteKind, SdezPhase, SdezRuntime, SdezSlideProgress};
 
 pub use score::{SdezScore, NOTE_TYPE_COUNT, TIMING_COUNT};
 

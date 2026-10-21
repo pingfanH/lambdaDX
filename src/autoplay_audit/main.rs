@@ -122,11 +122,12 @@ fn replay(path: &Path, level: u32, output: &Path, inner: bool, stalled: bool, di
     let mut emitted = 0;
     let mut checked_progress = 0;
     let mut grades = BTreeMap::<String, usize>::new();
+    let sdez = pad.judge_engine.as_ref().unwrap().is_sdez();
     let mut expected: BTreeSet<_> = spec.taps.iter().map(|n| n.note_index)
         .chain(spec.holds.iter().map(|n| n.note_index))
         .chain(spec.touches.iter().map(|n| n.note_index))
         .chain(spec.touch_holds.iter().map(|n| n.note_index))
-        .chain(spec.slide_heads.iter().map(|n| n.note_index))
+        .chain(spec.slide_heads.iter().filter(|_| !sdez).map(|n| n.note_index))
         .chain(spec.slides.iter().filter(|n| !n.is_conn_slide || n.is_group_end).map(|n| n.note_index))
         .collect();
     let end = spec.taps.iter().map(|n| n.timing)
@@ -143,14 +144,19 @@ fn replay(path: &Path, level: u32, output: &Path, inner: bool, stalled: bool, di
         let due = std::mem::take(&mut pad.engine_events);
         emitted += due.len();
         line(&mut inputs, &json!({"frame": frame, "timeUs": now, "events": due}))?;
+        if std::env::var_os("MAI2_AUDIT_INPUT_ONLY").is_none() {
+            pad.judge_engine.as_mut().unwrap().set_autoplay(pad.autoplay);
+        }
         let results = step_engine_events(pad.judge_engine.as_mut().unwrap(), now as f32 / 1e6, due);
         for result in results {
             let result = match result {
                 Ok(result) => result,
                 Err(error) => { failures.push(format!("frame {frame}: {error}")); continue; }
             };
+            let direct = pad.judge_engine.as_mut().unwrap().take_slide_progress();
             let engine = pad.judge_engine.as_ref().unwrap();
-            let updates = engine.slide_progress_updates(&result.render_commands);
+            let mut updates = engine.slide_progress_updates(&result.render_commands);
+            updates.extend(direct);
             let mut mapped = Vec::new();
             for update in &updates {
                 let position = engine.slide_position(pad.playback_chart(), update.runtime_slide_index);

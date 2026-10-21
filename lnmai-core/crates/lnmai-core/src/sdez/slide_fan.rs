@@ -5,18 +5,18 @@ use super::judge::{
     get_slide_judge_timing, threshold, EJudgeType, ETiming, JUDGE_ADJUST_MSEC,
 };
 use super::note::{AutoplayMode, JudgedNote};
-use super::slide_data::{hit_areas, SlideHitArea};
+use super::slide_data::{hit_areas, rotate_areas, SlideHitArea};
 use super::timing::TimingSettings;
 
 #[derive(Debug, Clone, PartialEq)]
 struct Lane {
-    areas: &'static [SlideHitArea],
+    areas: Vec<SlideHitArea>,
     index: usize,
     hit_in: bool,
 }
 
 impl Lane {
-    fn new(areas: &'static [SlideHitArea]) -> Self {
+    fn new(areas: Vec<SlideHitArea>) -> Self {
         Self {
             areas,
             index: 0,
@@ -82,8 +82,12 @@ impl SlideFanNote {
             target,
             if target == 7 { 0 } else { target + 1 },
         ];
-        let lanes = goals.map(|goal| Lane::new(hit_areas(13, start, goal, star_button)));
-        let middle = lanes[1].areas;
+        let lanes = goals.map(|goal| {
+            let mut areas = hit_areas(13, start, goal, star_button).to_vec();
+            rotate_areas(&mut areas, star_button);
+            Lane::new(areas)
+        });
+        let middle = &lanes[1].areas;
         let total: f64 = middle
             .iter()
             .map(|area| area.push_distance + area.release_distance)
@@ -114,6 +118,25 @@ impl SlideFanNote {
 
     pub fn result(&self) -> Option<JudgedNote> {
         self.result
+    }
+
+    /// Per-lane trail consumption (0..1). The visible ribbon uses the middle
+    /// lane, but each branch still hides its own arrows.
+    pub fn progress(&self, current_msec: f32, autoplay: bool) -> [f32; 3] {
+        let by_time = if autoplay {
+            let span = self.star_arrive_msec - self.star_launch_msec;
+            let denom = span - self.last_wait_time;
+            if current_msec <= self.star_launch_msec {
+                0.0
+            } else if denom <= 0.0 {
+                1.0
+            } else {
+                ((current_msec - self.star_launch_msec) / denom).clamp(0.0, 1.0)
+            }
+        } else {
+            0.0
+        };
+        std::array::from_fn(|index| by_time.max(lane_fraction(&self.lanes[index])))
     }
 
     fn checkable(&self, current_msec: f32, settings: TimingSettings) -> bool {
@@ -200,6 +223,11 @@ impl SlideFanNote {
                 });
             }
         }
+        // Same early-return rule as SlideRoot: no `lastWaitTime` aging until
+        // the slide has entered its judge window.
+        if self.pending.is_none() {
+            return None;
+        }
         if self.last_wait_time <= 0.0 || self.pending.map(|p| p.timing) == Some(ETiming::TooLate)
         {
             let judged = self.pending.unwrap_or(JudgedNote {
@@ -211,6 +239,24 @@ impl SlideFanNote {
         }
         self.last_wait_time -= delta_msec;
         None
+    }
+}
+
+fn lane_fraction(lane: &Lane) -> f32 {
+    let mut total = 0.0_f64;
+    let mut consumed = 0.0_f64;
+    for (index, area) in lane.areas.iter().enumerate() {
+        total += area.push_distance + area.release_distance;
+        if index < lane.index {
+            consumed += area.push_distance + area.release_distance;
+        } else if index == lane.index && lane.hit_in {
+            consumed += area.push_distance;
+        }
+    }
+    if total <= 0.0 {
+        0.0
+    } else {
+        (consumed / total).clamp(0.0, 1.0) as f32
     }
 }
 

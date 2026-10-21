@@ -6,7 +6,7 @@ use super::judge::{
 };
 use super::note::{AutoplayMode, JudgedNote};
 use super::slide_data::{
-    hit_areas, initial_last_wait_time, SlideHitArea,
+    hit_areas, initial_last_wait_time, rotate_areas, SlideHitArea,
 };
 use super::timing::TimingSettings;
 
@@ -43,7 +43,8 @@ impl SlideNote {
         star_arrive_msec: f32,
         is_break: bool,
     ) -> Self {
-        let hit_areas = hit_areas(slide_type, start, end, star_button).to_vec();
+        let mut hit_areas = hit_areas(slide_type, start, end, star_button).to_vec();
+        rotate_areas(&mut hit_areas, star_button);
         let initial_wait =
             initial_last_wait_time(&hit_areas, star_launch_msec, star_arrive_msec);
         Self {
@@ -79,6 +80,8 @@ impl SlideNote {
         is_break: bool,
         hit_areas: Vec<SlideHitArea>,
     ) -> Self {
+        let mut hit_areas = hit_areas;
+        rotate_areas(&mut hit_areas, star_button);
         let initial_wait =
             initial_last_wait_time(&hit_areas, star_launch_msec, star_arrive_msec);
         Self {
@@ -103,6 +106,47 @@ impl SlideNote {
 
     pub fn result(&self) -> Option<JudgedNote> {
         self.result
+    }
+
+    /// Visual consumption of the slide trail (0..1).
+    ///
+    /// Autoplay uses the official SlideRoot.NoteCheck cutoff
+    /// (current - StarLaunch) / (StarArrive - StarLaunch - lastWaitTime).
+    /// Manual play consumes only areas the player actually hit, matching the
+    /// arrow-deletion path in CheckSlideTouch.
+    pub fn progress(&self, current_msec: f32, autoplay: bool) -> f32 {
+        let by_hit = self.hit_fraction();
+        if !autoplay {
+            return by_hit;
+        }
+        let span = self.star_arrive_msec - self.star_launch_msec;
+        let denom = span - self.last_wait_time;
+        let by_time = if current_msec <= self.star_launch_msec {
+            0.0
+        } else if denom <= 0.0 {
+            1.0
+        } else {
+            ((current_msec - self.star_launch_msec) / denom).clamp(0.0, 1.0)
+        };
+        by_time.max(by_hit)
+    }
+
+    fn hit_fraction(&self) -> f32 {
+        let mut total = 0.0_f64;
+        let mut consumed = 0.0_f64;
+        for (index, area) in self.hit_areas.iter().enumerate() {
+            total += area.push_distance + area.release_distance;
+            if index < self.hit_index {
+                consumed += area.push_distance + area.release_distance;
+            } else if index == self.hit_index && self.hit_in {
+                consumed += area.push_distance;
+            }
+        }
+        if total <= 0.0 {
+            0.0
+        } else {
+            (consumed / total).clamp(0.0, 1.0) as f32
+        }
     }
 
     fn checkable(&self, current_msec: f32, settings: TimingSettings) -> bool {
@@ -223,6 +267,14 @@ impl SlideNote {
             }
         }
 
+        // `SlideRoot.NoteCheck` returns early (`GetJudgeResult() == End &&
+        // !JudgeToolate()`) while the slide is still too fast to judge, so
+        // `lastWaitTime` is not aged during the approach. Aging it from the
+        // head made short slides finalize before their star even launched.
+        if self.pending.is_none() {
+            return None;
+        }
+
         if self.last_wait_time <= 0.0 || self.pending.map(|p| p.timing) == Some(ETiming::TooLate)
         {
             let judged = self.pending.unwrap_or(JudgedNote {
@@ -290,5 +342,40 @@ mod tests {
             .step(0.0, 16.666666, &mut input, TimingSettings::default(), AutoplayMode::None)
             .is_none());
         assert!(note.result().is_none());
+    }
+
+    #[test]
+    fn real_chart_line_slide_advances_through_plan_holds() {
+        // Slide 1-5 from jack_ripper, judged timestamps (plan time + 110 ms).
+        let mut note = SlideNote::new(1, 0, 4, 0, 5774.0, 6202.857, 6060.0, 6202.857, false);
+        let mut input = InputFrame::default();
+        let settings = TimingSettings::default();
+        let script = [
+            (6110.0, 1usize << A1),
+            (6140.284, 0),
+            (6140.285, 1usize << 8),
+            (6170.569, 0),
+            (6170.570, 1usize << 16),
+            (6200.854, 0),
+            (6200.855, 1usize << 12),
+            (6231.139, 0),
+            (6231.140, 1usize << 4),
+        ];
+        let mut result = None;
+        for (t, panel) in script {
+            input.update_panel(panel as u64, true);
+            if let Some(judged) = note.step(t, 1.0, &mut input, settings, AutoplayMode::None) {
+                result = Some(judged);
+            }
+        }
+        let mut t = 6231.14;
+        while result.is_none() && t < 6300.0 {
+            t += 1.0;
+            if let Some(judged) = note.step(t, 1.0, &mut input, settings, AutoplayMode::None) {
+                result = Some(judged);
+            }
+        }
+        assert!(result.is_some(), "slide never resolved");
+        assert_eq!(result.unwrap().timing, ETiming::Critical);
     }
 }
