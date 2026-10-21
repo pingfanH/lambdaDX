@@ -154,6 +154,12 @@ impl SlideNote {
         if self.result.is_some() {
             return None;
         }
+        // The note is not active yet. Do not age lastWaitTime while it is still
+        // off-screen, otherwise short slides can be finalized as TooLate before
+        // their star ever appears.
+        if current_msec + JUDGE_ADJUST_MSEC < self.appear_msec {
+            return None;
+        }
 
         if autoplay != AutoplayMode::None {
             if current_msec >= self.tail_msec {
@@ -273,5 +279,16 @@ mod tests {
             .step(1000.0, 16.666666, &mut input, settings, AutoplayMode::Critical)
             .expect("slide result");
         assert_eq!(judged.timing, ETiming::Critical);
+    }
+
+    #[test]
+    fn inactive_slide_does_not_age_out_before_its_head() {
+        let mut note = SlideNote::new(1, 0, 2, 0, 5000.0, 6000.0, 5000.0, 6000.0, false);
+        note.last_wait_time = 1.0;
+        let mut input = InputFrame::default();
+        assert!(note
+            .step(0.0, 16.666666, &mut input, TimingSettings::default(), AutoplayMode::None)
+            .is_none());
+        assert!(note.result().is_none());
     }
 }

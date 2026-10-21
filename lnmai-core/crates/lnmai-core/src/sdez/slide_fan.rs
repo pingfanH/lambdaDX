@@ -165,6 +165,9 @@ impl SlideFanNote {
         if self.result.is_some() {
             return None;
         }
+        if current_msec + JUDGE_ADJUST_MSEC < self.appear_msec {
+            return None;
+        }
         if autoplay != AutoplayMode::None {
             if current_msec >= self.tail_msec {
                 let judged = JudgedNote {
@@ -226,5 +229,16 @@ mod tests {
             .step(1000.0, 16.666666, &mut input, TimingSettings::default(), AutoplayMode::Critical)
             .expect("fan result");
         assert_eq!(judged.timing, ETiming::Critical);
+    }
+
+    #[test]
+    fn inactive_fan_does_not_age_out_before_its_head() {
+        let mut note = SlideFanNote::new(0, 4, 0, 5000.0, 6000.0, 5000.0, 6000.0, false);
+        note.last_wait_time = 1.0;
+        let mut input = InputFrame::default();
+        assert!(note
+            .step(0.0, 16.666666, &mut input, TimingSettings::default(), AutoplayMode::None)
+            .is_none());
+        assert!(note.result().is_none());
     }
 }
