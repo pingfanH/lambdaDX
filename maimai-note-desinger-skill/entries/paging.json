@@ -1,0 +1,14 @@
+{
+  "id": "paging",
+  "name": "分页",
+  "aliases": [],
+  "tags": [
+    "手法",
+    "分工"
+  ],
+  "summary": "把扫键、转圈、TOUCH 等配置拆成由两只手分别处理的手法。玩家通常可以自主决定是否使用。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第24项",
+  "body": "entries/paging.md",
+  "references": []
+}

@@ -39,10 +39,17 @@ fn real_http_client_and_stdio_relay_use_the_bounded_host() {
             while !stop.load(Ordering::Acquire) { inbox.drain(&mut host); std::thread::sleep(Duration::from_millis(1)); }
         }});
         let client = connect(&record).await;
-        assert_eq!(client.list_tools(None).await.unwrap().tools.len(), 5);
-        assert_eq!(client.list_resources(None).await.unwrap().resources.len(), 2);
+        assert_eq!(client.list_tools(None).await.unwrap().tools.len(), 7);
+        assert_eq!(client.list_resources(None).await.unwrap().resources.len(), 3);
         let resource = client.read_resource(ReadResourceRequestParams::new(UNITS_URI)).await.unwrap();
         assert!(!resource.contents.is_empty());
+        let skill = client.read_resource(ReadResourceRequestParams::new(SKILL_URI)).await.unwrap();
+        assert!(!skill.contents.is_empty());
+        let library = client.call_tool(params("library_search", json!({"schema_version":1,"query":"交互","limit":3}))).await.unwrap();
+        let library = library.structured_content.unwrap();
+        assert_eq!(library["hits"][0]["id"], "interaction");
+        let body = client.call_tool(params("library_read", json!({"schema_version":1,"id":"interaction","revision":library["revision"],"max_bytes":4096}))).await.unwrap();
+        assert!(body.structured_content.unwrap()["text"].as_str().unwrap().contains("左右手交替"));
         let result = client.call_tool(params("chart_get_context", json!({"schema_version":1}))).await.unwrap();
         assert_eq!(result.structured_content.unwrap()["document_id"], "fixture");
         assert_ne!(result.is_error, Some(true));
@@ -51,7 +58,7 @@ fn real_http_client_and_stdio_relay_use_the_bounded_host() {
         assert_eq!(denied.is_error, Some(true));
         assert_eq!(denied.structured_content.unwrap()["code"], "PERMISSION_DENIED");
         server.set_permissions(Permissions { read:true, focus:true, propose:true });
-        assert_eq!(client.list_tools(None).await.unwrap().tools.len(), 7);
+        assert_eq!(client.list_tools(None).await.unwrap().tools.len(), 9);
         let error = client.call_tool(params("chart_query_notes", json!({"schema_version":1,"target":{"document_id":"fixture","snapshot_token":"snapshot"},"limit":128}))).await.unwrap();
         assert_eq!(error.is_error, Some(true));
         assert_eq!(error.structured_content.unwrap()["code"], "NO_DOCUMENT");
@@ -62,7 +69,7 @@ fn real_http_client_and_stdio_relay_use_the_bounded_host() {
         let (input, output) = tokio::io::split(a);
         let relay = tokio::spawn(async move { proxy::relay(rmcp::transport::async_rw::AsyncRwTransport::new_server(input, output), &record).await });
         let stdio_client = ClientConfig::default().serve_with_lifecycle(b, ClientLifecycleMode::Initialize).await.unwrap();
-        assert_eq!(stdio_client.list_tools(None).await.unwrap().tools.len(), 7);
+        assert_eq!(stdio_client.list_tools(None).await.unwrap().tools.len(), 9);
         let result = stdio_client.call_tool(params("chart_get_context", json!({"schema_version":1}))).await.unwrap();
         assert_eq!(result.structured_content.unwrap()["snapshot_token"], "snapshot");
         stdio_client.cancel().await.unwrap();

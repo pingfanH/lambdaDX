@@ -1,0 +1,14 @@
+{
+  "id": "syncopation",
+  "name": "跳拍",
+  "aliases": [],
+  "tags": [
+    "节奏",
+    "停顿"
+  ],
+  "summary": "通过音符之间的间隔变化形成节奏上的跳跃感，例如二连音后出现停顿等。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第10项",
+  "body": "entries/syncopation.md",
+  "references": []
+}

@@ -1,0 +1,15 @@
+{
+  "id": "dog-paddle",
+  "name": "狗刨",
+  "aliases": [],
+  "tags": [
+    "手法",
+    "外键",
+    "内屏"
+  ],
+  "summary": "打外键的同时直接滑向内屏，一次处理两个音符，两只手交替进行，常用于纵连场合。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第22项",
+  "body": "entries/dog-paddle.md",
+  "references": []
+}

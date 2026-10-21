@@ -1,0 +1,15 @@
+{
+  "id": "universe",
+  "name": "大宇宙",
+  "aliases": [],
+  "tags": [
+    "交互",
+    "TAP",
+    "四键"
+  ],
+  "summary": "两手在四个键位范围来回打交互；原稿另提到可用单点或扫键处理。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第8、19项",
+  "body": "entries/universe.md",
+  "references": []
+}

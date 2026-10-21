@@ -1,0 +1,15 @@
+{
+  "id": "anchor",
+  "name": "轴交互",
+  "aliases": [],
+  "tags": [
+    "交互",
+    "TAP",
+    "固定手"
+  ],
+  "summary": "一只手固定在一个键位上，另一只手的键位不固定。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第4项",
+  "body": "entries/anchor.md",
+  "references": []
+}

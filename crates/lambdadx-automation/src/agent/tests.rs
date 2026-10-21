@@ -124,6 +124,23 @@ fn multiple_sequential_tools_preserve_results_and_continuation() {
     assert!(!format!("{request:?}").contains("approve_edit"));
 }
 #[test]
+fn note_design_library_is_available_to_agent_without_editor_requests() {
+    let provider = fake(vec![
+        ChatMessage::assistant(vec![call("lookup", "library_search", json!({"schema_version":1,"query":"交互","limit":3}))]),
+        ChatMessage::assistant("done"),
+    ]);
+    let requests = provider.requests.clone();
+    let (report, host, _) = exercise(provider, Budget::default());
+    assert_eq!(report.state, State::Completed);
+    assert!(host.0.is_empty(), "Library reads must bypass the editor frame thread");
+    let results = responses(&report);
+    assert_eq!(results.len(), 1);
+    assert!(format!("{:?}", results[0]).contains("interaction"));
+    let request = format!("{:?}", requests.lock().unwrap()[0]);
+    assert!(request.contains("library_search") && request.contains("library_read"));
+    assert!(request.contains("左右手逐击交替"));
+}
+#[test]
 fn invalid_unknown_duplicate_and_malformed_calls_each_get_a_result() {
     let calls = vec![
         context("a"),

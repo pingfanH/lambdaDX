@@ -9,6 +9,7 @@ compile_error!("MCP and agent runtimes currently support desktop targets only");
 pub mod bridge;
 pub mod catalog;
 pub mod contract;
+pub mod library;
 pub mod proposal;
 #[cfg(feature = "mcp")]
 pub mod mcp;

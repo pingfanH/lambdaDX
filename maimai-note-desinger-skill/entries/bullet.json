@@ -1,0 +1,13 @@
+{
+  "id": "bullet",
+  "name": "子弹",
+  "aliases": [],
+  "tags": [
+    "叠键"
+  ],
+  "summary": "两个音符叠在一起的配置。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第12项",
+  "body": "entries/bullet.md",
+  "references": []
+}

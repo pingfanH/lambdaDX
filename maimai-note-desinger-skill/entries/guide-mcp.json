@@ -1,0 +1,13 @@
+{
+  "id": "guide-mcp",
+  "name": "MCP 工作流",
+  "aliases": [],
+  "tags": [
+    "指南"
+  ],
+  "summary": "LambdaDX 配置检索、快照查询、编辑提案与错误处理。",
+  "completeness": "complete",
+  "source": "LambdaDX 技能维护文档",
+  "body": "references/ldx-mcp.md",
+  "references": []
+}

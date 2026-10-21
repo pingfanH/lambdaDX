@@ -1,0 +1,14 @@
+{
+  "id": "scattered",
+  "name": "散点",
+  "aliases": [],
+  "tags": [
+    "TAP",
+    "单点"
+  ],
+  "summary": "没有特定表现形式，排键分散或不容易看出规律的单点配置。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第9项",
+  "body": "entries/scattered.md",
+  "references": []
+}

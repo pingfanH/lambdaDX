@@ -1,0 +1,18 @@
+{
+  "id": "interaction",
+  "name": "交互",
+  "aliases": [
+    "定轨交互",
+    "位移交互"
+  ],
+  "tags": [
+    "交互",
+    "TAP",
+    "换手"
+  ],
+  "summary": "匀拍的节奏下，每击打一次音符就进行左右手交替的配置的统称。按位移分可分为定轨交互和位移交互。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第1项",
+  "body": "entries/interaction.md",
+  "references": []
+}

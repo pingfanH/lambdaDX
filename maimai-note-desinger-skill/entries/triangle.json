@@ -1,0 +1,15 @@
+{
+  "id": "triangle",
+  "name": "三角交互",
+  "aliases": [],
+  "tags": [
+    "交互",
+    "TAP",
+    "三角"
+  ],
+  "summary": "三个 TAP 为一组，按照击打先后顺序连线呈三角形的配置。可占两个键位或三个键位。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第3项",
+  "body": "entries/triangle.md",
+  "references": []
+}

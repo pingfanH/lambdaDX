@@ -1,0 +1,16 @@
+{
+  "id": "crosshand",
+  "name": "反手",
+  "aliases": [
+    "反手交互"
+  ],
+  "tags": [
+    "手法",
+    "交叉"
+  ],
+  "summary": "双手交叉的动作。反手交互就是双手交叉打交互，非常考验协调能力。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第20项",
+  "body": "entries/crosshand.md",
+  "references": []
+}

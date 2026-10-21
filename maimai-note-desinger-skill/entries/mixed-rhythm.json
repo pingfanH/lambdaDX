@@ -1,0 +1,17 @@
+{
+  "id": "mixed-rhythm",
+  "name": "混 FR",
+  "aliases": [
+    "混FR",
+    "混 fr"
+  ],
+  "tags": [
+    "节奏",
+    "异节奏"
+  ],
+  "summary": "两个轨道采用不同节奏的音符，两只手需要处理不同节奏，非常考验协调能力。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第25项",
+  "body": "entries/mixed-rhythm.md",
+  "references": []
+}

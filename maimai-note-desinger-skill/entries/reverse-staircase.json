@@ -1,0 +1,18 @@
+{
+  "id": "reverse-staircase",
+  "name": "逆楼梯／方向盘交互",
+  "aliases": [
+    "逆楼梯",
+    "方向盘交互"
+  ],
+  "tags": [
+    "交互",
+    "TAP",
+    "中心对称"
+  ],
+  "summary": "呈中心对称的交互配置。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第7项",
+  "body": "entries/reverse-staircase.md",
+  "references": []
+}

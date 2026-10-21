@@ -33,6 +33,7 @@ impl Session {
 #[derive(Clone)]
 pub struct Client {
     sender: mpsc::SyncSender<Envelope>,
+    library: mpsc::SyncSender<Envelope>,
     session: Session,
 }
 pub struct Inbox {
@@ -51,8 +52,30 @@ struct Envelope {
     deadline: Instant,
 }
 pub fn channel() -> (Client, Inbox) {
+    channel_inner(None)
+}
+/// Override the shared library root (useful to embedders and isolated tests).
+pub fn channel_with_library(root: std::path::PathBuf) -> (Client, Inbox) {
+    channel_inner(Some(root))
+}
+fn channel_inner(root: Option<std::path::PathBuf>) -> (Client, Inbox) {
     let (sender, receiver) = mpsc::sync_channel(QUEUE_CAPACITY);
-    (Client { sender, session: Session::default() }, Inbox { receiver })
+    let (library, requests) = mpsc::sync_channel::<Envelope>(QUEUE_CAPACITY);
+    // Separate bounded worker: no index scans or reference reads on the UI
+    // thread or Tokio executor. Dropping all clients terminates the worker.
+    let _ = std::thread::Builder::new().name("note-design-library".into()).spawn(move || {
+        let mut store = root.map(crate::library::Library::new).unwrap_or_else(crate::library::Library::discover);
+        for envelope in requests {
+            let result = active(&envelope.cancelled, envelope.deadline).and_then(|()| {
+                if !envelope.session.active() { return Err(ToolError::new(ErrorCode::Cancelled, "Session ended")); }
+                let value = store.execute(envelope.request.clone())?;
+                if !envelope.session.active() { return Err(ToolError::new(ErrorCode::Cancelled, "Session ended")); }
+                Ok(value)
+            });
+            deliver(envelope, result);
+        }
+    });
+    (Client { sender, library, session: Session::default() }, Inbox { receiver })
 }
 fn active(cancelled: &AtomicU8, deadline: Instant) -> ToolResult<()> {
     if cancelled.load(Ordering::Acquire) == 2 {
@@ -67,7 +90,7 @@ fn active(cancelled: &AtomicU8, deadline: Instant) -> ToolResult<()> {
     Ok(())
 }
 impl Client {
-    pub fn scoped(&self) -> Self { Self { sender: self.sender.clone(), session: Session::default() } }
+    pub fn scoped(&self) -> Self { Self { sender: self.sender.clone(), library: self.library.clone(), session: Session::default() } }
     pub fn session(&self) -> Session { self.session.clone() }
     pub fn call(
         &self,
@@ -100,7 +123,8 @@ impl Client {
             cancelled: cancelled.clone(),
             deadline,
         };
-        self.sender
+        let sender = if matches!(envelope.request, Request::LibrarySearch(_) | Request::LibraryRead(_)) { &self.library } else { &self.sender };
+        sender
             .try_send(envelope)
             .map_err(|error| match error {
                 mpsc::TrySendError::Full(_) => ToolError::new(
@@ -160,22 +184,23 @@ impl Inbox {
                     if !envelope.session.active() { return Err(ToolError::new(ErrorCode::Cancelled, "Session ended")); }
                     host.execute_scoped(envelope.request, envelope.session)
                 });
-            let result = result.and_then(|value| {
-                active(&envelope.cancelled, envelope.deadline)?;
-                if serde_json::to_vec(&value)
-                    .map_err(|e| ToolError::invalid(e.to_string()))?
-                    .len()
-                    > MAX_RESULT_BYTES
-                {
-                    return Err(ToolError::invalid(
-                        "Tool result exceeds 64 KiB; reduce the range or page size",
-                    ));
-                }
-                Ok(value)
-            });
-            if result.is_err() { envelope.cancelled.store(2, Ordering::Release); }
-            if envelope.reply.try_send(result).is_err() { envelope.cancelled.store(2, Ordering::Release); }
+            // Host consumes request/session; delivery only needs the reply state.
+            deliver_parts(envelope.reply, envelope.cancelled, envelope.deadline, result);
         }
         count
     }
+}
+fn deliver(envelope: Envelope, result: ToolResult<Value>) {
+    deliver_parts(envelope.reply, envelope.cancelled, envelope.deadline, result);
+}
+fn deliver_parts(reply: mpsc::SyncSender<ToolResult<Value>>, cancelled: Arc<AtomicU8>, deadline: Instant, result: ToolResult<Value>) {
+    let result = result.and_then(|value| {
+        active(&cancelled, deadline)?;
+        if serde_json::to_vec(&value).map_err(|e| ToolError::invalid(e.to_string()))?.len() > MAX_RESULT_BYTES {
+            return Err(ToolError::invalid("Tool result exceeds 64 KiB; reduce the range or page size"));
+        }
+        Ok(value)
+    });
+    if result.is_err() { cancelled.store(2, Ordering::Release); }
+    if reply.try_send(result).is_err() { cancelled.store(2, Ordering::Release); }
 }

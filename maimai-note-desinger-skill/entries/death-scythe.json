@@ -1,0 +1,15 @@
+{
+  "id": "death-scythe",
+  "name": "死镰段",
+  "aliases": [],
+  "tags": [
+    "TAP",
+    "SLIDE",
+    "转圈"
+  ],
+  "summary": "TAP 作转圈状排键，并在途中加入贴边星星。玩家需要一边稳定打 TAP，一边滑星星，考验定位、出张、防蹭等技术。BPM 越高，难度越大。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第15项",
+  "body": "entries/death-scythe.md",
+  "references": []
+}

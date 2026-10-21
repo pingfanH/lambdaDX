@@ -1,0 +1,18 @@
+{
+  "id": "double-single",
+  "name": "双单／单双",
+  "aliases": [
+    "双单",
+    "单双"
+  ],
+  "tags": [
+    "双押",
+    "单点",
+    "节奏"
+  ],
+  "summary": "双押衔接单点，循环往复的配置。名称没有固定要求。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第13项",
+  "body": "entries/double-single.md",
+  "references": []
+}

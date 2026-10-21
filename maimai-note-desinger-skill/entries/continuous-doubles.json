@@ -1,0 +1,16 @@
+{
+  "id": "continuous-doubles",
+  "name": "连续的双压",
+  "aliases": [
+    "连续双押"
+  ],
+  "tags": [
+    "双押",
+    "资料待补"
+  ],
+  "summary": "原稿仅有名称，完整定义和示例待补充。",
+  "completeness": "name_only",
+  "source": "用户原稿 配置，第14项",
+  "body": "entries/continuous-doubles.md",
+  "references": []
+}

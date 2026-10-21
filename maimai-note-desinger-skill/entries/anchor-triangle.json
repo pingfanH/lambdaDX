@@ -1,0 +1,15 @@
+{
+  "id": "anchor-triangle",
+  "name": "轴三角",
+  "aliases": [],
+  "tags": [
+    "交互",
+    "TAP",
+    "三角"
+  ],
+  "summary": "看起来像轴交互的配置，放慢后可以看作连续相同起手的三角交互。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第5项",
+  "body": "entries/anchor-triangle.md",
+  "references": []
+}

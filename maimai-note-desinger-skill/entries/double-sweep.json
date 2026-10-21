@@ -1,0 +1,14 @@
+{
+  "id": "double-sweep",
+  "name": "二连扫",
+  "aliases": [],
+  "tags": [
+    "扫键",
+    "换手"
+  ],
+  "summary": "由若干组二连构成连续扫键，两只手交替进行扫键。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第18项",
+  "body": "entries/double-sweep.md",
+  "references": []
+}

@@ -1,0 +1,13 @@
+{
+  "id": "guide-composition",
+  "name": "写谱指南",
+  "aliases": [],
+  "tags": [
+    "指南"
+  ],
+  "summary": "从音乐目标到节奏、键位、用手和参考谱迁移的设计流程。",
+  "completeness": "complete",
+  "source": "LambdaDX 技能维护文档",
+  "body": "references/composition.md",
+  "references": []
+}

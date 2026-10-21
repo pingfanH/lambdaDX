@@ -1,0 +1,17 @@
+{
+  "id": "flash",
+  "name": "闪光弹／光污染",
+  "aliases": [
+    "闪光弹",
+    "光污染"
+  ],
+  "tags": [
+    "TOUCH",
+    "视认"
+  ],
+  "summary": "TOUCH 使用连续全屏闪光特效，增加读谱难度，容易诱发光敏性癫痫。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第26项",
+  "body": "entries/flash.md",
+  "references": []
+}

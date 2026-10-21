@@ -1,0 +1,13 @@
+{
+  "id": "guide-library",
+  "name": "配置维护",
+  "aliases": [],
+  "tags": [
+    "指南"
+  ],
+  "summary": "新增配置条目、关联参考 Simai、重建索引及共享库部署。",
+  "completeness": "complete",
+  "source": "LambdaDX 技能维护文档",
+  "body": "references/library-format.md",
+  "references": []
+}

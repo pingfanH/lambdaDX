@@ -1,0 +1,15 @@
+{
+  "id": "staircase",
+  "name": "楼梯交互",
+  "aliases": [],
+  "tags": [
+    "交互",
+    "TAP",
+    "位移"
+  ],
+  "summary": "沿着一个方向，每次位移到相邻键位的交互配置。",
+  "completeness": "complete",
+  "source": "用户原稿 配置，第6项",
+  "body": "entries/staircase.md",
+  "references": []
+}

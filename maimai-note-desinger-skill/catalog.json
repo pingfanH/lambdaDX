@@ -1,0 +1,514 @@
+{
+  "schema_version": 1,
+  "revision": "6bc0cfa8683d00e7e1c7dab4e5d5b918456fb4b0c120ac4590784271a82ff273",
+  "entries": [
+    {
+      "id": "anchor-triangle",
+      "name": "轴三角",
+      "aliases": [],
+      "tags": [
+        "交互",
+        "TAP",
+        "三角"
+      ],
+      "summary": "看起来像轴交互的配置，放慢后可以看作连续相同起手的三角交互。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第5项",
+      "body": {
+        "path": "entries/anchor-triangle.md",
+        "bytes": 177
+      },
+      "references": []
+    },
+    {
+      "id": "anchor",
+      "name": "轴交互",
+      "aliases": [],
+      "tags": [
+        "交互",
+        "TAP",
+        "固定手"
+      ],
+      "summary": "一只手固定在一个键位上，另一只手的键位不固定。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第4项",
+      "body": {
+        "path": "entries/anchor.md",
+        "bytes": 156
+      },
+      "references": []
+    },
+    {
+      "id": "bullet",
+      "name": "子弹",
+      "aliases": [],
+      "tags": [
+        "叠键"
+      ],
+      "summary": "两个音符叠在一起的配置。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第12项",
+      "body": {
+        "path": "entries/bullet.md",
+        "bytes": 121
+      },
+      "references": []
+    },
+    {
+      "id": "continuous-doubles",
+      "name": "连续的双压",
+      "aliases": [
+        "连续双押"
+      ],
+      "tags": [
+        "双押",
+        "资料待补"
+      ],
+      "summary": "原稿仅有名称，完整定义和示例待补充。",
+      "completeness": "name_only",
+      "source": "用户原稿 配置，第14项",
+      "body": {
+        "path": "entries/continuous-doubles.md",
+        "bytes": 278
+      },
+      "references": []
+    },
+    {
+      "id": "crosshand",
+      "name": "反手",
+      "aliases": [
+        "反手交互"
+      ],
+      "tags": [
+        "手法",
+        "交叉"
+      ],
+      "summary": "双手交叉的动作。反手交互就是双手交叉打交互，非常考验协调能力。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第20项",
+      "body": {
+        "path": "entries/crosshand.md",
+        "bytes": 178
+      },
+      "references": []
+    },
+    {
+      "id": "death-scythe",
+      "name": "死镰段",
+      "aliases": [],
+      "tags": [
+        "TAP",
+        "SLIDE",
+        "转圈"
+      ],
+      "summary": "TAP 作转圈状排键，并在途中加入贴边星星。玩家需要一边稳定打 TAP，一边滑星星，考验定位、出张、防蹭等技术。BPM 越高，难度越大。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第15项",
+      "body": {
+        "path": "entries/death-scythe.md",
+        "bytes": 268
+      },
+      "references": []
+    },
+    {
+      "id": "dog-paddle",
+      "name": "狗刨",
+      "aliases": [],
+      "tags": [
+        "手法",
+        "外键",
+        "内屏"
+      ],
+      "summary": "打外键的同时直接滑向内屏，一次处理两个音符，两只手交替进行，常用于纵连场合。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第22项",
+      "body": {
+        "path": "entries/dog-paddle.md",
+        "bytes": 199
+      },
+      "references": []
+    },
+    {
+      "id": "double-single",
+      "name": "双单／单双",
+      "aliases": [
+        "双单",
+        "单双"
+      ],
+      "tags": [
+        "双押",
+        "单点",
+        "节奏"
+      ],
+      "summary": "双押衔接单点，循环往复的配置。名称没有固定要求。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第13项",
+      "body": {
+        "path": "entries/double-single.md",
+        "bytes": 166
+      },
+      "references": []
+    },
+    {
+      "id": "double-sweep",
+      "name": "二连扫",
+      "aliases": [],
+      "tags": [
+        "扫键",
+        "换手"
+      ],
+      "summary": "由若干组二连构成连续扫键，两只手交替进行扫键。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第18项",
+      "body": {
+        "path": "entries/double-sweep.md",
+        "bytes": 157
+      },
+      "references": []
+    },
+    {
+      "id": "dragon",
+      "name": "如龙段",
+      "aliases": [],
+      "tags": [
+        "双押",
+        "扫键"
+      ],
+      "summary": "高难度配置，可以拆谱成穿插双压的连续同向扫键，底力较强的玩家可以使用全换手法。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第17项",
+      "body": {
+        "path": "entries/dragon.md",
+        "bytes": 205
+      },
+      "references": []
+    },
+    {
+      "id": "fixed-beat",
+      "name": "定拍",
+      "aliases": [],
+      "tags": [
+        "节奏",
+        "分工"
+      ],
+      "summary": "一只手固定打拍子，另一只手处理其他配置。常见形式有单双定拍、一只手打拍而另一只手滑星星。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第11项",
+      "body": {
+        "path": "entries/fixed-beat.md",
+        "bytes": 217
+      },
+      "references": []
+    },
+    {
+      "id": "flash",
+      "name": "闪光弹／光污染",
+      "aliases": [
+        "闪光弹",
+        "光污染"
+      ],
+      "tags": [
+        "TOUCH",
+        "视认"
+      ],
+      "summary": "TOUCH 使用连续全屏闪光特效，增加读谱难度，容易诱发光敏性癫痫。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第26项",
+      "body": {
+        "path": "entries/flash.md",
+        "bytes": 190
+      },
+      "references": []
+    },
+    {
+      "id": "guide-composition",
+      "name": "写谱指南",
+      "aliases": [],
+      "tags": [
+        "指南"
+      ],
+      "summary": "从音乐目标到节奏、键位、用手和参考谱迁移的设计流程。",
+      "completeness": "complete",
+      "source": "LambdaDX 技能维护文档",
+      "body": {
+        "path": "references/composition.md",
+        "bytes": 1504
+      },
+      "references": []
+    },
+    {
+      "id": "guide-library",
+      "name": "配置维护",
+      "aliases": [],
+      "tags": [
+        "指南"
+      ],
+      "summary": "新增配置条目、关联参考 Simai、重建索引及共享库部署。",
+      "completeness": "complete",
+      "source": "LambdaDX 技能维护文档",
+      "body": {
+        "path": "references/library-format.md",
+        "bytes": 2947
+      },
+      "references": []
+    },
+    {
+      "id": "guide-mcp",
+      "name": "MCP 工作流",
+      "aliases": [],
+      "tags": [
+        "指南"
+      ],
+      "summary": "LambdaDX 配置检索、快照查询、编辑提案与错误处理。",
+      "completeness": "complete",
+      "source": "LambdaDX 技能维护文档",
+      "body": {
+        "path": "references/ldx-mcp.md",
+        "bytes": 2508
+      },
+      "references": []
+    },
+    {
+      "id": "interaction",
+      "name": "交互",
+      "aliases": [
+        "定轨交互",
+        "位移交互"
+      ],
+      "tags": [
+        "交互",
+        "TAP",
+        "换手"
+      ],
+      "summary": "匀拍的节奏下，每击打一次音符就进行左右手交替的配置的统称。按位移分可分为定轨交互和位移交互。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第1项",
+      "body": {
+        "path": "entries/interaction.md",
+        "bytes": 222
+      },
+      "references": []
+    },
+    {
+      "id": "jack",
+      "name": "纵连",
+      "aliases": [
+        "短纵连",
+        "长纵连",
+        "3连纵",
+        "5连纵"
+      ],
+      "tags": [
+        "交互",
+        "TAP",
+        "同键"
+      ],
+      "summary": "把交互写到一个键位，音符的数量至少 3 个以上，就是纵连，部分场合能单手硬抗。可分为短纵连（3 连纵、5 连纵等）和长纵连。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第2项",
+      "body": {
+        "path": "entries/jack.md",
+        "bytes": 256
+      },
+      "references": []
+    },
+    {
+      "id": "mixed-rhythm",
+      "name": "混 FR",
+      "aliases": [
+        "混FR",
+        "混 fr"
+      ],
+      "tags": [
+        "节奏",
+        "异节奏"
+      ],
+      "summary": "两个轨道采用不同节奏的音符，两只手需要处理不同节奏，非常考验协调能力。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第25项",
+      "body": {
+        "path": "entries/mixed-rhythm.md",
+        "bytes": 190
+      },
+      "references": []
+    },
+    {
+      "id": "paging",
+      "name": "分页",
+      "aliases": [],
+      "tags": [
+        "手法",
+        "分工"
+      ],
+      "summary": "把扫键、转圈、TOUCH 等配置拆成由两只手分别处理的手法。玩家通常可以自主决定是否使用。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第24项",
+      "body": {
+        "path": "entries/paging.md",
+        "bytes": 208
+      },
+      "references": []
+    },
+    {
+      "id": "reach",
+      "name": "出张",
+      "aliases": [],
+      "tags": [
+        "手法",
+        "跨区"
+      ],
+      "summary": "日语中有“出差”的意思，指游玩时离开常用的舒适击打区域，去击打其他区域的按键，考验定位和协调能力。简单来说，就是左手打右边，右手打左边。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第23项",
+      "body": {
+        "path": "entries/reach.md",
+        "bytes": 289
+      },
+      "references": []
+    },
+    {
+      "id": "reverse-staircase",
+      "name": "逆楼梯／方向盘交互",
+      "aliases": [
+        "逆楼梯",
+        "方向盘交互"
+      ],
+      "tags": [
+        "交互",
+        "TAP",
+        "中心对称"
+      ],
+      "summary": "呈中心对称的交互配置。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第7项",
+      "body": {
+        "path": "entries/reverse-staircase.md",
+        "bytes": 138
+      },
+      "references": []
+    },
+    {
+      "id": "scattered",
+      "name": "散点",
+      "aliases": [],
+      "tags": [
+        "TAP",
+        "单点"
+      ],
+      "summary": "没有特定表现形式，排键分散或不容易看出规律的单点配置。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第9项",
+      "body": {
+        "path": "entries/scattered.md",
+        "bytes": 165
+      },
+      "references": []
+    },
+    {
+      "id": "staircase",
+      "name": "楼梯交互",
+      "aliases": [],
+      "tags": [
+        "交互",
+        "TAP",
+        "位移"
+      ],
+      "summary": "沿着一个方向，每次位移到相邻键位的交互配置。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第6项",
+      "body": {
+        "path": "entries/staircase.md",
+        "bytes": 156
+      },
+      "references": []
+    },
+    {
+      "id": "syncopation",
+      "name": "跳拍",
+      "aliases": [],
+      "tags": [
+        "节奏",
+        "停顿"
+      ],
+      "summary": "通过音符之间的间隔变化形成节奏上的跳跃感，例如二连音后出现停顿等。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第10项",
+      "body": {
+        "path": "entries/syncopation.md",
+        "bytes": 184
+      },
+      "references": []
+    },
+    {
+      "id": "triangle",
+      "name": "三角交互",
+      "aliases": [],
+      "tags": [
+        "交互",
+        "TAP",
+        "三角"
+      ],
+      "summary": "三个 TAP 为一组，按照击打先后顺序连线呈三角形的配置。可占两个键位或三个键位。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第3项",
+      "body": {
+        "path": "entries/triangle.md",
+        "bytes": 203
+      },
+      "references": []
+    },
+    {
+      "id": "twisting",
+      "name": "绕手交互",
+      "aliases": [],
+      "tags": [
+        "交互",
+        "手法"
+      ],
+      "summary": "打起来很绕手的交互，非常考验协调能力。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第21项",
+      "body": {
+        "path": "entries/twisting.md",
+        "bytes": 148
+      },
+      "references": []
+    },
+    {
+      "id": "universe",
+      "name": "大宇宙",
+      "aliases": [],
+      "tags": [
+        "交互",
+        "TAP",
+        "四键"
+      ],
+      "summary": "两手在四个键位范围来回打交互；原稿另提到可用单点或扫键处理。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第8、19项",
+      "body": {
+        "path": "entries/universe.md",
+        "bytes": 426
+      },
+      "references": []
+    },
+    {
+      "id": "water-god",
+      "name": "水神段",
+      "aliases": [],
+      "tags": [
+        "TAP",
+        "SLIDE",
+        "穿心"
+      ],
+      "summary": "把死镰段的贴边星星改成穿心直星星。",
+      "completeness": "complete",
+      "source": "用户原稿 配置，第16项",
+      "body": {
+        "path": "entries/water-god.md",
+        "bytes": 139
+      },
+      "references": []
+    }
+  ]
+}

@@ -102,6 +102,25 @@ provider 未报告完整 usage 时显示未知。
 与计数并停止本轮, 不执行不完整的工具调用。旧版的 `Provider stream exceeds wire budget`
 将传输硬限额设为 1 MiB, 即使只有几 KiB 工具参数也可能因细粒度分片而触发; 已修正。
 
+## maimai 写谱技能与配置库
+
+内置 Agent 自动加载仓库中的 `maimai-note-desinger-skill/SKILL.md` 简短入口。
+`library_search` 检索名称、中文别名、标签与摘要，`library_read` 按需读取单条正文或参考 Simai；
+外部 MCP 客户端使用相同工具，并可读取 `lambdadx://reference/note-design-skill`。
+现有用户原稿整理为 25 个配置条目，另有 3 份指南；原稿保留，重复来源合并，缺定义条目标记待补。
+
+新增配置与关联参考 Simai 的格式见
+[配置维护](../maimai-note-desinger-skill/references/library-format.md)。修改后运行
+`python3 maimai-note-desinger-skill/scripts/build_index.py`，索引变化自动刷新，无需重启编辑器。
+只修改配置或参考谱不需要重新编译；修改嵌入的 SKILL.md 入口后需重新构建。
+使用其他库时，在启动前设置进程环境变量 `LDX_NOTE_DESIGN_LIBRARY` 指向技能目录。
+
+配置搜索和文件读取在独立的有界后台 worker 执行，不经过编辑器帧线程。
+索引只含摘要与文件位置，缓存后每次检查索引元数据；搜索不加载正文和参考 Simai。
+每页最多 20 个命中，正文每页最多 8192 UTF-8 字节。翻页保留 revision，
+文本续读保留 next_offset 和 file_revision，文件变化会要求重新读取。
+目前为精确名称/别名优先的子串搜索，不支持正文全文或语义检索。
+
 ## 本地对话记录
 
 用户消息、助手回复、工具结果、审核结果与错误自动保存到缓存目录中的
