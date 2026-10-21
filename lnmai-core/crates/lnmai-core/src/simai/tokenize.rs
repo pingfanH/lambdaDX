@@ -752,6 +752,13 @@ pub fn parse_segments(
         if Rat::zero().lt(&bpm) && divisor > 0 {
             time = time
                 .add(time::bpm_measure_micros_rat(bpm.clone()).div(Rat::from_int(divisor.clone())));
+            // Keep the running clock on a nanosecond grid. Without this, every
+            // tempo change adds a new denominator to the rational, and a chart
+            // with a tempo per measure grows the arbitrary-precision integers
+            // without bound. Nanoseconds stay well below the microsecond token
+            // clock while keeping the denominator bounded.
+            let nanos = time::quantize_rat_micros(time.mul(Rat::from_int(1000)));
+            time = Rat::from_int(nanos).div(Rat::from_int(1000));
         }
     }
     Ok(acc)
@@ -816,6 +823,36 @@ mod tests {
         .unwrap();
         assert_eq!(toks.len(), 2);
         assert_eq!(toks[1].timing.to_micros(), 500_000);
+    }
+
+    #[test]
+    fn many_tempo_changes_keep_the_clock_bounded() {
+        // The editor compiles each authored note to one measure with its own
+        // tempo so off-grid times stay exact. Accumulating those tempo changes
+        // as unbounded rationals used to take minutes; the clock must stay on a
+        // bounded grid and preserve monotonic microsecond timings.
+        let segments: Vec<String> = (0..600)
+            .map(|i| format!("({:.12}){{1}}1", 1680.0 + (i % 7) as f64 * 0.0017))
+            .collect();
+        let started = std::time::Instant::now();
+        let toks = parse_segments(
+            &segments,
+            TimePoint::zero(),
+            Rat::from_int(120),
+            Rat::one(),
+            (4).into(),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(toks.len(), segments.len());
+        for pair in toks.windows(2) {
+            assert!(pair[0].timing.to_micros() < pair[1].timing.to_micros());
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "tempo-heavy parse took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
