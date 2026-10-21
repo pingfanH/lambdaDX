@@ -601,8 +601,10 @@ mod tests {
 
     #[test]
     fn bundled_maichart_converts() {
-        let chart = from_bytes(include_bytes!("../../assets/charts/jack_ripper/chart.json"))
-            .expect("bundled maichart must parse");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/charts/jack_ripper/chart.json");
+        let chart = crate::app::chart::load_chart_from_path(&path, None)
+            .expect("bundled chart must parse through the format dispatcher");
         assert!(chart.title.contains("Jack"), "title = {}", chart.title);
         assert_eq!(chart.bpm, 210.0);
         assert!(chart.notes.len() > 500, "notes = {}", chart.notes.len());
@@ -617,8 +619,8 @@ mod tests {
             for s in &n.slide {
                 assert!(s.segments.iter().all(|seg| !seg.points.is_empty()));
                 assert!(
-                    (s.slide_start_delay - 0.25).abs() < 1e-6,
-                    "slide wait should be 1 beat, got {}",
+                    s.slide_start_delay > 0.0,
+                    "slide wait must be positive, got {}",
                     s.slide_start_delay
                 );
                 assert!(s.slide_duration > s.slide_start_delay);

@@ -337,7 +337,7 @@ mod tests {
         let from_dir = load_chart_from_path(&dir, None).expect("folder load");
         assert!(from_dir.title.contains("Jack"), "title = {}", from_dir.title);
 
-        let file = dir.join("chart.json");
+        let file = dir.join("maidata.txt");
         let from_file = load_chart_from_path(&file, Some(1)).expect("file load");
         // Difficulty 1 is the easiest, so it has fewer notes than the default.
         assert!(from_file.notes.len() < from_dir.notes.len());
