@@ -462,9 +462,15 @@ impl JudgeEngine {
     }
 
     /// Trail progress produced by the SDEZ core since the last call.
-    #[cfg(feature = "backend-rust")]
     pub fn take_slide_progress(&mut self) -> Vec<SlideArcProgress> {
-        std::mem::take(&mut self.sdez_progress)
+        #[cfg(feature = "backend-rust")]
+        {
+            std::mem::take(&mut self.sdez_progress)
+        }
+        #[cfg(not(feature = "backend-rust"))]
+        {
+            Vec::new()
+        }
     }
 
     #[cfg(feature = "backend-rust")]
