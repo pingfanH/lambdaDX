@@ -58,6 +58,132 @@ fn read(revision: &str) -> LibraryReadRequest {
 fn bundled() -> Library {
     Library::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../maimai-note-desinger-skill"))
 }
+fn resolve(prompt: &str) -> LibraryResolveRequest {
+    LibraryResolveRequest {
+        schema_version: 1,
+        prompt: prompt.into(),
+        previous_prompts: vec![],
+    }
+}
+
+#[test]
+fn resolves_specific_names_aliases_and_followups_without_unrelated_definitions() {
+    let mut lib = bundled();
+    for (prompt, id) in [
+        ("生成32个三角交互", "triangle"),
+        ("来一段方向盘交互", "reverse-staircase"),
+        ("生成 mixed-rhythm", "mixed-rhythm"),
+    ] {
+        let result = lib.resolve(&resolve(prompt)).unwrap();
+        assert_eq!(result.definitions.len(), 1);
+        assert_eq!(result.definitions[0].id, id);
+        assert!(!result.definitions[0].text.is_empty());
+    }
+    let result = lib.resolve(&resolve("生成三角交互，然后交互")).unwrap();
+    assert_eq!(result.definitions.len(), 2);
+    assert!(
+        lib.resolve(&resolve("生成 jacket notes"))
+            .unwrap()
+            .definitions
+            .is_empty()
+    );
+    let mut request = resolve("增加到32个");
+    request.previous_prompts = vec!["来一段轴三角".into(), "生成纵连".into()];
+    assert_eq!(
+        lib.resolve(&request).unwrap().definitions[0].id,
+        "anchor-triangle"
+    );
+    request.prompt = "换成散点".into();
+    assert_eq!(
+        lib.resolve(&request).unwrap().definitions[0].id,
+        "scattered"
+    );
+}
+
+#[test]
+fn resolves_complete_paged_definitions_and_rejects_excess_instead_of_truncating() {
+    let fixture = Fixture::new();
+    let body = "中文配置".repeat(1000);
+    fs::write(fixture.0.join("body.md"), &body).unwrap();
+    let mut e = entry("interaction");
+    e["body"]["bytes"] = json!(body.len());
+    fixture.index("paged", vec![e.clone()]);
+    let mut lib = Library::new(fixture.0.clone());
+    assert_eq!(
+        lib.resolve(&resolve("交互")).unwrap().definitions[0].text,
+        body
+    );
+    // The reference file does not exist; resolving definitions must never open it.
+    e["body"]["bytes"] = json!(MAX_DEFINITION_BYTES + 1);
+    fixture.index("too-large", vec![e.clone()]);
+    assert!(
+        lib.resolve(&resolve("交互"))
+            .unwrap_err()
+            .message
+            .contains("48 KiB")
+    );
+    fixture.index(
+        "too-many",
+        (0..9)
+            .map(|i| {
+                let mut e = e.clone();
+                e["id"] = json!(format!("pattern-{i}"));
+                e
+            })
+            .collect(),
+    );
+    assert!(
+        lib.resolve(&resolve("交互"))
+            .unwrap_err()
+            .message
+            .contains("8 configurations")
+    );
+    assert!(
+        catalog::parse(
+            "library_resolve",
+            json!({"schema_version":1,"prompt":"x","extra":true})
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn resolve_scales_to_ten_thousand_metadata_entries_without_opening_unmatched_files() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("body.md"), "中文测试").unwrap();
+    fixture.index(
+        "large-resolve",
+        (0..10_000)
+            .map(|i| {
+                let mut e = entry(&format!("pattern-{i:05}"));
+                e["name"] = json!(format!("配置{i}"));
+                e["aliases"] = json!([format!("别名{i}")]);
+                if i != 9999 {
+                    e["body"]["path"] = json!("does-not-exist.md");
+                }
+                e
+            })
+            .collect(),
+    );
+    let mut lib = Library::new(fixture.0.clone());
+    let prompt = resolve("在光标生成32个别名9999");
+    let started = Instant::now();
+    assert_eq!(
+        lib.resolve(&prompt).unwrap().definitions[0].id,
+        "pattern-09999"
+    );
+    let cold = started.elapsed();
+    let started = Instant::now();
+    for _ in 0..100 {
+        let result = lib.resolve(&prompt).unwrap();
+        assert_eq!(result.definitions.len(), 1);
+        assert_eq!(result.definitions[0].text, "中文测试");
+    }
+    eprintln!(
+        "10k resolve: cold {cold:?}; warm average {:?}",
+        started.elapsed() / 100
+    );
+}
 
 #[test]
 fn user_terms_aliases_completeness_and_sources_are_preserved() {
@@ -129,16 +255,24 @@ fn utf8_slices_and_long_simai_are_lazy_and_versioned() {
     let modified = fs::metadata(&body_path).unwrap().modified().unwrap();
     // Same byte length still invalidates continuation, independently of size.
     fs::write(&body_path, "甲乙丙丁").unwrap();
-    File::options().write(true).open(&body_path).unwrap().set_times(
-        fs::FileTimes::new().set_modified(modified + Duration::from_secs(1)),
-    ).unwrap();
+    File::options()
+        .write(true)
+        .open(&body_path)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified + Duration::from_secs(1)))
+        .unwrap();
     assert_eq!(lib.read(&r).unwrap_err().code, ErrorCode::DocumentChanged);
     r = read("v1");
     let fresh = lib.read(&r).unwrap();
     assert_eq!(fresh.text, "甲");
     r.offset = 1;
     r.file_revision = Some(fresh.file_revision);
-    assert!(lib.read(&r).unwrap_err().message.contains("codepoint boundary"));
+    assert!(
+        lib.read(&r)
+            .unwrap_err()
+            .message
+            .contains("codepoint boundary")
+    );
 }
 
 #[test]

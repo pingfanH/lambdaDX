@@ -411,7 +411,7 @@ impl Session {
             if let Err(error) = settings::save(&self.applied, self.enabled, self.insert_at_cursor) { self.error = Some(error); }
         }
         if self.insert_at_cursor {
-            ui.small(format!("光标：第 {:.3} 小节 · 区域 {} · 步长 1/{} 小节。读取定义后生成可试听虚影，接受后选中并推进光标，可一次撤销。", editor.keyboard.cursor.measure, editor.keyboard.cursor.zone, editor.snap_division.max(1)));
+            ui.small(format!("光标：第 {:.3} 小节 · 区域 {} · 步长 1/{} 小节。本地准备配置，一次模型请求生成可试听虚影；接受后选中并推进光标，可一次撤销。", editor.keyboard.cursor.measure, editor.keyboard.cursor.zone, editor.snap_division.max(1)));
         }
         ui.add(
             egui::TextEdit::multiline(&mut self.input)

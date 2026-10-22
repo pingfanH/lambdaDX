@@ -52,7 +52,7 @@ pub(super) fn compact_for_next_run(messages: &[Message]) -> Vec<Message> {
                         if review
                             .as_ref()
                             .and_then(Value::as_object)
-                            .is_some_and(|v| v.len() == 1 && (v.contains_key("editor_context") || v.contains_key("cursor_context")))
+                            .is_some_and(|v| v.len() == 1 && (v.contains_key("editor_context") || v.contains_key("cursor_context") || v.contains_key("generation_request")))
                         {
                             continue;
                         }

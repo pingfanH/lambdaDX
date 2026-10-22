@@ -269,7 +269,7 @@ impl EditorHost for Host<'_> {
             ));
         }
         match request {
-            Request::LibrarySearch(_) | Request::LibraryRead(_) => Err(ToolError::new(
+            Request::LibraryResolve(_) | Request::LibrarySearch(_) | Request::LibraryRead(_) => Err(ToolError::new(
                 ErrorCode::UnsupportedOperation, "Library requests must run on the background library worker",
             )),
             Request::Propose(r) => value(self.proposals.create(r, self.session.clone(), self.snapshots, self.editor, self.app, self.idle)?),

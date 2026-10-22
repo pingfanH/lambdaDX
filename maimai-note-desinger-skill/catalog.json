@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": "b6e1f434f0cef420efba06dff2c262bf4cb8c3b7b2a946aa55fd782a83c5f8e3",
+  "revision": "b840743dd6a42b2dfbbbf7f9bb37c29f84944b240220c6f2b686b929c5e4084b",
   "entries": [
     {
       "id": "anchor-triangle",
@@ -264,7 +264,7 @@
       "source": "LambdaDX 技能维护文档",
       "body": {
         "path": "references/ldx-mcp.md",
-        "bytes": 2922
+        "bytes": 3389
       },
       "references": []
     },

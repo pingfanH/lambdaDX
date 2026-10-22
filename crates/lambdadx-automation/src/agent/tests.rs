@@ -87,6 +87,125 @@ fn responses(report: &Report) -> Vec<&genai::chat::ToolResponse> {
         })
         .collect()
 }
+fn cursor_context() -> cursor::Context {
+    cursor::Context {
+        target: SnapshotRef { document_id: "pinned-document".into(), snapshot_token: "pinned-snapshot".into() },
+        measure: 5.0, ring_lane: 3, touch_zone: None, step_measures: 0.0625, bpm: 180.0,
+    }
+}
+fn exercise_cursor(provider: impl Provider, permissions: Permissions) -> (Report, Host, Vec<Event>) {
+    let runtime = crate::runtime::BackgroundRuntime::new().unwrap();
+    let (client, inbox) = bridge::channel();
+    let mut host = Host::default();
+    let events = Mutex::new(Vec::new());
+    let emit = |e| { events.lock().unwrap().push(e); Ok(()) };
+    let report = runtime.handle().block_on(async {
+        tokio::select! {
+            report = run_inner(provider, client, vec![ChatMessage::user("生成32个交互")], permissions, Budget::default(),
+                CancellationToken::new(), &emit, Mode::Cursor(cursor_context())) => report,
+            _ = async { loop { inbox.drain(&mut host); tokio::time::sleep(Duration::from_millis(1)).await; } } => unreachable!(),
+        }
+    });
+    runtime.shutdown();
+    (report, host, events.into_inner().unwrap())
+}
+
+#[test]
+fn cursor_generates_with_one_model_request_and_one_local_proposal() {
+    let notes: Vec<_> = (0..32).map(|i| json!({"offset_measures":i as f64 / 16.0,"ring_lane":if i % 2 == 0 { 3 } else { 6 }})).collect();
+    let provider = fake(vec![ChatMessage::assistant(json!({"summary":"32-note interaction","notes":notes}).to_string())]);
+    let requests = provider.requests.clone();
+    let (report, host, events) = exercise_cursor(provider, Permissions { read: true, focus: false, propose: true });
+    assert_eq!(report.state, State::AwaitingApproval, "{:?}", report.error);
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].tools.is_none(), "direct mode has no model tool loop");
+    let request = format!("{:?}", requests[0]);
+    assert!(request.contains("左右手交替") && request.contains("output_schema") && request.contains("generation_request"));
+    assert!(!request.contains("chart_get_context") && !request.contains("chart_read_simai"));
+    let [Request::Propose(proposal)] = host.0.as_slice() else { panic!("only one local proposal is allowed") };
+    assert_eq!(proposal.target, cursor_context().target);
+    assert!(proposal.operation_id.starts_with("cursor-"));
+    let [Edit::AddNotes { notes }] = proposal.edits.as_slice() else { panic!() };
+    assert_eq!(notes.len(), 32);
+    assert_eq!(notes[0].measure, 5.0);
+    assert_eq!(notes[31].measure, 5.0 + 31.0 / 16.0);
+    assert_eq!(events.iter().filter(|e| matches!(e, Event::Tool { .. })).count(), 1);
+    assert!(!events.iter().any(|e| matches!(e, Event::Text(t) if t == "streamed")));
+    assert!(events.iter().any(|e| matches!(e, Event::Text(t) if t.contains("32 个音符"))));
+    assert!(!format!("{:?}", report.messages).contains("generation_request"), "definitions are transient");
+}
+
+#[test]
+#[ignore = "Explicit network smoke; reads configured model credentials from the environment/.env"]
+fn live_direct_generation_smoke() {
+    struct Counted { inner: provider::Genai, calls: Arc<Mutex<usize>> }
+    impl Provider for Counted {
+        fn complete<'a>(&'a mut self, request: ChatRequest, emit: &'a Emit<'a>) -> Completion<'a> {
+            *self.calls.lock().unwrap() += 1;
+            self.inner.complete(request, emit)
+        }
+    }
+    let settings = provider::Settings::default().with_environment().unwrap();
+    let calls = Arc::new(Mutex::new(0));
+    let provider = Counted { inner: provider::Genai::new(&settings).unwrap(), calls: calls.clone() };
+    let started = Instant::now();
+    let (report, host, _) = exercise_cursor(provider, Permissions { read: true, focus: false, propose: true });
+    eprintln!("Direct generation: model={}, requests={}, elapsed={:?}", settings.model, calls.lock().unwrap(), started.elapsed());
+    assert_eq!(report.state, State::AwaitingApproval, "{:?}", report.error);
+    assert_eq!(*calls.lock().unwrap(), 1);
+    let [Request::Propose(p)] = host.0.as_slice() else { panic!("missing local proposal") };
+    let [Edit::AddNotes { notes }] = p.edits.as_slice() else { panic!() };
+    assert_eq!(notes.len(), 32);
+}
+
+#[test]
+fn invalid_direct_output_never_retries_the_model_or_delivers_an_edit() {
+    for message in [
+        ChatMessage::assistant("not JSON"),
+        ChatMessage::assistant(context("disallowed-tool")),
+        ChatMessage::assistant(r#"{"summary":"invalid offset","notes":[{"offset_measures":-1}]}"#),
+        ChatMessage::assistant(r#"{"summary":"empty","notes":[]}"#),
+        ChatMessage::assistant(r#"{"summary":"bad lane","notes":[{"offset_measures":0,"ring_lane":9}]}"#),
+        ChatMessage::assistant(r#"{"summary":"extra fields","notes":[{"offset_measures":0}],"apply":true}"#),
+    ] {
+        let provider = fake(vec![message]);
+        let requests = provider.requests.clone();
+        let (report, host, _) = exercise_cursor(provider, Permissions { read: true, focus: false, propose: true });
+        assert_eq!(report.state, State::Failed);
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        assert!(host.0.is_empty());
+    }
+    let provider = fake(vec![]);
+    let requests = provider.requests.clone();
+    let (report, host, _) = exercise_cursor(provider, Permissions::READ_ONLY);
+    assert_eq!(report.error.unwrap().code, ErrorCode::PermissionDenied);
+    assert!(requests.lock().unwrap().is_empty() && host.0.is_empty());
+}
+
+#[test]
+fn stopping_direct_generation_during_network_cannot_create_a_late_proposal() {
+    let runtime = crate::runtime::BackgroundRuntime::new().unwrap();
+    let (client, inbox) = bridge::channel();
+    let mut provider = fake(vec![]);
+    provider.delay = Duration::from_secs(30);
+    let requests = provider.requests.clone();
+    let run = Run::start_at_cursor(&runtime.handle(), provider, client, vec![ChatMessage::user("交互")],
+        Permissions { read: true, focus: false, propose: true }, cursor_context());
+    let started = Instant::now();
+    while requests.lock().unwrap().is_empty() {
+        assert!(started.elapsed() < Duration::from_secs(3));
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    run.stop();
+    assert!(matches!(run.finished.recv_timeout(Duration::from_secs(2)).unwrap(), Event::Finished { state: State::Cancelled, .. }));
+    let mut host = Host::default();
+    inbox.drain(&mut host);
+    assert!(host.0.is_empty());
+    assert_eq!(requests.lock().unwrap().len(), 1);
+    drop(run);
+    runtime.shutdown();
+}
 #[test]
 fn streams_text_and_reports_unknown_usage() {
     let (report, host, events) = exercise(

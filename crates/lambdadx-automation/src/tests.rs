@@ -186,7 +186,7 @@ fn argument_sizes_and_numeric_boundaries_are_rejected() {
     let mut args = query();
     args["target"]["snapshot_token"] = json!("x".repeat(MAX_INPUT_BYTES));
     assert!(catalog::parse("chart_query_notes", args).is_err());
-    assert_eq!(catalog::tools().len(), 9);
+    assert_eq!(catalog::tools().len(), 10);
     assert!(std::ptr::eq(catalog::tools(), catalog::tools()));
 }
 

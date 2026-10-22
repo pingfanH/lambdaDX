@@ -1,5 +1,6 @@
 //! A single bounded run, independent of HTTP and editor UI.
 mod environment;
+mod generation;
 pub mod cursor;
 pub mod policy;
 pub mod provider;
@@ -220,9 +221,8 @@ async fn run_inner(
     let result = async {
         check_context_size(&messages)?;
         if let Mode::Cursor(context) = &mode {
-            messages.push(ChatMessage::user(
-                serde_json::json!({"cursor_context":context}).to_string(),
-            ));
+            return generation::generate(&mut provider, &client, &mut messages, permissions,
+                budget, &stop, emit, deadline, context).await;
         }
         if prefetch {
             if budget.tools == 0 || Instant::now() >= deadline {
@@ -260,7 +260,6 @@ async fn run_inner(
             emit,
             deadline,
             usize::from(prefetch),
-            &mode,
         )
         .await
     }
@@ -295,7 +294,6 @@ async fn drive(
     emit: &Emit<'_>,
     deadline: Instant,
     mut calls: usize,
-    mode: &Mode,
 ) -> ToolResult<State> {
     let mut seen = HashSet::new();
     for _ in 0..budget.rounds.min(8) {
@@ -307,19 +305,10 @@ async fn drive(
         if remaining.is_zero() {
             return Err(exhausted());
         }
-        emit(Event::State(State::Requesting))?;
-        let cursor_mode = matches!(mode, Mode::Cursor(_));
         let request = ChatRequest::new(messages.clone())
-            .with_system(if cursor_mode { policy::CURSOR_SYSTEM } else { policy::SYSTEM })
-            .with_tools(if cursor_mode { policy::cursor_tools(permissions) } else { policy::tools(permissions) });
-        emit(Event::State(State::Streaming))?;
-        let turn = tokio::select! {
-            biased;
-            _ = stop.cancelled() => return Err(cancelled()),
-            _ = async { while client.session().active() { tokio::time::sleep(Duration::from_millis(10)).await; } } => return Err(cancelled()),
-            result = tokio::time::timeout(remaining.min(budget.network).min(Duration::from_secs(60)), provider.complete(request, emit)) => result.map_err(|_| exhausted())??,
-        };
-        emit(Event::Usage(turn.usage))?;
+            .with_system(policy::SYSTEM)
+            .with_tools(policy::tools(permissions));
+        let turn = complete_turn(provider, client, request, budget, stop, emit, deadline).await?;
         let tool_calls: Vec<_> = turn
             .message
             .content
@@ -368,8 +357,7 @@ async fn drive(
                     "Missing, oversized or duplicate tool call ID",
                 ))
             } else {
-                execute_in_mode(
-                    mode,
+                execute(
                     client,
                     &call.fn_name,
                     call.fn_arguments.clone(),
@@ -413,26 +401,25 @@ async fn drive(
     }
     Err(exhausted())
 }
-async fn execute_in_mode(
-    mode: &Mode,
-    client: &Client,
-    name: &str,
-    arguments: serde_json::Value,
-    permissions: Permissions,
-    timeout: Duration,
-    stop: &CancellationToken,
-) -> ToolResult<serde_json::Value> {
-    if let Mode::Cursor(context) = mode {
-        match name {
-            cursor::TOOL => {
-                let request = cursor::proposal(arguments, context)?;
-                return execute(client, "chart_propose_edit", serde_json::to_value(request).unwrap(), permissions, timeout, stop).await;
-            }
-            "library_search" | "library_read" => {}
-            _ => return Err(ToolError::new(ErrorCode::PermissionDenied, "Cursor mode only allows library definitions and cursor_insert_notes")),
-        }
-    }
-    execute(client, name, arguments, permissions, timeout, stop).await
+async fn complete_turn(
+    provider: &mut impl Provider, client: &Client, request: ChatRequest, budget: Budget,
+    stop: &CancellationToken, emit: &Emit<'_>, deadline: Instant,
+) -> ToolResult<provider::Turn> {
+    if stop.is_cancelled() || !client.session().active() { return Err(cancelled()); }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() { return Err(exhausted()); }
+    emit(Event::State(State::Requesting))?;
+    emit(Event::State(State::Streaming))?;
+    let mut turn = tokio::select! {
+        biased;
+        _ = stop.cancelled() => return Err(cancelled()),
+        _ = async { while client.session().active() { tokio::time::sleep(Duration::from_millis(10)).await; } } => return Err(cancelled()),
+        result = tokio::time::timeout(remaining.min(budget.network).min(Duration::from_secs(60)), provider.complete(request, emit)) => result.map_err(|_| exhausted())??,
+    };
+    if stop.is_cancelled() || !client.session().active() { return Err(cancelled()); }
+    if turn.message.size() > MAX_CONTEXT_BYTES { return Err(ToolError::invalid("Oversized model response")); }
+    emit(Event::Usage(turn.usage.take()))?;
+    Ok(turn)
 }
 fn check_context_size(messages: &[ChatMessage]) -> ToolResult<()> {
     if messages.iter().map(ChatMessage::size).sum::<usize>() > MAX_CONTEXT_BYTES {

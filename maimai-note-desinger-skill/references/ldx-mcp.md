@@ -18,6 +18,16 @@ cargo build --locked -p lambdadx-automation --features stdio-bridge --bin lambda
 
 ## 检索示例
 
+已知配置名称时先调用 `library_resolve`，一次得到完整定义，不读取参考谱：
+
+```json
+{"schema_version":1,"prompt":"在光标生成 32 个三角交互"}
+```
+
+返回 revision 与 definitions（含 id、name、completeness、text）。无命中时可用
+previous_prompts 数组补充最近任务（新到旧）。最多 8 项／48 KiB，超出不会截断定义；
+按标签探索或读取参考 Simai 时使用下面的搜索与分页读取。
+
 ```json
 {"schema_version":1,"query":"交互","limit":5}
 ```

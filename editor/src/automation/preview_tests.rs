@@ -78,6 +78,64 @@ fn cursor_preview_is_playable_but_not_part_of_document_or_history() {
 }
 
 #[test]
+fn single_response_generation_reaches_ghost_preview_and_rejects_stale_documents() {
+    use lambdadx_automation::agent::{self, Message, Run, State, provider::{Completion, Provider, Turn}};
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    struct Once(Arc<AtomicUsize>);
+    impl Provider for Once {
+        fn complete<'a>(&'a mut self, request: agent::ChatRequest, _: &'a agent::Emit<'a>) -> Completion<'a> {
+            Box::pin(async move {
+                assert_eq!(self.0.fetch_add(1, Ordering::SeqCst), 0);
+                assert!(request.tools.is_none());
+                assert!(format!("{request:?}").contains("左右手交替"));
+                Ok(Turn { message: Message::assistant(json!({"summary":"four-hit interaction", "notes":[
+                    {"offset_measures":0,"ring_lane":3}, {"offset_measures":0.0625,"ring_lane":6},
+                    {"offset_measures":0.125,"ring_lane":3}, {"offset_measures":0.1875,"ring_lane":6}
+                ]}).to_string()), usage: None })
+            })
+        }
+    }
+    for stale in [false, true] {
+        let (mut service, mut editor, mut app, mut sync) = fixture();
+        let client = service.client().scoped();
+        let context = service.prepare_cursor(&client, &mut editor, &app).unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let run = Run::start_at_cursor(&service.background().unwrap(), Once(calls.clone()), client,
+            vec![Message::user("生成4个交互")], Permissions { read: true, focus: false, propose: true }, context);
+        if stale { editor.place_note(&mut app.chart, 8.0, 8); }
+        let before = app.chart.clone();
+        let source = editor.simai_editor.text.clone();
+        let start = Instant::now();
+        let state = loop {
+            service.tick(&mut editor, &app, true, true);
+            service.maintenance(&mut editor, &mut app, &mut sync, true);
+            if let Ok(agent::Event::Finished { state, error, .. }) = run.finished.try_recv() {
+                if stale { assert_eq!(error.unwrap().code, ErrorCode::DocumentChanged); }
+                else { assert!(error.is_none()); }
+                break state;
+            }
+            assert!(start.elapsed() < Duration::from_secs(5));
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(state, if stale { State::Failed } else { State::AwaitingApproval });
+        if stale { assert!(!app.has_chart_preview()); }
+        else {
+            while !app.has_chart_preview() {
+                service.maintenance(&mut editor, &mut app, &mut sync, true);
+                assert!(start.elapsed() < Duration::from_secs(5));
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert_eq!(app.preview_notes().len(), 4);
+            assert_eq!(app.playback_chart().notes.len(), 5);
+            assert_eq!(app.preview_notes()[0].time, 4.0);
+        }
+        assert_eq!(app.chart, before);
+        assert_eq!(editor.simai_editor.text, source);
+    }
+}
+
+#[test]
 fn accept_selects_advances_and_undo_redo_preserves_source() {
     let (mut service, mut editor, mut app, mut sync) = fixture();
     let before = app.chart.clone();

@@ -123,7 +123,7 @@ impl Client {
             cancelled: cancelled.clone(),
             deadline,
         };
-        let sender = if matches!(envelope.request, Request::LibrarySearch(_) | Request::LibraryRead(_)) { &self.library } else { &self.sender };
+        let sender = if matches!(envelope.request, Request::LibraryResolve(_) | Request::LibrarySearch(_) | Request::LibraryRead(_)) { &self.library } else { &self.sender };
         sender
             .try_send(envelope)
             .map_err(|error| match error {

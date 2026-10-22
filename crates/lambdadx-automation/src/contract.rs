@@ -1,6 +1,6 @@
 use schemars::JsonSchema;
 pub use crate::proposal::*;
-pub use crate::library::{LibraryReadRequest, LibrarySearchRequest};
+pub use crate::library::{LibraryReadRequest, LibraryResolveRequest, LibrarySearchRequest};
 use serde::{Deserialize, Serialize};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -187,6 +187,7 @@ pub struct FocusRequest {
 
 #[derive(Debug, Clone)]
 pub enum Request {
+    LibraryResolve(LibraryResolveRequest),
     LibrarySearch(LibrarySearchRequest),
     LibraryRead(LibraryReadRequest),
     Context(ContextRequest),
@@ -209,6 +210,7 @@ impl Request {
     }
     pub fn validate(&self) -> ToolResult<()> {
         let (version, target) = match self {
+            Self::LibraryResolve(r) => { r.validate()?; (r.schema_version, None) }
             Self::LibrarySearch(r) => { r.validate()?; (r.schema_version, None) }
             Self::LibraryRead(r) => { r.validate()?; (r.schema_version, None) }
             Self::Context(r) => (r.schema_version, None),
