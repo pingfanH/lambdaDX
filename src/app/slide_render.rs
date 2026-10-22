@@ -615,7 +615,7 @@ pub enum SlideLayer {
 /// `spawn_cx` — screen-space tap spawn center (C-zone centroid)
 /// `outer_r` — pad outer radius in screen space
 /// `show_full` — true to render the entire trail at full alpha (static view)
-/// `hidden_until_bar` — hide trail bars with indexes lower than this value
+/// `hidden_frac` — explicit core hide frontier in normalized reference-arrow units
 /// `core_driven` — true when `lnmai-core` owns the slide's lifetime, so the
 ///                 post-tail time cull is disabled and the slide is only
 ///                 removed by core's hide commands
@@ -641,7 +641,7 @@ pub fn draw_slide(
     // Wifi per-track explicit trail-bar cutoffs (`HideSlideTrackBars`); takes
     // precedence over the fraction-derived cutoff.
     track_bars: [Option<usize>; 3],
-    hidden_until_bar: Option<usize>,
+    hidden_frac: Option<f32>,
     core_driven: bool,
     layer: SlideLayer,
     // True when this call renders one arc of a chained slide (the trail is split
@@ -1202,7 +1202,7 @@ pub fn draw_slide(
     // instead, otherwise the bar slides on its own.
     let star_hidden = hidden_bars_for_star(&segmentation, star_dist_along.max(0.0));
     let hidden_until = if chain_arc || core_driven {
-        hidden_until_bar.unwrap_or(core_hidden)
+        core_trail_cutoff(segmentation.bars.len(), hidden_frac, core_hidden)
     } else {
         star_hidden
     }
@@ -1474,11 +1474,15 @@ pub fn draw_slide(
     }
 }
 
-/// Trail-bar boundary after `passed` of `areas` sensor areas have been crossed.
-///
-/// Used for single-segment (straight-line) slides: the first and last area hide
-/// a fixed small share, the middle areas split the remaining bars evenly, so the
-/// trail consumes in even per-area steps rather than by raw path distance.
+/// Convert a reference-arrow frontier to this frame's local tile count.
+/// Explicit core hide commands take precedence over judge-area fallbacks.
+pub(crate) fn core_trail_cutoff(bars: usize, explicit: Option<f32>, fallback: usize) -> usize {
+    explicit
+        .map(|frac| (frac.clamp(0.0, 1.0) * bars as f32).floor() as usize)
+        .unwrap_or(fallback)
+        .min(bars)
+}
+
 /// Number of trail bars to hide as the star reaches `star_dist`: every judge
 /// area whose end bar is at or behind the star's current bar is fully consumed
 /// (MajdataPlay `HideBar(area.ArrowProgressWhenFinished)`).
@@ -1918,4 +1922,20 @@ mod tests {
         assert_eq!(hidden_bars_for_star(&seg, 6.5), 7);
         assert_eq!(hidden_bars_for_star(&seg, 9.5), 10);
     }
+
+    #[test]
+    fn sparse_right_slide_keeps_unconsumed_trail_visible() {
+        let (note, mut slide) = line_slide(4, 5);
+        slide.segments[0].shape = SlideShape::Right;
+        let svg = PadSvgDef::from_svg_str(include_str!("../../assets/pad.svg")).unwrap();
+        let pad = PadGeom { cx: 400.0, cy: 400.0, outer_r: 326.57 };
+        let path = build_slide_path(&note, &slide, &pad, &svg, 1.0, vec2(400.0, 400.0), pad.outer_r);
+        // Saved Player settings use 46px spacing. The kernel's circle8 table
+        // reports 43/55 bars while the last two sensor areas remain unconsumed.
+        let seg = segmentation::build(&path, 46.0, 10.0, 30.0, &svg, &pad);
+        let hidden = core_trail_cutoff(seg.bars.len(), Some(43.0 / 55.0), 0);
+        assert!(hidden < seg.bars.len(),
+            "unconsumed arc disappeared: {hidden}/{} local bars at reference cutoff 43/55", seg.bars.len());
+    }
+
 }

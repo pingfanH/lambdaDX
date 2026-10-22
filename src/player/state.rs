@@ -21,6 +21,9 @@ pub struct SlideProgress {
     pub seg_frac: Vec<f32>,
     /// Exact HideSlideBars cutoffs, indexed by runtime arc.
     pub seg_hidden_until: Vec<Option<usize>>,
+    /// Explicit hide frontier in normalized reference-arrow units, independent
+    /// of the renderer's tile density and of the consumed judge-area fraction.
+    pub seg_hidden_frac: Vec<Option<f32>>,
     /// WiFi shared bar cursor; not an individual branch's consumed fraction.
     pub shared_frac: f32,
     /// Wifi per-track consumed fractions (track index → 0..1), so the three
@@ -1520,11 +1523,22 @@ impl PadPreviewState {
                 .or_insert_with(|| SlideProgress {
                     seg_frac: vec![0.0; seg_count],
                     seg_hidden_until: vec![None; seg_count],
+                    seg_hidden_frac: vec![None; seg_count],
                     shared_frac: 0.0,
                     track_frac: HashMap::new(),
                     track_hidden_until: HashMap::new(),
                 });
             if let Some(shared) = update.shared_frac { progress.shared_frac = progress.shared_frac.max(shared); }
+            if !is_wifi {
+                // Completion (including a miss) overrides a previous partial
+                // frontier even when other arcs of the same chain remain.
+                let hidden = if update.frac >= 1.0 { Some(1.0) } else { update.hidden_frac };
+                if let Some(hidden) = hidden {
+                    progress.seg_hidden_frac.resize(seg_count, None);
+                    let slot = &mut progress.seg_hidden_frac[seg_idx];
+                    *slot = Some(slot.unwrap_or(0.0).max(hidden));
+                }
+            }
             // Wifi per-track progress is kept separate so each track consumes on
             // its own; everything else slots into the sub-slide's segment range.
             if let Some(track) = update.track_index {
