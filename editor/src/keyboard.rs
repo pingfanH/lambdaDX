@@ -268,7 +268,7 @@ fn is_arrow(key: egui::Key) -> bool {
 
 fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui::Key, mods: egui::Modifiers, repeat: bool, pointer: Option<egui::Pos2>) {
     use egui::Key;
-    if editor.workspace.is_viewer() {
+    if editor.workspace.is_viewer() && !editor.mairis.annotation.active {
         dispatch_viewer(editor, chart, now, key, mods, repeat);
         return;
     }

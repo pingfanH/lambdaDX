@@ -258,6 +258,8 @@ pub struct LoopDrag {
 #[derive(Debug, Clone)]
 pub struct EditorState {
     pub workspace: Workspace,
+    /// Rebuild the audio waveform after loading a different track.
+    pub reload_waveform: bool,
     pub mairis: crate::viewer::MaiRisState,
     pub template_panel: bool,
     pub template_name: String,
@@ -409,6 +411,7 @@ impl Default for EditorState {
     fn default() -> Self {
         Self {
             workspace: Workspace::Chart,
+            reload_waveform: false,
             mairis: Default::default(),
             template_panel: false,
             template_name: "Template".into(),

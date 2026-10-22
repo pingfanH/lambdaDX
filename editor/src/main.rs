@@ -299,8 +299,11 @@ async fn run() {
 
         let mut egui_screen_w = 1.0;
         app::egui_bridge::ui(|ctx| {
-            if waveform.levels.is_empty() && app.audio_wav_pcm.is_some() {
+            if (waveform.levels.is_empty() || editor.reload_waveform)
+                && app.audio_wav_pcm.is_some()
+            {
                 waveform = audio::WaveformPyramid::build(&app);
+                editor.reload_waveform = false;
             }
             editor.glyph_to_points = ctx.screen_rect().width() / screen_width().max(1.0);
             ui.draw(

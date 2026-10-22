@@ -5,6 +5,7 @@
 //! PadPreviewState, timeline and pad renderer as the Chart workspace.
 
 use std::fs;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -168,6 +169,8 @@ pub struct AnnotationState {
     pub song_id: Option<String>,
     pub difficulty: f32,
     pub original: Vec<Note>,
+    pub original_ids: HashSet<u64>,
+    pub preview_signature: u64,
     pub review_deleted: Vec<Note>,
     pub review_added: Vec<Note>,
     pub pending: Option<PathBuf>,
@@ -614,73 +617,6 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
     ui.checkbox(&mut settings.hide_chart_answer_sfx, "隐藏谱面正解音");
     ui.checkbox(&mut settings.use_rhythm_answer, "使用解析节奏的正解音");
     ui.separator();
-    ui.label("测试用例");
-    ui.horizontal(|ui| {
-        if ui.button("刷新用例").clicked() {
-            *cases = discover_cases(&mairis_root());
-            *status = Some(format!("{} cases", cases.len()));
-        }
-        if ui.button("生成测试").clicked() {
-            generate = true;
-        }
-    });
-    ui.checkbox(&mut settings.use_difficulty, "按难度生成");
-    if settings.use_difficulty {
-        ui.add(
-            egui::Slider::new(&mut settings.difficulty, 7.0..=15.0)
-                .step_by(0.5)
-                .text("难度"),
-        );
-    }
-    if cases.is_empty() {
-        *cases = discover_cases(&mairis_root());
-    }
-    if selected_case.is_none() && !cases.is_empty() {
-        *selected_case = cases.iter().position(|case| case.audio.is_some()).or(Some(0));
-    }
-    if ui.button("加载并播放").clicked() {
-        if let Some(index) = *selected_case {
-            if let Some(case) = cases.get(index) {
-                *pending_load = Some(case.chart.clone());
-            }
-        }
-    }
-    let mut selected = *selected_case;
-    let newest = cases
-        .iter()
-        .enumerate()
-        .filter(|(_, case)| case.audio.is_some())
-        .max_by_key(|(_, case)| case.modified)
-        .map(|(index, _)| index)
-        .or(Some(0));
-    for (index, case) in cases.iter().enumerate() {
-        let newest_mark = if Some(index) == newest { "[最新] " } else { "" };
-        let audio = if case.audio.is_some() { "" } else { "[无音频] " };
-        let label = format!(
-            "{}. {}{}{}  ·  {} notes",
-            index + 1,
-            newest_mark,
-            audio,
-            case.name,
-            case.notes
-        );
-        if ui
-            .selectable_label(selected == Some(index), label)
-            .clicked()
-        {
-            selected = Some(index);
-        }
-    }
-    *selected_case = selected;
-    if let Some(index) = *selected_case {
-        if let Some(case) = cases.get(index) {
-            ui.label(case.chart.display().to_string());
-        }
-    }
-    if let Some(status) = status {
-        ui.label(status.clone());
-    }
-    ui.separator();
     ui.label("标注模式");
     if !annotation.active {
         if ui.button("随机训练歌 + 开始标注").clicked() {
@@ -714,6 +650,78 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
         if ui.button("退出标注").clicked() {
             cancel_annotation = true;
         }
+    }
+    ui.separator();
+    ui.label("测试用例");
+    ui.horizontal(|ui| {
+        if ui.button("刷新用例").clicked() {
+            *cases = discover_cases(&mairis_root());
+            *status = Some(format!("{} cases", cases.len()));
+        }
+        if ui.button("生成测试").clicked() {
+            generate = true;
+        }
+    });
+    ui.checkbox(&mut settings.use_difficulty, "按难度生成");
+    if settings.use_difficulty {
+        ui.add(
+            egui::Slider::new(&mut settings.difficulty, 7.0..=15.0)
+                .step_by(0.5)
+                .text("难度"),
+        );
+    }
+    if cases.is_empty() {
+        *cases = discover_cases(&mairis_root());
+    }
+    if selected_case.is_none() && !cases.is_empty() {
+        *selected_case = cases.iter().position(|case| case.audio.is_some()).or(Some(0));
+    }
+    if ui.button("加载并播放").clicked() {
+        if let Some(index) = *selected_case {
+            if let Some(case) = cases.get(index) {
+                *pending_load = Some(case.chart.clone());
+            }
+        }
+    }
+    let mut selected = *selected_case;
+    egui::ScrollArea::vertical()
+        .max_height(220.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+    let newest = cases
+        .iter()
+        .enumerate()
+        .filter(|(_, case)| case.audio.is_some())
+        .max_by_key(|(_, case)| case.modified)
+        .map(|(index, _)| index)
+        .or(Some(0));
+    for (index, case) in cases.iter().enumerate() {
+        let newest_mark = if Some(index) == newest { "[最新] " } else { "" };
+        let audio = if case.audio.is_some() { "" } else { "[无音频] " };
+        let label = format!(
+            "{}. {}{}{}  ·  {} notes",
+            index + 1,
+            newest_mark,
+            audio,
+            case.name,
+            case.notes
+        );
+        if ui
+            .selectable_label(selected == Some(index), label)
+            .clicked()
+        {
+            selected = Some(index);
+        }
+    }
+        });
+    *selected_case = selected;
+    if let Some(index) = *selected_case {
+        if let Some(case) = cases.get(index) {
+            ui.label(case.chart.display().to_string());
+        }
+    }
+    if let Some(status) = status {
+        ui.label(status.clone());
     }
     ui.label(format!("播放状态: {:?}", app.mode));
     }
@@ -815,13 +823,18 @@ fn poll_annotation(editor: &mut EditorState, app: &mut PadPreviewState) {
                 editor.mairis.overlay = AnalysisOverlay::load_path(&analysis);
             }
             let original = app.chart.notes.clone();
+            let original_ids = original.iter().map(|note| note.id).collect();
             editor.mairis.annotation.original = original;
+            editor.mairis.annotation.original_ids = original_ids;
+            editor.mairis.annotation.preview_signature = 0;
             editor.mairis.annotation.phase = AnnotationPhase::Annotating;
             editor.mairis.annotation.pending = None;
             editor.mairis.annotation.review_deleted.clear();
             editor.mairis.annotation.review_added.clear();
             editor.mairis.annotation.status = Some("标注中：Erase 删除 / Place 补音".to_string());
             editor.mairis.status = Some(format!("annotation: {}", path.display()));
+            editor.reload_waveform = true;
+            app.start_playback_at(0.0);
         }
         Err(error) => {
             editor.mairis.annotation.pending = None;
@@ -891,13 +904,17 @@ fn sync_annotation_preview(editor: &mut EditorState, app: &mut PadPreviewState) 
     {
         return;
     }
-    let original_ids: std::collections::HashSet<u64> = editor
-        .mairis
-        .annotation
-        .original
+    let signature = app
+        .chart
+        .notes
         .iter()
-        .map(|note| note.id)
-        .collect();
+        .fold(1469598103934665603_u64, |state, note| {
+            (state ^ note.id).wrapping_mul(1099511628211)
+        });
+    if signature == editor.mairis.annotation.preview_signature {
+        return;
+    }
+    editor.mairis.annotation.preview_signature = signature;
     let current_ids: std::collections::HashSet<u64> = app
         .chart
         .notes
@@ -912,6 +929,7 @@ fn sync_annotation_preview(editor: &mut EditorState, app: &mut PadPreviewState) 
         .filter(|note| !current_ids.contains(&note.id))
         .cloned()
         .collect();
+    let original_ids = editor.mairis.annotation.original_ids.clone();
     editor.mairis.annotation.review_added = app
         .chart
         .notes

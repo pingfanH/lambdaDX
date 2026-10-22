@@ -657,10 +657,15 @@ impl EditorUi {
                     raw_wheel,
                 ),
                 PaneKind::MaiRis => {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_rgba_unmultiplied(24, 24, 24, 180))
+                        .inner_margin(8)
                         .show(&mut ui, |ui| {
-                            crate::viewer::draw_panel(ui, editor, app);
+                            egui::ScrollArea::vertical()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    crate::viewer::draw_panel(ui, editor, app);
+                                });
                         });
                 }
                 PaneKind::Properties | PaneKind::Templates | PaneKind::History => {
