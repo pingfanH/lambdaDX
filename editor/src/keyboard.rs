@@ -270,6 +270,14 @@ fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui:
     use egui::Key;
     let bound = panels::bound_command(editor, key, mods).map(str::to_owned);
     let command = bound.as_deref();
+    if editor.check_slide_placement_finished().is_err() {
+        match command {
+            Some("undo") => { editor.undo(chart); return; }
+            Some("redo") => { editor.redo(chart); return; }
+            Some("save") => { crate::io::save_document(editor, chart); return; }
+            _ => {}
+        }
+    }
     if command == Some("help") || key == Key::Questionmark || (key == Key::Slash && mods.shift) { editor.show_help = true; return; }
     if command == Some("jump") { activate(editor); panels::open(editor, chart, panels::DialogKind::Jump); return; }
     if editor.selection_transform.is_some() {
@@ -287,6 +295,14 @@ fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui:
     }
     if editor.is_slide_edit() {
         if edit::slide_key(editor, chart, key, mods, repeat) { return; }
+    }
+    if editor.slide_draft.is_some() {
+        match command {
+            Some("undo" | "redo") => editor.exit_slide_edit(chart),
+            Some("save") => crate::io::save_document(editor, chart),
+            _ => {}
+        }
+        return;
     }
     if editor.keyboard.range.is_some() {
         if key == Key::Enter && !repeat {
@@ -350,7 +366,7 @@ fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui:
             Key::Space => Some(Transport::Restart),
             Key::Enter => Some(Transport::Seek(measure_to_secs(editor.keyboard.cursor.measure, &chart.bpms))),
             Key::Home => Some(Transport::Rewind),
-            Key::ArrowLeft => Some(Transport::Seek((now - 1.0).max(0.0))),
+            Key::ArrowLeft => Some(Transport::Seek(now - 1.0)),
             Key::ArrowRight => Some(Transport::Seek(now + 1.0)),
             Key::ArrowUp => Some(Transport::Speed(0.1)), Key::ArrowDown => Some(Transport::Speed(-0.1)),
             _ => None,

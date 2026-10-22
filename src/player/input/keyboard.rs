@@ -3,7 +3,7 @@
 //! * `1`–`8` / `T` — synthetic lane presses (A-ring / centre), driving the same
 //!   active-zone highlight as touches.
 //! * `Space` — play / pause.
-//! * `R` — restart from 0. `Home` — jump to 0.
+//! * `R` — restart from measure 0. `Home` — jump to measure 0.
 //! * `←` / `→` — seek ∓1 s. `↑` / `↓` — playback speed.
 //! * `A` — toggle audio. `O` — toggle autoplay.
 
@@ -56,10 +56,10 @@ pub fn handle_global_hotkeys(app: &mut PadPreviewState) {
         app.toggle_play();
     }
     if is_key_pressed(KeyCode::R) {
-        app.start_playback_at(0.0);
+        app.start_playback_at(app.chart.playback_start_time());
     }
     if is_key_pressed(KeyCode::Home) {
-        app.seek_to(0.0);
+        app.seek_to(app.chart.playback_start_time());
     }
     if is_key_pressed(KeyCode::Left) {
         seek_relative(app, -1.0);
@@ -90,6 +90,6 @@ pub fn handle_global_hotkeys(app: &mut PadPreviewState) {
 
 /// Seek by `delta` seconds from the current song time.
 fn seek_relative(app: &mut PadPreviewState, delta: f32) {
-    let t = (app.song_time() + delta).max(0.0);
+    let t = app.song_time() + delta;
     app.seek_to(t);
 }

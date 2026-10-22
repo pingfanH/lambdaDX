@@ -47,7 +47,9 @@ pub fn draw_in(
     );
 
     let duration = duration.max(1.0);
-    let x_of = |t: f32| plot_left + t.clamp(0.0, duration) / duration * width;
+    let start = chart.playback_start_time();
+    let span = duration - start;
+    let x_of = |t: f32| plot_left + (t.clamp(start, duration) - start) / span * width;
     paint_loop(painter, bar, editor, x_of, true);
 
     for note in &chart.notes {
@@ -72,7 +74,7 @@ pub fn draw_in(
     painter.text(
         egui::pos2(bar.left() + 6.0, readout_y),
         egui::Align2::LEFT_CENTER,
-        &format!("{:.2}s / {:.2}s", current_time.max(0.0), duration),
+        &format!("{:.2}s / {:.2}s", current_time, duration),
         egui::FontId::proportional(FONT_SMALL),
         TEXT,
     );
@@ -96,12 +98,12 @@ pub fn draw_in(
         },
     );
     let looping = loop_gesture(ui, &response, editor, interactive, |x| {
-        ((x - plot_left) / width).clamp(0.0, 1.0) * duration
+        start + ((x - plot_left) / width).clamp(0.0, 1.0) * span
     }, x_of);
     if interactive && !looping && (response.clicked() || response.dragged()) {
         if let Some(pos) = response.interact_pointer_pos() {
             let frac = ((pos.x - plot_left) / width).clamp(0.0, 1.0);
-            editor.pending_seek = Some(frac * duration);
+            editor.pending_seek = Some(start + frac * span);
             // A click seeks on release; only an ongoing drag pauses the clock.
             editor.scrubbing = response.dragged();
         }

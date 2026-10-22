@@ -161,6 +161,30 @@ pub fn parse_frontend_chart_result_with_mode(
     super::maidata::parse_and_lower_source_maidata_with_mode(content, level_index, is_classic)
 }
 
+/// Application-facing frontend entry point. The first metadata field belongs
+/// to the audio clock, so authored note and BPM times remain relative to chart
+/// time zero.
+pub fn parse_frontend_chart_result_chart_clock(
+    content: &str,
+    level_index: Natural,
+) -> Result<FrontendChartResult, ParseError> {
+    super::maidata::parse_and_lower_source_maidata_with_mode_and_first(
+        content,
+        level_index,
+        false,
+        false,
+    )
+}
+
+pub fn frontend_lowered_chart_chart_clock(
+    content: &str,
+    level_index: Natural,
+) -> Result<ChartSpec, ParseError> {
+    Ok(parse_frontend_chart_result_chart_clock(content, level_index)?
+        .semantic
+        .lowered)
+}
+
 pub fn frontend_lowered_chart_with_mode(
     content: &str,
     level_index: Natural,

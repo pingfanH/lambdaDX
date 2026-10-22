@@ -23,6 +23,8 @@ mod app;
 mod core;
 #[path = "../../src/player/mod.rs"]
 mod player;
+#[path = "../../src/preview_link/mod.rs"]
+mod preview_link;
 
 #[cfg(feature = "editor-agent")]
 mod agent;
@@ -33,9 +35,11 @@ mod automation;
 mod autoplay_editor;
 mod core_chart;
 mod edit_ops;
+mod slide_edit;
 mod gesture;
 mod io;
 mod keyboard;
+mod playtest;
 mod runtime;
 mod simai_editor;
 mod state;
@@ -196,8 +200,8 @@ async fn run() {
         .and_then(|value| value.parse::<f32>().ok())
         .filter(|time| time.is_finite())
     {
-        app.seek_to(time.max(0.0));
-        runtime::follow_playhead(&mut editor, time.max(0.0));
+        app.seek_to(time);
+        runtime::follow_playhead(&mut editor, app.timeline_time());
     }
 
     let mut waveform = audio::WaveformPyramid::default();
@@ -208,6 +212,7 @@ async fn run() {
         .unwrap_or(0.6);
     let start_time = get_time();
     let mut chart_sync = runtime::ChartSync::new(&mut app.chart);
+    let mut playtest = playtest::Controller::default();
     let mut auto_save = io::autosave::AutoSave::default();
     let mut cover_art = appearance::CoverArt::default();
 
@@ -220,6 +225,7 @@ async fn run() {
     let mut fps_worst = 0.0f32;
 
     loop {
+        playtest.update(&mut editor, &mut app);
         player::render::textures::sync_note_skin(&mut app);
         // Route clean and confirmed dirty closes through preference saving.
         macroquad::input::prevent_quit();
@@ -269,7 +275,7 @@ async fn run() {
                 mouse_wheel().1,
             );
             #[cfg(feature = "editor-automation")]
-            ui.automation.review_window(ctx, &editor);
+            ui.automation.review_window(ctx, &editor, &app);
             let preview_keys_enabled = editor.workspace == Workspace::Chart
                 && !ui.input_blocked
                 && !ctx.wants_keyboard_input()
@@ -326,7 +332,6 @@ async fn run() {
             if let Err(error) = chart_sync.update(&mut app, true) {
                 editor.status = Some(format!("core update: {error}"));
             }
-            let t = t.max(0.0);
             if editor.scrubbing {
                 app.scrub_to(t);
             } else {
@@ -410,6 +415,7 @@ async fn run() {
             .flatten()
             .map(|id| (id, editor.editing_slide_idx));
         let gesture_active = editor.dragging.is_some()
+            || editor.slide_draft.is_some()
             || editor.selection_transform.is_some()
             || editor.handle_grab.is_some()
             || editor.keyboard.transaction.is_some()
@@ -482,6 +488,9 @@ async fn run() {
                         .draw_pad_surround(pad, theme::to_mq(theme::surface(theme::BG_OVERVIEW)))
                 },
             );
+            if editor.workspace == Workspace::Chart {
+                editor.draw_slide_head_preview(&app, &pad, scale);
+            }
             unsafe { get_internal_gl() }.quad_gl.scissor(None);
         }
 
@@ -773,6 +782,7 @@ fn load_editor_chart(
     editor.handle_grab = None;
     editor.marquee_start = None;
     editor.editing_slide = None;
+    editor.slide_draft = None;
     editor.pending_shape = None;
     editor.template_session = None;
     editor.template_action = None;

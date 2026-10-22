@@ -9,6 +9,12 @@ use std::process::Command;
 /// forwarding step the final binary is linked without any of the Lean objects
 /// and every `lnmai_*`/`lean_*` symbol is reported as undefined.
 fn main() {
+    // The Android audio backend contains C++ code. Declare its runtime in the
+    // ELF dependency table so Android resolves it when loading the player.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android") {
+        println!("cargo:rustc-link-lib=dylib=c++_shared");
+    }
+
     if std::env::var_os("CARGO_FEATURE_BACKEND_LEAN").is_none() {
         return;
     }

@@ -248,7 +248,7 @@ async fn run(args: LaunchArgs) {
         player::autoplay::set_on(&mut app, true);
         // Standalone preview has no UI page transition to start playback.
         // Autoplay requested at boot must also release the Idle clock.
-        app.start_playback_at(0.0);
+        app.start_playback_at(app.chart.playback_start_time());
     }
 
     // Parse the SVG pad definition.
@@ -307,7 +307,7 @@ async fn run(args: LaunchArgs) {
                             Some(player::cues::CueTrack::from_chart(&app.chart));
                         player::autoplay::rebuild(&mut app);
                         let _ = app.load_engine(&text, level);
-                        app.start_playback_at(0.0);
+                        app.start_playback_at(app.chart.playback_start_time());
                         app.set_status("谱面已重新载入".to_string());
                     }
                     Err(e) => app.set_status(format!("reload: {e}")),

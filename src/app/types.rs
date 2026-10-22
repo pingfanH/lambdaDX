@@ -663,6 +663,13 @@ pub struct ChartDoc {
     pub autoplay_overrides: Vec<crate::app::autoplay_edit::AutoplayOverride>,
 }
 
+impl ChartDoc {
+    /// One measure of pre-roll; measure 1 remains chart time zero.
+    pub fn playback_start_time(&self) -> f32 {
+        measure_to_secs(0.0, &self.bpms)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HitEvent {
     pub time: f32,

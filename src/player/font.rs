@@ -16,6 +16,8 @@ use macroquad::prelude::{Color, Font, TextParams, draw_text_ex, measure_text};
 
 /// Candidate font files, most preferred first (`MAI2_FONT_PATH` overrides).
 const CANDIDATES: &[&str] = &[
+    "/system/fonts/NotoSansCJK-Regular.ttc",
+    "/system/fonts/NotoSansCJK-VF.ttc",
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     "/Library/Fonts/Arial Unicode.ttf",
     "/System/Library/Fonts/PingFang.ttc",

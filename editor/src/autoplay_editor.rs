@@ -1930,9 +1930,9 @@ fn viewport(
             if snap {
                 let measure =
                     (secs_to_measure(time, &app.chart.bpms) * division).round() / division;
-                measure_to_secs(measure, &app.chart.bpms).max(0.0)
+                measure_to_secs(measure, &app.chart.bpms).max(app.chart.playback_start_time())
             } else {
-                time.max(0.0)
+                time.max(app.chart.playback_start_time())
             }
         },
         |time| left + (time - state.view_start) * pps,
@@ -1962,7 +1962,8 @@ fn viewport(
             ui.ctx().request_repaint();
         }
         editor.pending_seek =
-            Some(snap_time(state.view_start + (x - left) / pps, editor, &app.chart).max(0.0));
+            Some(snap_time(state.view_start + (x - left) / pps, editor, &app.chart)
+                .max(app.chart.playback_start_time()));
         editor.scrubbing = dragging;
     }
     if released {
@@ -1979,7 +1980,7 @@ fn viewport(
         x_of,
         true,
     );
-    let start = secs_to_measure(view, &app.chart.bpms).floor().max(1.0);
+    let start = secs_to_measure(view, &app.chart.bpms).floor().max(0.0);
     let end = secs_to_measure(view + (ruler.right() - left) / pps, &app.chart.bpms)
         .ceil()
         .min(start + 1000.0);

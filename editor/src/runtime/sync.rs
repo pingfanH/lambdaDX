@@ -19,13 +19,14 @@ struct Version {
 
 impl Version {
     fn matches(&self, app: &PadPreviewState) -> bool {
+        let chart = app.engine_chart();
         self.document == app.document_revision()
-            && self.chart.simai_level == app.chart.simai_level
-            && self.chart.bpms == app.chart.bpms
-            && self.chart.notes == app.chart.notes
-            && self.chart.templates == app.chart.templates
-            && self.chart.template_instances == app.chart.template_instances
-            && self.chart.autoplay_overrides == app.chart.autoplay_overrides
+            && self.chart.simai_level == chart.simai_level
+            && self.chart.bpms == chart.bpms
+            && self.chart.notes == chart.notes
+            && self.chart.templates == chart.templates
+            && self.chart.template_instances == chart.template_instances
+            && self.chart.autoplay_overrides == chart.autoplay_overrides
     }
 }
 
@@ -213,7 +214,7 @@ impl ChartSync {
         if self.document != app.document_revision() {
             self.document = app.document_revision();
             self.version = Version {
-                chart: Arc::new(app.chart.clone()),
+                chart: Arc::new(app.engine_chart().clone()),
                 document: self.document,
             };
             self.current = true;
@@ -286,7 +287,7 @@ impl ChartSync {
         self.failed = false;
         self.detach(app);
         self.version = Version {
-            chart: Arc::new(app.chart.clone()),
+            chart: Arc::new(app.engine_chart().clone()),
             document: app.document_revision(),
         };
         #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
@@ -297,7 +298,7 @@ impl ChartSync {
         #[cfg(not(any(feature = "backend-lean", feature = "backend-rust")))]
         {
             let mut cues = crate::player::cues::CueTrack::from_chart(app.playback_chart());
-            cues.reset(app.timeline_time().max(0.0));
+            cues.reset(app.timeline_time());
             app.cue_track = Some(cues);
             self.current = true;
         }
@@ -321,7 +322,7 @@ impl ChartSync {
     }
 }
 
-#[cfg(all(test, feature = "backend-lean"))]
+#[cfg(all(test, any(feature = "backend-rust", feature = "backend-lean")))]
 mod tests {
     use super::*;
     use crate::state::{EditorState, HistoryEntry, Tool};
@@ -477,6 +478,38 @@ mod tests {
         }
         responses.send(complete(pending)).ok().unwrap();
         assert!(!sync.update(&mut pad, false).unwrap());
+    }
+
+    #[test]
+    fn playable_preview_compiles_without_changing_document_and_rebuilds_on_reject() {
+        let mut pad = fixture();
+        let (mut sync, requests, responses) = controlled(&mut pad);
+        let original = pad.chart.clone();
+        let revision = pad.document_revision();
+        let mut candidate = original.clone();
+        let mut slide = original.notes.iter().find(|n| n.note_type == NoteType::Slide).unwrap().clone();
+        slide.id = 900;
+        slide.time = 4.0;
+        candidate.notes.push(slide);
+        pad.set_chart_preview(Some(candidate));
+        assert!(!sync.update(&mut pad, false).unwrap());
+        sync.schedule(&mut pad, false).unwrap();
+        responses.send(complete(requests.try_recv().unwrap())).ok().unwrap();
+        assert!(sync.update(&mut pad, false).unwrap());
+        assert!(pad.has_engine());
+        assert!(pad.judge_windows.slides.contains_key(&(900, 0)), "candidate slide is bound in playback engine");
+        assert_eq!(pad.preview_notes().len(), 1);
+        assert_eq!(pad.chart, original);
+        assert_eq!(pad.document_revision(), revision);
+
+        pad.set_chart_preview(None);
+        assert!(!sync.update(&mut pad, false).unwrap());
+        sync.schedule(&mut pad, false).unwrap();
+        responses.send(complete(requests.try_recv().unwrap())).ok().unwrap();
+        assert!(sync.update(&mut pad, false).unwrap());
+        assert!(pad.has_engine());
+        assert!(!pad.judge_windows.slides.contains_key(&(900, 0)));
+        assert_eq!(pad.playback_chart(), &original);
     }
 
     #[test]

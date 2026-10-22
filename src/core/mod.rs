@@ -10,6 +10,8 @@
 
 #[cfg(feature = "backend-rust")]
 pub use lnmai_core_rust::{api, sdez, session, types};
+#[cfg(feature = "backend-rust")]
+pub use lnmai_core_rust::frontend;
 
 #[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
 pub use lnmai_core::{api, session, types};

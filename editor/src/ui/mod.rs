@@ -110,7 +110,7 @@ const SHORTCUTS: &[(&str, &str)] = &[
         "Q/P/S/Z/V/W + 1-8",
         "Slide edit: set shape to an end lane (⇧=QQ/PP, ,/./;=</>/^, -=line)",
     ),
-    ("⌫ / Esc", "Slide edit: undo waypoint · exit"),
+    ("Enter / ⌫ / Esc", "Slide edit: confirm / remove waypoint / exit or cancel placement"),
     (
         "Hold middle + move",
         "Scroll toward pointer; distance controls speed",
@@ -327,6 +327,51 @@ impl EditorUi {
         {
             app.show_params = false;
         }
+        if !overlay_was_open && !self.menu_open && !ctx.wants_keyboard_input()
+            && !ctx.memory(|m| m.any_popup_open())
+            && (editor.editing_slide.is_some() || editor.star_placement.is_some())
+        {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                crate::keyboard::edit::cancel(editor, &mut app.chart);
+                editor.exit_slide_edit(&mut app.chart);
+                editor.star_placement = None;
+                editor.keyboard.suppress_pointer = true;
+            } else if editor.editing_slide.is_some() {
+                let delete_modifiers = ctx.input(|i| {
+                    i.events.iter().find_map(|event| match event {
+                        egui::Event::Key {
+                            key: egui::Key::Delete,
+                            pressed: true,
+                            repeat: false,
+                            modifiers,
+                            ..
+                        } => Some(*modifiers),
+                        _ => None,
+                    })
+                });
+                if let Some(modifiers) = delete_modifiers.filter(|modifiers| {
+                    ctx.input_mut(|i| i.consume_key(*modifiers, egui::Key::Delete))
+                }) {
+                    if editor.keyboard.transaction.is_some() {
+                        crate::keyboard::edit::transaction_key(
+                            editor,
+                            &mut app.chart,
+                            egui::Key::Delete,
+                            modifiers,
+                            false,
+                        );
+                    } else {
+                        editor.remove_sub_slide(&mut app.chart);
+                    }
+                    editor.keyboard.suppress_pointer = true;
+                } else if editor.keyboard.transaction.is_none()
+                    && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+                {
+                    editor.confirm_slide_edit(&mut app.chart);
+                    editor.keyboard.suppress_pointer = true;
+                }
+            }
+        }
         for (slot, texture) in self.tool_textures.iter_mut().zip([
             app.tap_texture.as_ref(),
             app.hold_texture.as_ref(),
@@ -471,13 +516,13 @@ impl EditorUi {
             editor.template_panel = self.workbench.has(PaneKind::Templates);
         }
         self.workbench.activate_views(editor, &mut self.pad_scale);
-        crate::player::params_panel::draw_embedded_with(ctx, app, |ui| {
+        crate::player::params_panel::draw_embedded_with(ctx, app, |ui, params| {
             egui::CollapsingHeader::new("外观与背景")
                 .default_open(true)
                 .show(ui, |ui| {
                     self.appearance.controls(ui);
                 });
-            toolbar::draw_editor_settings(ui, editor, &mut self.pad_scale, &mut self.workbench);
+            toolbar::draw_editor_settings(ui, editor, &mut self.pad_scale, &mut self.workbench, params);
             #[cfg(feature = "editor-automation")]
             self.automation.settings_ui(ui);
             #[cfg(feature = "editor-agent")]
@@ -512,6 +557,7 @@ impl EditorUi {
             editor,
             app,
             !chart_keys
+                && editor.slide_draft.is_none()
                 && !self.input_blocked
                 && !self.workbench.dragging()
                 && !self.workbench.focused(PaneKind::Simai)
@@ -522,7 +568,11 @@ impl EditorUi {
         let mut regions =
             self.workbench
                 .show(ctx, !workspace_blocked && !structural, |ui, kind| {
-                    toolbar::pane_tools(ui, kind, editor, app, &mut self.pad_scale);
+                    let editable = editor.check_slide_placement_finished().is_ok()
+                        || matches!(kind, PaneKind::Chart | PaneKind::Pad | PaneKind::Overview);
+                    style::enabled_ui(ui, editable, |ui| {
+                        toolbar::pane_tools(ui, kind, editor, app, &mut self.pad_scale);
+                    });
                 });
         // Only a pane closed from its own header clears the request. Rewriting
         // it from `has()` every frame dropped a deferred add (the pane was then
@@ -581,7 +631,7 @@ impl EditorUi {
                     editor,
                     app,
                     current_time,
-                    !self.input_blocked && !transaction,
+                    !self.input_blocked && !transaction && editor.slide_draft.is_none(),
                     self.workbench.focused(PaneKind::Simai),
                 ),
                 PaneKind::Chart => self.central(
@@ -611,9 +661,10 @@ impl EditorUi {
                         && editor.marquee_start.is_none()
                         && !editor.scrubbing
                         && editor.loop_drag.is_none();
-                    // The Pad becomes the autoplay surface while autoplay work
-                    // is in front of the user, not because of the workspace.
-                    let autoplay_pad = match editor.pane_pad_surface {
+                    // An active Slide owns the Pad until it is confirmed or cancelled.
+                    let autoplay_pad = editor.editing_slide.is_none()
+                        && editor.star_placement.is_none()
+                        && match editor.pane_pad_surface {
                         crate::state::PadSurface::Autoplay => true,
                         crate::state::PadSurface::Chart => false,
                         crate::state::PadSurface::FollowFocus => {
@@ -650,6 +701,7 @@ impl EditorUi {
                     editor,
                     app,
                     !self.input_blocked
+                        && editor.slide_draft.is_none()
                         && (!transaction
                             || editor.autoplay_editor.dragging()
                             || editor.scrubbing
@@ -666,6 +718,7 @@ impl EditorUi {
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
                                     let editable = !self.input_blocked
+                                        && editor.slide_draft.is_none()
                                         && editor.loop_drag.is_none()
                                         && !editor.keyboard.owns_input()
                                         && editor.selection_transform.is_none()
@@ -717,6 +770,7 @@ impl EditorUi {
             crate::keyboard::panels::draw(ctx, editor, &mut app.chart);
         }
         crate::keyboard::apply_transport(editor, app);
+        editor.reconcile_slide_edit(&mut app.chart);
         self.apply_view_commands(editor, app);
         // Do not carry a pinch over a menu or another pane into a later frame.
         crate::gesture::take();
@@ -907,7 +961,8 @@ impl EditorUi {
         // egui's widget-owned long-press fallback and gives note menus the same
         // immediate behavior as template menus. A note wins when it overlaps a
         // template block; otherwise the template menu handles the block.
-        let note_context_owned = crate::timeline::note_context_menu(
+        let placement_pending = editor.check_slide_placement_finished().is_err();
+        let note_context_owned = !placement_pending && crate::timeline::note_context_menu(
             editor.layout,
             ui,
             timeline_rect,
@@ -916,7 +971,7 @@ impl EditorUi {
             chart,
             current_time,
         );
-        let template_context_owned = if note_context_owned {
+        let template_context_owned = if note_context_owned || placement_pending {
             false
         } else {
             self.templates
@@ -940,6 +995,7 @@ impl EditorUi {
             chart,
             current_time,
             !self.input_blocked
+                && editor.slide_draft.is_none()
                 && editor.selection_transform.is_none()
                 && !editor.keyboard.owns_input()
                 && editor.timeline_pan.is_none()
@@ -1011,7 +1067,9 @@ impl EditorUi {
             && !transform_owned
             && !keyboard_owned
             && (!over_tools || editor.timeline_pan.is_some())
-            && crate::timeline::input::navigate(ui, timeline_rect, editor, current_time, raw_wheel);
+            && crate::timeline::input::navigate(
+                ui, timeline_rect, editor, current_time, raw_wheel, chart.playback_start_time(),
+            );
         if !template_owned
             && !transform_owned
             && !keyboard_owned
@@ -1039,6 +1097,7 @@ impl EditorUi {
                 && !self.templates.dragging(),
         );
         let handle_active = !template_owned
+            && editor.slide_draft.is_none()
             && !transform_owned
             && !keyboard_owned
             && !navigation_owned

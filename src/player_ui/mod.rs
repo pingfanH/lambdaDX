@@ -7,11 +7,16 @@ pub mod anim;
 pub mod draw;
 pub mod flash;
 pub mod input;
+mod lifecycle;
 pub mod library;
 pub mod pages;
 pub mod perf;
 pub mod state;
 pub mod theme;
+pub mod transform;
+pub mod remote;
+#[cfg(target_os = "android")]
+pub mod android;
 
 use macroquad::prelude::*;
 use macroquad::Window;
@@ -129,10 +134,11 @@ fn slider_frac(app: &PlayerUiApp, idx: usize) -> f32 {
     ((v - lo) / (hi - lo)).clamp(0.0, 1.0)
 }
 
-/// Format seconds as mm:ss.
+/// Format seconds as mm:ss, preserving the pre-roll countdown.
 fn flash_time(secs: f32) -> String {
-    let t = secs.max(0.0) as u32;
-    format!("{:02}:{:02}", t / 60, t % 60)
+    let t = if secs < 0.0 { secs.abs().ceil() } else { secs } as u32;
+    let sign = if secs < 0.0 { "-" } else { "" };
+    format!("{sign}{:02}:{:02}", t / 60, t % 60)
 }
 
 /// Live value for a dynamic text slot (None = slot unknown/empty).
@@ -456,7 +462,7 @@ fn apply_flash_action(app: &mut PlayerUiApp, action: flash::Action, page_idx: &m
 
 fn needs_gameplay_textures(page: Page, flash_page: Option<usize>, loaded: bool) -> bool {
     !loaded
-        && (matches!(page, Page::Gameplay | Page::Pause)
+        && (matches!(page, Page::Gameplay | Page::Pause | Page::Settings)
             || flash_page.is_some_and(|page| page >= 3))
 }
 
@@ -533,6 +539,7 @@ pub async fn run() {
     let mut note_assets_loaded = false;
 
     app.pad.params = perf::time("boot.params", params::load);
+    app.pad.ui_scale_override = app.pad.ui_scale_override.or(app.pad.params.player_ui_scale);
     params::set(app.pad.params.clone());
     // Gameplay options come from the same config (流速 etc.).
     app.pad.note_speed = app.pad.params.note_speed_default;
@@ -580,7 +587,8 @@ pub async fn run() {
         match page.as_str() {
             "select" => app.page = Page::SongSelect,
             "settings" => app.open_settings(),
-            "settings-display" => { app.open_settings(); app.settings_section = 2; }
+            "settings-display" => { app.open_settings(); app.settings_section = 5; }
+            "settings-network" => { app.open_settings(); app.settings_section = 6; }
             "game" => {
                 let _ = app.begin_gameplay();
             }
@@ -612,6 +620,11 @@ pub async fn run() {
     let font = perf::time("boot.font", load_font);
     let mut input = Input::default();
     let mut last = get_time();
+    let mut frame_number = 0_u64;
+    let mut remote = remote::Controller::default();
+    let mut window_events = lifecycle::WindowEvents::new();
+    #[cfg(not(target_os = "android"))]
+    let mut link_dialog = remote::DesktopDialog::default();
 
     // Prime egui so the F1 params panel gets correct input on first open.
     egui_macroquad::ui(|_| {});
@@ -637,6 +650,14 @@ pub async fn run() {
             }
         }
     });
+    // The self-drawn settings page is the canonical player settings surface.
+    // Keep the legacy Flash harness for start/select/game/pause screenshots,
+    // but route an explicit Flash settings request to the complete page so an
+    // old environment variable cannot hide the newer controls.
+    if flash_page == Some(2) {
+        app.open_settings();
+        flash_page = None;
+    }
     let flash_start = get_time();
     let mut flash_enter = flash_start;
     let mut flash_reverse: Option<(usize, f64)> = None;
@@ -666,11 +687,17 @@ pub async fn run() {
     ensure_gameplay_textures(&mut app, &mut note_assets_loaded, flash_page).await;
     drop(boot);
     loop {
+        window_events.poll();
+        if app.sync_lifecycle(crate::app::lifecycle::global(), get_time()) { input = Input::default(); }
+        remote.update(&mut app, get_time());
+        frame_number = frame_number.wrapping_add(1);
+        perf::frame_begin(frame_number);
         // Playback remains gated until its first frame is presented, including
         // the frame that needs to upload the skin for the first time.
         ensure_gameplay_textures(&mut app, &mut note_assets_loaded, flash_page).await;
         player::render::textures::sync_note_skin(&mut app.pad);
         let now = get_time();
+        if app.sync_lifecycle(crate::app::lifecycle::global(), now) { input = Input::default(); }
         let dt = ((now - last) as f32).clamp(0.0, 0.1);
         last = now;
 
@@ -717,8 +744,14 @@ pub async fn run() {
             let down = is_mouse_button_down(MouseButton::Left);
             let pressed = is_mouse_button_pressed(MouseButton::Left);
             let released = is_mouse_button_released(MouseButton::Left);
+            let mut render_flash = true;
             if let Some(action) = flash_ui.update(flash::PAGES[next], hover, down, pressed, released) {
+                let opens_settings = matches!(action, flash::Action::GoSettings);
                 apply_flash_action(&mut app, action, &mut next);
+                if opens_settings {
+                    flash_page = None;
+                    render_flash = false;
+                }
             }
             if let Some((cx, cy)) = flash_click {
                 if !click_done && now - flash_start > 1.0 {
@@ -726,14 +759,19 @@ pub async fn run() {
                     match list.iter().rev().find(|h| h.contains_point(cx, cy)) {
                         Some(h) => {
                             eprintln!("flash-click {} {:?}", h.id, h.action);
+                            let opens_settings = matches!(h.action, flash::Action::GoSettings);
                             apply_flash_action(&mut app, h.action, &mut next);
+                            if opens_settings {
+                                flash_page = None;
+                                render_flash = false;
+                            }
                         }
                         None => eprintln!("flash-click ({cx},{cy}) no hit on {}", flash::PAGES[next]),
                     }
                     click_done = true;
                 }
             }
-            if flash_dump && !dump_done {
+            if render_flash && flash_dump && !dump_done {
                 let px = flash::PageXf::new(ctx.w, ctx.h, ctx.scale);
                 let xf = macroanimate::XflDrawXf {
                     pos: (px.ox, px.oy),
@@ -755,9 +793,9 @@ pub async fn run() {
                 });
                 dump_done = true;
             }
-            if is_key_pressed(KeyCode::Escape) {
+            if render_flash && is_key_pressed(KeyCode::Escape) {
                 flash_page = None;
-            } else {
+            } else if render_flash {
                 // Leaving the pause page plays its pop-in backwards first.
                 if flash_reverse.is_none() && pi == 4 && next != 4 {
                     flash_reverse = Some((next, now));
@@ -796,10 +834,12 @@ pub async fn run() {
                 // Gameplay/pause render the pad behind the HUD.
                 if page_idx >= 3 {
                     ensure_gameplay_textures(&mut app, &mut note_assets_loaded, Some(page_idx)).await;
-                    pages::gameplay::draw_view(&mut app, &ctx);
+                    perf::frame_section("draw_pad", || pages::gameplay::draw_view(&mut app, &ctx));
                     // The Flash UI is not driven through `Input`, so the pad
                     // takes the pointer here.
-                    pages::gameplay::handle_pad_input(&mut app, &ctx, &mut input);
+                    perf::frame_section("input", || {
+                        pages::gameplay::handle_pad_input(&mut app, &ctx, &mut input)
+                    });
                 }
                 draw_flash(&app, &ctx, &mut flash_ui, &flash_slots, page, page_idx, frame, now);
             }
@@ -822,23 +862,38 @@ pub async fn run() {
         }
 
         // Fill in cover art without stalling any single frame.
-        app.library.pump_covers(6.0);
+        app.library.pump_covers();
 
         audio::service_audio(&mut app.pad).await;
         if !app.scrubbing {
             app.pad.tick_cues();
         }
-        app.tick_autoplay();
-        player::engine::step_judge_engine(&mut app.pad);
-        app.pad.tick_feedback();
-
-        if app.pad.playback_pending && app.gameplay_presented {
-            app.pad.finalize_playback_start();
+        if app.updates_gameplay() {
+            app.tick_autoplay();
+            perf::frame_section("engine_step", || {
+                player::engine::step_judge_engine(&mut app.pad)
+            });
+            perf::frame_section("feedback", || app.pad.tick_feedback());
         }
-        app.gameplay_presented = app.page == Page::Gameplay;
 
-        if app.pad.show_params {
-            egui_macroquad::ui(|egui_ctx| player::params_panel::draw(egui_ctx, &mut app.pad));
+        app.finish_gameplay_frame();
+
+        let show_link_dialog = cfg!(not(target_os = "android")) && app.page == Page::Settings
+            && app.settings_section == 6 && app.link_ui.connection_dialog;
+        if app.pad.show_params || show_link_dialog {
+            egui_macroquad::ui(|ctx| {
+                if app.pad.show_params { player::params_panel::draw(ctx, &mut app.pad); }
+                #[cfg(not(target_os = "android"))]
+                if show_link_dialog {
+                    player::params_panel::ensure_egui_font(ctx);
+                    let mut open = true;
+                    egui_macroquad::egui::Window::new("网络连接码 / 扫码图片")
+                        .open(&mut open).default_width(380.0).show(ctx, |ui| {
+                        link_dialog.draw(ui, &mut app.link_ui);
+                    });
+                    app.link_ui.connection_dialog = open;
+                }
+            });
             egui_macroquad::draw();
         }
 
@@ -850,6 +905,7 @@ pub async fn run() {
             }
         }
 
+        perf::frame_end();
         next_frame().await;
     }
 }
@@ -863,14 +919,14 @@ mod flash_timing_tests {
 
     #[test]
     fn menus_do_not_load_gameplay_textures() {
-        for page in [Page::Start, Page::SongSelect, Page::Settings] {
+        for page in [Page::Start, Page::SongSelect] {
             assert!(!needs_gameplay_textures(page, None, false));
         }
     }
 
     #[test]
     fn gameplay_and_pause_load_textures_once() {
-        for page in [Page::Gameplay, Page::Pause] {
+        for page in [Page::Gameplay, Page::Pause, Page::Settings] {
             assert!(needs_gameplay_textures(page, None, false));
             assert!(!needs_gameplay_textures(page, None, true));
         }

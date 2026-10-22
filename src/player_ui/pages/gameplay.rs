@@ -12,6 +12,7 @@ use crate::player_ui::input::{self, Input};
 use crate::player_ui::pages::{self, Btn};
 use crate::player_ui::state::{Page, PlayerUiApp};
 use crate::player_ui::theme;
+use crate::player_ui::transform;
 
 /// Draw the pad view (visual only). Pad input is routed separately by
 /// [`handle_pad_input`] *after* the UI, so overlapping UI widgets win.
@@ -19,8 +20,8 @@ use crate::player_ui::theme;
 /// themed surface (flat panel + dot grid + border).
 pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx) {
     // Feed the pad renderer the current song's cover (updates as it decodes).
-    if let Some(i) = app.loaded.or(Some(app.selected)) {
-        app.pad.cover_texture = app.library.cover(i).cloned();
+    if !app.remote_preview && let Some(i) = app.loaded.or(Some(app.selected)) {
+        app.pad.cover_texture = app.library.ensure_cover(i).cloned();
     }
     // Full-window pad panel so the circle is centred on screen (the HUD floats
     // on top).
@@ -33,7 +34,9 @@ pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx) {
     let pad_geom = playout::compute_pad_geom(pad_rect);
 
     let bg_a = params::pad_bg_alpha().clamp(0.0, 255.0) / 255.0;
-    render::draw_pad_panel(&app.pad, pad_rect, pad_geom, PadSurface::themed(bg_a));
+    render::draw_pad_panel_oriented(
+        &app.pad, pad_rect, pad_geom, PadSurface::themed(bg_a), app.pad.params.pad_rotation_deg,
+    );
 }
 
 /// Route pad input on gameplay/pause (so a paused slide can still be tracked).
@@ -41,7 +44,7 @@ pub fn draw_view(app: &mut PlayerUiApp, ctx: &UiCtx) {
 /// `input.consumed`, and the pad then ignores the contact — otherwise a button
 /// sitting on top of a sensor zone would be swallowed by the pad.
 pub fn handle_pad_input(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
-    if !matches!(app.page, Page::Gameplay | Page::Pause) || input.is_consumed() {
+    if app.preparing || !matches!(app.page, Page::Gameplay | Page::Pause) || input.is_consumed() {
         return;
     }
     let pad_rect = RectF {
@@ -52,7 +55,11 @@ pub fn handle_pad_input(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
     };
     let pad_geom = playout::compute_pad_geom(pad_rect);
     pinput::handle_lane_input(&mut app.pad);
-    let pointer_events = pinput::collect_pointer_events();
+    let xf = transform::pad_transform(ctx.w, ctx.h, &app.pad.params);
+    let mut pointer_events = pinput::collect_pointer_events();
+    for event in &mut pointer_events {
+        event.position = xf.to_local(event.position);
+    }
     let pad_hit = pinput::handle_touch_controls(&mut app.pad, pad_geom, &pointer_events);
     if pad_hit {
         input.consume();
@@ -60,6 +67,7 @@ pub fn handle_pad_input(app: &mut PlayerUiApp, ctx: &UiCtx, input: &mut Input) {
 }
 
 pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
+    if app.remote_preview && app.preparing { draw_overlays(app, ctx); return; }
     // Playback keys. Seeking works on both the live gameplay and the pause page.
     if app.page == Page::Gameplay || app.page == Page::Pause {
         if is_key_pressed(KeyCode::Left) {
@@ -75,7 +83,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         } else if is_key_pressed(KeyCode::Space) {
             app.pad.toggle_play();
         } else if is_key_pressed(KeyCode::R) {
-            app.pad.start_playback_at(0.0);
+            app.restart();
         } else if is_key_pressed(KeyCode::F5) {
             if let Err(e) = app.reload_current_song() {
                 app.error = Some(e);
@@ -88,7 +96,28 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         app.resume();
     }
 
+    draw_oriented_bar(app, input, ctx);
+    draw_overlays(app, ctx);
+}
+
+/// Show the actual playback-bar layout while adjusting settings, without input.
+pub fn draw_hud_preview(app: &mut PlayerUiApp, ctx: &UiCtx) {
+    let mut input = Input::default();
+    input.consume();
+    draw_oriented_bar(app, &mut input, ctx);
+}
+
+fn draw_oriented_bar(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
+    let scale = transform::hud_scale(ctx.w, ctx.h, ctx.scale);
+    let (width, xf) = transform::hud_layout(ctx.w, ctx.h, scale, &app.pad.params);
+    let local_ctx = UiCtx { w: width, h: 66.0 * scale, scale, font: ctx.font.clone(), ..*ctx };
+    let _model = transform::model(xf);
+    input.with_transform(xf, |input| draw_playback_bar(app, input, &local_ctx));
+}
+
+fn draw_playback_bar(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     let scale = ctx.scale;
+    let compact = ctx.w < 700.0 * scale;
     let hud_h = 66.0 * scale;
     draw::rect(
         RectF {
@@ -97,7 +126,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
             w: ctx.w,
             h: hud_h,
         },
-        theme::PANEL,
+        draw::with_alpha(theme::PANEL, 0.78),
     );
     draw::rect(
         RectF {
@@ -113,7 +142,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     let pause_r = RectF {
         x: 16.0 * scale,
         y: 13.0 * scale,
-        w: 84.0 * scale,
+        w: if compact { 56.0 } else { 84.0 } * scale,
         h: 40.0 * scale,
     };
     let label = if app.page == Page::Gameplay {
@@ -131,32 +160,16 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
 
     // Title block.
     let tx = pause_r.x + pause_r.w + 18.0 * scale;
-    draw::text(
-        ctx.font.as_ref(),
-        &app.pad.chart.title,
-        tx,
-        hud_h * 0.5 - 3.0 * scale,
-        17.0 * scale,
-        theme::TEXT,
-    );
     let lvl = app
         .selected_level
         .map(|k| format!("Lv.{k}"))
         .unwrap_or_else(|| "—".to_string());
-    draw::text(
-        ctx.font.as_ref(),
-        &format!("{}  ·  {:.1}x", lvl, app.pad.play_speed),
-        tx,
-        hud_h * 0.5 + 17.0 * scale,
-        11.0 * scale,
-        theme::TEXT_MUTED,
-    );
 
     // Progress + time. Right side layout: [time] [AUTO] [PLAY] (audio dot).
-    let play_w = 62.0 * scale;
-    let auto_w = 70.0 * scale;
-    let time_w = 100.0 * scale;
-    let right = 16.0 * scale;
+    let play_w = if compact { 50.0 } else { 62.0 } * scale;
+    let auto_w = if compact { 54.0 } else { 70.0 } * scale;
+    let time_w = if compact { 52.0 } else { 100.0 } * scale;
+    let right = 28.0 * scale;
     let play_r = RectF {
         x: ctx.w - right - play_w,
         y: 17.0 * scale,
@@ -169,16 +182,25 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         w: auto_w,
         h: 32.0 * scale,
     };
-    let bar_x = tx + (ctx.w * 0.30).max(200.0 * scale);
     let bar_right = autoplay_r.x - 12.0 * scale - time_w;
+    let available = (bar_right - tx).max(0.0);
+    let title_w = if available >= 230.0 * scale {
+        (available * 0.45).min(300.0 * scale)
+    } else { 0.0 };
+    if title_w > 0.0 {
+        draw::text_ellipsized(ctx.font.as_ref(), &app.pad.chart.title, tx,
+            hud_h * 0.5 - 3.0 * scale, 17.0 * scale, theme::TEXT, title_w - 16.0 * scale);
+        draw::text_ellipsized(ctx.font.as_ref(), &format!("{}  ·  {:.1}x", lvl, app.pad.play_speed),
+            tx, hud_h * 0.5 + 17.0 * scale, 11.0 * scale, theme::TEXT_MUTED, title_w - 16.0 * scale);
+    }
+    let bar_x = tx + title_w;
     let bar = RectF {
         x: bar_x,
         y: hud_h * 0.5 - 4.0 * scale,
-        w: (bar_right - bar_x).max(60.0 * scale),
+        w: (bar_right - bar_x).max(1.0),
         h: 8.0 * scale,
     };
-    let dur = app.song_duration();
-    let frac = (app.pad.song_time() / dur).clamp(0.0, 1.0);
+    let frac = app.pad.playback_progress();
 
     // Draggable scrub region (taller than the visual bar for an easy grab).
     let hit = RectF {
@@ -187,19 +209,19 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         w: bar.w,
         h: bar.h + 20.0 * scale,
     };
-    let resp = input.widget(input::id("hud_progress", 0), hit);
+    let resp = input.drag(input::id("hud_progress", 0), hit);
     if resp.held && !app.preparing {
         if !app.scrubbing {
             app.scrubbing = true;
             app.pad.scrubbing = true;
             app.pad.stop_audio_if_any();
         }
-        let t = ((input.pos.x - bar.x) / bar.w).clamp(0.0, 1.0) * dur;
+        let t = app.pad.time_at_progress((input.pos.x - bar.x) / bar.w);
         app.scrub_to(t);
     }
     // Commit on release (also when the release happens outside the bar).
     if app.scrubbing && input.released {
-        let t = ((input.pos.x - bar.x) / bar.w).clamp(0.0, 1.0) * dur;
+        let t = app.pad.time_at_progress((input.pos.x - bar.x) / bar.w);
         app.seek_to(t);
         app.scrubbing = false;
         app.pad.scrubbing = false;
@@ -230,7 +252,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
 
     let time_size = 13.0 * scale;
     let shown_time = if app.scrubbing {
-        shown_frac * dur
+        app.pad.time_at_progress(shown_frac)
     } else {
         app.pad.song_time()
     };
@@ -277,6 +299,10 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         },
     );
 
+}
+
+fn draw_overlays(app: &PlayerUiApp, ctx: &UiCtx) {
+    let scale = ctx.scale;
     // Hint.
     if app.page == Page::Gameplay {
         draw::text_right(
@@ -301,7 +327,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
         draw::rect_outline(overlay, 1.0, theme::BORDER);
         draw::text_centered(
             ctx.font.as_ref(),
-            "载入音频…",
+            if app.remote_preview { "接收谱面与判定…" } else { "载入音频…" },
             overlay.x + overlay.w * 0.5,
             overlay.y + 38.0 * scale,
             16.0 * scale,
@@ -331,6 +357,7 @@ pub fn draw_hud(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
 }
 
 fn format_time(seconds: f32) -> String {
-    let total = seconds.max(0.0) as u32;
-    format!("{:02}:{:02}", total / 60, total % 60)
+    let total = if seconds < 0.0 { seconds.abs().ceil() } else { seconds } as u32;
+    let sign = if seconds < 0.0 { "-" } else { "" };
+    format!("{sign}{:02}:{:02}", total / 60, total % 60)
 }

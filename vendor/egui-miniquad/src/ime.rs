@@ -89,13 +89,23 @@ declare_class!(
         #[method(setMarkedText:selectedRange:replacementRange:)]
         fn set_marked_text(&self, string: &AnyObject, selection: NSRange, _replacement: NSRange) {
             let text = plain_text(string);
+            let composing = !text.is_empty();
             let mut events = self.ivars().events.borrow_mut();
-            if !self.ivars().composing.replace(true) {
+            let was_composing = self.ivars().composing.replace(composing);
+            if composing && !was_composing {
                 events.push(Event::Ime(ImeEvent::Enabled));
             }
             *self.ivars().marked.borrow_mut() = text.clone();
             self.ivars().selection.set(selection);
-            events.push(Event::Ime(ImeEvent::Preedit(text)));
+            if composing || was_composing {
+                events.push(Event::Ime(ImeEvent::Preedit(text)));
+            }
+            // Some input methods clear the final preedit without unmarkText.
+            // Match hasMarkedText and release both native and egui composition
+            // state, otherwise editing keys remain swallowed until insertText.
+            if was_composing && !composing {
+                events.push(Event::Ime(ImeEvent::Disabled));
+            }
         }
 
         #[method(unmarkText)]

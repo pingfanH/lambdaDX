@@ -365,39 +365,22 @@ fn slide_fold_fields_match(left: &NormalizedSlide, right: &NormalizedSlide) -> b
         && left.simai_shape == right.simai_shape
 }
 
-fn take_same_source_group(
-    gid: Natural,
-    slides: &[NormalizedSlide],
-) -> (Vec<NormalizedSlide>, Vec<NormalizedSlide>) {
-    let mut group = Vec::new();
-    let mut i = 0;
-    while i < slides.len()
-        && slides[i].source_group_id == Some(gid.clone())
-        && slides[i].source_group_index != Some((0).into())
-    {
-        group.push(slides[i].clone());
-        i += 1;
-    }
-    (group, slides[i..].to_vec())
-}
-
 fn split_slide_multiplicity_units(slides: &[NormalizedSlide]) -> Vec<Vec<NormalizedSlide>> {
     let mut units = Vec::new();
-    let mut rest: Vec<NormalizedSlide> = slides.to_vec();
-    while !rest.is_empty() {
-        match rest[0].source_group_id.clone() {
-            None => {
-                units.push(vec![rest[0].clone()]);
-                rest.remove(0);
-            }
-            Some(gid) => {
-                let (group_tail, remaining) = take_same_source_group(gid, &rest[1..]);
-                let mut unit = vec![rest[0].clone()];
-                unit.extend(group_tail);
-                units.push(unit);
-                rest = remaining;
+    let mut start = 0;
+    while start < slides.len() {
+        let mut end = start + 1;
+        if let Some(gid) = &slides[start].source_group_id {
+            while end < slides.len()
+                && slides[end].source_group_id.as_ref() == Some(gid)
+                && slides[end].source_group_index != Some(0.into())
+            {
+                end += 1;
             }
         }
+        // Copy each unit once; never clone the unconsumed chart tail.
+        units.push(slides[start..end].to_vec());
+        start = end;
     }
     units
 }

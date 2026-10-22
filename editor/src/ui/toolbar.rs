@@ -28,6 +28,7 @@ pub fn draw(
 ) -> (bool, Option<Workspace>) {
     let mut owned = false;
     let mut workspace = None;
+    let placement_pending = editor.check_slide_placement_finished().is_err();
     egui::menu::bar(ui, |ui| {
         ui.spacing_mut().item_spacing.x = 3.0;
         let compact = ui.available_width() < 1000.0;
@@ -52,10 +53,10 @@ pub fn draw(
         ui.separator();
         owned |= ui
             .menu_button("文件", |ui| {
-                if command(ui, "打开谱面...", true) {
+                if command(ui, "打开谱面...", !placement_pending) {
                     editor.open_dialog = true;
                 }
-                if command(ui, "重新载入", true) {
+                if command(ui, "重新载入", !placement_pending) {
                     editor.reload_request = true;
                 }
                 if command(ui, "保存", true) {
@@ -70,7 +71,9 @@ pub fn draw(
                 ui.checkbox(&mut editor.auto_save, "自动保存");
                 if !editor.level_slots.is_empty() {
                     ui.separator();
-                    ui.horizontal(|ui| draw_difficulty(ui, editor));
+                    ui.add_enabled_ui(!placement_pending, |ui| {
+                        ui.horizontal(|ui| draw_difficulty(ui, editor));
+                    });
                 }
                 ui.separator();
                 if command(ui, "退出", true) {
@@ -82,15 +85,15 @@ pub fn draw(
             .is_some();
         owned |= ui
             .menu_button("编辑", |ui| {
-                if command(ui, "撤销", !editor.undo.is_empty()) {
+                if command(ui, "撤销", placement_pending || !editor.undo.is_empty()) {
                     editor.undo(&mut app.chart);
                 }
-                if command(ui, "重做", !editor.redo.is_empty()) {
+                if command(ui, "重做", placement_pending || !editor.redo.is_empty()) {
                     editor.redo(&mut app.chart);
                 }
                 ui.separator();
                 let chart_workspace = editor.workspace == Workspace::Chart;
-                let selected = chart_workspace && !editor.selected.is_empty();
+                let selected = !placement_pending && chart_workspace && !editor.selected.is_empty();
                 if command(ui, "复制", selected) {
                     editor.copy_selection(&app.chart);
                 }
@@ -98,7 +101,7 @@ pub fn draw(
                     editor.copy_selection(&app.chart);
                     editor.delete_selection(&mut app.chart);
                 }
-                if command(ui, "粘贴", chart_workspace && !editor.clipboard.is_empty()) {
+                if command(ui, "粘贴", !placement_pending && chart_workspace && !editor.clipboard.is_empty()) {
                     let seconds = if app.mode == crate::app::types::Mode::Idle {
                         app.timeline_view_time
                     } else {
@@ -107,7 +110,7 @@ pub fn draw(
                     let at = secs_to_measure(seconds, &app.chart.bpms);
                     editor.paste_at(&mut app.chart, at);
                 }
-                let event_selected = !chart_workspace
+                let event_selected = !placement_pending && !chart_workspace
                     && editor.autoplay_editor.selected_row.is_some()
                     && app.has_engine();
                 if command(ui, "删除", selected || event_selected) {
@@ -119,7 +122,7 @@ pub fn draw(
                         editor.autoplay_editor = events;
                     }
                 }
-                if command(ui, "全选", chart_workspace && !app.chart.notes.is_empty()) {
+                if command(ui, "全选", !placement_pending && chart_workspace && !app.chart.notes.is_empty()) {
                     editor.selected = app.chart.notes.iter().map(|n| n.id).collect();
                 }
                 if command(ui, "取消选择", selected || event_selected) {
@@ -134,7 +137,7 @@ pub fn draw(
             .is_some();
         owned |= ui
             .menu_button("模板", |ui| {
-                ui.add_enabled_ui(editor.workspace == Workspace::Chart, |ui| {
+                ui.add_enabled_ui(!placement_pending && editor.workspace == Workspace::Chart, |ui| {
                     ui.checkbox(&mut editor.template_panel, "模板库与 Scene");
                     let main = editor.template_session.is_none();
                     if command(ui, "从选择创建模板", main && !editor.selected.is_empty()) {
@@ -198,7 +201,7 @@ pub fn draw(
         if ui
             .add(
                 egui::DragValue::new(&mut time)
-                    .range(0.0..=86400.0)
+                    .range(app.chart.playback_start_time()..=86400.0)
                     .speed(0.01)
                     .fixed_decimals(2)
                     .suffix(" s"),
@@ -239,6 +242,14 @@ pub fn draw(
                 preview_options(ui, editor);
                 ui.separator();
                 loop_options(ui, editor, &app.chart);
+            })
+            .inner
+            .is_some();
+        owned |= ui
+            .menu_button("游玩", |ui| {
+                egui::ScrollArea::vertical().max_height(600.0).show(ui, |ui| {
+                    crate::playtest::menu(ui, editor, app);
+                });
             })
             .inner
             .is_some();
@@ -392,6 +403,7 @@ pub fn draw_editor_settings(
     editor: &mut EditorState,
     pad_scale: &mut f32,
     workbench: &mut Workbench,
+    params: &mut crate::app::params::Params,
 ) {
     egui::CollapsingHeader::new("工作区与分区")
         .default_open(true)
@@ -406,6 +418,10 @@ pub fn draw_editor_settings(
         .default_open(true)
         .show(ui, |ui| {
             ui.checkbox(&mut editor.auto_save, "自动保存");
+            ui.checkbox(
+                &mut params.editor_slide_default_opposite,
+                "Slide 放置后默认直线到对面",
+            );
             draw_subdivision(ui, editor);
             ui.checkbox(&mut editor.scroll_invert, "反转滚轮方向");
             ui.checkbox(
@@ -563,10 +579,24 @@ pub fn pane_tools(
                 });
                 ui.separator();
                 ui.add(egui::Slider::new(pad_scale, 0.3..=2.0).text("预览缩放"));
+                let previous = (
+                    app.params.show_judge_windows,
+                    app.params.hide_notes,
+                    app.params.hide_zones,
+                );
                 crate::player::params_panel::judgment_option(ui, &mut app.params);
                 ui.checkbox(&mut app.params.hide_notes, "隐藏 Notes");
                 ui.checkbox(&mut app.params.hide_zones, "隐藏感应区");
                 params::set(app.params.clone());
+                if previous != (
+                    app.params.show_judge_windows,
+                    app.params.hide_notes,
+                    app.params.hide_zones,
+                ) {
+                    if let Err(error) = params::save(&app.params) {
+                        editor.status = Some(format!("Pad 显示设置保存失败: {error}"));
+                    }
+                }
             })
             .response
             .on_hover_text("预览设置");

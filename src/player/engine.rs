@@ -181,6 +181,7 @@ pub fn zone_for_sensor(area: SensorArea) -> PadZone {
 pub struct JudgeEngine {
     session: Session<Loaded>,
     chart_spec: ChartSpec,
+    simai_fragments: Vec<crate::app::maidata::SimaiFragment>,
     /// Last time successfully accepted by lnmai-core.
     ///
     /// Playback can deliver an autoplay event a frame late after a render or
@@ -240,21 +241,66 @@ impl JudgeEngine {
     /// Simai text.
     pub fn load(simai_text: &str, level_index: u32) -> Result<Self, String> {
         ensure_runtime();
+        #[cfg(feature = "backend-rust")]
+        let (loaded, tokens) = Session::<Empty>::create_native()
+            .map_err(|e| e.json)?
+            .load_chart_text_native_with_timeline(simai_text, level_index)
+            .map_err(|e| e.json)?;
+        #[cfg(feature = "backend-rust")]
+        let simai_fragments = tokens
+            .into_iter()
+            .map(|token| crate::app::maidata::SimaiFragment {
+                time: token.time_us as f32 / 1e6,
+                text: token.text,
+            })
+            .collect();
+        #[cfg(not(feature = "backend-rust"))]
         let loaded = Session::<Empty>::create_native()
             .map_err(|e| e.json)?
             .load_chart_text_native(simai_text, level_index)
             .map_err(|e| e.json)?;
+        #[cfg(not(feature = "backend-rust"))]
+        let simai_fragments = crate::app::maidata::simai_timeline(simai_text, level_index)
+            .unwrap_or_default();
+        Self::from_loaded(loaded, simai_fragments, simai_text, level_index)
+    }
+
+    /// Initialize judgment from the same frontend result used by the renderer.
+    #[cfg(feature = "backend-rust")]
+    pub fn load_parsed(
+        parsed: crate::core::frontend::FrontendChartResult,
+        simai_text: &str,
+        level_index: u32,
+    ) -> Result<Self, String> {
+        let (loaded, tokens) = Session::<Empty>::create_native().map_err(|e| e.json)?
+            .load_parsed_native(parsed).map_err(|e| e.json)?;
+        let fragments = tokens.into_iter().map(|token| crate::app::maidata::SimaiFragment {
+            time: token.time_us as f32 / 1e6, text: token.text,
+        }).collect();
+        Self::from_loaded(loaded, fragments, simai_text, level_index)
+    }
+
+    fn from_loaded(
+        loaded: Session<Loaded>,
+        simai_fragments: Vec<crate::app::maidata::SimaiFragment>,
+        simai_text: &str,
+        level_index: u32,
+    ) -> Result<Self, String> {
         let (slide_bindings, slide_head_timings, slide_totals) = runtime_slide_bindings(&loaded)?;
         let chart_spec = loaded.chart_spec_native().map_err(|e| e.json)?;
         #[cfg(feature = "backend-rust")]
-        let sdez = if std::env::var("MAI2_JUDGE_MODE").ok().as_deref() == Some("legacy") {
-            None
+        // Keep the established scheduler as the safe default. SDEZ is an
+        // explicit opt-in so a missing or misspelled environment setting
+        // cannot silently change judgment semantics.
+        let sdez = if std::env::var("MAI2_JUDGE_MODE").ok().as_deref() == Some("sdez") {
+            Some(SdezEngine::from_session(&loaded)?)
         } else {
-            Some(SdezEngine::load(simai_text, level_index)?)
+            None
         };
         Ok(JudgeEngine {
             session: loaded,
             chart_spec,
+            simai_fragments,
             last_step_time_us: 0,
             slide_bindings,
             slide_head_timings,
@@ -267,6 +313,11 @@ impl JudgeEngine {
             #[cfg(feature = "backend-rust")]
             sdez_progress: Vec::new(),
         })
+    }
+
+    /// Source highlighting shares the frontend parse used by the runtime.
+    pub fn simai_fragments(&self) -> &[crate::app::maidata::SimaiFragment] {
+        &self.simai_fragments
     }
 
     /// Bind a recompiled editor chart without changing its stable note IDs.
@@ -386,7 +437,7 @@ impl JudgeEngine {
         current_secs: f32,
         events: Vec<TimedInputEvent>,
     ) -> Result<RuntimeStepLightResult, String> {
-        self.step_us((current_secs.max(0.0) as f64 * 1e6).round() as i64, events)
+        self.step_us((current_secs as f64 * 1e6).round() as i64, events)
     }
 
     /// Event timestamps must never round-trip through f32 seconds: a clock a
@@ -548,7 +599,7 @@ impl JudgeEngine {
         }
         #[cfg(feature = "backend-rust")]
         if let Some(sdez) = &mut self.sdez {
-            let result = sdez.seek((seconds.max(0.0) * 1e6) as i64, events, keep_held)?;
+            let result = sdez.seek((seconds * 1e6) as i64, events, keep_held)?;
             let progress = sdez.take_slide_progress();
             self.last_step_time_us = result.current_time;
             self.map_sdez_progress(progress);
@@ -556,7 +607,7 @@ impl JudgeEngine {
         }
         let result = self
             .session
-            .seek_with_events((seconds.max(0.0) * 1e6) as i64, events, keep_held)
+            .seek_with_events((seconds * 1e6) as i64, events, keep_held)
             .map_err(|e| e.json);
         if let Ok(result) = &result {
             self.last_step_time_us = result.current_time;
@@ -1001,7 +1052,7 @@ pub(crate) fn step_engine_events(
         // its own time: stepping the batch at `now` would judge it late, which
         // costs score for a short hitch and misses the note for a long one.
         span > FRAME_INPUT_BATCH_SPAN_US
-            || (now.max(0.0) * 1e6) as i64 - oldest > FRAME_INPUT_BATCH_SPAN_US
+            || (now * 1e6) as i64 - oldest > FRAME_INPUT_BATCH_SPAN_US
     };
     if !per_event {
         return vec![engine.step(now, events)];
@@ -1597,6 +1648,24 @@ mod tests {
         let score = last.unwrap().score;
         assert_eq!(score.lost_base, 0, "plan replay after seek must not lose notes");
         assert_eq!(score.earned_base, score.total_base);
+    }
+
+    #[test]
+    fn cached_source_timeline_matches_highlighting_across_clock_changes() {
+        for source in [
+            "&first=0.125\n&wholebpm=120\n&inote_6={4},,(180),,1/2,3h[4:1],A1/B1,4-8[8:1],E",
+            "&first=-0.25\n&inote_6=(210){7}1,2,(228)3,1v4>3>2[4:1],E",
+            "&inote_6=(120){4}1`2,A1/B1,Ch[4:1],E",
+        ] {
+            let engine = JudgeEngine::load(source, 6).unwrap();
+            let expected = crate::app::maidata::simai_timeline(source, 6).unwrap();
+            assert_eq!(engine.simai_fragments().len(), expected.len());
+            for (cached, original) in engine.simai_fragments().iter().zip(expected) {
+                assert_eq!(cached.text, original.text);
+                assert!((cached.time - original.time).abs() < 0.00002,
+                    "{source}: {cached:?} vs {original:?}");
+            }
+        }
     }
 
     #[test]

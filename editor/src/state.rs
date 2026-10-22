@@ -175,6 +175,7 @@ pub struct RepeatEdit {
 
 #[derive(Debug, Clone, Copy)]
 pub struct StarPlacement {
+    pub tool: Tool,
     pub note_id: Option<u64>,
     pub head: f32,
     pub lane: u8,
@@ -319,6 +320,7 @@ pub struct EditorState {
     /// Consume the whole pointer gesture used to confirm/cancel a transform.
     pub transform_pointer_down: bool,
     pub star_placement: Option<StarPlacement>,
+    pub slide_draft: Option<crate::slide_edit::Placement>,
     pub hold_placement: Option<Note>,
     /// Rendered logical pixels converted to egui points for head hit boxes.
     pub glyph_to_points: f32,
@@ -366,6 +368,9 @@ pub struct EditorState {
     /// Set while dragging the playhead/overview; the runtime applies it to the
     /// player's clock (`timeline_view_time` / `mode_song_offset`).
     pub pending_seek: Option<f32>,
+    /// Send the current in-memory document to a network Player.
+    pub playtest_request: Option<crate::playtest::Request>,
+    pub player_link: crate::playtest::UiState,
     /// Whether the current drag is scrubbing the red playhead (not moving a note).
     pub scrubbing: bool,
     /// Pointer position on the timeline this frame (`None` when outside it).
@@ -448,6 +453,7 @@ impl Default for EditorState {
             placement_sequence: Vec::new(),
             transform_pointer_down: false,
             star_placement: None,
+            slide_draft: None,
             hold_placement: None,
             glyph_to_points: 1.0,
             handle_grab: None,
@@ -473,6 +479,8 @@ impl Default for EditorState {
             path_prompt_focus: false,
             pending_path: None,
             pending_seek: None,
+            playtest_request: None,
+            player_link: Default::default(),
             scrubbing: false,
             cursor: None,
             autoplay_mode: 1,

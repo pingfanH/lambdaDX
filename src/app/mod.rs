@@ -7,6 +7,7 @@ pub mod chart;
 pub mod cli;
 pub mod egui_bridge;
 pub mod guide;
+pub mod lifecycle;
 pub mod maichart;
 pub mod maidata;
 pub mod note_skin;

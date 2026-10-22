@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{app::platform, theme};
 
+mod watermark;
+#[cfg(test)]
+mod tests;
+use watermark::Watermark;
+
 const FILE: &str = "editor_appearance.json";
 const DEFAULT_IMAGE: &str = "editor_background.jpg";
 
@@ -21,6 +26,7 @@ struct Settings {
     brightness: f32,
     image: String,
     dim_inactive_during_edit: bool,
+    watermark: Watermark,
 }
 
 impl Default for Settings {
@@ -32,6 +38,7 @@ impl Default for Settings {
             brightness: 55.0,
             image: DEFAULT_IMAGE.into(),
             dim_inactive_during_edit: false,
+            watermark: Watermark::default(),
         }
     }
 }
@@ -52,16 +59,32 @@ impl Settings {
         if self.image.trim().is_empty() {
             self.image = DEFAULT_IMAGE.into();
         }
+        self.watermark.normalize();
     }
 }
 
 type Loaded = Result<Option<(String, image::RgbaImage)>, String>;
+
+#[derive(PartialEq)]
+struct BackdropKey {
+    screen: mq::Vec2,
+    dpi: f32,
+    background: bool,
+    brightness: f32,
+    watermark: Watermark,
+}
+
+struct Backdrop {
+    key: BackdropKey,
+    target: mq::RenderTarget,
+}
 
 pub struct Appearance {
     settings: Settings,
     saved: Settings,
     draft_path: String,
     texture: Option<mq::Texture2D>,
+    backdrop: Option<Backdrop>,
     loading: Option<Receiver<Loaded>>,
     error: Option<String>,
     save_error: Option<String>,
@@ -76,6 +99,7 @@ impl Default for Appearance {
             saved: settings.clone(),
             settings,
             texture: None,
+            backdrop: None,
             loading: None,
             error: None,
             save_error: None,
@@ -166,6 +190,7 @@ impl Appearance {
         if self.loading.is_some() {
             ui.spinner();
         }
+        self.settings.watermark.controls(ui);
         for error in [&self.error, &self.save_error].into_iter().flatten() {
             ui.colored_label(theme::ACCENT_RED, error);
         }
@@ -231,15 +256,7 @@ impl Appearance {
         self.loading = None;
         match result {
             Ok(Some((path, image))) => {
-                let texture = mq::Texture2D::from_rgba8(
-                    image.width() as u16,
-                    image.height() as u16,
-                    image.as_raw(),
-                );
-                texture.set_filter(mq::FilterMode::Linear);
-                self.texture = Some(texture);
-                self.draft_path = path.clone();
-                self.settings.image = path;
+                self.install(path, image);
             }
             Ok(None) => {}
             Err(error) => self.error = Some(format!("背景图片: {error}")),
@@ -268,35 +285,81 @@ impl Appearance {
         );
         texture.set_filter(mq::FilterMode::Linear);
         self.texture = Some(texture);
+        self.backdrop = None;
         self.draft_path = path.clone();
         self.settings.image = path;
     }
 
-    pub fn draw(&self) {
-        if !self.settings.background {
-            return;
-        }
-        let Some(texture) = &self.texture else {
-            return;
-        };
+    pub fn draw(&mut self) {
+        self.prepare_backdrop();
         let screen = mq::vec2(mq::screen_width(), mq::screen_height());
-        let source = cover_source(mq::vec2(texture.width(), texture.height()), screen);
-        let light = self.settings.brightness / 100.0;
         mq::draw_texture_ex(
-            texture,
+            &self.backdrop.as_ref().unwrap().target.texture,
             0.0,
             0.0,
-            mq::Color::new(light, light, light, 1.0),
+            mq::WHITE,
             mq::DrawTextureParams {
                 dest_size: Some(screen),
-                source: Some(source),
+                flip_y: true,
                 ..Default::default()
             },
         );
     }
 
+    fn prepare_backdrop(&mut self) {
+        let screen = mq::vec2(mq::screen_width().max(1.0), mq::screen_height().max(1.0));
+        let key = BackdropKey {
+            screen,
+            dpi: mq::screen_dpi_scale(),
+            background: self.settings.background,
+            brightness: self.settings.brightness,
+            watermark: self.settings.watermark.clone(),
+        };
+        if self
+            .backdrop
+            .as_ref()
+            .is_some_and(|backdrop| backdrop.key == key)
+        {
+            return;
+        }
+        let target = match self.backdrop.take() {
+            Some(old) if old.key.screen == screen && old.key.dpi == key.dpi => old.target,
+            _ => mq::render_target(
+                (screen.x * key.dpi).round() as u32,
+                (screen.y * key.dpi).round() as u32,
+            ),
+        };
+        target.texture.set_filter(mq::FilterMode::Linear);
+        mq::push_camera_state();
+        mq::set_camera(&mq::Camera2D {
+            render_target: Some(target.clone()),
+            ..mq::Camera2D::from_display_rect(mq::Rect::new(0.0, 0.0, screen.x, screen.y))
+        });
+        // Cache an opaque composite so text alpha blends identically in the Pad mask.
+        mq::clear_background(theme::to_mq(theme::BG_WINDOW));
+        if let Some(texture) = self.texture.as_ref().filter(|_| self.settings.background) {
+            let light = self.settings.brightness / 100.0;
+            mq::draw_texture_ex(
+                texture,
+                0.0,
+                0.0,
+                mq::Color::new(light, light, light, 1.0),
+                mq::DrawTextureParams {
+                    dest_size: Some(screen),
+                    source: Some(cover_source(
+                        mq::vec2(texture.width(), texture.height()), screen,
+                    )),
+                    ..Default::default()
+                },
+            );
+        }
+        self.settings.watermark.draw(screen);
+        mq::pop_camera_state();
+        self.backdrop = Some(Backdrop { key, target });
+    }
+
     /// Restore exactly the editor backdrop, not a solid mask, outside the Pad.
-    /// The caller keeps the preview scissor active for all three layers.
+    /// The caller keeps the preview scissor active for the backdrop and tint.
     pub fn draw_pad_surround(&self, pad: &crate::app::types::PadGeom, surface: mq::Color) {
         let screen = mq::vec2(mq::screen_width(), mq::screen_height());
         let radius = pad.outer_r * crate::app::params::pad_circle_scale().max(1.0);
@@ -305,17 +368,15 @@ impl Appearance {
             pad.cx, pad.cy, radius, outer, theme::to_mq(theme::BG_WINDOW),
         );
         mq::draw_mesh(&mesh);
-        if let Some(texture) = self.texture.as_ref().filter(|_| self.settings.background) {
-            let source = cover_source(mq::vec2(texture.width(), texture.height()), screen);
-            let light = self.settings.brightness / 100.0;
+        if let Some(backdrop) = &self.backdrop {
             for vertex in &mut mesh.vertices {
                 vertex.uv = mq::vec2(
-                    (source.x + vertex.position.x / screen.x * source.w) / texture.width(),
-                    (source.y + vertex.position.y / screen.y * source.h) / texture.height(),
+                    vertex.position.x / screen.x,
+                    1.0 - vertex.position.y / screen.y,
                 );
-                vertex.color = mq::Color::new(light, light, light, 1.0).into();
+                vertex.color = mq::WHITE.into();
             }
-            mesh.texture = Some(texture.clone());
+            mesh.texture = Some(backdrop.target.texture.clone());
             mq::draw_mesh(&mesh);
         }
         if surface.a > 0.0 {

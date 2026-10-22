@@ -140,7 +140,8 @@ pub fn draw(
     let backdrop = editor.template_session.as_ref().map(|session| session.backdrop.notes.as_slice()).unwrap_or(&[]);
     for (notes, is_backdrop) in [(backdrop, true), (chart.notes.as_slice(), false)] {
     for note in super::notes::draw_order(notes) {
-        ctx.tint = draw::note_tint(note, is_backdrop);
+        let preview = !is_backdrop && app.is_preview_note(note.id);
+        ctx.tint = if preview { draw::ca(150, 220, 255, 125) } else { draw::note_tint(note, is_backdrop) };
         let head = note_secs(note, bpms);
         let y = ctx.y_of(head);
         let x = ctx.lane_x(lane_index_of(note));
@@ -154,7 +155,7 @@ pub fn draw(
         if yb < plot_top - 80.0 * g || ya > plot_bottom + 80.0 * g {
             continue;
         }
-        draw_note(&ctx, note, x, y, y_tail, !is_backdrop && editor.selected.contains(&note.id));
+        draw_note(&ctx, note, x, y, y_tail, !is_backdrop && !preview && editor.selected.contains(&note.id));
     }
     }
 

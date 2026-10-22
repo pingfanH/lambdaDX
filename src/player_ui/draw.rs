@@ -2,8 +2,73 @@
 //! faint grid/hatch underlays.
 
 use macroquad::prelude::*;
+use std::cell::Cell;
 
 use crate::app::types::RectF;
+
+thread_local! {
+    static CLIP: Cell<Option<RectF>> = const { Cell::new(None) };
+    static SCREEN_CLIP_ONLY: Cell<bool> = const { Cell::new(false) };
+}
+
+fn physical_scissor(r: RectF, width: f32, height: f32, dpi: f32) -> (i32, i32, i32, i32) {
+    let x = (r.x.clamp(0.0, width) * dpi).floor() as i32;
+    let y = (r.y.clamp(0.0, height) * dpi).floor() as i32;
+    let right = ((r.x + r.w.max(0.0)).clamp(0.0, width) * dpi).ceil() as i32;
+    let bottom = ((r.y + r.h.max(0.0)).clamp(0.0, height) * dpi).ceil() as i32;
+    (x, y, (right - x).max(0), (bottom - y).max(0))
+}
+
+pub fn is_visible(r: RectF) -> bool {
+    r.w > 0.0 && r.h > 0.0 && (SCREEN_CLIP_ONLY.with(Cell::get) || CLIP.with(|clip| {
+        clip.get().is_none_or(|c| r.x < c.x + c.w && r.x + r.w > c.x
+            && r.y < c.y + c.h && r.y + r.h > c.y)
+    }))
+}
+
+pub fn contains_visible(pos: Vec2) -> bool {
+    SCREEN_CLIP_ONLY.with(Cell::get)
+        || CLIP.with(|clip| clip.get().is_none_or(|r| crate::app::ui::rect_contains(r, pos)))
+}
+
+pub struct ClipGuard(Option<RectF>, bool);
+
+fn apply_clip(r: Option<RectF>) {
+    let scissor = r.map(|r| physical_scissor(r, screen_width(), screen_height(), screen_dpi_scale()));
+    unsafe { get_internal_gl().quad_gl.scissor(scissor); }
+}
+
+pub fn clip(r: RectF) -> ClipGuard {
+    let previous = CLIP.with(|clip| {
+        let previous = clip.get();
+        let r = if let Some(c) = previous {
+            let x = r.x.max(c.x);
+            let y = r.y.max(c.y);
+            RectF { x, y, w: ((r.x + r.w).min(c.x + c.w) - x).max(0.0),
+                h: ((r.y + r.h).min(c.y + c.h) - y).max(0.0) }
+        } else { r };
+        clip.set(Some(r));
+        apply_clip(Some(r));
+        previous
+    });
+    ClipGuard(previous, SCREEN_CLIP_ONLY.with(Cell::get))
+}
+
+/// Clip transformed drawing in screen space without comparing its local
+/// geometry with the screen-space rectangle. Input needs its own mapping.
+pub fn screen_clip(r: RectF) -> ClipGuard {
+    let guard = clip(r);
+    SCREEN_CLIP_ONLY.with(|screen_only| screen_only.set(true));
+    guard
+}
+
+impl Drop for ClipGuard {
+    fn drop(&mut self) {
+        CLIP.with(|clip| clip.set(self.0));
+        SCREEN_CLIP_ONLY.with(|screen_only| screen_only.set(self.1));
+        apply_clip(self.0);
+    }
+}
 
 // ── Color helpers ────────────────────────────────────────────────────
 
@@ -99,7 +164,30 @@ pub fn text_params<'a>(font: Option<&'a Font>, size: f32, c: Color) -> TextParam
 }
 
 pub fn text(font: Option<&Font>, s: &str, x: f32, y: f32, size: f32, c: Color) {
+    if !is_visible(RectF { x, y: y - size * 1.2, w: f32::MAX, h: size * 1.6 }) {
+        return;
+    }
     draw_text_ex(s, x, y, text_params(font, size, c));
+}
+
+pub fn text_ellipsized(font: Option<&Font>, s: &str, x: f32, y: f32, size: f32, c: Color, max_width: f32) {
+    if max_width <= 0.0 { return; }
+    if text_width(font, s, size) <= max_width {
+        text(font, s, x, y, size, c);
+        return;
+    }
+    let suffix = "…";
+    let available = max_width - text_width(font, suffix, size);
+    if available < 0.0 { return; }
+    let boundaries: Vec<usize> = s.char_indices().map(|(i, _)| i).chain([s.len()]).collect();
+    let mut low = 0;
+    let mut high = boundaries.len() - 1;
+    while low < high {
+        let mid = (low + high + 1) / 2;
+        if text_width(font, &s[..boundaries[mid]], size) <= available { low = mid; }
+        else { high = mid - 1; }
+    }
+    text(font, &format!("{}{suffix}", &s[..boundaries[low]]), x, y, size, c);
 }
 
 pub fn text_width(font: Option<&Font>, s: &str, size: f32) -> f32 {
@@ -233,4 +321,44 @@ fn clip_segment(a: Vec2, b: Vec2, r: RectF) -> Option<(Vec2, Vec2)> {
         }
     }
     Some((a + d * t0, a + d * t1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retina_scissor_matches_the_entire_logical_viewport() {
+        let r = RectF { x: 0.0, y: 156.0, w: 420.0, h: 604.0 };
+        assert_eq!(physical_scissor(r, 1280.0, 760.0, 2.0), (0, 312, 840, 1208));
+        assert_eq!(physical_scissor(r, 1280.0, 760.0, 1.0), (0, 156, 420, 604));
+    }
+
+    #[test]
+    fn scissor_clamps_both_edges_including_offscreen_rects() {
+        assert_eq!(physical_scissor(RectF { x: -5.5, y: 750.5, w: 40.0, h: 30.0 },
+            1280.0, 760.0, 2.0), (0, 1501, 69, 19));
+        assert_eq!(physical_scissor(RectF { x: 1400.0, y: 800.0, w: 40.0, h: 30.0 },
+            1280.0, 760.0, 2.0), (2560, 1520, 0, 0));
+    }
+
+    #[test]
+    fn offscreen_settings_are_not_visible_or_interactive() {
+        CLIP.with(|clip| clip.set(Some(RectF { x: 240.0, y: 146.0, w: 1040.0, h: 614.0 })));
+        assert!(is_visible(RectF { x: 272.0, y: 150.0, w: 620.0, h: 56.0 }));
+        assert!(!is_visible(RectF { x: 272.0, y: 900.0, w: 620.0, h: 56.0 }));
+        assert!(!contains_visible(vec2(300.0, 120.0)));
+        CLIP.with(|clip| clip.set(None));
+    }
+
+    #[test]
+    fn screen_scissor_does_not_cull_transformed_local_geometry() {
+        CLIP.with(|clip| clip.set(Some(RectF { x: 0.0, y: 64.0, w: 1280.0, h: 696.0 })));
+        let local_button = RectF { x: 16.0, y: 13.0, w: 84.0, h: 40.0 };
+        assert!(!is_visible(local_button));
+        SCREEN_CLIP_ONLY.with(|screen_only| screen_only.set(true));
+        assert!(is_visible(local_button));
+        SCREEN_CLIP_ONLY.with(|screen_only| screen_only.set(false));
+        CLIP.with(|clip| clip.set(None));
+    }
 }

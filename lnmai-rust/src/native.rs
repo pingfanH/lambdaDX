@@ -56,13 +56,6 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            (
-                3,
-                Request {
-                    time_us: -1,
-                    ..Default::default()
-                },
-            ),
             (8, Request::default()),
         ];
         for (operation, request) in requests {
@@ -89,6 +82,29 @@ mod tests {
         assert_ne!(unsafe { lnmai_v3_call(0, 2, &request, &mut output) }, 0);
         assert!(output.is_null());
         unsafe { lnmai_v3_free_result(ptr::null_mut()) };
+    }
+
+    #[test]
+    fn measure_zero_seek_and_step_preserve_the_signed_clock() {
+        let mut session = crate::session::Session::<crate::session::Empty>::create_native()
+            .unwrap()
+            .load_chart_text_native("&inote_1=(120){4}1,E", 1)
+            .unwrap();
+        let seek = session.seek(-2_000_000).unwrap();
+        assert_eq!(seek.current_time, -2_000_000);
+        assert!(seek.skipped_note_indices.is_empty());
+        assert!(!seek.terminated);
+        let step = session
+            .step_native(&TimedInputBatch {
+                current_time: -1_500_000,
+                events: vec![],
+            })
+            .unwrap();
+        assert_eq!(step.current_time, -1_500_000);
+        assert!(step.events.is_empty());
+        assert_eq!(step.score.earned_base, 0);
+        assert_eq!(step.score.lost_base, 0);
+        assert!(!step.terminated);
     }
 }
 struct OwnedOutput(*mut Output);

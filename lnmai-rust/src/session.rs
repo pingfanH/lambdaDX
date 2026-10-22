@@ -12,6 +12,13 @@ use crate::types;
 pub struct Empty;
 pub struct Loaded;
 
+/// A source token on the same exact microsecond clock as the loaded chart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChartTextToken {
+    pub time_us: i64,
+    pub text: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct FfiEnvelope {
     pub json: String,
@@ -76,7 +83,7 @@ impl<State> Session<State> {
 impl<State> Drop for Session<State> {
     fn drop(&mut self) {
         if let Some(handle) = self.handle.take() {
-            let _ = lnmai_core_rs::ffi::free_game_state_handle(handle);
+            let _ = lnmai_core_rs::direct::free(handle);
         }
     }
 }
@@ -119,17 +126,45 @@ fn handle_from_json(json: &str) -> Result<u64> {
 impl Session<Empty> {
     /// Create a session through the in-process ABI-3 bridge.
     pub fn create_native() -> Result<Self> {
-        Self::create()
+        Ok(Self::new(lnmai_core_rs::direct::create()))
     }
 
     /// Load chart text through the in-process ABI-3 bridge.
     pub fn load_chart_text_native(
-        self,
+        mut self,
         content: &str,
         level_index: u32,
     ) -> Result<Session<Loaded>> {
-        self.load_chart_text(content, level_index)
-            .map(|(session, _envelope)| session)
+        let parsed = crate::frontend::parse(content, level_index)?;
+        lnmai_core_rs::direct::load_spec(self.handle(), parsed.semantic.lowered)
+            .map_err(|error| LnmaiError { json: error })?;
+        Ok(Session::new(self.take_handle()))
+    }
+
+    /// Reuse a frontend parse for judgment and source highlighting.
+    pub fn load_parsed_native(
+        mut self,
+        parsed: crate::frontend::FrontendChartResult,
+    ) -> Result<(Session<Loaded>, Vec<ChartTextToken>)> {
+        let tokens = parsed.inspection.tokens.into_iter().map(|token| {
+            let time_us = token.timing.micros.to_i64().ok_or_else(|| LnmaiError {
+                json: "source token timing exceeds the microsecond clock range".into(),
+            })?;
+            Ok(ChartTextToken { time_us, text: token.raw_text })
+        }).collect::<Result<Vec<_>>>()?;
+        lnmai_core_rs::direct::load_spec(self.handle(), parsed.semantic.lowered)
+            .map_err(|error| LnmaiError { json: error })?;
+        Ok((Session::new(self.take_handle()), tokens))
+    }
+
+    /// Parse once, keeping source timing for hosts that display the current
+    /// Simai fragment alongside the judgment runtime.
+    pub fn load_chart_text_native_with_timeline(
+        self,
+        content: &str,
+        level_index: u32,
+    ) -> Result<(Session<Loaded>, Vec<ChartTextToken>)> {
+        self.load_parsed_native(crate::frontend::parse(content, level_index)?)
     }
 
     pub fn create() -> Result<Self> {
@@ -172,18 +207,7 @@ impl Session<Loaded> {
         &mut self,
         batch: &types::TimedInputBatch,
     ) -> Result<types::RuntimeStepLightResult> {
-        let json = serde_json::to_string(batch).map_err(|error| LnmaiError {
-            json: error.to_string(),
-        })?;
-        let envelope = ok_or_error(lnmai_core_rs::ffi::step_game_state_handle_light(
-            self.handle(),
-            &json,
-        ))?;
-        envelope
-            .decode_result()
-            .map_err(|error| LnmaiError {
-                json: error.to_string(),
-            })
+        crate::native::step(self.handle(), batch)
     }
 
     pub fn seek(&mut self, target_us: i64) -> Result<types::SeekResult> {
@@ -196,75 +220,19 @@ impl Session<Loaded> {
         events: &[types::TimedInputEvent],
         keep_held: bool,
     ) -> Result<types::SeekResult> {
-        let batch = types::TimedInputBatch {
-            current_time: target_us,
-            events: events.to_vec(),
-        };
-        let json = serde_json::to_string(&batch).map_err(|error| LnmaiError {
-            json: error.to_string(),
-        })?;
-        let envelope = ok_or_error(lnmai_core_rs::ffi::seek_game_state_handle(
-            self.handle(),
-            &json,
-            keep_held,
-        ))?;
-        envelope
-            .decode_result()
-            .map_err(|error| LnmaiError {
-                json: error.to_string(),
-            })
+        crate::native::seek(self.handle(), target_us, events, keep_held)
     }
 
     pub fn autoplay_plan(&self) -> Result<types::AutoplayPlan> {
-        let envelope = ok_or_error(lnmai_core_rs::ffi::get_autoplay_plan_json_by_handle(
-            self.handle(),
-        ))?;
-        envelope
-            .decode_result()
-            .map_err(|error| LnmaiError {
-                json: error.to_string(),
-            })
+        crate::native::plan(self.handle())
     }
 
     pub fn chart_spec_native(&self) -> Result<types::ChartSpec> {
-        let envelope = ok_or_error(lnmai_core_rs::ffi::get_lowered_chart_json_by_handle(
-            self.handle(),
-        ))?;
-        envelope
-            .decode_result()
-            .map_err(|error| LnmaiError {
-                json: error.to_string(),
-            })
+        crate::native::chart(self.handle())
     }
 
     pub fn slide_bindings_native(&self) -> Result<Vec<types::RuntimeSlideBinding>> {
-        let envelope = ok_or_error(lnmai_core_rs::ffi::get_slide_bindings_json_by_handle(
-            self.handle(),
-        ))?;
-        let values: Vec<serde_json::Value> = envelope
-            .decode_result()
-            .map_err(|error| LnmaiError {
-                json: error.to_string(),
-            })?;
-        values
-            .into_iter()
-            .map(|value| {
-                let field = |name: &str| {
-                    value.get(name).and_then(serde_json::Value::as_u64).ok_or_else(|| {
-                        LnmaiError {
-                            json: format!("missing slide binding field {name}"),
-                        }
-                    })
-                };
-                Ok(types::RuntimeSlideBinding {
-                    note_index: field("noteIndex")?,
-                    head_timing: field("headTiming")? as i64,
-                    total_judge_queue_len: field("totalJudgeQueueLen")?,
-                    track_count: field("trackCount")?,
-                    initial_queue_remaining: field("initialQueueRemaining")?,
-                })
-            })
-            .collect()
+        crate::native::bindings(self.handle())
     }
 
     pub fn get_lowered_chart_json(&self) -> Result<FfiEnvelope> {
@@ -317,5 +285,45 @@ impl Session<Loaded> {
     pub fn free(mut self) -> Result<FfiEnvelope> {
         let handle = self.take_handle();
         ok_or_error(lnmai_core_rs::ffi::free_game_state_handle(handle))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_timeline_load_preserves_chart_and_exact_source_clock() {
+        let text = "&first=0.125\n&wholebpm=120\n&inote_1=8,E\n&inote_6={4},,(180),,1/2,3h[4:1],A1/B1,4-8[8:1],E\n";
+        let original = Session::<Empty>::create_native().unwrap()
+            .load_chart_text_native(text, 6).unwrap();
+        let (cached, tokens) = Session::<Empty>::create_native().unwrap()
+            .load_chart_text_native_with_timeline(text, 6).unwrap();
+        assert_eq!(
+            original.get_lowered_chart_json().unwrap().json,
+            cached.get_lowered_chart_json().unwrap().json,
+        );
+        assert_eq!(tokens[0], ChartTextToken { time_us: 1_666_667, text: "1".into() });
+        assert_eq!(tokens[1], ChartTextToken { time_us: 1_666_667, text: "2".into() });
+        assert!(tokens.iter().any(|token| token.text == "3h[4:1]"));
+        assert!(tokens.iter().any(|token| token.text == "4-8[8:1]"));
+        assert!(tokens.windows(2).all(|pair| pair[0].time_us <= pair[1].time_us));
+    }
+
+    #[test]
+    fn native_timeline_load_reports_frontend_errors() {
+        for (text, level) in [
+            ("&inote_1=(120){4}1,E", 9),
+            ("&inote_1=(120){4}1w3[4:1],E", 1),
+        ] {
+            let original = Session::<Empty>::create_native().unwrap()
+                .load_chart_text_native(text, level).err().expect("invalid chart");
+            let cached = Session::<Empty>::create_native().unwrap()
+                .load_chart_text_native_with_timeline(text, level).err().expect("invalid chart");
+            assert_eq!(cached.json, original.json);
+            let envelope: serde_json::Value = serde_json::from_str(&cached.json).unwrap();
+            assert_eq!(envelope["ok"], false);
+            assert_eq!(envelope["error"]["code"], "parse_error");
+        }
     }
 }

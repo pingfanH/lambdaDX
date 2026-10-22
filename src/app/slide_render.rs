@@ -517,7 +517,7 @@ fn render_prefab_path(
 
 /// Screen-space start point of a slide path: the outer tap ring for A zones,
 /// or the zone centroid for screen zones.
-fn slide_start_point(
+pub(crate) fn slide_start_point(
     note: &Note,
     svg: &PadSvgDef,
     pad: &PadGeom,
@@ -532,6 +532,22 @@ fn slide_start_point(
         Some(spawn_cx + vec2(angle.cos(), angle.sin()) * radius)
     } else {
         svg.zone_screen_centroid(PadZone::from(note.lane), pad)
+    }
+}
+
+/// Editor heads remain visible even before a trajectory has any points.
+pub(crate) fn draw_static_star(
+    head: Vec2,
+    scale: f32,
+    star: Option<&Texture2D>,
+    ex: Option<&Texture2D>,
+) {
+    let size = params::star_size() * scale;
+    for texture in [star, ex].into_iter().flatten() {
+        draw_texture_ex(
+            texture, head.x - size * 0.5, head.y - size * 0.5, WHITE,
+            DrawTextureParams { dest_size: Some(vec2(size, size)), ..Default::default() },
+        );
     }
 }
 
@@ -1102,6 +1118,11 @@ pub fn draw_slide(
     };
 
     if path.len() < 2 {
+        if show_full && layer == SlideLayer::Star {
+            if let Some(head) = path.first() {
+                draw_static_star(*head, scale, tex.star.or(tex.star_fallback), tex.star_ex.or(tex.star_ex_fallback));
+            }
+        }
         return;
     }
 
@@ -1323,21 +1344,7 @@ pub fn draw_slide(
     if layer == SlideLayer::Star {
     if show_full {
         // Static star at start position
-        let head_pt = path[0];
-        let ss = params::star_size() * scale;
-        let star_used = tex.star.or(tex.star_fallback);
-        if let Some(st) = star_used {
-            draw_texture_ex(
-                st,
-                head_pt.x - ss * 0.5,
-                head_pt.y - ss * 0.5,
-                WHITE,
-                DrawTextureParams {
-                    dest_size: Some(vec2(ss, ss)),
-                    ..Default::default()
-                },
-            );
-        }
+        draw_static_star(path[0], scale, tex.star.or(tex.star_fallback), tex.star_ex.or(tex.star_ex_fallback));
     } else if dt_scaled > 0.0 && dt_scaled < head_lead && !note.is_tapless {
         // Pre-judge flying-in head star (A-zone and touch-zone). Same radial
         // flight as a Tap note.

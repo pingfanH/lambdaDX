@@ -263,15 +263,32 @@ pub fn lower_source_chart_block_with_mode(
     file: &MaidataFile,
     block: &MaidataChartBlock,
 ) -> Result<FrontendChartResult, ParseError> {
+    lower_source_chart_block_with_mode_and_first(is_classic, file, block, true)
+}
+
+/// Lower a chart while keeping the authored chart clock independent from the
+/// first metadata field. The ordinary frontend entry point retains the
+/// historical core behavior where the field is included in token timings;
+/// application playback uses this entry point because it is an audio offset.
+pub fn lower_source_chart_block_with_mode_and_first(
+    is_classic: bool,
+    file: &MaidataFile,
+    block: &MaidataChartBlock,
+    apply_first_offset: bool,
+) -> Result<FrontendChartResult, ParseError> {
     let base_bpm = parse_rat_def(
         &metadata_field(&file.metadata, "&wholebpm").unwrap_or_else(|| "120".to_string()),
         Rat::from_int(120),
     );
-    let first_offset = match time::parse_seconds_point_string(
-        &metadata_field(&file.metadata, "&first").unwrap_or_else(|| "0".to_string()),
-    ) {
-        Some(value) => value,
-        None => TimePoint::zero(),
+    let first_offset = if apply_first_offset {
+        match time::parse_seconds_point_string(
+            &metadata_field(&file.metadata, "&first").unwrap_or_else(|| "0".to_string()),
+        ) {
+            Some(value) => value,
+            None => TimePoint::zero(),
+        }
+    } else {
+        TimePoint::zero()
     };
     let cleaned_body = strip_comments(&block.raw_body);
     let segments: Vec<String> = cleaned_body.split(',').map(|s| s.to_string()).collect();
@@ -312,12 +329,26 @@ pub fn lower_source_chart_by_level_with_mode(
     file: &MaidataFile,
     level_index: Natural,
 ) -> Result<FrontendChartResult, ParseError> {
+    lower_source_chart_by_level_with_mode_and_first(is_classic, file, level_index, true)
+}
+
+pub fn lower_source_chart_by_level_with_mode_and_first(
+    is_classic: bool,
+    file: &MaidataFile,
+    level_index: Natural,
+    apply_first_offset: bool,
+) -> Result<FrontendChartResult, ParseError> {
     match file
         .charts
         .iter()
         .find(|block| block.level_index == level_index)
     {
-        Some(block) => lower_source_chart_block_with_mode(is_classic, file, block),
+        Some(block) => lower_source_chart_block_with_mode_and_first(
+            is_classic,
+            file,
+            block,
+            apply_first_offset,
+        ),
         None => Err(ParseError {
             kind: ParseErrorKind::InvalidSyntax,
             raw_text: String::new(),
@@ -333,8 +364,22 @@ pub fn parse_and_lower_source_maidata_with_mode(
     level_index: Natural,
     is_classic: bool,
 ) -> Result<FrontendChartResult, ParseError> {
+    parse_and_lower_source_maidata_with_mode_and_first(content, level_index, is_classic, true)
+}
+
+pub fn parse_and_lower_source_maidata_with_mode_and_first(
+    content: &str,
+    level_index: Natural,
+    is_classic: bool,
+    apply_first_offset: bool,
+) -> Result<FrontendChartResult, ParseError> {
     let file = parse_source_maidata(content)?;
-    lower_source_chart_by_level_with_mode(is_classic, &file, level_index)
+    lower_source_chart_by_level_with_mode_and_first(
+        is_classic,
+        &file,
+        level_index,
+        apply_first_offset,
+    )
 }
 
 pub fn lower_source_chart_block(
@@ -364,6 +409,51 @@ mod tests {
     use crate::areas::OuterSlot;
 
     const MAIDATA: &str = "&title=Test\n&wholebpm=120\n&first=0\n&inote_1=\n(120)\n1,2,3,\n";
+
+    #[test]
+    #[ignore = "manual parser stage benchmark"]
+    fn profile_parser_stages() {
+        use std::time::Instant;
+        let text = std::fs::read_to_string(std::env::var_os("LDX_PROFILE_CHART").unwrap()).unwrap();
+        let mut now = Instant::now();
+        let file = parse_source_maidata(&text).unwrap();
+        eprintln!("[parse-bench] maidata={:?}", now.elapsed());
+        let block = file.charts.iter().max_by_key(|block| block.level_index.clone()).unwrap();
+        let body = strip_comments(&block.raw_body);
+        let segments: Vec<String> = body.split(',').map(str::to_string).collect();
+        now = Instant::now();
+        let tokens = parse_segments(&segments, TimePoint::zero(), Rat::from_int(120), Rat::one(), 4.into(), &[]).unwrap();
+        eprintln!("[parse-bench] tokenize={:?}", now.elapsed());
+        now = Instant::now();
+        let tokens = annotate_touch_each_groups(&tokens);
+        eprintln!("[parse-bench] groups={:?}", now.elapsed());
+        now = Instant::now();
+        typecheck_slides(&tokens).unwrap();
+        eprintln!("[parse-bench] typecheck={:?}", now.elapsed());
+        now = Instant::now();
+        let source = source_chart_from_tokens(&tokens);
+        eprintln!("[parse-bench] source={:?}", now.elapsed());
+        now = Instant::now();
+        let measure = |bpm: Rat| time::duration_from_rat_micros(time::bpm_measure_micros_rat(bpm));
+        let (normalized, slide_notes) = lower_raw_tokens_with_mode(false, &measure, &tokens);
+        eprintln!("[parse-bench] normalize={:?}", now.elapsed());
+        now = Instant::now();
+        let lowered = to_chart_spec(&normalized);
+        eprintln!("[parse-bench] chart_spec={:?} events={}", now.elapsed(), source.events.len());
+        now = Instant::now();
+        use crate::json_encode::Encode;
+        let result = FrontendChartResult {
+            semantic: FrontendSemanticChart { normalized, lowered },
+            inspection: FrontendChartInspection {
+                metadata: file.metadata.clone(), chart: block.clone(), source, tokens, slide_notes,
+            },
+        };
+        let value = result.to_json();
+        eprintln!("[parse-bench] json_value={:?}", now.elapsed());
+        now = Instant::now();
+        let json = crate::lean_json::compress(&value);
+        eprintln!("[parse-bench] json_string={:?} bytes={}", now.elapsed(), json.len());
+    }
 
     #[test]
     fn parse_and_lower() {

@@ -266,7 +266,7 @@ pub fn toggle_play(editor: &EditorState, app: &mut PadPreviewState) {
 }
 
 pub fn restart_playback(editor: &EditorState, app: &mut PadPreviewState) {
-    app.start_playback_at(loop_range(editor).map_or(0.0, |(start, _)| start));
+    app.start_playback_at(loop_range(editor).map_or(app.chart.playback_start_time(), |(start, _)| start));
 }
 
 pub fn rewind(editor: &EditorState, app: &mut PadPreviewState) {
@@ -274,9 +274,9 @@ pub fn rewind(editor: &EditorState, app: &mut PadPreviewState) {
         app.mode,
         app::types::Mode::Playing | app::types::Mode::Recording
     ) {
-        loop_range(editor).map_or(0.0, |(start, _)| start)
+        loop_range(editor).map_or(app.chart.playback_start_time(), |(start, _)| start)
     } else {
-        0.0
+        app.chart.playback_start_time()
     };
     app.seek_to(start);
 }
@@ -297,6 +297,33 @@ pub fn tick_loop(editor: &EditorState, app: &mut PadPreviewState) {
         && (app.timeline_time() < start || app.timeline_time() >= end)
     {
         app.seek_to(start);
+    }
+}
+
+#[cfg(test)]
+mod playback_start_tests {
+    use super::*;
+
+    #[test]
+    fn measure_zero_restart_and_rewind_preserve_loop_behavior() {
+        let chart = app::maidata::from_maidata("&inote_1=(120){4}1,2,E", None).unwrap();
+        let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        pad.forced_time = Some(-2.0);
+        let mut editor = EditorState::default();
+        restart_playback(&editor, &mut pad);
+        assert_eq!(pad.mode_song_offset, -2.0);
+        pad.seek_to(0.5);
+        rewind(&editor, &mut pad);
+        assert_eq!(pad.mode_song_offset, -2.0);
+        editor.loop_enabled = true;
+        editor.loop_range = Some((0.5, 1.0));
+        restart_playback(&editor, &mut pad);
+        assert_eq!(pad.mode_song_offset, 0.5);
+        rewind(&editor, &mut pad);
+        assert_eq!(pad.mode_song_offset, 0.5);
+        pad.mode = app::types::Mode::Idle;
+        rewind(&editor, &mut pad);
+        assert_eq!(pad.mode_song_offset, -2.0);
     }
 }
 

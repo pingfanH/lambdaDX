@@ -5,12 +5,11 @@
 权威实现：/home/pingfanh/project/JudgementCode 的 SDEZ170 NoteJudge.cs、
 NoteScore.cs、Monitor 目录和 SlideManager.cs。
 
-## 默认后端
+## 后端选择
 
-lambdaDX 默认使用 SDEZ170 Rust 后端：
-
-- JudgeEngine::load 默认创建 SdezEngine。
-- 设置 MAI2_JUDGE_MODE=legacy 可回退旧 scheduler。
+lambdaDX 默认使用旧 scheduler。只有显式设置 `MAI2_JUDGE_MODE=sdez` 时，
+`JudgeEngine::load` 才会创建 SDEZ170 Rust 后端；未设置、设置为 `legacy`，
+或使用其他值时都会使用旧 scheduler。
 - 纯 Rust 构建不需要 Lean 动态库；lnmai-core 为 vendored Rust 核心，
   lnmai-core-lean 仅保留为旧实现参考。
 

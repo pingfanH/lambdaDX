@@ -23,6 +23,43 @@ pub const PARAMS_ASSET: &str = "note_params.json";
 /// Override file written by the panel (under the writable output dir).
 pub const PARAMS_OVERRIDE: &str = "note_params.json";
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CenterDisplay { Off, Combo, Achievement, #[default] Both }
+
+impl CenterDisplay {
+    pub const ALL: [(Self, &'static str); 4] = [
+        (Self::Off, "关闭"), (Self::Combo, "Combo"),
+        (Self::Achievement, "达成率"), (Self::Both, "两者"),
+    ];
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CenterCombo { #[default] Combo, Perfect, CriticalPerfect }
+
+impl CenterCombo {
+    pub const ALL: [(Self, &'static str); 3] = [
+        (Self::Combo, "Combo"), (Self::Perfect, "Perfect"),
+        (Self::CriticalPerfect, "Critical Perfect"),
+    ];
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CenterAchievement { ClassicPlus, ClassicMinus, #[default] Dx101Minus, Dx100Minus, DxPlus }
+
+impl CenterAchievement {
+    pub const ALL: [(Self, &'static str); 5] = [
+        (Self::ClassicPlus, "ACC+"), (Self::ClassicMinus, "ACC-"),
+        (Self::Dx101Minus, "DX101-"), (Self::Dx100Minus, "DX100-"), (Self::DxPlus, "DX+"),
+    ];
+    pub fn rate_index(self) -> usize {
+        match self { Self::ClassicPlus => 0, Self::ClassicMinus => 1,
+            Self::Dx101Minus => 2, Self::Dx100Minus => 3, Self::DxPlus => 4 }
+    }
+}
+
 /// All tunable visual parameters. Missing JSON fields fall back to
 /// [`Params::default`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -40,6 +77,10 @@ pub struct Params {
     /// the timeline (tap/hold/star/touch/slide). `1.0` = design size. Tuned live
     /// from the F1 params panel.
     pub editor_note_scale: f32,
+    /// Start newly placed Slides with a straight path to the opposite lane.
+    pub editor_slide_default_opposite: bool,
+    /// Keep a connected Player on the editor clock, including play/pause.
+    pub player_follow_editor: bool,
 
     // ── Slide trail ──────────────────────────────────────────────────
     pub slide_tile_spacing: f32,
@@ -116,6 +157,21 @@ pub struct Params {
     /// Overall pad zoom: scales the pad radius *and* everything drawn on it
     /// (notes, zone strokes, labels). 1.0 = design size.
     pub pad_zoom: f32,
+    /// Clockwise rotation of the playback pad, in degrees.
+    pub pad_rotation_deg: f32,
+    /// Playback-bar offsets in screen-space design pixels, applied after its
+    /// rotation. Positive X/Y always move right/down on the screen.
+    pub hud_offset_x: f32,
+    pub hud_offset_y: f32,
+    pub hud_rotation_deg: f32,
+    pub hud_follow_pad_rotation: bool,
+    pub center_display: CenterDisplay,
+    pub center_combo: CenterCombo,
+    pub center_achievement: CenterAchievement,
+    pub center_combo_scale: f32,
+    pub center_achievement_scale: f32,
+    /// None retains automatic device sizing.
+    pub player_ui_scale: Option<f32>,
     /// Sensor-zone cluster zoom about the pad centre. Independent of the pad
     /// radius, so the zone ring can be grown/shrunk on its own. 1.0 = SVG size.
     pub pad_zone_scale: f32,
@@ -198,6 +254,10 @@ pub struct Params {
     /// Play the **answer** cue (`Sfx/answer.wav`) on tap / star / hold / touch
     /// hits. Independent of `hit_sfx`, so both can layer.
     pub answer_sfx: bool,
+    /// Independent linear gains; 0 is muted and 1 is the original volume.
+    pub music_volume: f32,
+    pub hit_sfx_volume: f32,
+    pub answer_sfx_volume: f32,
 
     // ── Tap hit effect ───────────────────────────────────────────────
     /// Draw a one-shot ring + sparks + flash when a tap is judged.
@@ -285,6 +345,8 @@ impl Default for Params {
             tap_target_offset: t::TAP_TARGET_OFFSET,
             tap_ring_offset: t::TAP_RING_OFFSET,
             editor_note_scale: 1.0,
+            editor_slide_default_opposite: false,
+            player_follow_editor: false,
 
             slide_tile_spacing: t::SLIDE_TILE_SPACING,
             slide_tile_scale: t::SLIDE_TILE_SCALE,
@@ -328,6 +390,17 @@ impl Default for Params {
             note_speed_default: t::NOTE_SPEED,
             touch_speed_default: t::NOTE_SPEED,
             pad_zoom: 1.0,
+            pad_rotation_deg: 0.0,
+            hud_offset_x: 0.0,
+            hud_offset_y: 0.0,
+            hud_rotation_deg: 0.0,
+            hud_follow_pad_rotation: false,
+            center_display: CenterDisplay::Both,
+            center_combo: CenterCombo::Combo,
+            center_achievement: CenterAchievement::Dx101Minus,
+            center_combo_scale: 1.0,
+            center_achievement_scale: 1.0,
+            player_ui_scale: None,
             pad_zone_scale: 1.0,            note_spawn_frac: 1.225 / 4.8,
             note_appear_rate: 0.265,
             tap_spawn_time: 0.0,
@@ -357,6 +430,9 @@ impl Default for Params {
             hold_guide_size: 1.0,
             hit_sfx: true,
             answer_sfx: true,
+            music_volume: 1.0,
+            hit_sfx_volume: 1.0,
+            answer_sfx_volume: 1.0,
             hide_notes: false,
             hide_slide_just: false,
             hide_zones: false,
@@ -470,6 +546,9 @@ macro_rules! param_accessors {
     };
 }
 param_accessors!(
+    music_volume,
+    hit_sfx_volume,
+    answer_sfx_volume,
     tap_size,
     hold_width,
     star_size,
@@ -739,6 +818,74 @@ mod tests {
         assert_eq!(p.star_size, 99.0);
         assert_eq!(p.tap_size, Params::default().tap_size);
         assert!(!p.show_judge_windows);
+    }
+
+    #[test]
+    fn audio_volumes_default_to_full_and_persist_independently() {
+        let legacy: Params = serde_json::from_str(r#"{"hit_sfx":false}"#).unwrap();
+        assert_eq!(legacy.music_volume, 1.0);
+        assert_eq!(legacy.hit_sfx_volume, 1.0);
+        assert_eq!(legacy.answer_sfx_volume, 1.0);
+        let configured = Params {
+            music_volume: 0.25,
+            hit_sfx_volume: 0.0,
+            answer_sfx_volume: 0.75,
+            ..legacy
+        };
+        let saved = serde_json::to_string(&configured).unwrap();
+        let restored: Params = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored, configured);
+        assert!(!restored.hit_sfx);
+        assert!(restored.answer_sfx);
+    }
+
+    #[test]
+    fn playback_layout_defaults_and_round_trips() {
+        let legacy: Params = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.pad_rotation_deg, 0.0);
+        assert_eq!(legacy.hud_offset_x, 0.0);
+        assert_eq!(legacy.hud_offset_y, 0.0);
+        assert_eq!(legacy.hud_rotation_deg, 0.0);
+        assert!(!legacy.hud_follow_pad_rotation);
+        let p = Params {
+            pad_rotation_deg: 90.0,
+            hud_offset_x: -32.0,
+            hud_offset_y: 48.0,
+            hud_rotation_deg: 180.0,
+            hud_follow_pad_rotation: true,
+            ..Params::default()
+        };
+        let saved = serde_json::to_string(&p).unwrap();
+        assert_eq!(serde_json::from_str::<Params>(&saved).unwrap(), p);
+    }
+
+    #[test]
+    fn player_follow_is_opt_in_and_persisted() {
+        let mut params: Params = serde_json::from_str("{}").unwrap();
+        assert!(!params.player_follow_editor);
+        params.player_follow_editor = true;
+        let restored: Params = serde_json::from_str(&serde_json::to_string(&params).unwrap()).unwrap();
+        assert!(restored.player_follow_editor);
+    }
+
+    #[test]
+    fn center_display_and_ui_scale_defaults_and_round_trip() {
+        use super::{CenterDisplay, CenterCombo, CenterAchievement};
+        let legacy: Params = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.center_display, CenterDisplay::Both);
+        assert_eq!(legacy.center_combo_scale, 1.0);
+        assert_eq!(legacy.center_achievement_scale, 1.0);
+        assert_eq!(legacy.player_ui_scale, None);
+        for (mode, _) in CenterDisplay::ALL {
+            for (combo, _) in CenterCombo::ALL {
+                for (accuracy, _) in CenterAchievement::ALL {
+                    let p = Params { center_display: mode, center_combo: combo,
+                        center_achievement: accuracy, center_combo_scale: 0.6,
+                        center_achievement_scale: 1.7, player_ui_scale: Some(4.0), ..Params::default() };
+                    assert_eq!(serde_json::from_str::<Params>(&serde_json::to_string(&p).unwrap()).unwrap(), p);
+                }
+            }
+        }
     }
 
     #[test]

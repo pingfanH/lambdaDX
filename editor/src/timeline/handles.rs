@@ -65,7 +65,10 @@ pub fn draw(
     chart: &mut ChartDoc,
     current_time: f32,
 ) -> bool {
-    if editor.star_placement.is_some() || editor.hold_placement.is_some() {
+    if editor.star_placement.is_some()
+        || editor.hold_placement.is_some()
+        || editor.slide_draft.is_some()
+    {
         return false;
     }
     let view = View {
@@ -399,6 +402,7 @@ mod tests {
                 let note = &chart.notes[0];
                 let mut editor = EditorState {
                     layout,
+                    pixels_per_second: 120.0,
                     snap_enabled: delay,
                     ..Default::default()
                 };
@@ -500,6 +504,7 @@ mod tests {
                 crate::app::maidata::from_maidata("&inote_1=(120){4}1-3-5[4:2],E", None).unwrap();
             let mut editor = EditorState {
                 layout,
+                pixels_per_second: 120.0,
                 ..Default::default()
             };
             let note = &chart.notes[0];
@@ -580,6 +585,59 @@ mod tests {
     }
 
     #[test]
+    fn pending_slide_draft_cannot_drag_timing_handles() {
+        for layout in [EditorLayout::Vertical, EditorLayout::Horizontal] {
+            let ctx = egui::Context::default();
+            let mut chart =
+                crate::app::maidata::from_maidata("&inote_1=(120){4}1,E", None).unwrap();
+            let mut editor = EditorState {
+                layout,
+                tool: crate::state::Tool::Slide,
+                pixels_per_second: 120.0,
+                ..Default::default()
+            };
+            for time in [2.0, 2.25, 3.0] {
+                editor.place_star_step(&mut chart, time, 3);
+            }
+            assert!(editor.slide_draft.is_some());
+            let before = chart.clone();
+            let note = chart.notes.last().unwrap();
+            let tail_time = measure_to_secs(
+                note.time + note.slide[0].slide_duration,
+                &chart.bpms,
+            );
+            let origin = tail_time - 0.5;
+            let view = View {
+                rect: rect(),
+                layout,
+                origin,
+                pps: editor.pixels_per_second,
+            };
+            let tail = view.position(tail_time, lane_index_of(note));
+            let farther = view.position(tail_time + 0.5, lane_index_of(note));
+            assert!(rect().contains(tail) && rect().contains(farther));
+            frame(
+                &ctx,
+                &mut editor,
+                &mut chart,
+                vec![egui::Event::PointerMoved(tail)],
+            );
+            frame(&ctx, &mut editor, &mut chart, vec![button(tail, true)]);
+            frame(
+                &ctx,
+                &mut editor,
+                &mut chart,
+                vec![egui::Event::PointerMoved(farther)],
+            );
+            frame(&ctx, &mut editor, &mut chart, vec![button(farther, false)]);
+            assert_eq!(chart, before);
+            assert!(editor.handle_grab.is_none());
+            assert!(editor.undo.is_empty());
+            assert!(!editor.dirty);
+        }
+    }
+
+    #[test]
     fn slide_resize_targets_one_subslide_and_keeps_positive_motion_span() {
         let mut chart =
             crate::app::maidata::from_maidata("&inote_1=(120){4}1-3[4:1],E", None).unwrap();
@@ -601,7 +659,10 @@ mod tests {
             start_delay: note.slide[1].slide_start_delay,
             duration: note.slide[1].slide_duration,
         };
-        let mut editor = EditorState::default();
+        let mut editor = EditorState {
+            snap_division: 16,
+            ..Default::default()
+        };
         resize(&mut editor, &mut chart, grab, 0.0);
         assert_eq!(
             chart.notes[0].slide[1].slide_duration,

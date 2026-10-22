@@ -3,6 +3,7 @@ use crate::app::platform;
 use egui_dock::{Node, Tree};
 
 const FILE: &str = "editor_workspaces.json";
+
 #[cfg(test)]
 mod agent_layout_tests {
     use super::*;
@@ -27,7 +28,6 @@ mod agent_layout_tests {
     }
 }
 
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Layouts {
     version: u32,
@@ -38,6 +38,8 @@ struct Layouts {
     workspace: usize,
     #[serde(default)]
     locked: bool,
+    #[serde(default)]
+    preview_mode: Option<u8>,
 }
 
 #[derive(Default)]
@@ -101,6 +103,7 @@ impl Layouts {
     fn valid(&self) -> bool {
         matches!(self.version, 1 | 2)
             && self.workspace < WORKSPACE_COUNT
+            && self.preview_mode.is_none_or(|mode| mode <= 3)
             && [&self.layouts, &self.current].into_iter().all(|layouts| {
                 layouts.len() <= WORKSPACE_COUNT
                     && layouts.iter().flatten().all(|node| node.valid(&mut Vec::new(), 0))
@@ -253,6 +256,8 @@ impl Workbench {
             Ok(Some(saved)) => {
                 self.workspace = saved.workspace;
                 self.locked = saved.locked;
+                self.preview_mode = saved.preview_mode;
+                self.preview_mode_applied = false;
                 for (index, node) in saved.layouts.iter().enumerate() {
                     if let Some(node) = node {
                         let dock = node.restore(&mut self.next_id);
@@ -289,6 +294,7 @@ impl Workbench {
             current: self.docks.iter().map(|dock| SavedNode::capture(dock.main_surface(), NodeIndex::root())).collect(),
             workspace: self.workspace,
             locked: self.locked,
+            preview_mode: self.preview_mode,
         }
     }
 
@@ -594,6 +600,72 @@ mod tests {
         assert_eq!(editor.snap_division, 48);
         assert_eq!(ui.pad_scale, 1.3);
         assert_eq!(file.read(), expected);
+    }
+
+    #[test]
+    fn pad_options_survive_full_editor_restart() {
+        fn frame(
+            ctx: &egui_macroquad::egui::Context,
+            ui: &mut crate::ui::EditorUi,
+            editor: &mut crate::state::EditorState,
+            app: &mut crate::player::state::PadPreviewState,
+            time: f64,
+        ) {
+            let _ = ctx.run(egui_macroquad::egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100.0, 800.0))),
+                time: Some(time),
+                ..Default::default()
+            }, |ctx| ui.draw(ctx, editor, app, 0.0, &crate::audio::WaveformPyramid::default(), 0.0));
+        }
+        for (surface, mode) in [
+            crate::state::PadSurface::FollowFocus,
+            crate::state::PadSurface::Chart,
+            crate::state::PadSurface::Autoplay,
+        ]
+        .into_iter()
+        .flat_map(|surface| (0..=3).map(move |mode| (surface, mode)))
+        {
+            let file = TestFile::new();
+            let mut ui = crate::ui::EditorUi::new();
+            ui.workbench = file.workbench();
+            let ctx = egui_macroquad::egui::Context::default();
+            let chart = crate::app::maidata::from_maidata("&inote_1=(120){4}1,,E", None).unwrap();
+            let mut app = crate::player::state::PadPreviewState::new_at(chart, None, None, 0.0, None);
+            app.forced_time = Some(0.0);
+            let mut editor = crate::state::EditorState::default();
+            for step in 1..=3 {
+                frame(&ctx, &mut ui, &mut editor, &mut app, step as f64 * 0.1);
+            }
+            editor.pane_pad_preview_only = true;
+            editor.pane_pad_surface = surface;
+            editor.autoplay_mode = mode;
+            ui.pad_scale = 1.4;
+            for step in 4..=12 {
+                frame(&ctx, &mut ui, &mut editor, &mut app, step as f64 * 0.1);
+            }
+            assert!(file.0.exists());
+
+            let ctx = egui_macroquad::egui::Context::default();
+            let mut ui = crate::ui::EditorUi::new();
+            ui.workbench = file.workbench();
+            let mut editor = crate::state::EditorState::default();
+            let mut app = crate::player::state::PadPreviewState::new_at(
+                app.chart.clone(), None, None, 0.0, None,
+            );
+            app.forced_time = Some(0.0);
+            for step in 1..=12 {
+                frame(&ctx, &mut ui, &mut editor, &mut app, step as f64 * 0.1);
+            }
+            assert!(editor.pane_pad_preview_only);
+            assert_eq!(editor.pane_pad_surface, surface);
+            assert_eq!(ui.pad_scale, 1.4);
+            assert_eq!(editor.autoplay_mode, mode, "the Pad preview mode must survive restart");
+            assert!(editor.mode_dirty, "the restored mode must also be applied to playback");
+            crate::runtime::apply_preview_mode(&mut app, editor.autoplay_mode);
+            assert_eq!(app.autoplay, mode != 1);
+            assert_eq!(app.params.no_core, mode == 0);
+            assert_eq!(app.autoplay_direct_core, mode == 3);
+        }
     }
 
     #[test]

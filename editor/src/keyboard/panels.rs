@@ -6,7 +6,7 @@ use crate::state::{EditorState, Tool};
 use super::{edit, Focus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DialogKind { Commands, Tools, Properties, Handles, Jump, DeleteSlide }
+pub enum DialogKind { Commands, Tools, Properties, Handles, Jump }
 
 #[derive(Debug, Clone)]
 pub struct Dialog {
@@ -159,16 +159,6 @@ pub fn draw(ctx: &egui::Context, editor: &mut EditorState, chart: &mut ChartDoc)
                         done = true;
                     }
                 } else { ui.label("Select one note"); }
-            }
-            DialogKind::DeleteSlide => {
-                if ui.button("Delete active slide").clicked() || (enter && !done) {
-                    let sub = editor.editing_slide_idx;
-                    editor.edit_selected(chart, |n| {
-                        if sub < n.slide.len() { n.slide.remove(sub); }
-                        if n.slide.is_empty() { n.note_type = NoteType::Tap; }
-                    });
-                    editor.editing_slide = None; done = true;
-                }
             }
             DialogKind::Commands => {
                 let response = ui.text_edit_singleline(&mut dialog.value);

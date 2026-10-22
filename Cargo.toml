@@ -3,6 +3,36 @@ name = "lambda_dx_pad_preview"
 version = "0.1.0"
 edition = "2024"
 
+# Built with tools/build_android_player.py (cargo-quad-apk / miniquad Activity).
+[package.metadata.android]
+android_version = 35
+target_sdk_version = 35
+min_sdk_version = 26
+build_targets = ["aarch64-linux-android"]
+assets = "target/android-player-assets"
+fullscreen = true
+
+[[package.metadata.android.permission]]
+name = "android.permission.CAMERA"
+
+[[package.metadata.android.feature]]
+name = "android.hardware.camera"
+required = false
+
+[[package.metadata.android.bin]]
+name = "lambda_dx_player_ui"
+package_name = "io.lambdadx.lambda_dx_player_ui"
+label = "LambdaDX Player"
+
+[package.metadata.android.activity_attributes]
+"android:exported" = "true"
+"android:screenOrientation" = "sensorLandscape"
+
+[package.metadata.android.application_attributes]
+"android:extractNativeLibs" = "true"
+"android:appCategory" = "game"
+"android:isGame" = "true"
+
 [workspace]
 members = [
     ".",
@@ -55,7 +85,7 @@ path = "src/macroanimate_test.rs"
 name = "lambdadx_effect_preview"
 path = "src/lambdadx_effect_preview.rs"
 
-# Minimal feasibility probe for docs/AUTOPLAY_GENERATOR.md (headless planner).
+# Minimal feasibility probe for d   ocs/AUTOPLAY_GENERATOR.md (headless planner).
 [[bin]]
 name = "autoplay_gen"
 path = "src/autoplay_gen/main.rs"
@@ -70,6 +100,10 @@ macroquad = { version = "0.4", default-features = false }
 macroanimate = { path = "macroanimate" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+getrandom = "0.3"
+qrcode = { version = "0.14", default-features = false }
+quircs = "0.10"
+sha2 = "0.10"
 lambdadx-automation = { path = "crates/lambdadx-automation", optional = true }
 hound = "3"
 minimp3 = "0.5"
@@ -104,6 +138,10 @@ ttf-parser = { version = "0.25", default-features = false, features = [
 # Desktop Linux multi-touch touchscreen input (kernel Type-B evdev).
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
 
 # Trackpad pinch-to-zoom: miniquad's macOS backend drops magnify events, so the
 # editor installs its own NSEvent local monitor for the magnify gesture (see

@@ -92,20 +92,28 @@ fn param(
     });
 }
 
+fn volume_slider(ui: &mut egui::Ui, volume: &mut f32, label: &str) {
+    let mut percent = *volume * 100.0;
+    if ui.add(egui::Slider::new(&mut percent, 0.0..=100.0)
+        .step_by(1.0).suffix("%").text(label)).changed() {
+        *volume = percent / 100.0;
+    }
+}
+
 /// Draw the panel if enabled.
 pub fn draw(ctx: &egui::Context, app: &mut PadPreviewState) {
-    draw_impl(ctx, app, false, |_| {});
+    draw_impl(ctx, app, false, |_, _| {});
 }
 
 /// Draw the panel inside the editor, preserving the host's logical UI size.
 pub fn draw_embedded(ctx: &egui::Context, app: &mut PadPreviewState) {
-    draw_embedded_with(ctx, app, |_| {});
+    draw_embedded_with(ctx, app, |_, _| {});
 }
 
 pub fn draw_embedded_with(
     ctx: &egui::Context,
     app: &mut PadPreviewState,
-    host: impl FnMut(&mut egui::Ui),
+    host: impl FnMut(&mut egui::Ui, &mut Params),
 ) {
     draw_impl(ctx, app, true, host);
 }
@@ -130,7 +138,7 @@ fn draw_impl(
     ctx: &egui::Context,
     app: &mut PadPreviewState,
     embedded: bool,
-    mut host: impl FnMut(&mut egui::Ui),
+    mut host: impl FnMut(&mut egui::Ui, &mut Params),
 ) {
     if !app.show_params {
         return;
@@ -175,7 +183,7 @@ fn draw_impl(
                     if embedded {
                         egui::CollapsingHeader::new("编辑器")
                             .default_open(true)
-                            .show(ui, |ui| host(ui));
+                            .show(ui, |ui| host(ui, &mut p));
                     }
                     ui.collapsing("Note 尺寸", |ui| {
                         param(ui, &mut p.tap_size, 2.0, 8.0..=200.0, "tap_size");
@@ -392,6 +400,30 @@ fn draw_impl(
                         );
                     });
                     ui.collapsing("Pad 与判定位置", |ui| {
+                        egui::ComboBox::from_id_salt("center-display")
+                            .selected_text(crate::app::params::CenterDisplay::ALL.iter()
+                                .find(|(v, _)| *v == p.center_display).unwrap().1)
+                            .show_ui(ui, |ui| {
+                                for (value, name) in crate::app::params::CenterDisplay::ALL {
+                                    ui.selectable_value(&mut p.center_display, value, name);
+                                }
+                            });
+                        egui::ComboBox::from_id_salt("center-combo")
+                            .selected_text("Combo 类型")
+                            .show_ui(ui, |ui| {
+                                for (value, name) in crate::app::params::CenterCombo::ALL {
+                                    ui.selectable_value(&mut p.center_combo, value, name);
+                                }
+                            });
+                        egui::ComboBox::from_id_salt("center-achievement")
+                            .selected_text("达成率类型")
+                            .show_ui(ui, |ui| {
+                                for (value, name) in crate::app::params::CenterAchievement::ALL {
+                                    ui.selectable_value(&mut p.center_achievement, value, name);
+                                }
+                            });
+                        param(ui, &mut p.center_combo_scale, 0.05, 0.3..=3.0, "Combo 大小");
+                        param(ui, &mut p.center_achievement_scale, 0.05, 0.3..=3.0, "达成率大小");
                         // 整体 pad 缩放：半径和其上的所有元素一起缩放。
                         param(ui, &mut p.pad_zoom, 0.05, 0.3..=2.0, "pad_zoom 整体缩放");
                         // 感应区整体缩放：独立于 pad 半径，只缩放触摸区。
@@ -596,8 +628,11 @@ fn draw_impl(
                         );
                     });
                     ui.collapsing("音效与击打特效", |ui| {
+                        volume_slider(ui, &mut p.music_volume, "音乐音量");
                         ui.checkbox(&mut p.answer_sfx, "正解音 (answer.wav)");
+                        volume_slider(ui, &mut p.answer_sfx_volume, "正解音量");
                         ui.checkbox(&mut p.hit_sfx, "击打音效");
+                        volume_slider(ui, &mut p.hit_sfx_volume, "击打音量");
                         ui.checkbox(&mut p.fx_timeline, "fx_timeline 特效跟随时间轴(暂停即冻结)");
                         ui.checkbox(&mut p.hit_fx, "hit_fx 击打特效");
                         let particle_ready = app.feedback_resources.as_ref()

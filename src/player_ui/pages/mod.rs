@@ -23,7 +23,12 @@ pub fn draw(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     // Pad visuals first, input last: the UI widgets get first refusal on the
     // pointer, so a button overlapping a sensor zone wins over the pad.
     if app.shows_gameplay_background() {
-        gameplay::draw_view(app, ctx);
+        crate::player_ui::perf::frame_section("draw_pad", || gameplay::draw_view(app, ctx));
+        if app.page == Page::Settings {
+            let _clip = draw::screen_clip(RectF { x: 0.0, y: 64.0 * ctx.scale, w: ctx.w,
+                h: (ctx.h - 64.0 * ctx.scale).max(0.0) });
+            gameplay::draw_hud_preview(app, ctx);
+        }
     }
 
     match app.page {
@@ -38,7 +43,9 @@ pub fn draw(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
     }
 
     if app.shows_gameplay_background() {
-        gameplay::handle_pad_input(app, ctx, input);
+        crate::player_ui::perf::frame_section("input", || {
+            gameplay::handle_pad_input(app, ctx, input)
+        });
     }
 
     if let Some(err) = app.error.clone() {
@@ -147,6 +154,14 @@ pub fn draw_transition(app: &mut PlayerUiApp, ctx: &UiCtx) {
 /// the page is drawn, on the frame the switch happens (the framebuffer still
 /// holds the previous page then).
 pub fn capture_transition(app: &mut PlayerUiApp, ctx: &UiCtx) {
+    // A CPU framebuffer readback followed by a full-screen upload stalls
+    // Metal and temporarily doubles the screen allocation. Settings is opened
+    // often and does not need a sweep, so switch it without a snapshot.
+    if matches!(app.page, Page::Settings) || matches!(app.prev_page, Page::Settings) {
+        app.transition_tex = None;
+        app.transition_snap = Some(app.transition_at);
+        return;
+    }
     let t = anim::progress(ctx.now, app.transition_at, 0.0, theme::D_SWEEP);
     if t >= 1.0 || app.transition_snap == Some(app.transition_at) {
         return;
@@ -208,6 +223,9 @@ pub fn button(
     label: &str,
     kind: Btn,
 ) -> bool {
+    if !draw::is_visible(r) {
+        return false;
+    }
     let resp = input.widget(input::id(name, idx), r);
     let (fill, text_c, border) = btn_colors(kind);
     let fill = if resp.held {
@@ -262,6 +280,17 @@ pub fn top_bar(
     title: &str,
     subtitle: &str,
 ) -> (bool, RectF) {
+    top_bar_surface(ctx, input, back_label, title, subtitle, theme::PANEL)
+}
+
+pub fn top_bar_surface(
+    ctx: &UiCtx,
+    input: &mut Input,
+    back_label: &str,
+    title: &str,
+    subtitle: &str,
+    fill: Color,
+) -> (bool, RectF) {
     let bar_h = 64.0 * ctx.scale;
     let bar = RectF {
         x: 0.0,
@@ -269,7 +298,7 @@ pub fn top_bar(
         w: ctx.w,
         h: bar_h,
     };
-    draw::rect(bar, theme::PANEL);
+    draw::rect(bar, fill);
     draw::rect(
         RectF {
             x: 0.0,
@@ -330,6 +359,9 @@ pub fn toggle_row(
     desc: &str,
     value: &mut bool,
 ) -> bool {
+    if !draw::is_visible(r) {
+        return false;
+    }
     draw::text(ctx.font.as_ref(), title, r.x, r.y + 18.0 * ctx.scale, 15.0 * ctx.scale, theme::TEXT);
     if !desc.is_empty() {
         draw::text(ctx.font.as_ref(), desc, r.x, r.y + 38.0 * ctx.scale, 12.0 * ctx.scale, theme::TEXT_MUTED);
@@ -374,6 +406,9 @@ pub fn slider_row(
     min: f32,
     max: f32,
 ) -> bool {
+    if !draw::is_visible(r) {
+        return false;
+    }
     let size = 15.0 * ctx.scale;
     draw::text(ctx.font.as_ref(), label, r.x, r.y + 16.0 * ctx.scale, size, theme::TEXT);
     let value_txt = format!("{value:.2}");
@@ -398,7 +433,7 @@ pub fn slider_row(
         h: 26.0 * ctx.scale,
         ..track
     };
-    let resp = input.widget(input::id(name, idx), hit);
+    let resp = input.drag(input::id(name, idx), hit);
     let mut changed = false;
     if (resp.held || resp.clicked) && hit.w > 0.0 {
         let frac = ((input.pos.x - track.x) / track.w).clamp(0.0, 1.0);

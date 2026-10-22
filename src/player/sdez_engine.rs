@@ -36,7 +36,17 @@ impl SdezEngine {
         session
             .load_text(text, level_index, 0)
             .map_err(|e| e.json)?;
-        Ok(Self {
+        Ok(Self::from_session_state(session))
+    }
+
+    pub fn from_session(loaded: &crate::core::session::Session<crate::core::session::Loaded>) -> Result<Self, String> {
+        let mut session = SdezSession::create().map_err(|e| e.json)?;
+        session.load_session(loaded.handle(), 0).map_err(|e| e.json)?;
+        Ok(Self::from_session_state(session))
+    }
+
+    fn from_session_state(session: SdezSession) -> Self {
+        Self {
             session,
             panel_state: 0,
             buttons_push: 0,
@@ -44,7 +54,7 @@ impl SdezEngine {
             autoplay: Cell::new(false),
             applied_autoplay: Cell::new(None),
             step_progress: Vec::new(),
-        })
+        }
     }
 
     pub fn step(

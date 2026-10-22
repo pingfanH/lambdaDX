@@ -32,6 +32,12 @@ pub fn draw(
     layer: SlideLayer,
 ) {
     if note.slide.is_empty() {
+        if app.edit_solo_slide.is_some_and(|(id, _)| id == note.id) && layer == SlideLayer::Star {
+            if let Some(head) = app.pad_svg.as_ref().and_then(|svg|
+                slide_render::slide_start_point(note, svg, pad, spawn_cx, outer_r)) {
+                slide_render::draw_static_star(head, scale, skin::star_body(app, note).or(app.star_tex.as_ref()), skin::star_ex(app, note));
+            }
+        }
         return;
     }
     let bpms = &app.chart.bpms;

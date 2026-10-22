@@ -116,6 +116,49 @@ fn text_position(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
 }
 
 #[test]
+fn pad_display_options_save_from_the_pad_menu() {
+    const CHILD: &str = "LAMBDADX_TEST_PAD_SETTINGS_CACHE";
+    if std::env::var_os(CHILD).is_none() {
+        let dir = std::env::temp_dir().join(format!("lambdadx-pad-settings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "ui::tests::pad_display_options_save_from_the_pad_menu", "--nocapture"])
+            .env(CHILD, &dir)
+            .env("MAI2_CACHE_DIR", &dir)
+            .env("MAI2_DATA_DIR", &dir)
+            .output();
+        let _ = std::fs::remove_dir_all(&dir);
+        let result = result.unwrap();
+        assert!(result.status.success(), "{}\n{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        return;
+    }
+    let mut f = Fixture::new();
+    let output = f.frame(Vec::new());
+    let preview = f.ui.layout.preview;
+    let icon = char::from(lucide_icons::Icon::SlidersHorizontal).to_string();
+    let menu = output.shapes.iter().find_map(|shape| match &shape.shape {
+        egui::Shape::Text(text) if text.galley.text() == icon
+            && text.pos.x >= preview.left() && text.pos.x < preview.right()
+            && text.pos.y < preview.top() && text.pos.y > preview.top() - 40.0 => {
+                Some(text.pos + text.galley.size() * 0.5)
+            }
+        _ => None,
+    }).expect("Pad settings button must be visible");
+    f.click(menu);
+    for label in ["隐藏 Notes", "隐藏感应区", "显示判定区间"] {
+        let output = f.frame(Vec::new());
+        f.click(text_position(&output, label));
+    }
+    assert!(f.app.params.hide_notes);
+    assert!(f.app.params.hide_zones);
+    assert!(f.app.params.show_judge_windows);
+    let saved = crate::app::params::load();
+    assert!(saved.hide_notes, "Pad display toggles must be saved without opening another window");
+    assert!(saved.hide_zones);
+    assert!(saved.show_judge_windows);
+}
+
+#[test]
 fn chart_beat_ruler_seeks_without_placing_or_sticking() {
     for orientation in [
         crate::state::EditorLayout::Vertical,
@@ -1995,7 +2038,7 @@ mod autoplay {
             .iter()
             .find(|track| track.key.role == 2)
             .expect("slide must have an autoplay group");
-        let label = format!("#{} Slide {}", track.key.note_id, track.key.slide + 1);
+        let label = format!("#{} Slide {}.1", track.key.note_id, track.key.slide + 1);
         let sensor = track
             .events
             .iter()
@@ -2008,12 +2051,16 @@ mod autoplay {
             })
             .expect("slide must have sensor events");
         f.click(text_position(&output, &label));
-        f.key(egui::Key::Enter, egui::Modifiers::NONE);
-        let output = f.frame(Vec::new());
         assert!(
             f.editor.autoplay_editor.selected_row.is_some(),
             "group click was ignored"
         );
+        let output = f.frame(Vec::new());
+        f.click(text_position(
+            &output,
+            &char::from(lucide_icons::Icon::AudioLines).to_string(),
+        ));
+        let output = f.frame(Vec::new());
         text_position(&output, &sensor);
     }
 
@@ -2260,6 +2307,164 @@ fn keyboard_hold_commits_one_history_entry_and_can_be_cancelled() {
 }
 
 #[test]
+fn slide_timing_draft_undo_cancels_without_undoing_an_earlier_edit() {
+    let mut f = Fixture::new();
+    f.editor.tool = Tool::Tap;
+    f.editor.place_note(&mut f.app.chart, 2.0, 3);
+    let before = f.app.chart.clone();
+    let history = f.editor.undo.len();
+    f.editor.tool = Tool::Slide;
+    f.editor.place_star_step(&mut f.app.chart, 3.0, 1);
+    f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+    assert!(f.editor.star_placement.is_none(), "undo must cancel the timing draft");
+    assert_eq!(f.app.chart, before);
+    assert_eq!(f.editor.undo.len(), history);
+    assert!(f.editor.redo.is_empty());
+}
+
+#[test]
+fn slide_keyboard_draft_cancels_at_each_stage_without_consuming_history() {
+    for trajectory in [false, true] {
+        for (key, modifiers) in [
+            (egui::Key::Escape, egui::Modifiers::NONE),
+            (egui::Key::Z, egui::Modifiers::COMMAND),
+            (egui::Key::Z, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT),
+        ] {
+            let mut f = Fixture::new();
+            f.editor.tool = Tool::Tap;
+            f.editor.place_note(&mut f.app.chart, 2.0, 3);
+            if modifiers.shift { f.editor.undo(&mut f.app.chart); }
+            f.editor.selected.clear();
+            let original = f.app.chart.clone();
+            let history = (f.editor.undo.len(), f.editor.redo.len(), f.editor.dirty);
+            f.editor.tool = Tool::Slide;
+            f.key(egui::Key::Num1, egui::Modifiers::NONE);
+            f.key(egui::Key::Enter, egui::Modifiers::NONE);
+            f.key(egui::Key::ArrowUp, egui::Modifiers::NONE);
+            if trajectory {
+                f.key(egui::Key::Enter, egui::Modifiers::NONE);
+                f.key(egui::Key::Num5, egui::Modifiers::NONE);
+            }
+            assert!(f.editor.keyboard.transaction.is_some());
+            f.key(key, modifiers);
+            assert_eq!(f.app.chart, original);
+            assert_eq!((f.editor.undo.len(), f.editor.redo.len(), f.editor.dirty), history);
+            assert!(f.editor.keyboard.transaction.is_none());
+            assert!(f.editor.editing_slide.is_none());
+            assert!(f.editor.check_slide_placement_finished().is_ok());
+        }
+    }
+}
+
+#[test]
+fn slide_draft_save_reports_pending_in_every_placement_stage() {
+    for stage in 0..4 {
+        let mut f = Fixture::new();
+        f.editor.tool = Tool::Slide;
+        if stage == 0 {
+            f.editor.place_star_step(&mut f.app.chart, 2.0, 1);
+        } else if stage == 1 {
+            for time in [2.0, 2.25, 3.0] { f.editor.place_star_step(&mut f.app.chart, time, 1); }
+        } else {
+            f.key(egui::Key::Num1, egui::Modifiers::NONE);
+            f.key(egui::Key::Enter, egui::Modifiers::NONE);
+            if stage == 3 {
+                f.key(egui::Key::ArrowUp, egui::Modifiers::NONE);
+                f.key(egui::Key::Enter, egui::Modifiers::NONE);
+                f.key(egui::Key::Num5, egui::Modifiers::NONE);
+            }
+        }
+        assert!(f.editor.check_slide_placement_finished().is_err());
+        let draft = f.app.chart.clone();
+        f.editor.status = None;
+        f.key(egui::Key::S, egui::Modifiers::COMMAND);
+        assert_eq!(f.editor.status.as_deref(), Some("Finish or cancel the Slide placement before saving"), "stage {stage}");
+        assert_eq!(f.app.chart, draft);
+        assert!(f.editor.source.is_none());
+        assert!(f.editor.undo.is_empty());
+        assert!(!f.editor.dirty);
+    }
+}
+
+#[test]
+fn slide_default_opposite_setting_saves_and_reloads_through_settings_ui() {
+    const CHILD: &str = "LAMBDADX_TEST_SLIDE_SETTINGS_CACHE";
+    if std::env::var_os(CHILD).is_none() {
+        let dir = std::env::temp_dir().join(format!("lambdadx-slide-settings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "ui::tests::slide_default_opposite_setting_saves_and_reloads_through_settings_ui", "--nocapture"])
+            .env(CHILD, &dir)
+            .env("MAI2_CACHE_DIR", &dir)
+            .env("MAI2_DATA_DIR", &dir)
+            .output();
+        let _ = std::fs::remove_dir_all(&dir);
+        let result = result.unwrap();
+        assert!(result.status.success(), "{}\n{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        return;
+    }
+    let mut f = Fixture::new();
+    assert!(!f.app.params.editor_slide_default_opposite);
+    f.key(egui::Key::F1, egui::Modifiers::NONE);
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "视图与判定"));
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "工作区与分区"));
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "Slide 放置后默认直线到对面"));
+    assert!(f.app.params.editor_slide_default_opposite);
+    assert!(crate::app::params::get().editor_slide_default_opposite);
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "保存设置"));
+    assert!(crate::app::params::load().editor_slide_default_opposite);
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "Slide 放置后默认直线到对面"));
+    assert!(!f.app.params.editor_slide_default_opposite);
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "重新载入"));
+    assert!(f.app.params.editor_slide_default_opposite);
+}
+
+#[test]
+fn slide_pending_path_confirms_once_or_escape_restores_the_document() {
+    for confirm in [false, true] {
+        let mut f = Fixture::new();
+        let original = f.app.chart.clone();
+        f.editor.tool = Tool::Slide;
+        for time in [2.0, 2.25, 3.0] { f.editor.place_star_step(&mut f.app.chart, time, 1); }
+        f.key(egui::Key::Enter, egui::Modifiers::NONE);
+        assert!(f.editor.slide_draft.is_some(), "empty paths cannot be confirmed");
+        f.key(egui::Key::Num5, egui::Modifiers::NONE);
+        assert!(f.editor.undo.is_empty());
+        f.key(if confirm { egui::Key::Enter } else { egui::Key::Escape }, egui::Modifiers::NONE);
+        assert!(f.editor.check_slide_placement_finished().is_ok());
+        assert!(f.editor.editing_slide.is_none());
+        if confirm {
+            assert_eq!(f.app.chart.notes.len(), original.notes.len() + 1);
+            assert_eq!(f.editor.undo.len(), 1);
+            f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+        } else {
+            assert!(f.editor.undo.is_empty());
+            assert!(!f.editor.dirty);
+        }
+        assert_eq!(f.app.chart, original);
+    }
+}
+
+#[test]
+fn slide_pending_path_takes_priority_over_autoplay_pad_surface() {
+    let mut f = Fixture::new();
+    f.editor.pane_pad_surface = crate::state::PadSurface::Autoplay;
+    f.editor.tool = Tool::Slide;
+    for time in [2.0, 2.25, 3.0] { f.editor.place_star_step(&mut f.app.chart, time, 1); }
+    let output = f.frame(Vec::new());
+    text_position(&output, "Slide · 放置中");
+    assert!(f.editor.slide_draft.is_some());
+    f.key(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(f.editor.slide_draft.is_none());
+}
+
+#[test]
 fn keyboard_star_confirms_head_delay_and_trajectory() {
     let mut f = Fixture::new();
     f.key(egui::Key::S, egui::Modifiers::NONE);
@@ -2285,6 +2490,204 @@ fn keyboard_star_confirms_head_delay_and_trajectory() {
     assert_eq!(slide.segments.len(), 1);
     assert_eq!(slide.segments[0].points.last().unwrap().zone.to_id(), 5);
     assert!(slide.slide_duration > slide.slide_start_delay);
+}
+
+#[test]
+fn reopened_slide_shapes_survive_pad_style_append_backspace_and_undo() {
+    use crate::app::types::SlideShape;
+
+    for (token, shape) in [
+        ("1>3", SlideShape::Right),
+        ("1<3", SlideShape::Left),
+        ("1^3", SlideShape::Caret),
+        ("1p3", SlideShape::P),
+        ("1q3", SlideShape::Q),
+        ("1s5", SlideShape::S),
+        ("1z5", SlideShape::Z),
+        ("1pp3", SlideShape::PP),
+        ("1qq3", SlideShape::QQ),
+        ("1w5", SlideShape::Wifi),
+    ] {
+        let mut f = Fixture::new();
+        f.app.chart = crate::app::maidata::from_maidata(
+            &format!("&inote_1=(120){{4}}{token}[4:1],,E"), None,
+        ).unwrap();
+        let original = f.app.chart.clone();
+        let id = original.notes[0].id;
+        assert_eq!(original.notes[0].slide[0].segments[0].shape, shape);
+        f.editor.select_only(id);
+        f.editor.keyboard.active = false;
+        f.key(egui::Key::E, egui::Modifiers::NONE);
+        f.key(egui::Key::Enter, egui::Modifiers::NONE);
+        f.key(egui::Key::E, egui::Modifiers::NONE);
+        assert_eq!(f.editor.editing_slide, Some(id));
+
+        f.key(egui::Key::Num7, egui::Modifiers::NONE);
+        let appended = f.app.chart.clone();
+        let segments = &appended.notes[0].slide[0].segments;
+        assert_eq!(segments.len(), 2, "{token}");
+        assert_eq!(segments[0], original.notes[0].slide[0].segments[0], "{token}");
+        assert_eq!(segments[1].shape, SlideShape::Line);
+        assert_eq!(segments[1].points[0].zone.to_id(), 7);
+
+        f.key(egui::Key::Backspace, egui::Modifiers::NONE);
+        assert_eq!(f.app.chart, original, "{token}");
+        f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+        assert_eq!(f.app.chart, appended, "undo Backspace: {token}");
+        f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+        assert_eq!(f.app.chart, original, "undo append: {token}");
+    }
+}
+
+#[test]
+fn right_slide_draft_can_be_confirmed_reopened_and_have_its_endpoint_edited() {
+    use crate::app::types::SlideShape;
+
+    let mut f = Fixture::new();
+    let before = f.app.chart.clone();
+    f.editor.tool = Tool::Slide;
+    for time in [2.0, 2.25, 3.0] { f.editor.place_star_step(&mut f.app.chart, time, 1); }
+    f.key(egui::Key::Period, egui::Modifiers::NONE);
+    f.key(egui::Key::Num3, egui::Modifiers::NONE);
+    assert_eq!(f.app.chart, before, "unconfirmed paths stay outside the chart");
+    f.key(egui::Key::Enter, egui::Modifiers::NONE);
+    let placed = f.app.chart.clone();
+    let note = placed.notes.last().unwrap();
+    let id = note.id;
+    assert_eq!(note.slide[0].segments[0].shape, SlideShape::Right);
+    assert!(crate::core_chart::note_text(note, &placed.bpms).unwrap().contains("1>3"));
+
+    f.editor.keyboard.active = true;
+    f.key(egui::Key::E, egui::Modifiers::NONE);
+    f.key(egui::Key::Num4, egui::Modifiers::NONE);
+    assert!(f.editor.keyboard.transaction.is_some());
+    f.key(egui::Key::Enter, egui::Modifiers::NONE);
+    f.key(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(f.editor.editing_slide.is_none());
+    let note = f.app.chart.notes.iter().find(|note| note.id == id).unwrap();
+    assert_eq!(note.slide[0].segments.len(), 1);
+    assert_eq!(note.slide[0].segments[0].shape, SlideShape::Right);
+    assert_eq!(note.slide[0].segments[0].points[0].zone.to_id(), 4);
+    assert!(crate::core_chart::note_text(note, &f.app.chart.bpms).unwrap().contains("1>4"));
+    f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+    assert_eq!(f.app.chart, placed);
+}
+
+#[test]
+fn delete_in_slide_edit_removes_the_active_trajectory_and_keeps_the_star() {
+    use crate::app::types::{NoteType, Slide, SlidePoint, SlideSegment, SlideShape};
+    use crate::app::types::zone::PadZone;
+
+    let mut f = Fixture::new();
+    let path = Slide {
+        slide_start_delay: 0.0,
+        slide_duration: 1.0,
+        segments: vec![SlideSegment {
+            shape: SlideShape::Line,
+            points: vec![SlidePoint::from(PadZone::from(5))],
+        }],
+        slide_is_break: false,
+        runtime_parts: 1,
+    };
+    let note = &mut f.app.chart.notes[0];
+    note.note_type = NoteType::Slide;
+    note.slide = vec![path.clone(), path];
+    f.editor.select_only(note.id);
+    f.editor.editing_slide = Some(note.id);
+    f.editor.editing_slide_idx = 1;
+
+    f.key(egui::Key::Delete, egui::Modifiers::COMMAND);
+
+    let note = &f.app.chart.notes[0];
+    assert_eq!(note.slide.len(), 1);
+    assert_eq!(note.slide[0].segments[0].points[0].zone, PadZone::from(5));
+    assert_eq!(f.editor.editing_slide, Some(note.id));
+    assert_eq!(f.editor.editing_slide_idx, 0);
+    assert_eq!(f.editor.undo.len(), 1);
+
+    f.key(egui::Key::Delete, egui::Modifiers::NONE);
+    assert_eq!(f.app.chart.notes[0].note_type, NoteType::Tap);
+    assert!(f.app.chart.notes[0].slide.is_empty());
+    assert!(f.editor.editing_slide.is_none());
+    assert_eq!(f.editor.undo.len(), 2);
+}
+
+#[test]
+fn delete_in_slide_edit_is_not_consumed_by_the_global_note_shortcut() {
+    use crate::app::types::{NoteType, Slide, SlidePoint, SlideSegment, SlideShape};
+    use crate::app::types::zone::PadZone;
+
+    let mut f = Fixture::new();
+    let note = &mut f.app.chart.notes[0];
+    note.note_type = NoteType::Slide;
+    note.slide = vec![Slide {
+        slide_start_delay: 0.0,
+        slide_duration: 1.0,
+        segments: vec![SlideSegment {
+            shape: SlideShape::Line,
+            points: vec![SlidePoint::from(PadZone::from(5))],
+        }],
+        slide_is_break: false,
+        runtime_parts: 1,
+    }];
+    let id = note.id;
+    f.editor.select_only(id);
+    f.editor.editing_slide = Some(id);
+    f.editor.editing_slide_idx = 0;
+
+    f.key(egui::Key::Delete, egui::Modifiers::COMMAND);
+
+    assert_eq!(f.app.chart.notes.len(), 1, "the note head must remain");
+    assert_eq!(f.app.chart.notes[0].note_type, NoteType::Tap);
+    assert!(f.app.chart.notes[0].slide.is_empty());
+    assert!(f.editor.editing_slide.is_none());
+    assert_eq!(f.editor.undo.len(), 1);
+}
+
+#[test]
+fn delete_in_slide_edit_works_with_modifiers_and_keyboard_transactions() {
+    use crate::app::types::{NoteType, Slide, SlidePoint, SlideSegment, SlideShape};
+    use crate::app::types::zone::PadZone;
+
+    for (modifiers, keyboard_transaction) in [
+        (egui::Modifiers::NONE, false),
+        (egui::Modifiers::COMMAND, false),
+        (egui::Modifiers::CTRL, false),
+        (egui::Modifiers::COMMAND, true),
+    ] {
+        let mut f = Fixture::new();
+        let note = &mut f.app.chart.notes[0];
+        note.note_type = NoteType::Slide;
+        note.slide = vec![Slide {
+            slide_start_delay: 0.0,
+            slide_duration: 1.0,
+            segments: vec![SlideSegment {
+                shape: SlideShape::Line,
+                points: vec![SlidePoint::from(PadZone::from(5))],
+            }],
+            slide_is_break: false,
+            runtime_parts: 1,
+        }];
+        let id = note.id;
+        f.editor.select_only(id);
+        f.editor.editing_slide = Some(id);
+        f.editor.editing_slide_idx = 0;
+
+        if keyboard_transaction {
+            f.editor.keyboard.active = true;
+            f.key(egui::Key::Num6, egui::Modifiers::NONE);
+            assert!(f.editor.keyboard.transaction.is_some());
+        }
+
+        f.key(egui::Key::Delete, modifiers);
+
+        assert_eq!(f.app.chart.notes.len(), 1, "the star head must remain");
+        assert_eq!(f.app.chart.notes[0].note_type, NoteType::Tap);
+        assert!(f.app.chart.notes[0].slide.is_empty());
+        assert!(f.editor.editing_slide.is_none());
+        assert!(f.editor.keyboard.transaction.is_none());
+        assert_eq!(f.editor.undo.len(), 1);
+    }
 }
 
 #[test]

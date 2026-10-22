@@ -89,7 +89,7 @@ pub fn draw(
             geometry::snap(secs_to_measure(time, &chart.bpms), snap, division),
             &chart.bpms,
         )
-        .max(0.0)
+        .max(chart.playback_start_time())
     };
     let looping = crate::timeline::overview::loop_gesture_axis(
         ui,
@@ -219,13 +219,19 @@ mod tests {
         }
 
         fn position(&self, time: f32) -> Pos2 {
+            let view = if self.editor.layout == EditorLayout::Vertical {
+                geometry::view_reference(&self.editor, self.now)
+            } else {
+                self.editor.view_start
+            };
+            let pps = self.editor.pixels_per_second;
             match self.editor.layout {
                 EditorLayout::Vertical => Pos2::new(
                     self.rect.left() + 4.0,
-                    self.rect.bottom() - JUDGE_MARGIN - (time - 1.0) * 120.0,
+                    self.rect.bottom() - JUDGE_MARGIN - (time - view) * pps,
                 ),
                 EditorLayout::Horizontal => Pos2::new(
-                    self.rect.left() + LANE_GUTTER + (time - 1.0) * 120.0,
+                    self.rect.left() + LANE_GUTTER + (time - view) * pps,
                     self.rect.top() + 8.0,
                 ),
             }
@@ -283,6 +289,23 @@ mod tests {
             f.button(pos, true, egui::Modifiers::NONE);
             f.button(pos, false, egui::Modifiers::NONE);
             assert!((f.editor.pending_seek.unwrap() - 1.27).abs() < 0.00001);
+        }
+    }
+
+    #[test]
+    fn measure_zero_ruler_seeks_within_preroll_on_both_axes() {
+        for layout in [EditorLayout::Vertical, EditorLayout::Horizontal] {
+            let mut f = Fixture::new(layout);
+            f.editor.hide_chart_tools = true;
+            f.editor.view_start = f.chart.playback_start_time();
+            f.now = f.editor.view_start;
+            f.frame(Vec::new(), egui::Modifiers::NONE);
+            let pos = f.position(-1.25);
+            f.frame(vec![egui::Event::PointerMoved(pos)], egui::Modifiers::NONE);
+            f.button(pos, true, egui::Modifiers::NONE);
+            f.button(pos, false, egui::Modifiers::NONE);
+            assert_eq!(f.editor.pending_seek, Some(-1.25));
+            assert!(!f.editor.scrubbing);
         }
     }
 

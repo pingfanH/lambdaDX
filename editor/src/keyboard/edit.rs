@@ -9,6 +9,7 @@ use super::{EditCursor, navigation};
 
 #[derive(Debug, Clone)]
 pub struct Transaction {
+    pub tool: Tool,
     pub before: Option<ChartDoc>,
     pub was_dirty: bool,
     pub selection: std::collections::HashSet<u64>,
@@ -30,6 +31,7 @@ pub enum Handle { HoldTail, Delay, Tail, Lane }
 fn start(editor: &mut EditorState, chart: &ChartDoc, kind: Draft) {
     let placement = matches!(kind, Draft::Hold { .. } | Draft::Star { new_note: true, .. });
     editor.keyboard.transaction = Some(Transaction {
+        tool: editor.tool,
         before: (!placement).then(|| chart.clone()), was_dirty: editor.dirty, selection: editor.selected.clone(), kind, valid: true,
     });
     editor.keyboard.suppress_pointer = true;
@@ -62,6 +64,8 @@ pub fn place(editor: &mut EditorState, chart: &mut ChartDoc) {
         Tool::Slide => {
             start(editor, chart, Draft::Star { id, sub: 0, delay: true, accepted: Vec::new(), new_note: true });
             chart.notes.push(Note { slide: vec![blank_slide()], ..note });
+            editor.editing_slide = Some(id);
+            editor.editing_slide_idx = 0;
             editor.select_only(id); editor.pending_shape = Some(SlideShape::Line);
         }
         _ => {
@@ -81,12 +85,18 @@ fn record_placement(editor: &mut EditorState, chart: &ChartDoc, id: u64) {
 
 pub fn cancel(editor: &mut EditorState, chart: &mut ChartDoc) {
     if let Some(txn) = editor.keyboard.transaction.take() {
+        let star = matches!(txn.kind, Draft::Star { .. });
         if let Some(before) = txn.before { *chart = before; }
         else {
             let id = match txn.kind { Draft::Hold { id } | Draft::Star { id, .. } => id, _ => unreachable!() };
             chart.notes.retain(|note| note.id != id);
         }
         editor.dirty = txn.was_dirty; editor.selected = txn.selection;
+        if star {
+            editor.editing_slide = None;
+            editor.editing_slide_idx = 0;
+            editor.keyboard.candidate = editor.single_selected();
+        }
         editor.pending_shape = None; editor.keyboard.suppress_pointer = true;
     }
 }
@@ -176,16 +186,29 @@ pub fn refresh(editor: &mut EditorState, chart: &mut ChartDoc) {
     if let Some(error) = error { txn.valid = false; editor.status = Some(error); }
 }
 
-pub fn transaction_key(editor: &mut EditorState, chart: &mut ChartDoc, key: egui::Key, mods: egui::Modifiers, _repeat: bool) {
+pub fn transaction_key(editor: &mut EditorState, chart: &mut ChartDoc, key: egui::Key, mods: egui::Modifiers, repeat: bool) {
     use egui::Key;
+    if key == Key::Delete && !repeat {
+        let Some(kind) = editor.keyboard.transaction.as_ref().map(|txn| txn.kind.clone()) else { return; };
+        match kind {
+            Draft::Star { .. } => {
+                cancel(editor, chart);
+                editor.exit_slide_edit(chart);
+            }
+            Draft::Segment { .. }
+            | Draft::Handle { kind: Handle::Delay | Handle::Tail | Handle::Lane, .. } => {
+                cancel(editor, chart);
+                editor.remove_sub_slide(chart);
+            }
+            Draft::Hold { .. } | Draft::Handle { kind: Handle::HoldTail, .. } => {}
+        }
+        return;
+    }
     if mods.command || mods.ctrl || mods.alt { return; }
     let Some(kind) = editor.keyboard.transaction.as_ref().map(|t| t.kind.clone()) else { return; };
     if key == Key::Escape {
-        if let Draft::Star { id, sub, delay: false, mut accepted, new_note } = kind {
-            let delay = accepted.pop().is_none();
-            editor.keyboard.transaction.as_mut().unwrap().kind = Draft::Star { id, sub, delay, accepted, new_note };
-            refresh(editor, chart);
-        } else { cancel(editor, chart); }
+        cancel(editor, chart);
+        editor.exit_slide_edit(chart);
         return;
     }
     if key == Key::Enter {
@@ -195,6 +218,11 @@ pub fn transaction_key(editor: &mut EditorState, chart: &mut ChartDoc, key: egui
             if delay {
                 editor.keyboard.transaction.as_mut().unwrap().kind = Draft::Star { id, sub, delay: false, accepted: Vec::new(), new_note };
                 editor.pending_shape = Some(SlideShape::Line);
+                if crate::app::params::get().editor_slide_default_opposite {
+                    if let Some(note) = chart.notes.iter().find(|note| note.id == id) {
+                        editor.keyboard.cursor.zone = (note.lane.clamp(1, 8) - 1 + 4) % 8 + 1;
+                    }
+                }
                 editor.keyboard.cursor.measure += 1.0 / editor.snap_division.max(1) as f32;
                 refresh(editor, chart); return;
             }
@@ -225,9 +253,9 @@ pub fn transaction_key(editor: &mut EditorState, chart: &mut ChartDoc, key: egui
     refresh(editor, chart);
 }
 
-pub fn begin_slide(editor: &mut EditorState, chart: &ChartDoc) -> bool {
+pub fn begin_slide(editor: &mut EditorState, chart: &mut ChartDoc) -> bool {
     let Some(id) = editor.single_selected().filter(|id| chart.notes.iter().any(|n| n.id == *id && n.note_type == NoteType::Slide)) else { return false; };
-    if editor.editing_slide == Some(id) { editor.editing_slide = None; return true; }
+    if editor.editing_slide == Some(id) { editor.exit_slide_edit(chart); return true; }
     editor.editing_slide = Some(id); editor.editing_slide_idx = 0; editor.keyboard.segment = 0;
     editor.pending_shape = None;
     true
@@ -254,8 +282,15 @@ pub fn same_head(editor: &mut EditorState, chart: &mut ChartDoc) {
 
 pub fn slide_key(editor: &mut EditorState, chart: &mut ChartDoc, key: egui::Key, mods: egui::Modifiers, repeat: bool) -> bool {
     use egui::Key;
+    if key == Key::Delete && !repeat {
+        editor.remove_sub_slide(chart);
+        return true;
+    }
     if mods.command || mods.ctrl {
-        if mods.shift && key == Key::D && !repeat { same_head(editor, chart); return true; }
+        if mods.shift && key == Key::D && !repeat {
+            if editor.slide_draft.is_none() { same_head(editor, chart); }
+            return true;
+        }
         if matches!(key, Key::ArrowLeft | Key::ArrowRight) {
             let count = chart.notes.iter().find(|n| Some(n.id) == editor.editing_slide).and_then(|n| n.slide.get(editor.editing_slide_idx)).map(|s| s.segments.len()).unwrap_or(0);
             editor.keyboard.segment = if key == Key::ArrowLeft { editor.keyboard.segment.saturating_sub(1) } else { (editor.keyboard.segment + 1).min(count.saturating_sub(1)) };
@@ -264,7 +299,7 @@ pub fn slide_key(editor: &mut EditorState, chart: &mut ChartDoc, key: egui::Key,
         return false;
     }
     if mods.alt { return false; }
-    if !editor.keyboard.active {
+    if !editor.keyboard.active || editor.slide_draft.is_some() {
         if let Some(shape) = super::shape_key(key, mods.shift) {
             editor.pending_shape = Some(shape);
             return true;
@@ -276,12 +311,13 @@ pub fn slide_key(editor: &mut EditorState, chart: &mut ChartDoc, key: egui::Key,
         }
     }
     if key == Key::Tab {
+        if editor.slide_draft.is_some() { return true; }
         let count = chart.notes.iter().find(|n| Some(n.id) == editor.editing_slide).map(|n| n.slide.len()).unwrap_or(0);
         if count > 0 { editor.editing_slide_idx = (editor.editing_slide_idx + if mods.shift { count - 1 } else { 1 }) % count; editor.keyboard.segment = 0; }
         return true;
     }
-    if matches!(key, Key::Escape | Key::E | Key::Enter) { editor.editing_slide = None; editor.pending_shape = None; return true; }
-    if key == Key::Delete { super::panels::open(editor, chart, super::panels::DialogKind::DeleteSlide); return true; }
+    if key == Key::Enter { editor.confirm_slide_edit(chart); return true; }
+    if matches!(key, Key::Escape | Key::E) { editor.exit_slide_edit(chart); return true; }
     if key == Key::Backspace {
         editor.pop_slide_waypoint(chart);
         return true;

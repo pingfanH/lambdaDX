@@ -17,6 +17,8 @@ const SONGS_DIR_ENV: &str = "MAI2_SONGS_DIR";
 const MAX_DEPTH: usize = 3;
 /// Covers larger than this (on the long edge) are downscaled before upload.
 const COVER_MAX: u32 = 512;
+/// At most 48 MiB of RGBA cover pixels, independent of library size.
+const COVER_CACHE_BYTES: usize = 48 * 1024 * 1024;
 
 /// A decoded cover on its way from the worker thread to the GPU.
 struct CoverRgba {
@@ -42,14 +44,17 @@ pub struct LibrarySong {
 pub struct Library {
     pub root: PathBuf,
     pub songs: Vec<LibrarySong>,
-    pub covers: Vec<Option<Texture2D>>,
+    additional_roots: Vec<PathBuf>,
+    covers: Vec<Option<Texture2D>>,
+    cover_lru: VecDeque<usize>,
+    cover_bytes: Vec<usize>,
+    cover_cache_bytes: usize,
     /// Whether a cover decode has already been attempted for each song.
     attempted: Vec<bool>,
     /// Covers queued for background decoding.
     pending: VecDeque<usize>,
     /// In-flight background decode (results are uploaded on the main thread).
-    cover_rx: Option<Receiver<CoverRgba>>,
-    cover_inflight: bool,
+    cover_rx: Option<(usize, Receiver<Option<CoverRgba>>)>,
 }
 
 impl Library {
@@ -58,43 +63,57 @@ impl Library {
         Self {
             root: PathBuf::new(),
             songs: Vec::new(),
+            additional_roots: Vec::new(),
             covers: Vec::new(),
+            cover_lru: VecDeque::new(),
+            cover_bytes: Vec::new(),
+            cover_cache_bytes: 0,
             attempted: Vec::new(),
             pending: VecDeque::new(),
             cover_rx: None,
-            cover_inflight: false,
         }
     }
 
-    /// Resolve the songs directory (`MAI2_SONGS_DIR` > `~/.maichart` > given
-    /// fallback) and scan it. Never fails: an unreadable root yields no songs.
+    /// Resolve the songs directory and scan it. An explicit `MAI2_SONGS_DIR`
+    /// overrides discovery. Android combines external `files/chart` with the
+    /// bundled fallback; desktop prefers `~/.maichart` over the fallback.
+    /// Unreadable roots are skipped.
     pub fn load(fallback: PathBuf) -> Self {
-        let root = resolve_root(fallback);
+        let (root, additional_roots) = resolve_roots(fallback);
         let mut lib = Self::empty();
         lib.root = root;
+        lib.additional_roots = additional_roots;
         lib.refresh();
         lib
     }
 
     pub fn refresh(&mut self) {
         let t = std::time::Instant::now();
-        self.songs = scan(&self.root).unwrap_or_default();
+        self.songs = std::iter::once(&self.root)
+            .chain(self.additional_roots.iter())
+            .filter_map(|root| scan(root).ok())
+            .flatten()
+            .collect();
         let n = self.songs.len();
         self.covers = vec![None; n];
-        // Songs without a cover are "done"; the rest queue for background decode.
+        self.cover_lru.clear();
+        self.cover_bytes = vec![0; n];
+        self.cover_cache_bytes = 0;
+        // Only visible/requested covers are decoded, never the entire library.
         self.attempted = self
             .songs
             .iter()
             .map(|s| s.cover_path.is_none())
             .collect();
-        self.pending = (0..n).filter(|i| self.songs[*i].cover_path.is_some()).collect();
+        self.pending.clear();
         self.cover_rx = None;
-        self.cover_inflight = false;
         if crate::player_ui::perf::enabled() {
             eprintln!(
-                "[perf] library.scan ({} songs from {}): {:.2}ms",
+                "[perf] library.scan ({} songs from {:?}): {:.2}ms",
                 n,
-                self.root.display(),
+                std::iter::once(&self.root)
+                    .chain(self.additional_roots.iter())
+                    .collect::<Vec<_>>(),
                 t.elapsed().as_secs_f64() * 1000.0
             );
         }
@@ -105,46 +124,79 @@ impl Library {
         self.covers.get(index).and_then(|c| c.as_ref())
     }
 
-    /// Kept for call-site symmetry; retains the cover if present, otherwise the
-    /// background pump will fill it in a frame or two.
+    /// Queue a visible cover and keep recently used ones in a bounded GPU cache.
     pub fn ensure_cover(&mut self, index: usize) -> Option<&Texture2D> {
+        if self.cover(index).is_some() {
+            self.touch_cover(index);
+        } else if self.attempted.get(index) == Some(&false)
+            && !self.cover_rx.as_ref().is_some_and(|(i, _)| *i == index)
+            && !self.pending.contains(&index)
+        {
+            self.pending.push_back(index);
+        }
         self.cover(index)
+    }
+
+    fn touch_cover(&mut self, index: usize) {
+        self.cover_lru.retain(|i| *i != index);
+        self.cover_lru.push_back(index);
+    }
+
+    fn evict_cover(&mut self, index: usize) {
+        self.cover_lru.retain(|i| *i != index);
+        self.cover_cache_bytes = self.cover_cache_bytes.saturating_sub(self.cover_bytes[index]);
+        self.cover_bytes[index] = 0;
+        self.covers[index] = None;
+        self.attempted[index] = false;
+    }
+
+    fn make_cover_room(&mut self, incoming_bytes: usize) {
+        while self.cover_cache_bytes.saturating_add(incoming_bytes) > COVER_CACHE_BYTES {
+            let Some(index) = self.cover_lru.front().copied() else {
+                break;
+            };
+            self.evict_cover(index);
+        }
     }
 
     /// Upload finished covers and start the next background decode. Called once
     /// per frame; decoding itself runs off the main thread, so this never stalls.
-    pub fn pump_covers(&mut self, _budget_ms: f32) {
-        if let Some(rx) = &self.cover_rx {
+    pub fn pump_covers(&mut self) {
+        if let Some((_, rx)) = &self.cover_rx {
             match rx.try_recv() {
-                Ok(r) => {
-                    self.covers[r.index] =
-                        Some(Texture2D::from_rgba8(r.w, r.h, &r.rgba));
-                    self.attempted[r.index] = true;
+                Ok(result) => {
                     self.cover_rx = None;
-                    self.cover_inflight = false;
+                    if let Some(r) = result {
+                        if r.index >= self.covers.len() {
+                            return;
+                        }
+                        self.evict_cover(r.index);
+                        self.make_cover_room(r.rgba.len());
+                        self.covers[r.index] = Some(Texture2D::from_rgba8(r.w, r.h, &r.rgba));
+                        self.cover_bytes[r.index] = r.rgba.len();
+                        self.cover_cache_bytes = self.cover_cache_bytes.saturating_add(r.rgba.len());
+                        self.attempted[r.index] = true;
+                        self.touch_cover(r.index);
+                    }
                 }
                 Err(TryRecvError::Empty) => return,
                 Err(TryRecvError::Disconnected) => {
                     self.cover_rx = None;
-                    self.cover_inflight = false;
                 }
             }
-        }
-        if self.cover_inflight {
-            return;
         }
         while let Some(index) = self.pending.pop_front() {
             let Some(path) = self.songs.get(index).and_then(|s| s.cover_path.clone()) else {
                 continue;
             };
             let (tx, rx) = mpsc::channel();
+            self.attempted[index] = true;
             std::thread::spawn(move || {
-                if let Some((w, h, rgba)) = decode_cover_rgba(&path) {
-                    let _ = tx.send(CoverRgba { index, w, h, rgba });
-                }
+                let result = decode_cover_rgba(&path)
+                    .map(|(w, h, rgba)| CoverRgba { index, w, h, rgba });
+                let _ = tx.send(result);
             });
-            self.cover_rx = Some(rx);
-            self.cover_inflight = true;
+            self.cover_rx = Some((index, rx));
             break;
         }
     }
@@ -188,18 +240,30 @@ fn decode_cover_rgba(path: &Path) -> Option<(u16, u16, Vec<u8>)> {
     Some((w as u16, h as u16, rgba.into_raw()))
 }
 
-fn resolve_root(fallback: PathBuf) -> PathBuf {    if let Some(dir) = std::env::var_os(SONGS_DIR_ENV) {
+fn resolve_roots(fallback: PathBuf) -> (PathBuf, Vec<PathBuf>) {
+    if let Some(dir) = std::env::var_os(SONGS_DIR_ENV) {
         if !dir.is_empty() {
-            return PathBuf::from(dir);
+            return (PathBuf::from(dir), Vec::new());
         }
+    }
+    if let Some(dir) = std::env::var_os("MAI2_EXTERNAL_DATA_DIR").filter(|dir| !dir.is_empty()) {
+        // Keep the path even if storage is currently absent: Refresh should
+        // discover charts added or mounted after startup.
+        let root = PathBuf::from(dir).join("chart");
+        let additional = if fallback == root {
+            Vec::new()
+        } else {
+            vec![fallback]
+        };
+        return (root, additional);
     }
     if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
         let candidate = PathBuf::from(home).join(".maichart");
         if candidate.is_dir() {
-            return candidate;
+            return (candidate, Vec::new());
         }
     }
-    fallback
+    (fallback, Vec::new())
 }
 
 /// Recursively collect folders containing `maidata.txt` up to `MAX_DEPTH`.
@@ -315,6 +379,152 @@ pub fn default_level(levels: &[(u32, String)]) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn android_external_charts_join_bundled_library_and_refresh() {
+        const FIXTURE_ENV: &str = "LDX_ANDROID_LIBRARY_TEST_DIR";
+        if let Some(root) = std::env::var_os(FIXTURE_ENV).map(PathBuf::from) {
+            let external = root.join("Android/data/io.lambdadx.lambda_dx_player_ui/files/chart");
+            let bundled = root.join("private/player-assets/charts");
+            let mut library = Library::load(bundled.clone());
+            assert!(
+                library.songs.iter().any(|song| song.title == "Chronomia"),
+                "Android files/chart/ChronomiaLime was omitted from the song list: {:?}",
+                library.songs
+            );
+            assert!(library.songs.iter().any(|song| song.title == "Bundled"));
+            assert_eq!(library.songs.len(), 2);
+            assert_eq!(library.root, external);
+            // An identical fallback must not list the external songs twice.
+            assert_eq!(Library::load(external.clone()).songs.len(), 1);
+
+            std::fs::remove_dir_all(&external).unwrap();
+            library.refresh();
+            assert_eq!(library.songs.len(), 1);
+            assert_eq!(library.songs[0].title, "Bundled");
+            let mut missing_at_startup = Library::load(bundled);
+            assert_eq!(missing_at_startup.songs.len(), 1);
+            assert_eq!(missing_at_startup.root, external);
+
+            let added = external.join("Added");
+            std::fs::create_dir_all(&added).unwrap();
+            std::fs::write(added.join("maidata.txt"), "&title=Added\n&inote_5=(120){4}1,E")
+                .unwrap();
+            library.refresh();
+            assert_eq!(library.songs.len(), 2);
+            assert!(library.songs.iter().any(|song| song.title == "Added"));
+            missing_at_startup.refresh();
+            assert_eq!(missing_at_startup.songs.len(), 2);
+            assert!(missing_at_startup.songs.iter().any(|song| song.title == "Added"));
+            return;
+        }
+
+        // A child process keeps Android's startup environment isolated from
+        // other tests, which may be loading the desktop library concurrently.
+        let root = std::env::temp_dir().join(format!(
+            "ldx-android-library-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let files = root.join("Android/data/io.lambdadx.lambda_dx_player_ui/files");
+        for (folder, title) in [
+            (files.join("chart/ChronomiaLime"), "Chronomia"),
+            (root.join("private/player-assets/charts/Bundled"), "Bundled"),
+        ] {
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(
+                folder.join("maidata.txt"),
+                format!("&title={title}\n&artist=Lime\n&inote_5=(227){{4}}1,2,3,4,E"),
+            )
+            .unwrap();
+        }
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "player_ui::library::tests::android_external_charts_join_bundled_library_and_refresh",
+                "--nocapture",
+            ])
+            .env(FIXTURE_ENV, &root)
+            .env("MAI2_EXTERNAL_DATA_DIR", &files)
+            .env("HOME", &root)
+            .env_remove("USERPROFILE")
+            .env_remove(SONGS_DIR_ENV)
+            .output()
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(
+            result.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    #[test]
+    fn scanning_does_not_queue_the_entire_cover_library() {
+        let mut library = Library::empty();
+        library.root = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/charts");
+        library.refresh();
+        assert!(!library.songs.is_empty());
+        assert!(library.pending.is_empty(), "covers must load only when requested");
+    }
+
+    #[test]
+    fn cover_cache_evicts_oldest_entries_by_bytes() {
+        const MIB: usize = 1024 * 1024;
+        let mut library = Library::empty();
+        library.covers = vec![None, None, None];
+        library.cover_bytes = vec![16 * MIB; 3];
+        library.cover_cache_bytes = COVER_CACHE_BYTES;
+        library.cover_lru = VecDeque::from([0, 1, 2]);
+        library.attempted = vec![true, true, true];
+
+        library.touch_cover(0);
+        library.make_cover_room(24 * MIB);
+
+        assert_eq!(library.cover_cache_bytes, 16 * MIB);
+        assert_eq!(library.cover_lru, VecDeque::from([0]));
+        assert_eq!(library.cover_bytes, vec![16 * MIB, 0, 0]);
+        assert_eq!(library.attempted, vec![true, false, false]);
+    }
+
+    #[test]
+    fn cover_cache_keeps_entries_when_upload_fits_exactly() {
+        let mut library = Library::empty();
+        library.covers = vec![None];
+        library.cover_bytes = vec![COVER_CACHE_BYTES / 2];
+        library.cover_cache_bytes = COVER_CACHE_BYTES / 2;
+        library.cover_lru.push_back(0);
+        library.attempted = vec![true];
+
+        library.make_cover_room(COVER_CACHE_BYTES / 2);
+
+        assert_eq!(library.cover_cache_bytes, COVER_CACHE_BYTES / 2);
+        assert_eq!(library.cover_lru, VecDeque::from([0]));
+        assert!(library.attempted[0]);
+    }
+
+    #[test]
+    fn visible_cover_requests_are_deduplicated() {
+        let mut library = Library::empty();
+        library.covers = vec![None, None];
+        library.attempted = vec![false, false];
+
+        library.ensure_cover(0);
+        library.ensure_cover(0);
+        library.ensure_cover(2);
+        assert_eq!(library.pending, VecDeque::from([0]));
+
+        library.pending.clear();
+        let (_tx, rx) = mpsc::channel();
+        library.cover_rx = Some((0, rx));
+        library.ensure_cover(0);
+        library.ensure_cover(1);
+        assert_eq!(library.pending, VecDeque::from([1]));
+    }
 
     #[test]
     fn scans_and_converts_bundled_charts() {

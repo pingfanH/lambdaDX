@@ -95,17 +95,41 @@ impl Integer {
 
     /// Lean Int division is Euclidean and total, including division by zero.
     pub fn div_euclid(&self, divisor: &Self) -> Self {
+        if let (Repr::Small(a), Repr::Small(b)) = (&self.0, &divisor.0) {
+            if *b == 0 {
+                return Self::small(0);
+            }
+            if let Some(value) = a.checked_div_euclid(*b) {
+                return Self::small(value);
+            }
+        }
         Self::from_kernel(kernel::div_euclid(&self.kernel(), &divisor.kernel()))
     }
 
     /// Rust and Lean Int.tmod: the remainder takes the dividend's sign, and a
     /// zero divisor leaves the dividend unchanged.
     pub fn rem_trunc(&self, divisor: &Self) -> Self {
+        if let (Repr::Small(a), Repr::Small(b)) = (&self.0, &divisor.0) {
+            if *b == 0 {
+                return self.clone();
+            }
+            if let Some(value) = a.checked_rem(*b) {
+                return Self::small(value);
+            }
+        }
         Self::from_kernel(kernel::rem_trunc(&self.kernel(), &divisor.kernel()))
     }
 
     /// Lean Int.tdiv: truncated toward zero, with a zero divisor giving zero.
     pub fn div_trunc(&self, divisor: &Self) -> Self {
+        if let (Repr::Small(a), Repr::Small(b)) = (&self.0, &divisor.0) {
+            if *b == 0 {
+                return Self::small(0);
+            }
+            if let Some(value) = a.checked_div(*b) {
+                return Self::small(value);
+            }
+        }
         Self::from_kernel(kernel::div_trunc(&self.kernel(), &divisor.kernel()))
     }
 
@@ -452,6 +476,22 @@ mod tests {
         }
         assert_eq!(Integer::from(7).rem_trunc(&Integer::from(0)), 7);
         assert_eq!(Integer::from(7).div_trunc(&Integer::from(0)), 0);
+    }
+
+    #[test]
+    fn division_matches_unbounded_kernel_at_inline_boundaries() {
+        let values = [i64::MIN, i64::MIN + 1, -7, -1, 0, 1, 3, i64::MAX];
+        for a in values {
+            for b in values {
+                let left = Integer::small(a);
+                let right = Integer::small(b);
+                let ka = left.kernel();
+                let kb = right.kernel();
+                assert_eq!(left.div_euclid(&right), Integer::from_kernel(kernel::div_euclid(&ka, &kb)));
+                assert_eq!(left.div_trunc(&right), Integer::from_kernel(kernel::div_trunc(&ka, &kb)));
+                assert_eq!(left.rem_trunc(&right), Integer::from_kernel(kernel::rem_trunc(&ka, &kb)));
+            }
+        }
     }
 
     #[test]

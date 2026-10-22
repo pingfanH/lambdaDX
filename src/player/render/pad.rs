@@ -117,19 +117,23 @@ fn draw_pad_sim_impl(
     } else {
         app.play_speed.max(0.1)
     };
-    if !params::hide_notes() {
+    let note_frame = if !params::hide_notes() {
         // Notes cover all effects, including fireworks and every fallback.
         crate::player::render::hit_fx::draw(app, &pad, outer_r, spawn_cx, scale);
-        crate::player::render::notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale);
-    }
+        Some(crate::player::render::notes::draw_notes(
+            app, &pad, scale, spawn_cx, current_t, speed_scale,
+        ))
+    } else {
+        None
+    };
     draw_boundary(&pad);
     if !params::hide_notes() {
         crate::player::render::judgment::draw(app, &pad, scale, spawn_cx, current_t, speed_scale);
         crate::player::render::slide::draw_just_overlays(app, &pad, scale, spawn_cx);
         crate::player::render::feedback::draw(app, &pad, outer_r, spawn_cx, scale);
-        crate::player::render::notes::draw_judge_dots(
-            app, &pad, scale, spawn_cx, current_t, speed_scale,
-        );
+        if let Some(frame) = note_frame.as_ref() {
+            crate::player::render::notes::draw_judge_dots(app, &pad, scale, spawn_cx, frame);
+        }
     }
 }
 
