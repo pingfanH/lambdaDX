@@ -112,9 +112,22 @@ pub fn draw(
         tint: mq::WHITE,
     };
     let backdrop = editor.template_session.as_ref().map(|session| session.backdrop.notes.as_slice()).unwrap_or(&[]);
+    let annotation_original: std::collections::HashSet<u64> = editor
+        .mairis
+        .annotation
+        .original
+        .iter()
+        .map(|note| note.id)
+        .collect();
     for (notes, is_backdrop) in [(backdrop, true), (chart.notes.as_slice(), false)] {
     for note in super::notes::draw_order(notes) {
         ctx.tint = draw::note_tint(note, is_backdrop);
+        if !is_backdrop
+            && editor.mairis.annotation.active
+            && !annotation_original.contains(&note.id)
+        {
+            ctx.tint = mq::Color::new(0.25, 1.0, 0.45, 1.0);
+        }
         let head = note_secs(note, bpms);
         let x = ctx.x_of(head);
         let y = ctx.lane_y(lane_index_of(note));
@@ -129,6 +142,25 @@ pub fn draw(
         }
         draw_note(&ctx, note, x, x_tail, y, !is_backdrop && editor.selected.contains(&note.id));
     }
+    }
+
+    if editor.mairis.annotation.active {
+        ctx.tint = mq::Color::new(1.0, 0.25, 0.3, 0.75);
+        for note in &editor.mairis.annotation.review_deleted {
+            let head = note_secs(note, bpms);
+            let x = ctx.x_of(head);
+            let y = ctx.lane_y(lane_index_of(note));
+            let tail = match note.note_type {
+                NoteType::Hold | NoteType::TouchHold => hold_tail_time(note, bpms),
+                NoteType::Slide => slide_end_time(note, bpms),
+                _ => head,
+            };
+            let x_tail = ctx.x_of(tail);
+            if x_tail < plot_left - 80.0 * g || x > plot_right + 80.0 * g {
+                continue;
+            }
+            draw_note(&ctx, note, x, x_tail, y, false);
+        }
     }
 
     let px = ctx.x_of(current_time);

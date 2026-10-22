@@ -900,7 +900,8 @@ impl EditorUi {
         waveform: &WaveformPyramid,
         raw_wheel: f32,
     ) {
-        let viewer = editor.workspace == Workspace::Viewer;
+        let viewer = editor.workspace == Workspace::Viewer
+            && !editor.mairis.annotation.active;
         let progress_enabled = !self.input_blocked
             && matches!(editor.workspace, Workspace::Chart | Workspace::Viewer)
             && !editor.keyboard.owns_input()

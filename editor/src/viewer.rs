@@ -13,7 +13,7 @@ use egui_macroquad::egui;
 use macroquad::prelude as mq;
 use serde::Deserialize;
 
-use crate::app::types::{ChartDoc, Mode};
+use crate::app::types::{ChartDoc, Mode, Note};
 use crate::keyboard::navigation::reference_time;
 use crate::player::state::PadPreviewState;
 use crate::state::{EditorLayout, EditorState};
@@ -149,8 +149,29 @@ pub struct MaiRisState {
     /// chart file or at a run folder whose track is only a symlink.
     pub audio_source: Option<PathBuf>,
     pub status: Option<String>,
+    pub annotation: AnnotationState,
     saved_audio: Option<(bool, bool)>,
     last_rhythm_time: f32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AnnotationPhase {
+    #[default]
+    Annotating,
+    Review,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AnnotationState {
+    pub active: bool,
+    pub phase: AnnotationPhase,
+    pub song_id: Option<String>,
+    pub difficulty: f32,
+    pub original: Vec<Note>,
+    pub review_deleted: Vec<Note>,
+    pub review_added: Vec<Note>,
+    pub pending: Option<PathBuf>,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -541,6 +562,12 @@ fn draw_timeline_horizontal(
 /// the chart/rhythm sound switches.
 pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPreviewState) {
     let mut generate = false;
+    let mut start_annotation = false;
+    let mut finish_annotation = false;
+    let mut next_annotation = false;
+    let mut cancel_annotation = false;
+    poll_annotation(editor, app);
+    sync_annotation_preview(editor, app);
     {
     let MaiRisState {
         overlay,
@@ -550,6 +577,7 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
         pending_load,
         analysis_path: _,
         status,
+        annotation,
         ..
     } = &mut editor.mairis;
     ui.heading("MaiRis");
@@ -652,11 +680,245 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
     if let Some(status) = status {
         ui.label(status.clone());
     }
+    ui.separator();
+    ui.label("标注模式");
+    if !annotation.active {
+        if ui.button("随机训练歌 + 开始标注").clicked() {
+            start_annotation = true;
+        }
+    } else {
+        if let Some(song) = &annotation.song_id {
+            ui.label(song);
+        }
+        match annotation.phase {
+            AnnotationPhase::Annotating => {
+                ui.label("用 Erase 删除，用 Place 补音；完成后复核");
+                if ui.button("完成标注").clicked() {
+                    finish_annotation = true;
+                }
+            }
+            AnnotationPhase::Review => {
+                ui.label(format!(
+                    "删除 {} · 新增 {}（绿色=新增，红色幽灵=删除）",
+                    annotation.review_deleted.len(),
+                    annotation.review_added.len()
+                ));
+                if ui.button("下一组").clicked() {
+                    next_annotation = true;
+                }
+            }
+        }
+        if let Some(note) = &annotation.status {
+            ui.label(note);
+        }
+        if ui.button("退出标注").clicked() {
+            cancel_annotation = true;
+        }
+    }
     ui.label(format!("播放状态: {:?}", app.mode));
     }
     if generate {
         spawn_generation(editor);
     }
+    if start_annotation || next_annotation {
+        start_annotation_round(editor, app);
+    }
+    if finish_annotation {
+        finish_annotation_round(editor, app);
+    }
+    if cancel_annotation {
+        editor.mairis.annotation = AnnotationState::default();
+        editor.hide_chart_tools = true;
+        editor.tool = crate::state::Tool::Select;
+    }
+}
+
+fn start_annotation_round(editor: &mut EditorState, app: &mut PadPreviewState) {
+    let root = mairis_root();
+    let songs_path = root.join("runs/onset-all-1000-songs-20261022/songs.jsonl");
+    let Ok(text) = fs::read_to_string(&songs_path) else {
+        editor.mairis.annotation.status =
+            Some(format!("missing {}", songs_path.display()));
+        return;
+    };
+    let songs: Vec<serde_json::Value> = text
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    if songs.is_empty() {
+        editor.mairis.annotation.status = Some("training song list is empty".to_string());
+        return;
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or(0) as u64;
+    let song = &songs[(stamp as usize) % songs.len()];
+    let Some(audio) = song.get("audio").and_then(|value| value.as_str()) else {
+        editor.mairis.annotation.status = Some("song has no audio".to_string());
+        return;
+    };
+    let song_id = song
+        .get("song_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let out = root.join("runs").join(format!("annotation-{stamp}"));
+    let script = root.join("tools/generate_song.sh");
+    let difficulty = editor.mairis.settings.difficulty;
+    let result = Command::new("bash")
+        .arg(&script)
+        .arg(audio)
+        .arg(&out)
+        .arg(format!("{difficulty:.1}"))
+        .arg(stamp.to_string())
+        .spawn();
+    match result {
+        Ok(_) => {
+            editor.mairis.annotation = AnnotationState {
+                active: true,
+                phase: AnnotationPhase::Annotating,
+                song_id: Some(song_id),
+                difficulty,
+                pending: Some(out.join("chart.json")),
+                status: Some("generating…".to_string()),
+                ..AnnotationState::default()
+            };
+            editor.mairis.status = Some(format!("annotation: generating {}", out.display()));
+        }
+        Err(error) => {
+            editor.mairis.annotation.status = Some(format!("generator: {error}"));
+        }
+    }
+    let _ = app;
+}
+
+fn poll_annotation(editor: &mut EditorState, app: &mut PadPreviewState) {
+    let Some(path) = editor.mairis.annotation.pending.clone() else {
+        return;
+    };
+    if !path.is_file() {
+        return;
+    }
+    let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    match crate::runtime::load_chart_into(app, &dir, None) {
+        Ok(source) => {
+            editor.chart_dir = dir.display().to_string();
+            editor.source = Some(source);
+            editor.level_slots.clear();
+            editor.level_index = 0;
+            editor.hide_chart_tools = false;
+            editor.tool = crate::state::Tool::Eraser;
+            let analysis = dir.join("analysis.json");
+            if analysis.is_file() {
+                editor.mairis.analysis_path = Some(analysis.clone());
+                editor.mairis.overlay = AnalysisOverlay::load_path(&analysis);
+            }
+            let original = app.chart.notes.clone();
+            editor.mairis.annotation.original = original;
+            editor.mairis.annotation.phase = AnnotationPhase::Annotating;
+            editor.mairis.annotation.pending = None;
+            editor.mairis.annotation.review_deleted.clear();
+            editor.mairis.annotation.review_added.clear();
+            editor.mairis.annotation.status = Some("标注中：Erase 删除 / Place 补音".to_string());
+            editor.mairis.status = Some(format!("annotation: {}", path.display()));
+        }
+        Err(error) => {
+            editor.mairis.annotation.pending = None;
+            editor.mairis.annotation.status = Some(format!("load failed: {error}"));
+        }
+    }
+}
+
+fn finish_annotation_round(editor: &mut EditorState, app: &mut PadPreviewState) {
+    let original = editor.mairis.annotation.original.clone();
+    let original_ids: std::collections::HashSet<u64> =
+        original.iter().map(|note| note.id).collect();
+    let current_ids: std::collections::HashSet<u64> =
+        app.chart.notes.iter().map(|note| note.id).collect();
+    let deleted: Vec<Note> = original
+        .iter()
+        .filter(|note| !current_ids.contains(&note.id))
+        .cloned()
+        .collect();
+    let added: Vec<Note> = app
+        .chart
+        .notes
+        .iter()
+        .filter(|note| !original_ids.contains(&note.id))
+        .cloned()
+        .collect();
+
+    let bpm = app.chart.bpm.max(1.0);
+    let mut lines = Vec::new();
+    for note in &deleted {
+        lines.push(serde_json::json!({
+            "action": "delete",
+            "song_id": editor.mairis.annotation.song_id,
+            "difficulty": editor.mairis.annotation.difficulty,
+            "time_sec": (note.time - 1.0) * 240.0 / bpm,
+            "lane": note.lane,
+        }));
+    }
+    for note in &added {
+        lines.push(serde_json::json!({
+            "action": "add",
+            "song_id": editor.mairis.annotation.song_id,
+            "difficulty": editor.mairis.annotation.difficulty,
+            "time_sec": (note.time - 1.0) * 240.0 / bpm,
+            "lane": note.lane,
+        }));
+    }
+    let feedback_path = Path::new(&editor.chart_dir).join("feedback.jsonl");
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let _ = fs::write(&feedback_path, text);
+
+    editor.mairis.annotation.review_deleted = deleted;
+    editor.mairis.annotation.review_added = added;
+    editor.mairis.annotation.phase = AnnotationPhase::Review;
+    editor.mairis.annotation.status = Some(format!("已写 {}", feedback_path.display()));
+    editor.tool = crate::state::Tool::Select;
+}
+
+fn sync_annotation_preview(editor: &mut EditorState, app: &mut PadPreviewState) {
+    if !editor.mairis.annotation.active
+        || editor.mairis.annotation.phase != AnnotationPhase::Annotating
+    {
+        return;
+    }
+    let original_ids: std::collections::HashSet<u64> = editor
+        .mairis
+        .annotation
+        .original
+        .iter()
+        .map(|note| note.id)
+        .collect();
+    let current_ids: std::collections::HashSet<u64> = app
+        .chart
+        .notes
+        .iter()
+        .map(|note| note.id)
+        .collect();
+    editor.mairis.annotation.review_deleted = editor
+        .mairis
+        .annotation
+        .original
+        .iter()
+        .filter(|note| !current_ids.contains(&note.id))
+        .cloned()
+        .collect();
+    editor.mairis.annotation.review_added = app
+        .chart
+        .notes
+        .iter()
+        .filter(|note| !original_ids.contains(&note.id))
+        .cloned()
+        .collect();
 }
 
 /// Keep the player's sound flags in sync with the MaiRis pane. Values are
