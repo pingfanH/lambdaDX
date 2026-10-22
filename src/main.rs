@@ -294,6 +294,19 @@ async fn run(args: LaunchArgs) {
         let pad_geom = player::layout::compute_pad_geom(layout.pad);
 
         player::input::handle_global_hotkeys(&mut app);
+        // Wheel zooms the pad in the standalone preview. Some macOS trackpads
+        // report horizontal deltas only, so accept either axis.
+        let (wheel_x, wheel_y) = macroquad::input::mouse_wheel();
+        let wheel = if wheel_y.abs() > f32::EPSILON { wheel_y } else { wheel_x };
+        let (mouse_x, mouse_y) = macroquad::input::mouse_position();
+        let over_pad = (mouse_x - pad_geom.cx).hypot(mouse_y - pad_geom.cy)
+            <= pad_geom.outer_r.max(1.0);
+        if wheel.abs() > f32::EPSILON && over_pad && !app.show_params {
+            let mut params = app.params.clone();
+            params.pad_zoom = (params.pad_zoom * (1.0 + wheel * 0.06)).clamp(0.3, 2.0);
+            app.params = params.clone();
+            app::params::set(params);
+        }
         // F5: re-read the chart from disk and reload (picks up edits live).
         if macroquad::input::is_key_pressed(macroquad::input::KeyCode::F5) {
             if let Some(text) = args.chart.as_deref().and_then(chart::read_simai_source) {

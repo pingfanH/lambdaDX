@@ -13,7 +13,7 @@ mod dragging;
 mod views;
 use views::PaneView;
 
-const WORKSPACE_COUNT: usize = 4;
+const WORKSPACE_COUNT: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaneKind {
@@ -26,10 +26,11 @@ pub enum PaneKind {
     History,
     Simai,
     Agent,
+    MaiRis,
 }
 
 impl PaneKind {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Chart,
         Self::Pad,
         Self::Properties,
@@ -39,6 +40,7 @@ impl PaneKind {
         Self::History,
         Self::Simai,
         Self::Agent,
+        Self::MaiRis,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -51,6 +53,7 @@ impl PaneKind {
             Self::History => "历史",
             Self::Simai => "Simai",
             Self::Agent => "Agent",
+            Self::MaiRis => "MaiRis",
         }
     }
     fn icon(self) -> Icon {
@@ -64,12 +67,16 @@ impl PaneKind {
             Self::History => Icon::History,
             Self::Simai => Icon::FileCode2,
             Self::Agent => Icon::MessageSquare,
+            Self::MaiRis => Icon::AudioLines,
         }
     }
     fn workspace(self) -> Option<Workspace> {
         match self {
             Self::Chart | Self::Templates | Self::Simai => Some(Workspace::Chart),
             Self::Autoplay => Some(Workspace::Autoplay),
+            // MaiRis is a pane, not a workspace switch: clicking its tab inside
+            // the Chart workspace must not eject the user from the editor.
+            Self::MaiRis => None,
             _ => None,
         }
     }
@@ -179,7 +186,7 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
                 .split_right(NodeIndex::root(), 0.72, vec![pane(PaneKind::Pad)]);
         dock.main_surface_mut().split_below(
             main,
-            if workspace == 2 { 0.60 } else if workspace == 3 { 0.76 } else { 0.90 },
+            if workspace == 2 { 0.60 } else if workspace == 3 { 0.76 } else if workspace == 4 { 0.86 } else { 0.90 },
             vec![pane(if workspace == 2 {
                 PaneKind::Autoplay
             } else if workspace == 3 {
@@ -188,8 +195,20 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
                 PaneKind::Overview
             })],
         );
-        dock.main_surface_mut()
-            .split_below(right, 0.46, vec![pane(PaneKind::Properties)]);
+        if workspace == 4 {
+            let [_, lower] = dock
+                .main_surface_mut()
+                .split_below(right, 0.55, vec![pane(PaneKind::MaiRis)]);
+            dock.main_surface_mut()
+                .split_below(lower, 0.50, vec![pane(PaneKind::Properties)]);
+        } else {
+            dock.main_surface_mut()
+                .split_below(
+                    right,
+                    0.46,
+                    vec![pane(PaneKind::Properties), pane(PaneKind::MaiRis)],
+                );
+        }
     }
     // Presets only choose a layout and its options; the panes decide behaviour.
     if let Some((_, pane)) = dock
@@ -201,16 +220,38 @@ fn preset(workspace: usize, next_id: &mut u64) -> DockState<Pane> {
     dock
 }
 
+#[cfg(test)]
+mod viewer_preset_tests {
+    use super::*;
+
+    #[test]
+    fn viewer_preset_contains_timeline_pad_overview_and_properties() {
+        let mut next_id = 0;
+        let dock = preset(4, &mut next_id);
+        let kinds: Vec<PaneKind> = dock
+            .iter_all_tabs()
+            .map(|(_, pane)| pane.kind)
+            .collect();
+        assert!(kinds.contains(&PaneKind::Chart));
+        assert!(kinds.contains(&PaneKind::Pad));
+        assert!(kinds.contains(&PaneKind::Overview));
+        assert!(kinds.contains(&PaneKind::Properties));
+        assert!(kinds.contains(&PaneKind::MaiRis));
+    }
+}
+
 impl Workbench {
     pub fn initialize(&mut self, workspace: Workspace) -> Option<Workspace> {
         if !self.initialized {
             self.load_layouts();
             self.workspace = match std::env::var("MAI2_EDITOR_WORKSPACE").as_deref() {
+                Ok("viewer") => 4,
                 Ok("simai") => 3,
                 Ok("combined") => 2,
                 Ok("autoplay") => 1,
                 Ok("chart") => 0,
                 _ if workspace == Workspace::Autoplay => 1,
+                _ if workspace == Workspace::Viewer => 4,
                 _ => self.workspace,
             };
             self.initialized = true;
@@ -218,7 +259,11 @@ impl Workbench {
             if std::env::var_os("MAI2_EDITOR_TEMPLATES").is_some() {
                 self.set_visible(PaneKind::Templates, true);
             }
-            return Some(if self.workspace == 1 { Workspace::Autoplay } else { Workspace::Chart });
+            return Some(match self.workspace {
+                1 => Workspace::Autoplay,
+                4 => Workspace::Viewer,
+                _ => Workspace::Chart,
+            });
         }
         None
     }
@@ -250,10 +295,31 @@ impl Workbench {
         if regions.is_empty() { return None; }
         let index = regions.iter().position(|(kind, _)| *kind == self.focused).unwrap_or(0);
         self.focused = regions[(index + if reverse { regions.len() - 1 } else { 1 }) % regions.len()].0;
-        self.focused.workspace()
+        if self.workspace == 4 {
+            Some(Workspace::Viewer)
+        } else {
+            self.focused.workspace()
+        }
     }
 
     pub fn active_workspace(&mut self, ctx: &Context, current: Workspace) -> Workspace {
+        if self.workspace == 4 {
+            let clicked = ctx.input(|i| {
+                i.pointer
+                    .any_pressed()
+                    .then(|| i.pointer.interact_pos())
+                    .flatten()
+            });
+            if let Some(kind) = clicked.and_then(|pos| {
+                self.regions
+                    .iter()
+                    .find(|(_, r)| r.contains(pos))
+                    .map(|(k, _)| *k)
+            }) {
+                self.focused = kind;
+            }
+            return Workspace::Viewer;
+        }
         let clicked = ctx.input(|i| {
             i.pointer
                 .any_pressed()
@@ -287,7 +353,7 @@ impl Workbench {
     }
     pub fn workspace_picker(&mut self, ui: &mut Ui, compact: bool) -> Option<Workspace> {
         let old = self.workspace;
-        let labels = ["谱面", "Autoplay", "组合", "Simai"];
+        let labels = ["谱面", "Autoplay", "组合", "Simai", "查看器"];
         if compact {
             ComboBox::from_id_salt("workspace")
                 .width(80.0)
@@ -321,10 +387,10 @@ impl Workbench {
             self.regions.clear();
             self.focused = self.default_focus();
             self.dragging = None;
-            Some(if self.workspace == 1 {
-                Workspace::Autoplay
-            } else {
-                Workspace::Chart
+            Some(match self.workspace {
+                1 => Workspace::Autoplay,
+                4 => Workspace::Viewer,
+                _ => Workspace::Chart,
             })
         }
     }

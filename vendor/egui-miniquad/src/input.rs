@@ -34,7 +34,10 @@ pub fn egui_modifiers_from_mq_modifiers(keymods: mq::KeyMods) -> egui::Modifiers
         command: if cfg!(target_os = "macos") {
             keymods.logo
         } else {
-            keymods.ctrl
+            // Linux/Windows users often press Super (the "Command" key on
+            // Mac-style keyboards) or Ctrl. Treat both as the primary
+            // shortcut modifier.
+            keymods.ctrl || keymods.logo
         },
     }
 }
@@ -112,4 +115,26 @@ pub fn egui_key_from_mq_key(key: mq::KeyCode) -> Option<egui::Key> {
             return None;
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ctrl_and_logo_are_both_command_on_linux() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        let ctrl = egui_modifiers_from_mq_modifiers(mq::KeyMods {
+            ctrl: true,
+            ..Default::default()
+        });
+        let logo = egui_modifiers_from_mq_modifiers(mq::KeyMods {
+            logo: true,
+            ..Default::default()
+        });
+        assert!(ctrl.command, "Ctrl must be the primary modifier");
+        assert!(logo.command, "Super/Command must map to the primary modifier");
+    }
 }

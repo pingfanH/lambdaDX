@@ -656,6 +656,13 @@ impl EditorUi {
                             || editor.loop_drag.is_some()),
                     raw_wheel,
                 ),
+                PaneKind::MaiRis => {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(&mut ui, |ui| {
+                            crate::viewer::draw_panel(ui, editor, app);
+                        });
+                }
                 PaneKind::Properties | PaneKind::Templates | PaneKind::History => {
                     egui::Frame::NONE
                         .fill(crate::theme::surface(BG_PANEL))
@@ -784,6 +791,18 @@ impl EditorUi {
         editor.template_action = None;
         self.templates = Default::default();
         editor.workspace = workspace;
+        editor.hide_chart_tools = workspace == Workspace::Viewer;
+        if workspace == Workspace::Viewer {
+            editor.tool = crate::state::Tool::Select;
+            editor.star_placement = None;
+            editor.hold_placement = None;
+            editor.dragging = None;
+            editor.drag_grab = None;
+            editor.handle_grab = None;
+            editor.marquee_start = None;
+            editor.pointer_press = None;
+            editor.scrubbing = false;
+        }
         if workspace == Workspace::Autoplay && editor.autoplay_mode < 2 {
             editor.autoplay_mode = 2;
             editor.mode_dirty = true;
@@ -881,8 +900,9 @@ impl EditorUi {
         waveform: &WaveformPyramid,
         raw_wheel: f32,
     ) {
+        let viewer = editor.workspace == Workspace::Viewer;
         let progress_enabled = !self.input_blocked
-            && editor.workspace == Workspace::Chart
+            && matches!(editor.workspace, Workspace::Chart | Workspace::Viewer)
             && !editor.keyboard.owns_input()
             && editor.selection_transform.is_none()
             && !editor.autoplay_editor.dragging()
@@ -907,22 +927,23 @@ impl EditorUi {
         // egui's widget-owned long-press fallback and gives note menus the same
         // immediate behavior as template menus. A note wins when it overlaps a
         // template block; otherwise the template menu handles the block.
-        let note_context_owned = crate::timeline::note_context_menu(
-            editor.layout,
-            ui,
-            timeline_rect,
-            tools_rect,
-            editor,
-            chart,
-            current_time,
-        );
-        let template_context_owned = if note_context_owned {
+        let note_context_owned = !viewer
+            && crate::timeline::note_context_menu(
+                editor.layout,
+                ui,
+                timeline_rect,
+                tools_rect,
+                editor,
+                chart,
+                current_time,
+            );
+        let template_context_owned = if viewer || note_context_owned {
             false
         } else {
             self.templates
                 .context_menu(ui, timeline_rect, tools_rect, editor, chart, current_time)
         };
-        if editor.workspace != Workspace::Chart
+        if !matches!(editor.workspace, Workspace::Chart | Workspace::Viewer)
             || editor.loop_drag.is_some()
             || editor.autoplay_editor.dragging()
             || progress_owned
@@ -932,25 +953,29 @@ impl EditorUi {
         }
 
         let template_was_dragging = self.templates.dragging();
-        let template_owned = self.templates.timeline(
-            ui,
-            timeline_rect,
-            tools_rect,
-            editor,
-            chart,
-            current_time,
-            !self.input_blocked
-                && editor.selection_transform.is_none()
-                && !editor.keyboard.owns_input()
-                && editor.timeline_pan.is_none()
-                && !editor.scrubbing
-                && editor.pointer_press.is_none()
-                && editor.dragging.is_none()
-                && editor.handle_grab.is_none()
-                && editor.marquee_start.is_none(),
-        );
+        let template_owned = !viewer
+            && self.templates.timeline(
+                ui,
+                timeline_rect,
+                tools_rect,
+                editor,
+                chart,
+                current_time,
+                !self.input_blocked
+                    && editor.selection_transform.is_none()
+                    && !editor.keyboard.owns_input()
+                    && editor.timeline_pan.is_none()
+                    && !editor.scrubbing
+                    && editor.pointer_press.is_none()
+                    && editor.dragging.is_none()
+                    && editor.handle_grab.is_none()
+                    && editor.marquee_start.is_none(),
+            );
         let was_transforming = editor.selection_transform.is_some();
-        let shortcuts_owned = if template_was_dragging || self.templates.dragging() {
+        let shortcuts_owned = if viewer {
+            // Read-only playback/navigation keys still belong to the timeline.
+            crate::keyboard::handle(ui, editor, chart, current_time).unwrap_or(true)
+        } else if template_was_dragging || self.templates.dragging() {
             true
         } else if self.workbench.focused(PaneKind::Chart)
             && !editor.file_dialog_active
@@ -992,14 +1017,36 @@ impl EditorUi {
             ui.id().with("editor_timeline"),
             egui::Sense::click_and_drag(),
         );
-        let transform_owned = crate::timeline::transform::handle_pointer(
-            ui,
-            timeline_rect,
-            editor,
-            chart,
-            current_time,
-            raw_wheel / 40.0,
-        ) || was_transforming;
+        if viewer && response.clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let now = crate::keyboard::navigation::reference_time(editor, current_time);
+                let time = match editor.layout {
+                    crate::state::EditorLayout::Vertical => {
+                        now + (timeline_rect.bottom()
+                            - crate::timeline::geometry::JUDGE_MARGIN
+                            - pos.y)
+                            / editor.pixels_per_second.max(1.0)
+                    }
+                    crate::state::EditorLayout::Horizontal => {
+                        editor.view_start
+                            + (pos.x
+                                - timeline_rect.left()
+                                - crate::timeline::geometry::LANE_GUTTER)
+                                / editor.pixels_per_second.max(1.0)
+                    }
+                };
+                editor.pending_seek = Some(time.max(0.0));
+            }
+        }
+        let transform_owned = !viewer
+            && (crate::timeline::transform::handle_pointer(
+                ui,
+                timeline_rect,
+                editor,
+                chart,
+                current_time,
+                raw_wheel / 40.0,
+            ) || was_transforming);
         let keyboard_owned = editor.keyboard.owns_input() || editor.keyboard.suppress_pointer;
         let over_tools = ui.input(|i| {
             i.pointer
@@ -1012,7 +1059,8 @@ impl EditorUi {
             && !keyboard_owned
             && (!over_tools || editor.timeline_pan.is_some())
             && crate::timeline::input::navigate(ui, timeline_rect, editor, current_time, raw_wheel);
-        if !template_owned
+        if !viewer
+            && !template_owned
             && !transform_owned
             && !keyboard_owned
             && !navigation_owned
@@ -1038,7 +1086,8 @@ impl EditorUi {
                 && !editor.scrubbing
                 && !self.templates.dragging(),
         );
-        let handle_active = !template_owned
+        let handle_active = !viewer
+            && !template_owned
             && !transform_owned
             && !keyboard_owned
             && !navigation_owned
@@ -1052,7 +1101,8 @@ impl EditorUi {
                 current_time,
             );
 
-        if !template_owned
+        if !viewer
+            && !template_owned
             && !template_context_owned
             && !note_context_owned
             && (!tools_hovered || editor.scrubbing)

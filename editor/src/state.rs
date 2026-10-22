@@ -79,6 +79,15 @@ pub enum Workspace {
     #[default]
     Chart,
     Autoplay,
+    Viewer,
+}
+
+impl Workspace {
+    /// Read-only chart presentation. Editing input is disabled; playback,
+    /// seeking and view navigation stay available.
+    pub fn is_viewer(self) -> bool {
+        matches!(self, Workspace::Viewer)
+    }
 }
 
 impl EditorLayout {
@@ -249,6 +258,7 @@ pub struct LoopDrag {
 #[derive(Debug, Clone)]
 pub struct EditorState {
     pub workspace: Workspace,
+    pub mairis: crate::viewer::MaiRisState,
     pub template_panel: bool,
     pub template_name: String,
     pub selected_template: Option<String>,
@@ -399,6 +409,7 @@ impl Default for EditorState {
     fn default() -> Self {
         Self {
             workspace: Workspace::Chart,
+            mairis: Default::default(),
             template_panel: false,
             template_name: "Template".into(),
             selected_template: None,

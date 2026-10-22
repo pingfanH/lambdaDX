@@ -268,6 +268,10 @@ fn is_arrow(key: egui::Key) -> bool {
 
 fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui::Key, mods: egui::Modifiers, repeat: bool, pointer: Option<egui::Pos2>) {
     use egui::Key;
+    if editor.workspace.is_viewer() {
+        dispatch_viewer(editor, chart, now, key, mods, repeat);
+        return;
+    }
     let bound = panels::bound_command(editor, key, mods).map(str::to_owned);
     let command = bound.as_deref();
     if command == Some("help") || key == Key::Questionmark || (key == Key::Slash && mods.shift) { editor.show_help = true; return; }
@@ -415,5 +419,137 @@ fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui:
     if matches!(key, Key::V | Key::T | Key::H | Key::C | Key::G | Key::S | Key::K | Key::E) {
         editor.keyboard.cursor.touch = matches!(editor.tool, Tool::Touch | Tool::TouchHold);
         navigation::set_lane(editor, ((editor.keyboard.cursor.zone.saturating_sub(1)) % 8) + 1);
+    }
+}
+
+/// Viewer workspace: playback, seeking and view navigation stay available,
+/// while every document mutation is ignored.
+fn dispatch_viewer(
+    editor: &mut EditorState,
+    chart: &mut ChartDoc,
+    now: f32,
+    key: egui::Key,
+    mods: egui::Modifiers,
+    _repeat: bool,
+) {
+    use egui::Key;
+    let bound = panels::bound_command(editor, key, mods).map(str::to_owned);
+    let command = bound.as_deref();
+    if command == Some("help") || key == Key::Questionmark || (key == Key::Slash && mods.shift) {
+        editor.show_help = true;
+        return;
+    }
+    if command == Some("play") && !mods.alt {
+        editor.keyboard.transport.push(Transport::Toggle);
+        return;
+    }
+    if command == Some("focus") {
+        panels::cycle_focus(editor, chart, mods.shift);
+        return;
+    }
+    if mods.alt && !mods.command && !mods.ctrl {
+        let transport = match key {
+            Key::Space => Some(Transport::Restart),
+            Key::Enter => Some(Transport::Seek(measure_to_secs(
+                editor.keyboard.cursor.measure,
+                &chart.bpms,
+            ))),
+            Key::Home => Some(Transport::Rewind),
+            Key::ArrowLeft => Some(Transport::Seek((now - 1.0).max(0.0))),
+            Key::ArrowRight => Some(Transport::Seek(now + 1.0)),
+            Key::ArrowUp => Some(Transport::Speed(0.1)),
+            Key::ArrowDown => Some(Transport::Speed(-0.1)),
+            _ => None,
+        };
+        if let Some(command) = transport {
+            editor.keyboard.transport.push(command);
+        }
+        return;
+    }
+    if is_arrow(key) || matches!(key, Key::Home | Key::End | Key::PageUp | Key::PageDown) {
+        activate(editor);
+        navigation::navigate(editor, chart, now, key, mods.shift);
+        return;
+    }
+    if key == Key::Tab {
+        activate(editor);
+        navigation::cycle(editor, chart, mods.shift);
+        return;
+    }
+    if key == Key::Escape {
+        editor.selected.clear();
+        editor.tool = Tool::Select;
+        return;
+    }
+    if !mods.command && !mods.ctrl && !mods.alt && !mods.shift {
+        match key {
+            Key::P => {
+                editor.autoplay_mode = (editor.autoplay_mode + 1) % 4;
+                editor.mode_dirty = true;
+            }
+            Key::O => {
+                editor.autoplay_mode = if editor.autoplay_mode == 1 { 2 } else { 1 };
+                editor.mode_dirty = true;
+            }
+            Key::A => editor.keyboard.transport.push(Transport::Audio),
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn viewer_chart() -> ChartDoc {
+        crate::app::maidata::from_maidata_level("&inote_6=(120){4}1,E", 6).unwrap()
+    }
+
+    #[test]
+    fn viewer_keeps_transport_and_navigation_but_ignores_edits() {
+        let mut chart = viewer_chart();
+        let id = chart.notes[0].id;
+        let mut editor = EditorState {
+            workspace: crate::state::Workspace::Viewer,
+            ..Default::default()
+        };
+        editor.selected.insert(id);
+
+        dispatch_viewer(
+            &mut editor,
+            &mut chart,
+            1.0,
+            egui::Key::Space,
+            egui::Modifiers::NONE,
+            false,
+        );
+        assert!(matches!(
+            editor.keyboard.transport.as_slice(),
+            [Transport::Toggle]
+        ));
+
+        dispatch_viewer(
+            &mut editor,
+            &mut chart,
+            1.0,
+            egui::Key::Delete,
+            egui::Modifiers::NONE,
+            false,
+        );
+        assert_eq!(chart.notes.len(), 1);
+        assert!(editor.selected.contains(&id));
+
+        dispatch_viewer(
+            &mut editor,
+            &mut chart,
+            1.0,
+            egui::Key::Home,
+            egui::Modifiers::ALT,
+            false,
+        );
+        assert!(matches!(
+            editor.keyboard.transport.last(),
+            Some(Transport::Rewind)
+        ));
     }
 }

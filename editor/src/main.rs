@@ -43,6 +43,7 @@ mod templates;
 mod theme;
 mod timeline;
 mod ui;
+mod viewer;
 
 use egui_macroquad::egui;
 use macroquad::Window;
@@ -104,6 +105,16 @@ async fn run() {
         .map(std::path::PathBuf::from)
         .or_else(crate::io::session::remembered_chart)
         .unwrap_or_else(|| app::platform::asset_dir().join("charts/jack_ripper"));
+    // Accept either a chart folder or a file inside it. Analysis lookup and the
+    // MaiRis pane both need the folder, and the loader resolves either form.
+    let chart_dir = if chart_dir.is_file() {
+        chart_dir
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf()
+    } else {
+        chart_dir
+    };
 
     let bundle = runtime::load_chart_bundle(&chart_dir, session.level);
     let source = bundle.source.clone();
@@ -149,6 +160,7 @@ async fn run() {
     // a blank backdrop and swaps it in later.
     ui.appearance.warm_up();
     let mut editor = EditorState::default();
+    editor.mairis.overlay = viewer::AnalysisOverlay::load(&chart_dir);
     // Trackpad pinch-to-zoom (macOS); a no-op elsewhere.
     gesture::install();
     if std::env::var("MAI2_EDITOR_LAYOUT")
@@ -158,6 +170,12 @@ async fn run() {
         editor.layout = state::EditorLayout::Horizontal;
     }
     editor.chart_dir = chart_dir.to_string_lossy().to_string();
+    let audio_dir = if chart_dir.is_dir() {
+        chart_dir.as_path()
+    } else {
+        chart_dir.parent().unwrap_or_else(|| std::path::Path::new("."))
+    };
+    editor.mairis.audio_source = viewer::resolve_case_audio(audio_dir);
     editor.source = source;
     simai_editor::load_source(&mut editor, &app.chart);
     editor.snap_division = session.division.unwrap_or(32).clamp(1, 256);
@@ -174,6 +192,25 @@ async fn run() {
         editor.workspace = Workspace::Autoplay;
         editor.autoplay_mode = 2;
         runtime::apply_preview_mode(&mut app, 2);
+    }
+    if std::env::var("MAI2_EDITOR_WORKSPACE").is_ok_and(|v| v.eq_ignore_ascii_case("viewer")) {
+        editor.workspace = Workspace::Viewer;
+        editor.hide_chart_tools = true;
+        editor.tool = state::Tool::Select;
+        if let Some(overlay) = &editor.mairis.overlay {
+            editor.status = Some(format!(
+                "Viewer · {:.1} BPM · {} beats · {} onsets",
+                overlay.analysis.bpm,
+                overlay.analysis.beats.len(),
+                overlay.analysis.onsets.len()
+            ));
+        } else {
+            editor.status = Some("Viewer · no analysis JSON".to_string());
+        }
+        eprintln!(
+            "editor: viewer workspace (analysis overlay: {})",
+            editor.mairis.overlay.is_some()
+        );
     }
     if std::env::var_os("MAI2_EDITOR_TEMPLATES").is_some() {
         editor.template_panel = true;
@@ -230,6 +267,9 @@ async fn run() {
         }
 
         app::anim::tick();
+        let mairis_active = matches!(editor.workspace, Workspace::Chart | Workspace::Viewer)
+            && (editor.workspace == Workspace::Viewer || editor.mairis.overlay.is_some());
+        viewer::apply_audio_options(&mut app, &mut editor.mairis, mairis_active);
         ui.appearance.update();
 
         // Preview-mode shortcuts are routed through egui so text fields and
@@ -241,6 +281,9 @@ async fn run() {
 
         runtime::tick_loop(&editor, &mut app);
         let current_time = player_time(&app);
+        if mairis_active {
+            viewer::tick_rhythm_answer(&mut app, &mut editor.mairis, current_time);
+        }
         runtime::follow_playhead_during_playback(
             &mut editor,
             current_time,
@@ -287,6 +330,9 @@ async fn run() {
             ctx.request_repaint();
             egui_screen_w = ctx.screen_rect().width();
         });
+        if let Some(path) = editor.mairis.pending_load.take() {
+            viewer::load_case(&mut editor, &mut app, &path);
+        }
         let egui_wants_pointer = app::egui_bridge::wants_pointer();
         ui.finish_layout();
 
@@ -511,6 +557,19 @@ async fn run() {
                 to_mq,
             );
             unsafe { get_internal_gl() }.quad_gl.scissor(None);
+            if mairis_active {
+                if let Some(overlay) = &editor.mairis.overlay {
+                viewer::draw_timeline(
+                    overlay,
+                    &editor.mairis.settings,
+                    &editor,
+                    &app.chart,
+                    rect,
+                    current_time,
+                    to_mq,
+                );
+                }
+            }
         }
 
         app.tick_feedback();

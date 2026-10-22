@@ -84,7 +84,11 @@ fn queue_function_key(events: &mut Vec<egui::Event>, key: mq::KeyCode, mods: mq:
         modifiers: egui::Modifiers {
             alt: mods.alt, ctrl: mods.ctrl, shift: mods.shift,
             mac_cmd: mods.logo && cfg!(target_os = "macos"),
-            command: if cfg!(target_os = "macos") { mods.logo } else { mods.ctrl },
+            command: if cfg!(target_os = "macos") {
+                mods.logo
+            } else {
+                mods.ctrl || mods.logo
+            },
         },
     });
 }
@@ -268,6 +272,27 @@ mod tests {
         let mut pending = Vec::new();
         super::queue_function_key(&mut pending, mq::KeyCode::A, mq::KeyMods::default(), true, false);
         assert!(pending.is_empty(), "ordinary keys must stay on the existing backend path");
+    }
+
+    #[test]
+    fn function_key_modifiers_accept_ctrl_or_super_on_linux() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        for mods in [
+            mq::KeyMods { ctrl: true, ..Default::default() },
+            mq::KeyMods { logo: true, ..Default::default() },
+        ] {
+            let mut pending = Vec::new();
+            super::queue_function_key(&mut pending, mq::KeyCode::F2, mods, true, false);
+            let egui::Event::Key { modifiers, .. } = &pending[0] else {
+                panic!("expected a key event");
+            };
+            assert!(
+                modifiers.command,
+                "Ctrl and Super must both be the primary shortcut modifier"
+            );
+        }
     }
 
     #[test]

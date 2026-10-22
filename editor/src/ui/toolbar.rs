@@ -603,7 +603,7 @@ pub fn pane_tools(
                 editor.template_action = Some(crate::templates::Action::New);
             }
         }
-        PaneKind::Overview | PaneKind::Agent => {}
+        PaneKind::Overview | PaneKind::Agent | PaneKind::MaiRis => {}
     }
 }
 

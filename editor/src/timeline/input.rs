@@ -1302,20 +1302,37 @@ pub fn navigate(
     if !hovered {
         return false;
     }
-    let command = ui.input(|i| {
-        i.modifiers.command
-            || i.modifiers.ctrl
-            || i.modifiers.mac_cmd
-            || i.events.iter().any(|event| {
-                matches!(event, egui::Event::MouseWheel { modifiers, .. }
-            if modifiers.command || modifiers.ctrl || modifiers.mac_cmd)
-            })
-    });
+    // egui-macroquad does not always carry the Command modifier on a wheel
+    // event, and macOS reports Cmd as Super at the miniquad layer. Accept both
+    // so Cmd+wheel zooms the timeline on every desktop backend.
+    #[cfg(not(test))]
+    let command_key_down = macroquad::input::is_key_down(macroquad::prelude::KeyCode::LeftSuper)
+        || macroquad::input::is_key_down(macroquad::prelude::KeyCode::RightSuper)
+        || macroquad::input::is_key_down(macroquad::prelude::KeyCode::LeftControl)
+        || macroquad::input::is_key_down(macroquad::prelude::KeyCode::RightControl);
+    #[cfg(test)]
+    let command_key_down = false;
+    let command = command_key_down
+        || ui.input(|i| {
+            i.modifiers.command
+                || i.modifiers.ctrl
+                || i.modifiers.mac_cmd
+                || i.events.iter().any(|event| {
+                    matches!(event, egui::Event::MouseWheel { modifiers, .. }
+                if modifiers.command || modifiers.ctrl || modifiers.mac_cmd)
+                })
+        });
     let shift = ui.input(|i| {
         i.modifiers.shift || i.events.iter().any(|event|
         matches!(event, egui::Event::MouseWheel { modifiers, .. } if modifiers.shift))
     });
-    let delta = ui.input(|i| i.raw_scroll_delta);
+    let delta = ui.input(|i| {
+        if i.raw_scroll_delta != egui::Vec2::ZERO {
+            i.raw_scroll_delta
+        } else {
+            i.smooth_scroll_delta
+        }
+    });
     let scroll = if delta.y.abs() > delta.x.abs() {
         delta.y
     } else {
