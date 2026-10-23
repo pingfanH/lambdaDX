@@ -55,6 +55,13 @@ pub fn draw(
                 if command(ui, "打开谱面...", true) {
                     editor.open_dialog = true;
                 }
+                if command(ui, "浏览文件...", true) {
+                    crate::ui::path_prompt::begin(
+                        editor,
+                        crate::io::dialogs::Request::Open,
+                        Some(std::path::PathBuf::from(&editor.chart_dir)),
+                    );
+                }
                 if command(ui, "重新载入", true) {
                     editor.reload_request = true;
                 }

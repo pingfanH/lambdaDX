@@ -116,6 +116,98 @@ fn text_position(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
 }
 
 #[test]
+fn annotation_confirmation_is_visible_without_mairis_pane_and_requires_successful_save() {
+    use crate::viewer::AnnotationPhase;
+    let mut f = Fixture::new();
+    f.editor.mairis.annotation.active = true;
+    f.editor.mairis.annotation.set_original(&f.app.chart.notes);
+    let id = f.app.chart.notes[0].id;
+    f.editor.select_only(id);
+    f.editor.nudge_selection(&mut f.app.chart, 0.125, 1);
+    f.editor.mairis.annotation.phase = AnnotationPhase::Review;
+    f.editor.mairis.annotation.confirm_pending = true;
+    f.frame(Vec::new());
+    let output = f.frame(Vec::new());
+    text_position(&output, "确认标注结果");
+    text_position(&output, "删除 0 · 新增 0 · 移动 1");
+    f.click(text_position(&output, "返回修改"));
+    assert!(f.editor.mairis.annotation.is_editing());
+    assert!(!f.editor.mairis.annotation.confirm_pending);
+
+    let dir = std::env::temp_dir().join(format!("mairis-confirm-ui-{}-{}",
+        std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    std::fs::create_dir_all(&dir).unwrap();
+    f.editor.chart_dir = dir.join("absent").display().to_string();
+    f.editor.mairis.annotation.phase = AnnotationPhase::Review;
+    f.editor.mairis.annotation.confirm_pending = true;
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "确认并保存"));
+    assert_eq!(f.editor.mairis.annotation.phase, AnnotationPhase::Review);
+    assert!(f.editor.mairis.annotation.confirm_pending);
+    assert!(f.editor.mairis.annotation.status.as_deref().unwrap().contains("保存失败"));
+    f.editor.chart_dir = dir.display().to_string();
+    let output = f.frame(Vec::new());
+    f.click(text_position(&output, "确认并保存"));
+    assert_eq!(f.editor.mairis.annotation.phase, AnnotationPhase::Confirmed);
+    assert!(!f.editor.mairis.annotation.confirm_pending);
+    assert!(dir.join("feedback.jsonl").is_file());
+    assert!(dir.join("annotated.chart.json").is_file());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn annotation_ghost_click_drag_restore_and_undo_work_in_both_layouts() {
+    use crate::state::EditorLayout;
+    use crate::timeline::geometry::{JUDGE_MARGIN, LANE_GUTTER, RULER_H, LANE_COUNT};
+    for layout in [EditorLayout::Vertical, EditorLayout::Horizontal] {
+        let mut f = Fixture::new();
+        f.ui.workbench.reset_layout();
+        f.frame(Vec::new());
+        f.editor.layout = layout;
+        f.editor.hide_chart_tools = true;
+        f.editor.follow_playhead = false;
+        f.editor.view_start = 0.0;
+        f.editor.pixels_per_second = 120.0;
+        f.app.chart.notes[0].time = 1.5;
+        f.app.chart.notes[0].lane = 4;
+        let original = f.app.chart.notes[0].clone();
+        f.editor.mairis.annotation.active = true;
+        f.editor.mairis.annotation.set_original(&f.app.chart.notes);
+        f.editor.delete_note(&mut f.app.chart, original.id);
+        f.editor.tool = Tool::Tap;
+        f.frame(Vec::new());
+        let rect = f.ui.layout.timeline;
+        let at = match layout {
+            EditorLayout::Vertical => egui::pos2(rect.left() + LANE_GUTTER
+                + 3.5 * (rect.width() - LANE_GUTTER) / LANE_COUNT as f32,
+                rect.bottom() - JUDGE_MARGIN - 120.0),
+            EditorLayout::Horizontal => egui::pos2(rect.left() + LANE_GUTTER + 120.0,
+                rect.top() + RULER_H + 3.5 * (rect.height() - RULER_H) / LANE_COUNT as f32),
+        };
+        f.click(at);
+        assert_eq!(f.editor.mairis.annotation.selected_ghost, Some(original.id), "{layout:?}");
+        assert!(f.editor.selected.is_empty());
+        f.frame(vec![egui::Event::PointerButton {
+            pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE,
+        }]);
+        f.frame(vec![egui::Event::PointerMoved(at + egui::vec2(40.0, 40.0))]);
+        assert!(f.app.chart.notes.is_empty(), "a ghost drag must not place or move a note");
+        assert!(f.editor.dragging.is_none());
+        assert!(!f.editor.scrubbing);
+        assert_eq!(f.editor.undo.len(), 1);
+        f.frame(vec![egui::Event::PointerButton {
+            pos: at + egui::vec2(40.0, 40.0), button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE,
+        }]);
+        f.key(egui::Key::Delete, egui::Modifiers::NONE);
+        assert!(f.app.chart.notes.iter().any(|note| note == &original), "{layout:?}: Delete restores selected ghost");
+        f.key(egui::Key::Z, egui::Modifiers::COMMAND);
+        assert!(f.app.chart.notes.is_empty());
+        f.key(egui::Key::Z, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT);
+        assert_eq!(f.app.chart.notes.len(), 1);
+    }
+}
+
+#[test]
 fn chart_beat_ruler_seeks_without_placing_or_sticking() {
     for orientation in [
         crate::state::EditorLayout::Vertical,

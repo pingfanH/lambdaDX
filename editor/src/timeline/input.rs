@@ -574,6 +574,29 @@ fn interact(
     cursor: Cursor,
     markers: &Markers,
 ) {
+    if editor.mairis.annotation.active {
+        let pressed = response.contains_pointer() && ui.input(|i| i.pointer.primary_pressed());
+        if pressed {
+            let hit = response.interact_pointer_pos().and_then(|p| nearest_marker(markers, p));
+            let ghost = response.interact_pointer_pos()
+                .filter(|_| hit.is_none())
+                .and_then(|p| annotation_ghost_at(editor, chart, rect, cursor.time, p));
+            editor.mairis.annotation.selected_ghost = ghost;
+            editor.mairis.annotation.ghost_pointer_down = ghost.is_some();
+            if ghost.is_some() {
+                editor.selected.clear();
+                editor.hovered = None;
+                editor.keyboard.candidate = None;
+                editor.pointer_press = None;
+            }
+        }
+        if editor.mairis.annotation.ghost_pointer_down {
+            if ui.input(|i| i.pointer.primary_released() || !i.pointer.primary_down()) {
+                editor.mairis.annotation.ghost_pointer_down = false;
+            }
+            return;
+        }
+    }
     // Note under the pointer, for the hover ring + read-out. Skipped mid-drag so
     // the read-out tracks the dragged note rather than the raw cursor.
     if !response.dragged_by(egui::PointerButton::Primary) {
@@ -739,9 +762,11 @@ fn interact(
                         editor.push_history(chart);
                         editor.drag_history_pushed = true;
                     }
-                    for original in &editor.drag_orig_notes {
-                        if let Some(note) = chart.notes.iter_mut().find(|n| n.id == original.id) {
-                            *note = original.clone();
+                    let originals: std::collections::HashMap<_, _> = editor.drag_orig_notes.iter()
+                        .map(|note| (note.id, note)).collect();
+                    for note in &mut chart.notes {
+                        if let Some(original) = originals.get(&note.id) {
+                            *note = (**original).clone();
                             move_note(note, original.time + dt, dl);
                         }
                     }
@@ -904,6 +929,33 @@ fn reconcile_selection(editor: &mut EditorState) {
         editor.editing_slide = None;
         editor.pending_shape = None;
     }
+}
+
+/// Ghosts use the same head bounds and time/lane projection as live notes,
+/// but never enter the chart's editable selection or drag state.
+fn annotation_ghost_at(editor: &EditorState, chart: &ChartDoc, rect: egui::Rect,
+    cursor_time: f32, pointer: egui::Pos2) -> Option<u64>
+{
+    let plot_left = rect.left() + LANE_GUTTER;
+    let mut nearest = None;
+    let mut distance = f32::INFINITY;
+    for note in &editor.mairis.annotation.review_deleted {
+        let delta = (note_secs(note, &chart.bpms) - cursor_time) * editor.pixels_per_second;
+        let center = match editor.layout {
+            EditorLayout::Horizontal => egui::pos2(pointer.x + delta,
+                rect.top() + RULER_H + (lane_index_of(note) as f32 + 0.5)
+                    * (rect.height() - RULER_H) / LANE_COUNT as f32),
+            EditorLayout::Vertical => egui::pos2(plot_left + (lane_index_of(note) as f32 + 0.5)
+                * (rect.width() - LANE_GUTTER).max(1.0) / LANE_COUNT as f32, pointer.y - delta),
+        };
+        let bounds = head_rect(editor, note, center);
+        let d = center.distance_sq(pointer);
+        if bounds.contains(pointer) && d < distance {
+            distance = d;
+            nearest = Some(note.id);
+        }
+    }
+    nearest
 }
 
 /// The slide note (and which sub-slide) whose trail is under `(time, lane)`,
@@ -1409,6 +1461,30 @@ mod tests {
         editor: EditorState,
         chart: ChartDoc,
         clock: f64,
+    }
+
+    #[test]
+    fn annotation_drag_reports_a_move_before_release_and_undo_restores_baseline() {
+        let mut test = PointerTest::new();
+        test.editor.mairis.annotation.active = true;
+        test.editor.mairis.annotation.set_original(&test.chart.notes);
+        test.editor.tool = Tool::Select;
+        test.editor.snap_enabled = false;
+        let at = egui::pos2(120.0, 100.0);
+        test.frame(at, None, egui::Modifiers::NONE);
+        test.frame(at, Some(true), egui::Modifiers::NONE);
+        test.frame(at + egui::vec2(40.0, 0.0), None, egui::Modifiers::NONE);
+        assert!(test.editor.dragging.is_some());
+        test.editor.mairis.annotation.sync_preview(&test.chart.notes);
+        assert_eq!(test.editor.mairis.annotation.review_moved.len(), 1);
+        assert_eq!(test.editor.mairis.annotation.review_moved[0].current.id, 1);
+        assert!(test.editor.mairis.annotation.review_added.is_empty());
+        assert!(test.editor.mairis.annotation.review_deleted.is_empty());
+        test.frame(at + egui::vec2(40.0, 0.0), Some(false), egui::Modifiers::NONE);
+        assert_eq!(test.editor.undo.len(), 1);
+        test.editor.undo(&mut test.chart);
+        test.editor.mairis.annotation.sync_preview(&test.chart.notes);
+        assert!(test.editor.mairis.annotation.review_moved.is_empty());
     }
 
     #[test]

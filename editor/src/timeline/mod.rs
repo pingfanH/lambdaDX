@@ -73,4 +73,5 @@ pub fn handle_input(
             input::horizontal(response, rect, editor, chart, current_time, ui)
         }
     }
+    editor.mairis.annotation.sync_preview(&chart.notes);
 }

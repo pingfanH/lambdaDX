@@ -11,10 +11,10 @@ const HISTORY_FILE: &str = "editor_file_dialogs.json";
 
 pub type DialogResult = Result<Option<PathBuf>, String>;
 
-/// Whether [`Dialogs::start`] can present a real native picker. Linux and
-/// Windows use the editor's in-app path prompt instead.
+/// Whether [`Dialogs::start`] can present a real native picker. macOS uses the
+/// AppKit bridge; other desktops use `rfd` (XDG Desktop Portal on Linux).
 pub const fn native_picker_available() -> bool {
-    cfg!(target_os = "macos")
+    !cfg!(target_arch = "wasm32")
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,10 +212,47 @@ fn pick(request: Request, directory: PathBuf) -> Result<Selection, String> {
         rx.recv()
             .map_err(|_| "Native file dialog closed without a result".to_string())?
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_arch = "wasm32")))]
+    {
+        let dialog = rfd::FileDialog::new().set_directory(&directory).set_title(
+            match request {
+                Request::Open => "打开谱面",
+                Request::Save { save_as: true, .. } => "另存为",
+                Request::Save { save_as: false, .. } => "导出 Simai",
+                Request::Background => "选择背景图片",
+            },
+        );
+        let path = match request {
+            Request::Open => dialog
+                .add_filter("谱面文件", &["txt", "json"])
+                .pick_file(),
+            Request::Save { save_as, native } => {
+                let (name, extensions): (&str, &[&str]) = if save_as && native {
+                    ("chart.json", &["json", "txt"])
+                } else {
+                    ("chart.txt", &["txt"])
+                };
+                dialog
+                    .set_file_name(name)
+                    .add_filter("谱面文件", extensions)
+                    .save_file()
+            }
+            Request::Background => dialog
+                .add_filter("图片", &["png", "jpg", "jpeg", "webp", "bmp"])
+                .pick_file(),
+        };
+        Ok(Selection {
+            directory: path
+                .as_deref()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf),
+            path,
+        })
+    }
+    #[cfg(target_arch = "wasm32")]
     {
         let _ = (request, directory);
-        Err("Native file dialog is unavailable on this platform".into())
+        Err("Native file dialog is unavailable in the web build".into())
     }
 }
 

@@ -375,6 +375,8 @@ impl EguiMq {
     #[cfg(not(target_os = "macos"))]
     fn get_clipboard(&mut self) -> Option<String> {
         mq::window::clipboard_get()
+            .filter(|text| !text.is_empty())
+            .or_else(platform_clipboard_text)
     }
 
     #[cfg(target_os = "macos")]
@@ -400,6 +402,27 @@ impl EguiMq {
             None
         }
     }
+}
+
+/// Wayland/miniquad's data-offer can be missing until the compositor sends a
+/// selection event; fall back to the standard clipboard helpers so Ctrl+V works
+/// in text fields on Linux.
+#[cfg(not(target_os = "macos"))]
+fn platform_clipboard_text() -> Option<String> {
+    const CANDIDATES: &[(&str, &[&str])] = &[
+        ("wl-paste", &["--no-newline"]),
+        ("xclip", &["-selection", "clipboard", "-o"]),
+        ("xsel", &["--clipboard", "--output"]),
+    ];
+    for (program, args) in CANDIDATES {
+        let Ok(output) = std::process::Command::new(program).args(*args).output() else {
+            continue;
+        };
+        if output.status.success() && !output.stdout.is_empty() {
+            return Some(String::from_utf8_lossy(&output.stdout).into_owned());
+        }
+    }
+    None
 }
 
 #[cfg(target_os = "macos")]

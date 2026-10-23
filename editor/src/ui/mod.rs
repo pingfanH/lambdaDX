@@ -262,6 +262,7 @@ impl EditorUi {
         waveform: &WaveformPyramid,
         raw_wheel: f32,
     ) {
+        editor.mairis.annotation.sync_preview(&app.chart.notes);
         if self.document_revision != Some(app.document_revision()) {
             self.document_revision = Some(app.document_revision());
             self.templates = Default::default();
@@ -269,7 +270,9 @@ impl EditorUi {
             editor.autoplay_editor = Default::default();
             editor.autoplay_editor.restore_view(&view);
             editor.simai_editor.reset();
-            crate::simai_editor::load_source(editor, &app.chart);
+            if !editor.mairis.annotation.active {
+                crate::simai_editor::load_source(editor, &app.chart);
+            }
             editor.pinned_note = None;
             editor.loop_range = None;
             editor.loop_enabled = false;
@@ -290,6 +293,7 @@ impl EditorUi {
         }
         let overlay_was_open = app.show_params
             || editor.show_help
+            || editor.mairis.annotation.confirm_pending
             || editor.pending_action.is_some()
             || editor.keyboard.dialog.is_some()
             || editor.file_dialog_active
@@ -596,6 +600,7 @@ impl EditorUi {
                     self.layout.preview = region.rect;
                     self.layout.update_pad(self.pad_scale);
                     let editable = !self.input_blocked
+                        && (!editor.mairis.annotation.active || editor.mairis.annotation.is_editing())
                         && !editor.keyboard.owns_input()
                         && !editor.keyboard.suppress_pointer
                         && !editor.pane_pad_preview_only
@@ -678,6 +683,7 @@ impl EditorUi {
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
                                     let editable = !self.input_blocked
+                                        && (!editor.mairis.annotation.active || editor.mairis.annotation.is_editing())
                                         && editor.loop_drag.is_none()
                                         && !editor.keyboard.owns_input()
                                         && editor.selection_transform.is_none()
@@ -740,6 +746,7 @@ impl EditorUi {
         if editor.pending_action.is_some() && !editor.pending_confirmed && !editor.file_dialog_active {
             self.draw_confirm(ctx, editor, &mut app.chart);
         }
+        crate::viewer::annotation_confirmation(ctx, editor, app);
         path_prompt::draw(ctx, editor);
         self.appearance.flush(ctx.input(|i| i.pointer.any_down()));
         self.workbench.capture_views(editor, self.pad_scale);
@@ -905,8 +912,8 @@ impl EditorUi {
         waveform: &WaveformPyramid,
         raw_wheel: f32,
     ) {
-        let viewer = editor.workspace == Workspace::Viewer
-            && !editor.mairis.annotation.active;
+        let viewer = (editor.workspace == Workspace::Viewer || editor.mairis.annotation.active)
+            && !editor.mairis.annotation.is_editing();
         let progress_enabled = !self.input_blocked
             && matches!(editor.workspace, Workspace::Chart | Workspace::Viewer)
             && !editor.keyboard.owns_input()

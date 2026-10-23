@@ -268,8 +268,16 @@ fn is_arrow(key: egui::Key) -> bool {
 
 fn dispatch(editor: &mut EditorState, chart: &mut ChartDoc, now: f32, key: egui::Key, mods: egui::Modifiers, repeat: bool, pointer: Option<egui::Pos2>) {
     use egui::Key;
-    if editor.workspace.is_viewer() && !editor.mairis.annotation.active {
+    if (editor.workspace.is_viewer() || editor.mairis.annotation.active)
+        && !editor.mairis.annotation.is_editing()
+    {
         dispatch_viewer(editor, chart, now, key, mods, repeat);
+        return;
+    }
+    if editor.mairis.annotation.is_editing() && editor.mairis.annotation.selected_ghost.is_some()
+        && !mods.any() && matches!(key, Key::Delete | Key::Backspace)
+    {
+        crate::viewer::restore_selected_ghost(editor, chart);
         return;
     }
     let bound = panels::bound_command(editor, key, mods).map(str::to_owned);
@@ -503,6 +511,28 @@ mod tests {
 
     fn viewer_chart() -> ChartDoc {
         crate::app::maidata::from_maidata_level("&inote_6=(120){4}1,E", 6).unwrap()
+    }
+
+    #[test]
+    fn annotation_review_blocks_keyboard_edits_in_chart_workspace() {
+        let mut chart = viewer_chart();
+        let original = chart.clone();
+        let mut editor = EditorState::default();
+        editor.mairis.annotation.active = true;
+        editor.mairis.annotation.set_original(&chart.notes);
+        editor.mairis.annotation.phase = crate::viewer::AnnotationPhase::Review;
+        editor.select_only(chart.notes[0].id);
+        for (key, modifiers) in [
+            (egui::Key::Delete, egui::Modifiers::NONE),
+            (egui::Key::Z, egui::Modifiers::COMMAND),
+            (egui::Key::B, egui::Modifiers::NONE),
+        ] {
+            dispatch(&mut editor, &mut chart, 0.0, key, modifiers, false, None);
+        }
+        assert_eq!(chart, original);
+        assert!(editor.undo.is_empty());
+        dispatch(&mut editor, &mut chart, 0.0, egui::Key::Space, egui::Modifiers::NONE, false, None);
+        assert!(matches!(editor.keyboard.transport.as_slice(), [Transport::Toggle]));
     }
 
     #[test]

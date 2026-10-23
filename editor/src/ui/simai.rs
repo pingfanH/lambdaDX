@@ -69,6 +69,7 @@ pub fn options(ui: &mut Ui, options: &mut Options) {
 }
 
 pub fn header(ui: &mut Ui, editor: &mut EditorState, chart: &mut ChartDoc) {
+    if editor.mairis.annotation.active { return; }
     ui.add_enabled_ui(editor.template_session.is_none(), |ui| {
         let modified = editor.simai_editor.modified();
         ui.add_enabled_ui(modified && !editor.simai_editor.conflict(chart), |ui| {
@@ -97,6 +98,10 @@ pub fn header(ui: &mut Ui, editor: &mut EditorState, chart: &mut ChartDoc) {
 }
 
 pub fn draw(ui: &mut Ui, editor: &mut EditorState, app: &mut PadPreviewState, now: f32, enabled: bool, focused: bool) {
+    if editor.mairis.annotation.active {
+        ui.label("标注模式直接编辑谱面；退出标注后可编辑 Simai。");
+        return;
+    }
     let speed = if crate::app::params::speed_scales_visuals() { app.play_speed.max(0.05) } else { 1.0 };
     let visible: std::collections::HashSet<_> = if editor.simai_editor.options.note_highlight == NoteHighlight::Visible {
         app.chart.notes.iter().filter(|note| {

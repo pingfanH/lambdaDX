@@ -146,6 +146,11 @@ pub fn draw(
             && !editor.mairis.annotation.original_ids.contains(&note.id)
         {
             ctx.tint = mq::Color::new(0.25, 1.0, 0.45, 1.0);
+        } else if !is_backdrop
+            && editor.mairis.annotation.active
+            && editor.mairis.annotation.moved_ids.contains(&note.id)
+        {
+            ctx.tint = mq::Color::new(1.0, 0.72, 0.25, 1.0);
         }
         let head = note_secs(note, bpms);
         let y = ctx.y_of(head);
@@ -167,6 +172,33 @@ pub fn draw(
     if editor.mairis.annotation.active {
         ctx.tint = mq::Color::new(1.0, 0.25, 0.3, 0.75);
         for note in &editor.mairis.annotation.review_deleted {
+            let head = note_secs(note, bpms);
+            let y = ctx.y_of(head);
+            let x = ctx.lane_x(lane_index_of(note));
+            let tail = match note.note_type {
+                NoteType::Hold | NoteType::TouchHold => hold_tail_time(note, bpms),
+                NoteType::Slide => slide_end_time(note, bpms),
+                _ => head,
+            };
+            let y_tail = ctx.y_of(tail);
+            let (ya, yb) = (y.min(y_tail), y.max(y_tail));
+            if yb < plot_top - 80.0 * g || ya > plot_bottom + 80.0 * g {
+                continue;
+            }
+            draw_note(
+                &ctx,
+                note,
+                x,
+                y,
+                y_tail,
+                editor.mairis.annotation.selected_ghost == Some(note.id),
+            );
+        }
+    }
+    if editor.mairis.annotation.active {
+        ctx.tint = mq::Color::new(1.0, 0.72, 0.25, 0.55);
+        for moved in &editor.mairis.annotation.review_moved {
+            let note = &moved.original;
             let head = note_secs(note, bpms);
             let y = ctx.y_of(head);
             let x = ctx.lane_x(lane_index_of(note));

@@ -35,7 +35,6 @@ fn start(editor: &mut EditorState, chart: &ChartDoc, kind: Draft) {
     editor.keyboard.suppress_pointer = true;
 }
 
-fn next_id(chart: &ChartDoc) -> u64 { chart.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1 }
 fn blank_slide() -> Slide {
     Slide { segments: Vec::new(), slide_start_delay: 0.0, slide_duration: 0.0, slide_is_break: false, runtime_parts: 1 }
 }
@@ -53,7 +52,7 @@ pub fn place(editor: &mut EditorState, chart: &mut ChartDoc) {
         }
         return;
     }
-    let id = next_id(chart);
+    let id = editor.next_note_id(chart);
     let note = Note { id, time: cursor.measure, lane: cursor.zone, is_touch: matches!(editor.tool, Tool::Touch | Tool::TouchHold), note_type: editor.selected_type(), ..Default::default() };
     match editor.tool {
         Tool::Hold | Tool::TouchHold => {
@@ -382,7 +381,7 @@ pub fn paste(editor: &mut EditorState, chart: &mut ChartDoc) {
     let cursor = editor.keyboard.cursor;
     if navigation::note_cursor(&first).touch != cursor.touch || (cursor.touch && ring(first.lane) != ring(cursor.zone)) { editor.status = Some("Paste requires the same lane / Touch ring".into()); return; }
     let delta = cursor.measure - first.time; let dl = cursor.zone as i32 - first.lane as i32;
-    let mut notes = editor.clipboard.clone(); let mut id = next_id(chart);
+    let mut notes = editor.clipboard.clone(); let mut id = editor.next_note_id(chart);
     for n in &mut notes { let time = n.time + delta; if time < 1.0 { return; } move_note(n, time, dl); n.id = id; id += 1; }
     editor.push_history(chart); editor.selected = notes.iter().map(|n| n.id).collect(); chart.notes.extend(notes);
 }

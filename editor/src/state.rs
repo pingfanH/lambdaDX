@@ -371,6 +371,9 @@ pub struct EditorState {
     /// In-editor path prompt used when the platform has no native picker.
     pub path_prompt: Option<crate::io::dialogs::Request>,
     pub path_prompt_text: String,
+    pub path_prompt_dir: std::path::PathBuf,
+    pub path_prompt_file: String,
+    pub path_prompt_selected: Option<std::path::PathBuf>,
     pub path_prompt_error: Option<String>,
     pub path_prompt_focus: bool,
     /// Path confirmed by the prompt; the runtime consumes it after the UI pass.
@@ -483,6 +486,9 @@ impl Default for EditorState {
             file_dialog_active: false,
             path_prompt: None,
             path_prompt_text: String::new(),
+            path_prompt_dir: std::path::PathBuf::new(),
+            path_prompt_file: String::new(),
+            path_prompt_selected: None,
             path_prompt_error: None,
             path_prompt_focus: false,
             pending_path: None,

@@ -43,11 +43,17 @@ impl HistoryEntry {
 }
 
 impl EditorState {
+    pub(crate) fn next_note_id(&self, chart: &ChartDoc) -> u64 {
+        chart.notes.iter().map(|note| note.id)
+            .chain(self.mairis.annotation.original_ids.iter().copied())
+            .max().unwrap_or(0) + 1
+    }
+
     /// Snapshot `chart` onto the undo stack before a mutation. Trims the stack to
     /// a bounded depth and drops any redo history.
     pub fn push_history(&mut self, chart: &ChartDoc) {
         self.placement_sequence.clear();
-        if self.template_session.is_none() && self.simai_editor.has_history_source() {
+        if self.template_session.is_none() && !self.mairis.annotation.active && self.simai_editor.has_history_source() {
             self.simai_editor.sync(chart);
         }
         self.push_history_entry(chart.clone().into());
@@ -59,7 +65,7 @@ impl EditorState {
 
     pub(crate) fn push_history_entry(&mut self, entry: HistoryEntry) {
         self.simai_editor.history_boundary();
-        let entry = if self.template_session.is_none() && !matches!(&entry, HistoryEntry::Document { .. }) {
+        let entry = if self.template_session.is_none() && !self.mairis.annotation.active && !matches!(&entry, HistoryEntry::Document { .. }) {
             match self.simai_editor.history_snapshot() {
                 Some(simai) => HistoryEntry::Document { change: Box::new(entry), simai: Box::new(simai) },
                 None => entry,
@@ -76,14 +82,14 @@ impl EditorState {
     pub fn undo(&mut self, chart: &mut ChartDoc) {
         self.simai_editor.history_boundary();
         if let Some(previous) = self.undo.pop() {
-            if self.template_session.is_none() { self.simai_editor.sync(chart); }
+            if self.template_session.is_none() && !self.mairis.annotation.active { self.simai_editor.sync(chart); }
             self.placement_sequence.clear();
             self.last_edit = None;
             self.redo.push(previous.apply(chart, &mut self.simai_editor));
             crate::app::maichart::recompute_each(&mut chart.notes);
             crate::app::maichart::mark_double_stars(&mut chart.notes);
             self.reconcile_slide_target(chart);
-            if self.template_session.is_none() { self.simai_editor.sync(chart); }
+            if self.template_session.is_none() && !self.mairis.annotation.active { self.simai_editor.sync(chart); }
             self.dirty = true;
         }
     }
@@ -91,14 +97,14 @@ impl EditorState {
     pub fn redo(&mut self, chart: &mut ChartDoc) {
         self.simai_editor.history_boundary();
         if let Some(next) = self.redo.pop() {
-            if self.template_session.is_none() { self.simai_editor.sync(chart); }
+            if self.template_session.is_none() && !self.mairis.annotation.active { self.simai_editor.sync(chart); }
             self.placement_sequence.clear();
             self.last_edit = None;
             self.undo.push(next.apply(chart, &mut self.simai_editor));
             crate::app::maichart::recompute_each(&mut chart.notes);
             crate::app::maichart::mark_double_stars(&mut chart.notes);
             self.reconcile_slide_target(chart);
-            if self.template_session.is_none() { self.simai_editor.sync(chart); }
+            if self.template_session.is_none() && !self.mairis.annotation.active { self.simai_editor.sync(chart); }
             self.dirty = true;
         }
     }
@@ -152,7 +158,7 @@ impl EditorState {
             .iter()
             .map(|n| n.time)
             .fold(f32::INFINITY, f32::min);
-        let mut next_id = chart.notes.iter().map(|n| n.id).max().unwrap_or(0);
+        let mut next_id = self.next_note_id(chart) - 1;
         let mut selected = HashSet::new();
         let mut added = Vec::with_capacity(self.clipboard.len());
         for n in &self.clipboard {
@@ -176,7 +182,7 @@ impl EditorState {
         if copies.is_empty() {
             return false;
         }
-        let mut next_id = chart.notes.iter().map(|n| n.id).max().unwrap_or(0);
+        let mut next_id = self.next_note_id(chart) - 1;
         for copy in &mut copies {
             next_id += 1;
             copy.id = next_id;
@@ -230,7 +236,7 @@ impl EditorState {
 
     /// Append a freshly placed note of the current tool's type and select it.
     pub fn place_note(&mut self, chart: &mut ChartDoc, time: f32, lane: u8) -> u64 {
-        let id = chart.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+        let id = self.next_note_id(chart);
         self.record_insertion(id);
         chart.notes.push(Note {
             id,
@@ -249,7 +255,7 @@ impl EditorState {
             return;
         };
         note.hold_duration = (time - note.time).max(0.0);
-        note.id = chart.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+        note.id = self.next_note_id(chart);
         self.record_insertion(note.id);
         self.select_only(note.id);
         self.placement_sequence.push(note.clone());
@@ -308,7 +314,7 @@ impl EditorState {
         }
         let mut copy = b.clone();
         move_note(&mut copy, time, dl);
-        copy.id = chart.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+        copy.id = self.next_note_id(chart);
         copy.is_each = false;
         copy.is_each_head = false;
         self.record_insertion(copy.id);

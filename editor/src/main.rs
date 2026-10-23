@@ -160,7 +160,6 @@ async fn run() {
     // a blank backdrop and swaps it in later.
     ui.appearance.warm_up();
     let mut editor = EditorState::default();
-    editor.mairis.overlay = viewer::AnalysisOverlay::load(&chart_dir);
     // Trackpad pinch-to-zoom (macOS); a no-op elsewhere.
     gesture::install();
     if std::env::var("MAI2_EDITOR_LAYOUT")
@@ -170,12 +169,9 @@ async fn run() {
         editor.layout = state::EditorLayout::Horizontal;
     }
     editor.chart_dir = chart_dir.to_string_lossy().to_string();
-    let audio_dir = if chart_dir.is_dir() {
-        chart_dir.as_path()
-    } else {
-        chart_dir.parent().unwrap_or_else(|| std::path::Path::new("."))
-    };
-    editor.mairis.audio_source = viewer::resolve_case_audio(audio_dir);
+    editor.mairis.load_chart_assets(
+        &chart_dir, std::env::var_os("MAI2_EDITOR_ANALYSIS").map(std::path::PathBuf::from),
+    );
     editor.source = source;
     simai_editor::load_source(&mut editor, &app.chart);
     editor.snap_division = session.division.unwrap_or(32).clamp(1, 256);
@@ -299,8 +295,8 @@ async fn run() {
 
         let mut egui_screen_w = 1.0;
         app::egui_bridge::ui(|ctx| {
-            if (waveform.levels.is_empty() || editor.reload_waveform)
-                && app.audio_wav_pcm.is_some()
+            if editor.reload_waveform
+                || (waveform.levels.is_empty() && app.audio_wav_pcm.is_some())
             {
                 waveform = audio::WaveformPyramid::build(&app);
                 editor.reload_waveform = false;
@@ -688,7 +684,11 @@ fn apply_io_requests(
                     appearance.request_image(path.to_string_lossy().into_owned())
                 }
             },
-            Ok(None) => editor.status = Some("File selection cancelled".into()),
+            Ok(None) => {
+                editor.status = Some(
+                    "已取消；若系统文件对话框没有出现，请使用 文件 → 浏览文件…".into(),
+                )
+            }
             Err(error) => editor.status = Some(format!("File dialog failed: {error}")),
         }
     }
@@ -811,6 +811,10 @@ fn load_editor_chart(
     };
     editor.chart_dir = path.to_string_lossy().into_owned();
     editor.source = Some(source.clone());
+    editor.mairis.load_chart_assets(path, None);
+    editor.mairis.annotation = Default::default();
+    editor.mairis.pending_load = None;
+    editor.reload_waveform = true;
     crate::io::session::remember_chart(path, source.level);
     editor.level_slots = app::chart::read_simai_source(path)
         .map(|t| app::maidata::inote_keys(&t))

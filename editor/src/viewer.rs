@@ -5,7 +5,7 @@
 //! PadPreviewState, timeline and pad renderer as the Chart workspace.
 
 use std::fs;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -145,9 +145,9 @@ pub struct MaiRisState {
     pub selected_case: Option<usize>,
     pub pending_load: Option<PathBuf>,
     pub analysis_path: Option<PathBuf>,
-    /// Audio belonging to the loaded case, used when a generated test case
-    /// needs its own copy. Kept separately because `chart_dir` may point at a
-    /// chart file or at a run folder whose track is only a symlink.
+    /// Audio belonging to the current chart, replaced on every document load.
+    /// Generation resolves the current chart directory again so stale cached
+    /// paths can never select another song.
     pub audio_source: Option<PathBuf>,
     pub status: Option<String>,
     pub annotation: AnnotationState,
@@ -155,11 +155,30 @@ pub struct MaiRisState {
     last_rhythm_time: f32,
 }
 
+impl MaiRisState {
+    /// Replace document-specific assets together, including when the new chart
+    /// has no analysis. An environment override is only supplied at startup.
+    pub fn load_chart_assets(&mut self, chart: &Path, analysis_override: Option<PathBuf>) {
+        let dir = chart_directory(chart);
+        self.audio_source = resolve_case_audio(dir);
+        let analysis = analysis_override.unwrap_or_else(|| dir.join("analysis.json"));
+        self.analysis_path = analysis.is_file().then_some(analysis);
+        self.overlay = self.analysis_path.as_deref().and_then(AnalysisOverlay::load_path);
+        self.status = None;
+        self.last_rhythm_time = 0.0;
+    }
+}
+
+fn chart_directory(path: &Path) -> &Path {
+    if path.is_dir() { path } else { path.parent().unwrap_or_else(|| Path::new(".")) }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AnnotationPhase {
     #[default]
     Annotating,
     Review,
+    Confirmed,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -170,11 +189,73 @@ pub struct AnnotationState {
     pub difficulty: f32,
     pub original: Vec<Note>,
     pub original_ids: HashSet<u64>,
+    original_by_id: HashMap<u64, usize>,
     pub preview_signature: u64,
     pub review_deleted: Vec<Note>,
     pub review_added: Vec<Note>,
+    pub review_moved: Vec<MovedNote>,
+    pub moved_ids: HashSet<u64>,
+    pub selected_ghost: Option<u64>,
+    pub ghost_pointer_down: bool,
+    pub confirm_pending: bool,
     pub pending: Option<PathBuf>,
     pub status: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MovedNote {
+    pub original: Note,
+    pub current: Note,
+}
+
+impl AnnotationState {
+    pub fn is_editing(&self) -> bool {
+        self.active && self.pending.is_none() && self.phase == AnnotationPhase::Annotating
+    }
+
+    pub fn set_original(&mut self, notes: &[Note]) {
+        self.original = notes.to_vec();
+        self.original_ids = notes.iter().map(|note| note.id).collect();
+        self.original_by_id = notes.iter().enumerate().map(|(i, note)| (note.id, i)).collect();
+        self.preview_signature = 0;
+        self.review_deleted.clear();
+        self.review_added.clear();
+        self.review_moved.clear();
+        self.moved_ids.clear();
+        self.selected_ghost = None;
+        self.ghost_pointer_down = false;
+    }
+
+    pub fn sync_preview(&mut self, notes: &[Note]) {
+        if !self.active || self.pending.is_some() { return; }
+        let signature = notes.iter().fold(1469598103934665603_u64, |state, note| {
+            (state ^ note.id ^ (note.time.to_bits() as u64) << 17 ^ (note.lane as u64) << 3)
+                .wrapping_mul(1099511628211)
+        });
+        if signature == self.preview_signature { return; }
+        self.preview_signature = signature;
+        let current_ids: HashSet<_> = notes.iter().map(|note| note.id).collect();
+        self.review_deleted = self.original.iter()
+            .filter(|note| !current_ids.contains(&note.id)).cloned().collect();
+        self.review_added.clear();
+        self.review_moved.clear();
+        self.moved_ids.clear();
+        for current in notes {
+            if let Some(&index) = self.original_by_id.get(&current.id) {
+                let original = &self.original[index];
+                if original.time != current.time || original.lane != current.lane {
+                    self.moved_ids.insert(current.id);
+                    self.review_moved.push(MovedNote { original: original.clone(), current: current.clone() });
+                }
+            } else {
+                self.review_added.push(current.clone());
+            }
+        }
+        if self.selected_ghost.is_some_and(|id| current_ids.contains(&id)) {
+            self.selected_ghost = None;
+            self.ghost_pointer_down = false;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -188,17 +269,6 @@ pub struct TestCase {
 }
 
 impl AnalysisOverlay {
-    /// Prefer MAI2_EDITOR_ANALYSIS, then chart_dir/analysis.json.
-    pub fn load(chart_dir: &Path) -> Option<Self> {
-        let path = std::env::var_os("MAI2_EDITOR_ANALYSIS")
-            .map(PathBuf::from)
-            .or_else(|| {
-                let candidate = chart_dir.join("analysis.json");
-                candidate.is_file().then_some(candidate)
-            })?;
-        Self::load_path(&path)
-    }
-
     pub fn load_path(path: &Path) -> Option<Self> {
         let text = match fs::read_to_string(&path) {
             Ok(text) => text,
@@ -569,8 +639,9 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
     let mut finish_annotation = false;
     let mut next_annotation = false;
     let mut cancel_annotation = false;
+    let mut restore_ghost = false;
     poll_annotation(editor, app);
-    sync_annotation_preview(editor, app);
+    editor.mairis.annotation.sync_preview(&app.chart.notes);
     {
     let MaiRisState {
         overlay,
@@ -609,7 +680,7 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
         ui.separator();
     } else {
         ui.label("未加载 analysis.json");
-        ui.label("设置 MAI2_EDITOR_ANALYSIS，或把 analysis.json 放进谱面目录。");
+        ui.label("生成测试会分析当前谱面的音频；也可在谱面目录放入 analysis.json。");
         ui.separator();
     }
     ui.label("声音");
@@ -628,19 +699,59 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
         }
         match annotation.phase {
             AnnotationPhase::Annotating => {
-                ui.label("用 Erase 删除，用 Place 补音；完成后复核");
-                if ui.button("完成标注").clicked() {
+                ui.label("绿色=新增，红色=删除，橙色=移动（原位置保留影子）");
+                ui.label(format!("删除 {} · 新增 {} · 移动 {}",
+                    annotation.review_deleted.len(), annotation.review_added.len(), annotation.review_moved.len()));
+                if ui.add_enabled(annotation.is_editing(), egui::Button::new("完成标注")).clicked() {
                     finish_annotation = true;
                 }
             }
             AnnotationPhase::Review => {
                 ui.label(format!(
-                    "删除 {} · 新增 {}（绿色=新增，红色幽灵=删除）",
+                    "删除 {} · 新增 {} · 移动 {}（绿色=新增，红色=删除，橙色=移动）",
                     annotation.review_deleted.len(),
-                    annotation.review_added.len()
+                    annotation.review_added.len(),
+                    annotation.review_moved.len()
                 ));
+                ui.label("待确认，尚未保存标注结果");
+                if ui.button("查看结果并确认").clicked() {
+                    annotation.confirm_pending = true;
+                }
+                if ui.button("返回修改").clicked() { resume_annotation(annotation); }
+            }
+            AnnotationPhase::Confirmed => {
+                ui.label("标注已确认保存");
+                if ui.button("返回修改").clicked() { resume_annotation(annotation); }
                 if ui.button("下一组").clicked() {
                     next_annotation = true;
+                }
+            }
+        }
+        if !annotation.review_deleted.is_empty() {
+            ui.label("删除幽灵（点击选中）");
+            egui::ScrollArea::vertical()
+                .id_salt("annotation-deleted-notes")
+                .max_height(120.0)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    for note in &annotation.review_deleted {
+                        let time = crate::app::types::note_secs(note, &app.chart.bpms);
+                        let label = format!("#{:?}  {:.2}s  lane {}", note.id, time, note.lane);
+                        if ui
+                            .selectable_label(annotation.selected_ghost == Some(note.id), label)
+                            .clicked()
+                        {
+                            annotation.selected_ghost = Some(note.id);
+                            editor.selected.clear();
+                            editor.keyboard.candidate = None;
+                            editor.pending_seek = Some(time.max(0.0));
+                        }
+                    }
+                });
+            if annotation.is_editing() {
+                ui.label("幽灵可点击选中；Delete / Backspace 恢复，不能拖动");
+                if annotation.selected_ghost.is_some() && ui.button("恢复选中幽灵").clicked() {
+                    restore_ghost = true;
                 }
             }
         }
@@ -676,15 +787,19 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
     if selected_case.is_none() && !cases.is_empty() {
         *selected_case = cases.iter().position(|case| case.audio.is_some()).or(Some(0));
     }
-    if ui.button("加载并播放").clicked() {
+    if ui.add_enabled(!annotation.active, egui::Button::new("加载并播放")).clicked() {
         if let Some(index) = *selected_case {
             if let Some(case) = cases.get(index) {
                 *pending_load = Some(case.chart.clone());
             }
         }
     }
+    if annotation.active {
+        ui.small("退出标注后可加载其他测试用例");
+    }
     let mut selected = *selected_case;
     egui::ScrollArea::vertical()
+        .id_salt("mairis-test-cases")
         .max_height(220.0)
         .auto_shrink([false, true])
         .show(ui, |ui| {
@@ -738,6 +853,9 @@ pub fn draw_panel(ui: &mut egui::Ui, editor: &mut EditorState, app: &mut PadPrev
         editor.mairis.annotation = AnnotationState::default();
         editor.hide_chart_tools = true;
         editor.tool = crate::state::Tool::Select;
+    }
+    if restore_ghost {
+        restore_selected_ghost(editor, &mut app.chart);
     }
 }
 
@@ -817,20 +935,37 @@ fn poll_annotation(editor: &mut EditorState, app: &mut PadPreviewState) {
             editor.level_index = 0;
             editor.hide_chart_tools = false;
             editor.tool = crate::state::Tool::Eraser;
-            let analysis = dir.join("analysis.json");
-            if analysis.is_file() {
-                editor.mairis.analysis_path = Some(analysis.clone());
-                editor.mairis.overlay = AnalysisOverlay::load_path(&analysis);
-            }
-            let original = app.chart.notes.clone();
-            let original_ids = original.iter().map(|note| note.id).collect();
-            editor.mairis.annotation.original = original;
-            editor.mairis.annotation.original_ids = original_ids;
-            editor.mairis.annotation.preview_signature = 0;
+            editor.mairis.load_chart_assets(&dir, None);
+            editor.mairis.annotation.set_original(&app.chart.notes);
             editor.mairis.annotation.phase = AnnotationPhase::Annotating;
             editor.mairis.annotation.pending = None;
             editor.mairis.annotation.review_deleted.clear();
             editor.mairis.annotation.review_added.clear();
+            editor.undo.clear();
+            editor.redo.clear();
+            editor.selected.clear();
+            editor.hovered = None;
+            editor.keyboard.reset_document();
+            editor.selection_transform = None;
+            editor.last_edit = None;
+            editor.placement_sequence.clear();
+            editor.transform_pointer_down = false;
+            editor.star_placement = None;
+            editor.hold_placement = None;
+            editor.pointer_press = None;
+            editor.timeline_pan = None;
+            editor.dragging = None;
+            editor.drag_grab = None;
+            editor.handle_grab = None;
+            editor.marquee_start = None;
+            editor.scrubbing = false;
+            editor.drag_history_pushed = false;
+            editor.drag_multi_orig.clear();
+            editor.drag_orig_notes.clear();
+            editor.editing_slide = None;
+            editor.pending_shape = None;
+            editor.simai_editor.reset();
+            editor.dirty = false;
             editor.mairis.annotation.status = Some("标注中：Erase 删除 / Place 补音".to_string());
             editor.mairis.status = Some(format!("annotation: {}", path.display()));
             editor.reload_waveform = true;
@@ -844,99 +979,140 @@ fn poll_annotation(editor: &mut EditorState, app: &mut PadPreviewState) {
 }
 
 fn finish_annotation_round(editor: &mut EditorState, app: &mut PadPreviewState) {
-    let original = editor.mairis.annotation.original.clone();
-    let original_ids: std::collections::HashSet<u64> =
-        original.iter().map(|note| note.id).collect();
-    let current_ids: std::collections::HashSet<u64> =
-        app.chart.notes.iter().map(|note| note.id).collect();
-    let deleted: Vec<Note> = original
-        .iter()
-        .filter(|note| !current_ids.contains(&note.id))
-        .cloned()
-        .collect();
-    let added: Vec<Note> = app
-        .chart
-        .notes
-        .iter()
-        .filter(|note| !original_ids.contains(&note.id))
-        .cloned()
-        .collect();
-
-    let bpm = app.chart.bpm.max(1.0);
-    let mut lines = Vec::new();
-    for note in &deleted {
-        lines.push(serde_json::json!({
-            "action": "delete",
-            "song_id": editor.mairis.annotation.song_id,
-            "difficulty": editor.mairis.annotation.difficulty,
-            "time_sec": (note.time - 1.0) * 240.0 / bpm,
-            "lane": note.lane,
-        }));
-    }
-    for note in &added {
-        lines.push(serde_json::json!({
-            "action": "add",
-            "song_id": editor.mairis.annotation.song_id,
-            "difficulty": editor.mairis.annotation.difficulty,
-            "time_sec": (note.time - 1.0) * 240.0 / bpm,
-            "lane": note.lane,
-        }));
-    }
-    let feedback_path = Path::new(&editor.chart_dir).join("feedback.jsonl");
-    let text = lines
-        .iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n";
-    let _ = fs::write(&feedback_path, text);
-
-    editor.mairis.annotation.review_deleted = deleted;
-    editor.mairis.annotation.review_added = added;
+    if !editor.mairis.annotation.is_editing() { return; }
+    editor.mairis.annotation.sync_preview(&app.chart.notes);
     editor.mairis.annotation.phase = AnnotationPhase::Review;
-    editor.mairis.annotation.status = Some(format!("已写 {}", feedback_path.display()));
+    editor.mairis.annotation.confirm_pending = true;
+    editor.mairis.annotation.status = Some("请复核彩色 diff，确认后保存".into());
     editor.tool = crate::state::Tool::Select;
 }
 
-fn sync_annotation_preview(editor: &mut EditorState, app: &mut PadPreviewState) {
-    if !editor.mairis.annotation.active
-        || editor.mairis.annotation.phase != AnnotationPhase::Annotating
-    {
-        return;
-    }
-    let signature = app
-        .chart
-        .notes
-        .iter()
-        .fold(1469598103934665603_u64, |state, note| {
-            (state ^ note.id).wrapping_mul(1099511628211)
+fn resume_annotation(annotation: &mut AnnotationState) {
+    annotation.phase = AnnotationPhase::Annotating;
+    annotation.confirm_pending = false;
+    annotation.status = Some("继续修改；完成后重新确认保存".into());
+}
+
+/// Finishing opens a review dialog. Feedback only becomes a confirmed training
+/// artifact after an explicit save; closing the dialog leaves review pending.
+pub fn annotation_confirmation(ctx: &egui::Context, editor: &mut EditorState, app: &mut PadPreviewState) {
+    if !editor.mairis.annotation.confirm_pending { return; }
+    let mut open = true;
+    let mut revise = false;
+    let mut confirm = false;
+    let mut next = false;
+    egui::Window::new("确认标注结果")
+        .id(egui::Id::new("mairis-annotation-confirmation"))
+        .open(&mut open)
+        .collapsible(false)
+        .default_width(460.0)
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .show(ctx, |ui| {
+            let annotation = &editor.mairis.annotation;
+            ui.label(annotation.song_id.as_deref().unwrap_or("当前曲目"));
+            ui.label(format!("删除 {} · 新增 {} · 移动 {}",
+                annotation.review_deleted.len(), annotation.review_added.len(), annotation.review_moved.len()));
+            ui.label("核实时间轴上的颜色和以下修改；确认后保存反馈及修正谱面。");
+            egui::ScrollArea::vertical().id_salt("annotation-review-results")
+                .max_height(240.0).show(ui, |ui| {
+                    for note in &annotation.review_deleted {
+                        ui.colored_label(egui::Color32::LIGHT_RED, format!("删除 #{}, {:.3}s · 轨道 {}",
+                            note.id, crate::app::types::note_secs(note, &app.chart.bpms), note.lane));
+                    }
+                    for note in &annotation.review_added {
+                        ui.colored_label(egui::Color32::LIGHT_GREEN, format!("新增 #{}, {:.3}s · 轨道 {}",
+                            note.id, crate::app::types::note_secs(note, &app.chart.bpms), note.lane));
+                    }
+                    for moved in &annotation.review_moved {
+                        ui.colored_label(egui::Color32::from_rgb(255, 184, 64), format!(
+                            "移动 #{}: {:.3}s / {} → {:.3}s / {}",
+                            moved.current.id,
+                            crate::app::types::note_secs(&moved.original, &app.chart.bpms), moved.original.lane,
+                            crate::app::types::note_secs(&moved.current, &app.chart.bpms), moved.current.lane));
+                    }
+                });
+            if let Some(status) = &annotation.status { ui.label(status); }
+            ui.horizontal_wrapped(|ui| {
+                revise = ui.button("返回修改").clicked();
+                confirm = ui.button("确认并保存").clicked();
+                next = ui.button("确认保存并下一组").clicked();
+            });
         });
-    if signature == editor.mairis.annotation.preview_signature {
-        return;
+    if revise {
+        resume_annotation(&mut editor.mairis.annotation);
+    } else if confirm || next {
+        match save_annotation_result(Path::new(&editor.chart_dir), &editor.mairis.annotation, &app.chart) {
+            Ok(()) => {
+                editor.mairis.annotation.phase = AnnotationPhase::Confirmed;
+                editor.mairis.annotation.confirm_pending = false;
+                editor.mairis.annotation.status = Some(format!("已确认保存：{}/feedback.jsonl", editor.chart_dir));
+                if next { start_annotation_round(editor, app); }
+            }
+            Err(error) => editor.mairis.annotation.status = Some(format!("保存失败：{error}，请重试")),
+        }
+    } else if !open {
+        editor.mairis.annotation.confirm_pending = false;
     }
-    editor.mairis.annotation.preview_signature = signature;
-    let current_ids: std::collections::HashSet<u64> = app
-        .chart
-        .notes
-        .iter()
-        .map(|note| note.id)
-        .collect();
-    editor.mairis.annotation.review_deleted = editor
-        .mairis
-        .annotation
-        .original
-        .iter()
-        .filter(|note| !current_ids.contains(&note.id))
-        .cloned()
-        .collect();
-    let original_ids = editor.mairis.annotation.original_ids.clone();
-    editor.mairis.annotation.review_added = app
-        .chart
-        .notes
-        .iter()
-        .filter(|note| !original_ids.contains(&note.id))
-        .cloned()
-        .collect();
+}
+
+fn save_annotation_result(dir: &Path, annotation: &AnnotationState, chart: &ChartDoc) -> Result<(), String> {
+    let secs = |note: &Note| crate::app::types::note_secs(note, &chart.bpms);
+    let mut lines = Vec::new();
+    for note in &annotation.review_deleted {
+        lines.push(serde_json::json!({
+            "action": "delete", "note_id": note.id,
+            "song_id": annotation.song_id, "difficulty": annotation.difficulty,
+            "time_sec": secs(note), "lane": note.lane,
+            "old_time_sec": secs(note), "new_time_sec": null,
+            "old_lane": note.lane, "new_lane": null,
+        }));
+    }
+    for note in &annotation.review_added {
+        lines.push(serde_json::json!({
+            "action": "add", "note_id": note.id,
+            "song_id": annotation.song_id, "difficulty": annotation.difficulty,
+            "time_sec": secs(note), "lane": note.lane,
+            "old_time_sec": null, "new_time_sec": secs(note),
+            "old_lane": null, "new_lane": note.lane,
+        }));
+    }
+    for moved in &annotation.review_moved {
+        lines.push(serde_json::json!({
+            "action": "move", "note_id": moved.current.id,
+            "song_id": annotation.song_id, "difficulty": annotation.difficulty,
+            "time_sec": secs(&moved.current), "lane": moved.current.lane,
+            "old_time_sec": secs(&moved.original), "new_time_sec": secs(&moved.current),
+            "old_lane": moved.original.lane, "new_lane": moved.current.lane,
+        }));
+    }
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    let mut original = chart.clone();
+    original.notes = annotation.original.clone();
+    let snapshots = [
+        ("original.chart.json", serde_json::to_vec_pretty(&original).map_err(|e| e.to_string())?),
+        ("annotated.chart.json", serde_json::to_vec_pretty(chart).map_err(|e| e.to_string())?),
+        ("feedback.jsonl", text.into_bytes()),
+    ];
+    for (name, data) in snapshots {
+        let temporary = dir.join(format!(".{name}.tmp"));
+        fs::write(&temporary, data).and_then(|()| fs::rename(&temporary, dir.join(name)))
+            .map_err(|error| format!("{name}: {error}"))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn restore_selected_ghost(editor: &mut EditorState, chart: &mut ChartDoc) {
+    if !editor.mairis.annotation.is_editing() { return; }
+    let Some(id) = editor.mairis.annotation.selected_ghost else { return; };
+    let Some(note) = editor.mairis.annotation.review_deleted.iter().find(|note| note.id == id).cloned() else { return; };
+    if chart.notes.iter().any(|current| current.id == id) { return; }
+    editor.push_history(chart);
+    chart.notes.push(note);
+    chart.notes.sort_by(|a, b| a.time.total_cmp(&b.time));
+    editor.mairis.annotation.selected_ghost = None;
+    editor.mairis.annotation.ghost_pointer_down = false;
+    editor.mairis.annotation.sync_preview(&chart.notes);
+    editor.select_only(id);
 }
 
 /// Keep the player's sound flags in sync with the MaiRis pane. Values are
@@ -1000,26 +1176,16 @@ pub fn load_case(editor: &mut EditorState, app: &mut PadPreviewState, path: &Pat
             return;
         }
     };
-    let dir = if path.is_dir() {
-        path.to_path_buf()
-    } else {
-        path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
-    };
-    let audio = resolve_case_audio(&dir);
+    let dir = chart_directory(path).to_path_buf();
     editor.chart_dir = dir.display().to_string();
     editor.source = Some(source);
     editor.level_slots.clear();
     editor.level_index = 0;
     editor.workspace = crate::state::Workspace::Viewer;
     editor.hide_chart_tools = true;
-    let analysis = Some(dir.join("analysis.json")).filter(|item| item.is_file());
-    editor.mairis.analysis_path = analysis.clone();
-    editor.mairis.audio_source = audio.clone();
-    if let Some(analysis) = analysis {
-        if let Some(overlay) = AnalysisOverlay::load_path(&analysis) {
-            editor.mairis.overlay = Some(overlay);
-        }
-    }
+    editor.mairis.load_chart_assets(&dir, None);
+    editor.mairis.annotation = AnnotationState::default();
+    editor.reload_waveform = true;
     editor.status = Some(format!("MaiRis case: {}", path.display()));
     app.start_playback_at(0.0);
 }
@@ -1089,7 +1255,7 @@ pub fn discover_cases(root: &Path) -> Vec<TestCase> {
 /// Find the track next to a chart, following either the conventional file
 /// names or the absolute/relative path recorded in the run's config.json.
 pub fn resolve_case_audio(dir: &Path) -> Option<PathBuf> {
-    for name in ["track.mp3", "track.wav", "track.ogg", "track.flac"] {
+    for name in ["track.mp3", "track.wav", "demo.mp3", "demo.wav", "track.ogg", "track.flac"] {
         let path = dir.join(name);
         if path.is_file() {
             return Some(path);
@@ -1115,108 +1281,58 @@ pub fn resolve_case_audio(dir: &Path) -> Option<PathBuf> {
 }
 
 pub fn spawn_generation(editor: &mut EditorState) {
-    let Some(analysis) = editor.mairis.analysis_path.clone() else {
-        editor.status = Some("MaiRis: load an analysis.json first".to_string());
-        return;
-    };
     let root = mairis_root();
-    let script = root.join("tools/generate_patterns.py");
-    let Some(blocks) = latest_blocks(&root) else {
-        editor.status = Some("MaiRis: no runs/pattern-*/blocks.json".to_string());
-        return;
-    };
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_secs())
+        .map(|value| value.as_nanos())
         .unwrap_or(0);
     let out = root.join("runs").join(format!("test-{stamp}"));
-    if let Err(error) = fs::create_dir_all(&out) {
-        editor.status = Some(format!("MaiRis: create {}: {error}", out.display()));
-        return;
-    }
-    let _ = fs::copy(&analysis, out.join("analysis.json"));
-    let chart_path = PathBuf::from(&editor.chart_dir);
-    let source_dir = if chart_path.is_dir() {
-        chart_path
-    } else {
-        chart_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf()
-    };
-    let audio = editor
-        .mairis
-        .audio_source
-        .clone()
-        .filter(|path| path.is_file())
-        .or_else(|| resolve_case_audio(&source_dir));
-    let Some(audio) = audio else {
-        editor.status = Some(format!(
-            "MaiRis: no track found next to {}; generated case would be silent",
-            source_dir.display()
-        ));
-        return;
-    };
-    let extension = audio
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("mp3");
-    let target = out.join(format!("track.{extension}"));
-    if let Err(error) = fs::copy(&audio, &target) {
-        editor.status = Some(format!(
-            "MaiRis: copy {} -> {}: {error}",
-            audio.display(),
-            target.display()
-        ));
-        return;
-    }
-    let python = resolve_python();
-    let probability = analysis
-        .parent()
-        .map(|dir| dir.join("probabilities.json"))
-        .filter(|path| path.is_file());
-    let wrapper = root.join("tools/generate_with_onset_model.sh");
-    let mut command;
-    if wrapper.is_file() {
-        // The wrapper scores onsets with the trained selector (nix-shell has
-        // scikit-learn) and then calls the normal generator with the scores.
-        command = Command::new("bash");
-        command
-            .arg(&wrapper)
-            .arg(&analysis)
-            .arg(&blocks)
-            .arg(&out)
-            .arg(probability.clone().unwrap_or_else(|| PathBuf::from("-")));
-        command.arg(if probability.is_some() { "0.50" } else { "0.10" });
-        command
-            .arg("raw")
-            .arg(stamp.to_string())
-            .arg(&audio)
-            .env("MAIRIS_PYTHON", &python);
-    } else {
-        command = Command::new(&python);
-        command.arg(&script).arg(&analysis).arg(blocks).arg(&out);
-        if let Some(probability) = &probability {
-            command.arg(probability).arg("0.50");
-        } else {
-            command.arg("-").arg("0.10");
+    let (mut command, audio) = match generation_command(editor, &root, &out, &stamp.to_string()) {
+        Ok(request) => request,
+        Err(error) => {
+            editor.mairis.status = Some(error.clone());
+            editor.status = Some(error);
+            return;
         }
-        command.arg("raw").arg(stamp.to_string());
-    }
-    if editor.mairis.settings.use_difficulty {
-        command
-            .arg("--difficulty")
-            .arg(format!("{:.1}", editor.mairis.settings.difficulty));
-    }
+    };
     match command.spawn() {
         Ok(_) => {
             editor.status = Some(format!("MaiRis generating {}", out.display()));
-            editor.mairis.status = Some("generation started".to_string());
+            editor.mairis.status = Some(format!("正在分析并生成：{}", audio.display()));
         }
         Err(error) => {
-            editor.status = Some(format!("MaiRis generator: {error}"));
+            let message = format!("MaiRis generator: {error}");
+            editor.mairis.status = Some(message.clone());
+            editor.status = Some(message);
         }
     }
+}
+
+/// Start from the current document's audio, never a previous case's cached
+/// audio/analysis/probabilities. Each unique output directory gets fresh analysis.
+fn generation_command(
+    editor: &EditorState, root: &Path, out: &Path, seed: &str,
+) -> Result<(Command, PathBuf), String> {
+    let chart_path = Path::new(&editor.chart_dir);
+    let dir = chart_directory(chart_path);
+    let audio = resolve_case_audio(dir)
+        .ok_or_else(|| format!("MaiRis: 当前谱面目录没有音频：{}", dir.display()))?;
+    let script = root.join("tools/generate_song.sh");
+    if !script.is_file() {
+        return Err(format!("MaiRis: missing {}", script.display()));
+    }
+    let blocks = latest_blocks(root)
+        .ok_or_else(|| "MaiRis: no runs/pattern-*/blocks.json".to_string())?;
+    let difficulty = if editor.mairis.settings.use_difficulty {
+        format!("{:.1}", editor.mairis.settings.difficulty)
+    } else {
+        "-".to_string()
+    };
+    let mut command = Command::new("bash");
+    command.arg(script).arg(&audio).arg(out).arg(difficulty).arg(seed)
+        .env("MAIRIS_PYTHON", resolve_python())
+        .env("MAIRIS_BLOCKS", blocks);
+    Ok((command, audio))
 }
 
 /// Find a Python interpreter without relying on the GUI process having the
@@ -1272,6 +1388,273 @@ fn latest_blocks(root: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn annotation_fixture() -> (EditorState, ChartDoc) {
+        let chart = crate::app::maidata::from_maidata(
+            "&inote_1=(120){4}1,2,(240)3,4,E", None,
+        ).unwrap();
+        let mut editor = EditorState::default();
+        editor.mairis.annotation.active = true;
+        editor.mairis.annotation.song_id = Some("annotation-test".into());
+        editor.mairis.annotation.difficulty = 13.5;
+        editor.mairis.annotation.set_original(&chart.notes);
+        (editor, chart)
+    }
+
+    struct FeedbackDir(PathBuf);
+
+    impl FeedbackDir {
+        fn new() -> Self {
+            let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("mairis-feedback-{}-{stamp}", std::process::id()));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for FeedbackDir {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    fn test_song(root: &Path, name: &str, sample: i16, bpm: Option<f32>) -> PathBuf {
+        let dir = root.join(name);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("maidata.txt"), "&inote_1=(120){4}1,2,E").unwrap();
+        let mut wav = hound::WavWriter::create(dir.join("track.wav"), hound::WavSpec {
+            channels: 1, sample_rate: 44100, bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        }).unwrap();
+        for _ in 0..441 { wav.write_sample(sample).unwrap(); }
+        wav.finalize().unwrap();
+        if let Some(bpm) = bpm {
+            fs::write(dir.join("analysis.json"), format!("{{\"bpm\":{bpm}}}")).unwrap();
+        }
+        dir
+    }
+
+    fn test_player() -> PadPreviewState {
+        let chart = crate::app::maidata::from_maidata("&inote_1=(120){4}1,E", None).unwrap();
+        let mut app = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        app.forced_time = Some(0.0);
+        app
+    }
+
+    #[test]
+    fn reopening_chart_uses_new_audio_for_generation_even_with_stale_cached_paths() {
+        let temp = FeedbackDir::new();
+        let old = test_song(&temp.0, "old song", 100, Some(120.0));
+        let new = test_song(&temp.0, "新 song", 900, Some(180.0));
+        let mut app = test_player();
+        let mut editor = EditorState::default();
+        crate::load_editor_chart(&mut editor, &mut app, &old, None);
+        editor.mairis.annotation.active = true;
+        editor.reload_waveform = false;
+        crate::load_editor_chart(&mut editor, &mut app, &new.join("maidata.txt"), None);
+        assert_eq!(editor.mairis.audio_source, Some(new.join("track.wav")));
+        assert_eq!(editor.mairis.analysis_path, Some(new.join("analysis.json")));
+        assert_eq!(editor.mairis.overlay.as_ref().unwrap().analysis.bpm, 180.0);
+        assert!(editor.reload_waveform);
+        assert!(!editor.mairis.annotation.active);
+        assert_eq!(app.audio_wav_pcm.as_ref().unwrap().samples[0], 900);
+
+        // Reproduce stale state from an older editor session. Generation must
+        // still derive its input from the open document, including file paths.
+        editor.mairis.audio_source = Some(old.join("track.wav"));
+        editor.mairis.analysis_path = Some(old.join("analysis.json"));
+        fs::create_dir_all(temp.0.join("tools")).unwrap();
+        fs::create_dir_all(temp.0.join("runs/pattern-test")).unwrap();
+        fs::write(temp.0.join("runs/pattern-test/blocks.json"), "{}").unwrap();
+        fs::write(temp.0.join("tools/generate_song.sh"), r#"set -eu
+mkdir -p "$2"
+cp "$1" "$2/track.wav"
+printf '%s\n' "$1" "$3" "$4" > "$2/request"
+"#).unwrap();
+        let out = temp.0.join("new test");
+        editor.mairis.settings.difficulty = 13.5;
+        let (mut command, audio) = generation_command(&editor, &temp.0, &out, "42").unwrap();
+        assert_eq!(audio, new.join("track.wav"));
+        let result = command.output().unwrap();
+        assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+        assert_eq!(fs::read(out.join("track.wav")).unwrap(), fs::read(&audio).unwrap());
+        let request = fs::read_to_string(out.join("request")).unwrap();
+        assert_eq!(request.lines().collect::<Vec<_>>(), [audio.to_str().unwrap(), "13.5", "42"]);
+    }
+
+    #[test]
+    fn reopening_chart_without_analysis_clears_old_assets_and_failed_open_preserves_current() {
+        let temp = FeedbackDir::new();
+        let old = test_song(&temp.0, "old", 100, Some(120.0));
+        let new = test_song(&temp.0, "new", 900, None);
+        let mut app = test_player();
+        let mut editor = EditorState::default();
+        crate::load_editor_chart(&mut editor, &mut app, &old, None);
+        assert!(editor.mairis.overlay.is_some());
+        crate::load_editor_chart(&mut editor, &mut app, &new, None);
+        assert_eq!(editor.mairis.audio_source, Some(new.join("track.wav")));
+        assert!(editor.mairis.overlay.is_none());
+        assert!(editor.mairis.analysis_path.is_none());
+        crate::load_editor_chart(&mut editor, &mut app, &temp.0.join("missing.txt"), None);
+        assert_eq!(editor.mairis.audio_source, Some(new.join("track.wav")));
+        assert!(editor.status.as_ref().unwrap().starts_with("Load failed:"));
+
+        fs::remove_file(new.join("track.wav")).unwrap();
+        editor.mairis.audio_source = Some(old.join("track.wav"));
+        let error = generation_command(&editor, &temp.0, &temp.0.join("output"), "42").unwrap_err();
+        assert!(error.contains("当前谱面目录没有音频"));
+    }
+
+    #[test]
+    fn loading_case_without_analysis_or_with_invalid_analysis_clears_old_overlay() {
+        let temp = FeedbackDir::new();
+        let old = test_song(&temp.0, "old", 100, Some(120.0));
+        let new = test_song(&temp.0, "new", 900, None);
+        let mut app = test_player();
+        let mut editor = EditorState::default();
+        editor.mairis.load_chart_assets(&old, None);
+        load_case(&mut editor, &mut app, &new.join("maidata.txt"));
+        assert!(editor.mairis.overlay.is_none());
+        assert!(editor.mairis.analysis_path.is_none());
+        assert_eq!(editor.mairis.audio_source, Some(new.join("track.wav")));
+        assert!(editor.reload_waveform);
+        fs::write(new.join("analysis.json"), "broken").unwrap();
+        editor.mairis.load_chart_assets(&old, None);
+        load_case(&mut editor, &mut app, &new);
+        assert!(editor.mairis.overlay.is_none());
+    }
+
+    #[test]
+    fn annotation_moves_track_time_and_lane_through_undo_and_redo() {
+        let (mut editor, mut chart) = annotation_fixture();
+        let original = chart.notes[0].clone();
+        editor.select_only(original.id);
+        editor.nudge_selection(&mut chart, 0.125, 2);
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        let diff = &editor.mairis.annotation;
+        assert!(diff.review_added.is_empty() && diff.review_deleted.is_empty());
+        assert_eq!(diff.review_moved.len(), 1);
+        assert_eq!(diff.review_moved[0].original, original);
+        assert_eq!(diff.review_moved[0].current.time, original.time + 0.125);
+        assert_eq!(diff.review_moved[0].current.lane, original.lane + 2);
+        assert!(diff.moved_ids.contains(&original.id));
+        editor.undo(&mut chart);
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        assert!(editor.mairis.annotation.review_moved.is_empty());
+        assert!(editor.mairis.annotation.moved_ids.is_empty());
+        editor.redo(&mut chart);
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        assert_eq!(editor.mairis.annotation.review_moved.len(), 1);
+    }
+
+    #[test]
+    fn annotation_deleted_ids_are_reserved_and_ghost_restore_is_undoable() {
+        let (mut editor, mut chart) = annotation_fixture();
+        let deleted = chart.notes.iter().max_by_key(|n| n.id).unwrap().clone();
+        editor.delete_note(&mut chart, deleted.id);
+        let added = editor.place_note(&mut chart, deleted.time + 0.125, 6);
+        assert!(added > deleted.id, "new notes must not reuse a deleted baseline ID");
+        editor.select_only(added);
+        editor.nudge_selection(&mut chart, 0.125, 1);
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        assert_eq!(editor.mairis.annotation.review_added[0].id, added);
+        assert_eq!(editor.mairis.annotation.review_added[0].lane, 7);
+        assert!(editor.mairis.annotation.review_moved.is_empty());
+        editor.mairis.annotation.selected_ghost = Some(deleted.id);
+        restore_selected_ghost(&mut editor, &mut chart);
+        assert!(chart.notes.iter().any(|n| n == &deleted));
+        assert!(editor.mairis.annotation.review_deleted.is_empty());
+        assert_eq!(editor.single_selected(), Some(deleted.id));
+        editor.undo(&mut chart);
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        assert_eq!(editor.mairis.annotation.review_deleted[0].id, deleted.id);
+        editor.redo(&mut chart);
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        assert!(editor.mairis.annotation.review_deleted.is_empty());
+        editor.select_only(added);
+        editor.delete_selection(&mut chart);
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        assert!(editor.mairis.annotation.review_added.is_empty());
+        editor.undo(&mut chart);
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        assert_eq!(editor.mairis.annotation.review_added[0].id, added);
+    }
+
+    #[test]
+    fn annotation_finish_requires_review_and_saves_precise_feedback_and_snapshots() {
+        let (mut editor, mut chart) = annotation_fixture();
+        let original = chart.clone();
+        let moved_id = chart.notes[2].id;
+        editor.select_only(moved_id);
+        editor.nudge_selection(&mut chart, 0.25, 1);
+        let deleted_id = chart.notes[0].id;
+        editor.delete_note(&mut chart, deleted_id);
+        let added_id = editor.place_note(&mut chart, 2.0, 8);
+        let dir = FeedbackDir::new();
+        editor.chart_dir = dir.0.display().to_string();
+        let mut app = PadPreviewState::new_at(chart.clone(), None, None, 0.0, None);
+        finish_annotation_round(&mut editor, &mut app);
+        assert_eq!(editor.mairis.annotation.phase, AnnotationPhase::Review);
+        assert!(editor.mairis.annotation.confirm_pending);
+        assert!(!editor.mairis.annotation.is_editing());
+        assert!(!dir.0.join("feedback.jsonl").exists(), "finish must not save before confirmation");
+        save_annotation_result(&dir.0, &editor.mairis.annotation, &chart).unwrap();
+        let saved_original: ChartDoc = serde_json::from_slice(&fs::read(dir.0.join("original.chart.json")).unwrap()).unwrap();
+        let saved_edited: ChartDoc = serde_json::from_slice(&fs::read(dir.0.join("annotated.chart.json")).unwrap()).unwrap();
+        assert_eq!(saved_original.notes, original.notes);
+        assert_eq!(saved_edited, chart);
+        let feedback = fs::read_to_string(dir.0.join("feedback.jsonl")).unwrap();
+        let rows: Vec<serde_json::Value> = feedback.lines().map(|s| serde_json::from_str(s).unwrap()).collect();
+        assert_eq!(rows.len(), 3);
+        let moved = rows.iter().find(|r| r["action"] == "move").unwrap();
+        assert_eq!(moved["note_id"], moved_id);
+        assert_eq!(moved["old_time_sec"], 1.0);
+        assert_eq!(moved["new_time_sec"], 1.25, "BPM change must affect feedback timing");
+        assert_eq!(moved["song_id"], "annotation-test");
+        assert_eq!(moved["difficulty"], 13.5);
+        assert!(rows.iter().any(|r| r["action"] == "delete" && r["note_id"] == deleted_id));
+        assert!(rows.iter().any(|r| r["action"] == "add" && r["note_id"] == added_id));
+        assert!(save_annotation_result(&dir.0.join("absent"), &editor.mairis.annotation, &chart).is_err());
+        resume_annotation(&mut editor.mairis.annotation);
+        assert!(editor.mairis.annotation.is_editing());
+        assert!(!editor.mairis.annotation.confirm_pending);
+    }
+
+    #[test]
+    fn annotation_unchanged_round_can_be_confirmed_without_inventing_feedback() {
+        let (mut editor, chart) = annotation_fixture();
+        editor.mairis.annotation.sync_preview(&chart.notes);
+        let dir = FeedbackDir::new();
+        save_annotation_result(&dir.0, &editor.mairis.annotation, &chart).unwrap();
+        assert_eq!(fs::read_to_string(dir.0.join("feedback.jsonl")).unwrap(), "");
+    }
+
+    /// Run manually with MAIRIS_BENCH_CHART pointing to a generated chart.json.
+    #[test]
+    #[ignore = "latency probe needs a local generated chart and prints timings"]
+    fn annotation_history_latency_probe() {
+        let path = std::env::var_os("MAIRIS_BENCH_CHART").expect("set MAIRIS_BENCH_CHART");
+        let original: ChartDoc = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        for annotation in [false, true] {
+            let mut chart = original.clone();
+            let mut editor = EditorState::default();
+            editor.simai_editor.refresh(&chart);
+            editor.mairis.annotation.active = annotation;
+            if annotation { editor.mairis.annotation.set_original(&chart.notes); }
+            editor.select_only(chart.notes[0].id);
+            let started = std::time::Instant::now();
+            for _ in 0..10 {
+                editor.nudge_selection(&mut chart, 0.0013, 1);
+                editor.mairis.annotation.sync_preview(&chart.notes);
+                editor.undo(&mut chart);
+                editor.mairis.annotation.sync_preview(&chart.notes);
+                editor.redo(&mut chart);
+                editor.mairis.annotation.sync_preview(&chart.notes);
+                editor.undo(&mut chart);
+            }
+            eprintln!("annotation={annotation}, notes={}, 10 move/undo/redo/undo cycles: {:?}",
+                chart.notes.len(), started.elapsed());
+            assert_eq!(chart.notes.len(), original.notes.len());
+        }
+    }
 
     #[test]
     fn parses_analysis_json() {
