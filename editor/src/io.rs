@@ -40,6 +40,10 @@ impl ChartSource {
 
 /// Write back to the file/slot actually loaded, never to a global scratch file.
 pub fn save_chart(editor: &mut EditorState, chart: &ChartDoc) {
+    if let Err(error) = editor.check_slide_placement_finished() {
+        editor.status = Some(error);
+        return;
+    }
     if let Err(error) = editor.simai_editor.check_applied() {
         editor.status = Some(error);
         return;
@@ -106,6 +110,10 @@ fn workspace_folder(editor: &EditorState) -> Result<PathBuf, String> {
 }
 
 pub fn save_document(editor: &mut EditorState, chart: &mut ChartDoc) {
+    if let Err(error) = editor.check_slide_placement_finished() {
+        editor.status = Some(error);
+        return;
+    }
     if let Err(error) = crate::simai_editor::apply(editor, chart) {
         editor.status = Some(error);
         return;
@@ -156,6 +164,7 @@ fn native_json(chart: &ChartDoc, original: &str) -> Result<String, String> {
 }
 
 pub fn export_to(editor: &EditorState, chart: &ChartDoc, path: &Path) -> Result<PathBuf, String> {
+    editor.check_slide_placement_finished()?;
     editor.simai_editor.check_applied()?;
     if editor.source.as_ref().is_some_and(|source| same_path(&source.path, path)) {
         return Err("Export destination is the open source; use Save to update it".into());
@@ -177,6 +186,7 @@ pub fn export_to(editor: &EditorState, chart: &ChartDoc, path: &Path) -> Result<
 }
 
 fn save_as_to(editor: &mut EditorState, chart: &ChartDoc, path: &Path) -> Result<(), String> {
+    editor.check_slide_placement_finished()?;
     editor.simai_editor.check_applied()?;
     let chart = crate::templates::document(editor, chart);
     if has_editor_data(&chart) && !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("json")) {
@@ -213,6 +223,7 @@ fn save_as_to(editor: &mut EditorState, chart: &ChartDoc, path: &Path) -> Result
 }
 
 pub fn prepare_export(editor: &mut EditorState, chart: &mut ChartDoc, save_as: bool) -> Result<dialogs::Request, String> {
+    editor.check_slide_placement_finished()?;
     crate::simai_editor::apply(editor, chart)?;
     let canonical = crate::templates::document(editor, chart);
     let native = has_editor_data(&canonical)

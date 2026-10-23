@@ -17,11 +17,16 @@ from egui's cursor rectangle. Editing commands and Command/Control shortcuts
 continue through miniquad; keys used to select IME candidates are consumed.
 Text focus changes discard the old native composition and return keyboard
 ownership to the rendering view when appropriate. Other targets are unchanged.
+An empty marked-text update ends composition even when the input method omits
+`unmarkText`; it clears egui's preedit and disables IME state so subsequent
+Backspace and navigation commands are delivered normally.
 
 The native regression example opens a short-lived window on AppKit's main
 thread, invokes the responder's real text callbacks, and asserts the resulting
 TextEdit buffer. It covers Chinese preedit/commit, cancellation, ASCII, native
-keyDown routing, Return during composition, ordinary Return and focus release:
+keyDown routing, Return during composition, ordinary Return, empty-preedit
+cancellation without `unmarkText`, subsequent Backspace/forward Delete, renewed
+Chinese composition and focus release:
 
 ```sh
 cargo run --manifest-path vendor/egui-miniquad/Cargo.toml --example ime_regression --target-dir target/ime-regression

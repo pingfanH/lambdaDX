@@ -288,12 +288,25 @@ struct LimitedOutput {
     right: Option<f32>,
     gain: f32,
     release: f32,
+    muted: Arc<AtomicBool>,
+    was_muted: bool,
 }
 
 impl Iterator for LimitedOutput {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        if self.muted.load(Ordering::Acquire) {
+            self.was_muted = true;
+            return Some(0.0);
+        }
+        if self.was_muted {
+            self.frames.clear();
+            self.frames.resize(LOOKAHEAD_FRAMES, [0.0, 0.0]);
+            self.right = None;
+            self.gain = 1.0;
+            self.was_muted = false;
+        }
         if let Some(right) = self.right.take() {
             return Some(right);
         }
@@ -351,6 +364,8 @@ fn output_mixer() -> (Arc<DynamicMixerController<f32>>, LimitedOutput) {
             right: None,
             gain: 1.0,
             release: 1.0 - (-1.0 / (0.05 * OUTPUT_RATE as f32)).exp(),
+            muted: Arc::clone(&super::lifecycle::global().muted),
+            was_muted: false,
         },
     )
 }
@@ -419,11 +434,53 @@ impl SfxPlayback {
     }
 }
 
+fn volume_gain(volume: f32) -> f32 {
+    if volume.is_nan() { 1.0 } else { volume.clamp(0.0, 1.0) }
+}
+
+struct MusicPlayback {
+    sink: Option<Sink>,
+    volume: f32,
+}
+
+impl Default for MusicPlayback {
+    fn default() -> Self {
+        Self { sink: None, volume: 1.0 }
+    }
+}
+
+impl MusicPlayback {
+    fn play(&mut self, mixer: &DynamicMixerController<f32>, pcm: BgmPcm, speed: f32) {
+        self.stop();
+        let (sink, output) = Sink::new_idle();
+        sink.set_volume(self.volume);
+        sink.append(pcm.speed(speed));
+        mixer.add(output);
+        self.sink = Some(sink);
+    }
+
+    fn set_volume(&mut self, volume: f32) {
+        let volume = volume_gain(volume);
+        if self.volume != volume {
+            self.volume = volume;
+            if let Some(sink) = &self.sink {
+                sink.set_volume(volume);
+            }
+        }
+    }
+
+    fn stop(&mut self) {
+        if let Some(sink) = self.sink.take() {
+            sink.stop();
+        }
+    }
+}
+
 /// Minimal rodio-backed BGM player. One stoppable sink at a time.
 pub struct BgmPlayer {
     _stream: OutputStream,
     mixer: Arc<DynamicMixerController<f32>>,
-    sink: Option<Sink>,
+    music: MusicPlayback,
     sfx: SfxPlayback,
 }
 
@@ -440,34 +497,38 @@ impl BgmPlayer {
         Ok(Self {
             _stream: stream,
             mixer,
-            sink: None,
+            music: MusicPlayback::default(),
             sfx: SfxPlayback::default(),
         })
     }
 
     pub fn play(&mut self, pcm: BgmPcm, speed: f32) {
-        self.stop();
-        let source = pcm.speed(speed);
-        let (sink, output) = Sink::new_idle();
-        sink.append(source);
-        self.mixer.add(output);
-        self.sink = Some(sink);
+        self.music.play(&self.mixer, pcm, speed);
+    }
+
+    pub fn set_music_volume(&mut self, volume: f32) {
+        self.music.set_volume(volume);
     }
 
     /// Restart this effect, replacing its previous voice without touching BGM
     /// or other effects. All voices still share the limited output bus.
     pub fn play_once(&self, buf: &SfxBuffer, volume: f32) {
-        self.sfx.play(&self.mixer, buf, volume);
+        self.sfx.play(&self.mixer, buf, volume_gain(volume));
     }
 
     pub fn stop(&mut self) {
-        if let Some(sink) = self.sink.take() {
-            sink.stop();
+        self.music.stop();
+    }
+
+    pub fn stop_all(&mut self) {
+        self.stop();
+        for voice in self.sfx.voices.lock().unwrap().drain().map(|(_, voice)| voice) {
+            voice.store(true, Ordering::Relaxed);
         }
     }
 
     pub fn is_playing(&self) -> bool {
-        self.sink.as_ref().is_some_and(|s| !s.empty())
+        self.music.sink.as_ref().is_some_and(|s| !s.empty())
     }
 }
 
@@ -477,6 +538,9 @@ impl BgmPlayer {
 
 /// Build and play the BGM at the current speed if a start was requested.
 pub async fn service_audio(app: &mut PadPreviewState) {
+    if let Some(player) = &mut app.bgm_player {
+        player.set_music_volume(app.params.music_volume);
+    }
     if !app.pending_audio_start {
         return;
     }
@@ -564,6 +628,74 @@ mod tests {
     }
 
     #[test]
+    fn audio_volume_changes_music_live_without_restarting_or_muting_sfx() {
+        let (controller, mut mixer) = dynamic_mixer::mixer(2, OUTPUT_RATE);
+        controller.add(rodio::source::Zero::<f32>::new(2, OUTPUT_RATE));
+        let mut music = MusicPlayback::default();
+        let mut samples = vec![16384; 4096];
+        samples.extend(vec![8192; 32768]);
+        music.play(&controller, BgmPcm {
+            samples: Arc::new(samples), channels: 2, sample_rate: OUTPUT_RATE,
+            cursor: 0, silence: 0,
+        }, 1.0);
+        let played: Vec<_> = mixer.by_ref().take(8192).collect();
+        assert_eq!(&played[8128..], &[0.25; 64]);
+
+        music.set_volume(0.5);
+        let played: Vec<_> = mixer.by_ref().take(1024).collect();
+        assert_eq!(&played[960..], &[0.125; 64]);
+        music.set_volume(0.0);
+        let played: Vec<_> = mixer.by_ref().take(1024).collect();
+        assert_eq!(&played[960..], &[0.0; 64]);
+
+        let sfx = SfxPlayback::default();
+        let hit = constant_sfx(0.2);
+        let answer = constant_sfx(0.3);
+        sfx.play(&controller, &hit, 0.25);
+        sfx.play(&controller, &answer, 0.5);
+        for _ in 0..1024 {
+            assert!((mixer.next().unwrap() - 0.2).abs() < 1e-6);
+        }
+        sfx.play(&controller, &hit, 0.0);
+        for _ in 0..1024 {
+            assert!((mixer.next().unwrap() - 0.15).abs() < 1e-6);
+        }
+        music.set_volume(0.25);
+        let played: Vec<_> = mixer.by_ref().take(1024).collect();
+        for sample in &played[960..] {
+            assert!((*sample - 0.2125).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn audio_volume_is_kept_across_music_restarts_and_speed_changes() {
+        let (controller, mut mixer) = dynamic_mixer::mixer(2, OUTPUT_RATE);
+        controller.add(rodio::source::Zero::<f32>::new(2, OUTPUT_RATE));
+        let mut music = MusicPlayback::default();
+        music.set_volume(0.25);
+        for speed in [1.0, 0.5, 2.0] {
+            music.play(&controller, BgmPcm {
+                samples: Arc::new(vec![8192; 16384]), channels: 2,
+                sample_rate: OUTPUT_RATE, cursor: 0, silence: 0,
+            }, speed);
+            let played: Vec<_> = mixer.by_ref().take(2048).collect();
+            assert_eq!(&played[1984..], &[0.0625; 64], "speed {speed}");
+            music.stop();
+            mixer.by_ref().take(2048).for_each(drop);
+        }
+    }
+
+    #[test]
+    fn audio_volume_rejects_invalid_gains_without_amplifying_output() {
+        for (input, expected) in [
+            (-1.0, 0.0), (0.0, 0.0), (0.4, 0.4), (1.0, 1.0), (2.0, 1.0),
+            (f32::NAN, 1.0), (f32::INFINITY, 1.0), (f32::NEG_INFINITY, 0.0),
+        ] {
+            assert_eq!(volume_gain(input), expected);
+        }
+    }
+
+    #[test]
     fn retriggering_the_same_effect_replaces_its_previous_voice() {
         let (controller, mut mixer) = dynamic_mixer::mixer(2, OUTPUT_RATE);
         let playback = SfxPlayback::default();
@@ -632,6 +764,29 @@ mod tests {
         pad.audio_seek_offset = Some(0.5);
         let from_audio_start = load_audio_for_speed(&mut pad).unwrap();
         assert_eq!(from_audio_start.collect::<Vec<_>>(), vec![0.5; 8]);
+    }
+
+    #[test]
+    fn measure_zero_preroll_preserves_first_and_pcm_alignment() {
+        for offset in [-0.5, 0.0, 0.5] {
+            let mut chart = crate::app::maidata::from_maidata(
+                "&inote_1=(120){4}1,E", None,
+            ).unwrap();
+            chart.audio_offset = offset;
+            let start = chart.playback_start_time();
+            let mut pad = PadPreviewState::new_at(
+                chart, None, Some(WavPcm {
+                    channels: 2, sample_rate: 4, samples: Arc::new(vec![16384; 8]),
+                }), 0.0, None,
+            );
+            pad.audio_seek_offset = Some(start);
+            let mut source = load_audio_for_speed(&mut pad).unwrap();
+            assert!(Arc::ptr_eq(&source.samples, &pad.audio_wav_pcm.as_ref().unwrap().samples));
+            let silence_samples = (-(start + offset) * 4.0 * 2.0) as usize;
+            assert_eq!(source.by_ref().take(silence_samples).collect::<Vec<_>>(), vec![0.0; silence_samples]);
+            assert_eq!(source.collect::<Vec<_>>(), vec![0.5; 8]);
+            assert_eq!(pad.chart.audio_offset, offset);
+        }
     }
 
     #[test]

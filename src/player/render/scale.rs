@@ -1,12 +1,18 @@
-//! Pad note / HUD sizes follow the window's shorter side, expressed in logical
-//! pixels so a HiDPI window does not scale twice. Pad geometry fits its
-//! viewport separately; explicit zoom still scales art on top of this.
+//! UI controls and playfield art have independent scale sources.
 
+use crate::app::types::PadGeom;
 use crate::player::state::PadPreviewState;
 use macroquad::prelude::{screen_height, screen_width};
 
 /// Shorter-side length the visuals were tuned at (1280×760 default window).
 pub const DESIGN_MIN_SIDE: f32 = 760.0;
+pub const UI_SCALE_MIN: f32 = 0.7;
+pub const UI_SCALE_MAX: f32 = 4.0;
+
+/// Geometry already includes Pad zoom and the actual render viewport.
+pub fn pad_scale(pad: PadGeom) -> f32 {
+    (pad.outer_r / (DESIGN_MIN_SIDE * 0.42)).max(0.01)
+}
 
 /// `MAI2_UI_SCALE` / the settings override wins; mobile uses larger controls.
 pub fn ui_scale(app: &PadPreviewState) -> f32 {
@@ -17,7 +23,7 @@ pub fn ui_scale(app: &PadPreviewState) -> f32 {
 /// layout is computed at the target resolution rather than the live window.
 pub fn ui_scale_for(app: &PadPreviewState, width: f32, height: f32) -> f32 {
     if let Some(v) = app.ui_scale_override {
-        return v;
+        if v.is_finite() { return v.clamp(UI_SCALE_MIN, UI_SCALE_MAX); }
     }
     let base = (width.min(height) / DESIGN_MIN_SIDE).max(0.1);
     if app.mobile_ui { base.max(1.35) } else { base }
@@ -57,6 +63,34 @@ pub(crate) mod tests {
             let layout = crate::player::layout::compute_layout_sized(&app, width, height);
             assert_eq!(layout.header.h, 76.0 * 1.6);
             assert_eq!(ui_scale_for(&app, width, height), 1.6);
+        }
+    }
+
+    #[test]
+    fn ui_override_and_mobile_layout_do_not_resize_playfield_art() {
+        let mut app = app();
+        for (w, h) in [(800.0, 600.0), (1280.0, 760.0), (2560.0, 1440.0)] {
+            let mut expected = None;
+            for mobile in [false, true] {
+                app.mobile_ui = mobile;
+                for ui in [None, Some(0.7), Some(1.6), Some(4.0)] {
+                    app.ui_scale_override = ui;
+                    let panel = crate::player::layout::compute_layout_sized(&app, w, h).pad;
+                    let geom = crate::player::layout::compute_pad_geom(panel);
+                    let scale = pad_scale(geom);
+                    assert_eq!(*expected.get_or_insert(scale), scale);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn playfield_art_tracks_geometry_including_zoom_and_offscreen_viewports() {
+        for zoom in [0.3, 1.0, 2.0] {
+            for height in [360.0, 760.0, 1440.0] {
+                let pad = PadGeom { cx: 0.0, cy: 0.0, outer_r: height * 0.42 * zoom };
+                assert!((pad_scale(pad) - height / DESIGN_MIN_SIDE * zoom).abs() < 0.0001);
+            }
         }
     }
 }

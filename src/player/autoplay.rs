@@ -85,7 +85,7 @@ pub fn set_on(pad: &mut PadPreviewState, on: bool) {
         flush_holds(pad);
         release_touches(pad);
     }
-    let now = (pad.song_time().max(0.0) * 1e6) as i64;
+    let now = (pad.song_time() * 1e6) as i64;
     pad.autoplay_tactic_cursor = pad
         .autoplay_tactic
         .iter()
@@ -106,7 +106,7 @@ pub fn tick(pad: &mut PadPreviewState) {
         return;
     }
 
-    let now = (pad.song_time().max(0.0) * 1e6) as i64;
+    let now = (pad.song_time() * 1e6) as i64;
     let mut due = Vec::new();
     while let Some(event) = pad.autoplay_tactic.get(pad.autoplay_tactic_cursor).cloned() {
         if crate::player::engine::timed_input_tp(&event) > now {
@@ -169,7 +169,7 @@ fn feed(pad: &mut PadPreviewState, event: TimedInputEvent) {
 }
 
 fn flush_holds(pad: &mut PadPreviewState) {
-    let now = (pad.song_time().max(0.0) * 1e6) as i64;
+    let now = (pad.song_time() * 1e6) as i64;
     for event in pad.autoplay_direct_held.drain(..) {
         let release = match event {
             TimedInputEvent::ButtonHold { zone, .. } => TimedInputEvent::ButtonHold {

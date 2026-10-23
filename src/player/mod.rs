@@ -18,3 +18,5 @@ pub mod sdez_engine;
 pub mod sfx;
 pub mod state;
 pub mod video;
+#[path = "../../editor/src/core_chart.rs"]
+pub mod chart_compile;

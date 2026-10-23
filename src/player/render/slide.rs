@@ -32,6 +32,12 @@ pub fn draw(
     layer: SlideLayer,
 ) {
     if note.slide.is_empty() {
+        if app.edit_solo_slide.is_some_and(|(id, _)| id == note.id) && layer == SlideLayer::Star {
+            if let Some(head) = app.pad_svg.as_ref().and_then(|svg|
+                slide_render::slide_start_point(note, svg, pad, spawn_cx, outer_r)) {
+                slide_render::draw_static_star(head, scale, skin::star_body(app, note).or(app.star_tex.as_ref()), skin::star_ex(app, note));
+            }
+        }
         return;
     }
     let bpms = &app.chart.bpms;
@@ -189,7 +195,7 @@ pub fn draw(
                         params::slide_fade_in(),
                         &seg_frac_one,
                         [None; 3],
-                        progress.and_then(|p| p.seg_hidden_until.get(seg_idx).copied().flatten()),
+                        progress.and_then(|p| p.seg_hidden_frac.get(seg_idx).copied().flatten()),
                         core_driven,
                         SlideLayer::Trail,
                         true,
@@ -227,7 +233,7 @@ pub fn draw(
                 params::slide_fade_in(),
                 seg_frac,
                 track_bars,
-                progress.and_then(|p| p.seg_hidden_until.first().copied().flatten()),
+                progress.and_then(|p| p.seg_hidden_frac.first().copied().flatten()),
                 core_driven,
                 layer,
                 false,

@@ -46,11 +46,10 @@ fn geometry(r: RectF, scale: f32) -> (RectF, RectF) {
     (bar, auto_r)
 }
 
-fn bar_frac(app: &PadPreviewState, bar: RectF) -> f32 {
-    let dur = app.song_duration();
+fn bar_frac(app: &PadPreviewState) -> f32 {
     // `scrub_to` keeps `song_time` in sync with the drag, so this tracks the
     // pointer for both mouse and touch without reading the mouse.
-    (app.song_time() / dur).clamp(0.0, 1.0)
+    app.playback_progress()
 }
 
 /// Handle progress-bar scrubbing and the AUTO button with the unified UI
@@ -85,8 +84,7 @@ pub fn handle_input(
     if app.scrubbing {
         // Only the pointer that grabbed the bar drives it; others pass through.
         if app.scrub_pointer.is_none() || app.scrub_pointer == Some(ui.id) {
-            let dur = app.song_duration();
-            let t = ((pos.x - bar.x) / bar.w).clamp(0.0, 1.0) * dur;
+            let t = app.time_at_progress((pos.x - bar.x) / bar.w);
             if ui.released {
                 app.seek_to(t);
                 app.scrubbing = false;
@@ -121,7 +119,7 @@ pub fn draw(app: &PadPreviewState, header: RectF, scale: f32) {
     );
 
     let (bar, auto_r) = geometry(header, scale);
-    let frac = bar_frac(app, bar);
+    let frac = bar_frac(app);
     progress::progress_bar(bar, frac, ACCENT, RAISED, BORDER);
 
     let hovered = contains(
@@ -136,8 +134,7 @@ pub fn draw(app: &PadPreviewState, header: RectF, scale: f32) {
         if hovered || app.scrubbing { ACCENT } else { TEXT_DIM },
     );
 
-    let dur = app.song_duration();
-    let shown = if app.scrubbing { frac * dur } else { app.song_time() };
+    let shown = app.song_time();
     let label = format_time(shown);
     let tw = font::text_width(&label, 13.0 * scale);
     font::text(
@@ -274,6 +271,7 @@ pub fn draw_score_block(app: &PadPreviewState, rect: RectF, scale: f32) {
 }
 
 fn format_time(seconds: f32) -> String {
-    let total = seconds.max(0.0) as u32;
-    format!("{:02}:{:02}", total / 60, total % 60)
+    let total = if seconds < 0.0 { seconds.abs().ceil() } else { seconds } as u32;
+    let sign = if seconds < 0.0 { "-" } else { "" };
+    format!("{sign}{:02}:{:02}", total / 60, total % 60)
 }

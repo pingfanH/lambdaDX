@@ -1,7 +1,7 @@
 //! Build the internal [`ChartDoc`] from `maidata.txt`.
 //!
-//! Parsing is done **entirely by the Lean backend** via the `lnmai-core` FFI
-//! (`parse_frontend_chart`). There is no local Simai parser: this module only
+//! Parsing is done by the selected `lnmai-core` backend. The Rust backend
+//! passes frontend structures directly, without a JSON bridge. This module only
 //! maps the parser's token stream (times in microseconds, rational BPM/hi-speed,
 //! slide bodies) onto the render model, converting the µs clock to the
 //! measure-based clock the renderer uses through the parsed BPM table.
@@ -23,6 +23,10 @@ use crate::app::types::{
     BpmChange, ChartDoc, Note, NoteType, Slide, SlidePoint, SlideSegment, SlideShape,
     sdur_to_mdur, secs_to_measure,
 };
+#[cfg(feature = "backend-rust")]
+use crate::core::frontend as frontend_types;
+#[cfg(all(feature = "backend-lean", not(feature = "backend-rust")))]
+use crate::core::types as frontend_types;
 
 /// Parse `maidata.txt` text and build a [`ChartDoc`].
 ///
@@ -129,18 +133,37 @@ fn from_level(text: &str, level_index: u32) -> Result<ChartDoc, String> {
     crate::core::session::ensure_runtime()
         .map_err(|_| "lnmai-core runtime failed to initialize".to_string())?;
     let parsed = parse_with_clock(text, level_index)?;
-    Ok(lean::convert(parsed, &metadata(text)))
+    Ok(lean::convert(&parsed, &metadata(text)))
 }
 
 #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
-fn parse_with_clock(text: &str, level_index: u32) -> Result<crate::core::types::FrontendChartResult, String> {
-    let mut parsed = crate::core::api::parse_frontend_chart(text, level_index).map_err(|e| e.json)?;
+fn parse_frontend(text: &str, level_index: u32) -> Result<frontend_types::FrontendChartResult, String> {
+    #[cfg(feature = "backend-rust")]
+    return crate::core::frontend::parse(text, level_index).map_err(|e| e.json);
+    #[cfg(not(feature = "backend-rust"))]
+    crate::core::api::parse_frontend_chart(text, level_index).map_err(|e| e.json)
+}
+
+/// Retain the frontend result so the player can initialize judgment without
+/// parsing the same Simai again.
+#[cfg(feature = "backend-rust")]
+pub fn from_maidata_prepared(
+    text: &str, level_index: u32,
+) -> Result<(ChartDoc, frontend_types::FrontendChartResult), String> {
+    let parsed = parse_with_clock(text, level_index)?;
+    let chart = lean::convert(&parsed, &metadata(text));
+    Ok((chart, parsed))
+}
+
+#[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
+fn parse_with_clock(text: &str, level_index: u32) -> Result<frontend_types::FrontendChartResult, String> {
+    let mut parsed = parse_frontend(text, level_index)?;
     if let Some(body) = clock_projection(&parsed.inspection.chart.raw_body) {
         let meta = metadata(text);
         let bpm = text.lines().find_map(|line| line.trim().strip_prefix("&wholebpm="))
             .unwrap_or("120");
         let projection = format!("&first={}\n&wholebpm={bpm}\n&inote_{level_index}={body}\n", meta.audio_offset);
-        let clock = crate::core::api::parse_frontend_chart(&projection, level_index).map_err(|e| e.json)?;
+        let clock = parse_frontend(&projection, level_index)?;
         parsed.inspection.source.events = clock.inspection.source.events;
     }
     Ok(parsed)
@@ -201,13 +224,13 @@ pub fn simai_timeline(_text: &str, _level_index: u32) -> Result<Vec<SimaiFragmen
 #[cfg(any(feature = "backend-lean", feature = "backend-rust"))]
 mod lean {
     use super::*;
-    use crate::core::types::{
+    use super::frontend_types::{
         FrontendChartResult, OuterSlot, RawNoteKind, Rational, SensorArea, SlideBodyKind,
         SourceEvent,
     };
 
     /// Map the parser's frontend result onto the render [`ChartDoc`].
-    pub fn convert(parsed: FrontendChartResult, meta: &MaidataMeta) -> ChartDoc {
+    pub fn convert(parsed: &FrontendChartResult, meta: &MaidataMeta) -> ChartDoc {
         let fields = &parsed.inspection.metadata.fields;
         // The parser reports most `&` fields but not `&title`, so header metadata
         // is scanned directly (it is plain key/value config, not chart syntax).
@@ -229,10 +252,10 @@ mod lean {
         let mut touch_holds = normalized.touch_holds.iter();
         for note in &mut notes {
             note.id = match note.note_type {
-                NoteType::Tap => taps.next().map(|note| note.note_index),
-                NoteType::Hold => holds.next().map(|note| note.note_index),
-                NoteType::Touch => touches.next().map(|note| note.note_index),
-                NoteType::TouchHold => touch_holds.next().map(|note| note.note_index),
+                NoteType::Tap => taps.next().map(|note| nat_u64(&note.note_index)),
+                NoteType::Hold => holds.next().map(|note| nat_u64(&note.note_index)),
+                NoteType::Touch => touches.next().map(|note| nat_u64(&note.note_index)),
+                NoteType::TouchHold => touch_holds.next().map(|note| nat_u64(&note.note_index)),
                 NoteType::Slide => None,
             }
             .unwrap_or(0);
@@ -242,7 +265,7 @@ mod lean {
         mark_double_stars(&mut notes);
         recompute_each(&mut notes);
 
-        let level_index = parsed.inspection.chart.level_index;
+        let level_index = &parsed.inspection.chart.level_index;
         let simai_level = field(fields, &format!("lv_{level_index}"))
             .and_then(|v| v.trim().parse::<f32>().ok())
             .map(|v| v as u32)
@@ -278,7 +301,7 @@ mod lean {
             .tokens
             .iter()
             .map(|token| {
-                let m = measure(token.timing, &bpms);
+                let m = measure(point_us(&token.timing), &bpms);
                 SimaiFragment {
                     time: crate::app::types::measure_to_secs(m, &bpms),
                     text: token.raw_text.clone(),
@@ -288,8 +311,30 @@ mod lean {
     }
 
     fn rational_f32(r: &Rational) -> f32 {
+        #[cfg(feature = "backend-rust")]
+        return r.to_decimal_string().parse().unwrap_or(1.0);
+        #[cfg(not(feature = "backend-rust"))]
         r.decimal.trim().parse().unwrap_or(1.0)
     }
+
+    #[cfg(feature = "backend-rust")]
+    fn point_us(value: &frontend_types::TimePoint) -> i64 {
+        value.micros.to_i64().expect("chart timing exceeds the renderer clock range")
+    }
+    #[cfg(not(feature = "backend-rust"))]
+    fn point_us(value: &crate::core::types::TimePoint) -> i64 { *value }
+
+    #[cfg(feature = "backend-rust")]
+    fn duration_us(value: &frontend_types::Duration) -> i64 {
+        value.micros.to_i64().expect("chart duration exceeds the renderer clock range")
+    }
+    #[cfg(not(feature = "backend-rust"))]
+    fn duration_us(value: &crate::core::types::Duration) -> i64 { *value }
+
+    #[cfg(feature = "backend-rust")]
+    fn nat_u64(value: &frontend_types::Natural) -> u64 { value.to_word() }
+    #[cfg(not(feature = "backend-rust"))]
+    fn nat_u64(value: &u64) -> u64 { *value }
 
     fn measure(t_us: i64, bpms: &[BpmChange]) -> f32 {
         secs_to_measure(t_us as f32 / 1e6, bpms)
@@ -303,9 +348,9 @@ mod lean {
     /// `noteTimingIncrement`: `bpmMeasureMicros / divisor` (a measure is
     /// `240_000_000 / bpm` µs). Used as the default slide body length when the
     /// token has no explicit `[n:m]`.
-    fn note_increment_us(token: &crate::core::types::RawNoteToken) -> i64 {
+    fn note_increment_us(token: &frontend_types::RawNoteToken) -> i64 {
         let bpm = rational_f32(&token.bpm);
-        let divisor = token.divisor.max(1) as f32;
+        let divisor = nat_u64(&token.divisor).max(1) as f32;
         if bpm > 0.0 {
             (240_000_000.0 / bpm / divisor) as i64
         } else {
@@ -339,9 +384,9 @@ mod lean {
                     if (bpm - current).abs() > 1e-6 {
                         // Only tempo boundaries advance the clock. Rounding at
                         // every note made equivalent sparse/dense sources drift.
-                        measure += (event.timing - prev_t) as f64 * current as f64 / 240_000_000.0;
+                        measure += (point_us(&event.timing) - prev_t) as f64 * current as f64 / 240_000_000.0;
                         bpms.push(BpmChange { measure: measure as f32, bpm });
-                        prev_t = event.timing;
+                        prev_t = point_us(&event.timing);
                         cur_bpm = Some(bpm);
                     }
                 }
@@ -352,7 +397,7 @@ mod lean {
         bpms
     }
 
-    fn build_notes(tokens: &[crate::core::types::RawNoteToken], bpms: &[BpmChange]) -> Vec<Note> {
+    fn build_notes(tokens: &[frontend_types::RawNoteToken], bpms: &[BpmChange]) -> Vec<Note> {
         let mut out = Vec::new();
         let mut group: Vec<usize> = Vec::new();
 
@@ -379,7 +424,7 @@ mod lean {
 
     fn flush_slide(
         group: &[usize],
-        tokens: &[crate::core::types::RawNoteToken],
+        tokens: &[frontend_types::RawNoteToken],
         bpms: &[BpmChange],
         out: &mut Vec<Note>,
     ) {
@@ -392,10 +437,10 @@ mod lean {
     }
 
     fn simple_note(
-        token: &crate::core::types::RawNoteToken,
+        token: &frontend_types::RawNoteToken,
         bpms: &[BpmChange],
     ) -> Option<Note> {
-        let time = measure(token.timing, bpms);
+        let time = measure(point_us(&token.timing), bpms);
         let hi_speed = rational_f32(&token.h_speed);
         match token.kind {
             RawNoteKind::Tap => Some(Note {
@@ -413,7 +458,7 @@ mod lean {
                 time,
                 lane: slot_lane(token.slot?),
                 note_type: NoteType::Hold,
-                hold_duration: duration(token.length.unwrap_or(0), token.timing, bpms),
+                hold_duration: duration(token.length.as_ref().map(duration_us).unwrap_or(0), point_us(&token.timing), bpms),
                 is_break: token.is_break,
                 is_ex: token.is_ex,
                 hi_speed,
@@ -434,7 +479,7 @@ mod lean {
                 time,
                 lane: sensor_lane(token.sensor_pos?)?,
                 note_type: NoteType::TouchHold,
-                hold_duration: duration(token.length.unwrap_or(0), token.timing, bpms),
+                hold_duration: duration(token.length.as_ref().map(duration_us).unwrap_or(0), point_us(&token.timing), bpms),
                 is_break: token.is_break,
                 is_ex: token.is_ex,
                 is_hanabi: token.is_hanabi,
@@ -448,16 +493,17 @@ mod lean {
 
     fn slide_note(
         group: &[usize],
-        tokens: &[crate::core::types::RawNoteToken],
+        tokens: &[frontend_types::RawNoteToken],
         bpms: &[BpmChange],
     ) -> Option<Note> {
         let head = tokens.get(*group.first()?)?;
-        let time = measure(head.timing, bpms);
+        let time = measure(point_us(&head.timing), bpms);
         // lnmai-core resolves a missing pre-trace wait to zero (a slide head is
         // reported with an explicit `starWait`, so this is a fallback only).
         let wait = head
             .star_wait
-            .map(|w| duration(w, head.timing, bpms))
+            .as_ref()
+            .map(|w| duration(duration_us(w), point_us(&head.timing), bpms))
             .unwrap_or(0.0);
         let hi_speed = rational_f32(&head.h_speed);
 
@@ -477,12 +523,13 @@ mod lean {
             // e.g. a bare `1w5` still traces for one division.
             let len = token
                 .length
+                .as_ref().map(duration_us)
                 .unwrap_or_else(|| note_increment_us(token));
             travel_us = travel_us.saturating_add(len);
         }
         // Motion starts after the head's wait. Integrating each body from the
         // head gives the wrong span when a BPM change falls inside that wait.
-        let motion_start = head.timing.saturating_add(head.star_wait.unwrap_or(0));
+        let motion_start = point_us(&head.timing).saturating_add(head.star_wait.as_ref().map(duration_us).unwrap_or(0));
         let travel = duration(travel_us, motion_start, bpms);
 
         // Head and trail break flags are independent; a break head alone must
@@ -644,6 +691,22 @@ mod tests {
             .notes
             .iter()
             .any(|n| matches!(n.note_type, crate::app::types::NoteType::Slide)));
+    }
+
+    #[test]
+    fn first_only_changes_audio_offset_not_chart_clock() {
+        let body = "&wholebpm=120\n&inote_6={4}1,,(180),,2h[4:1],A1/B1,4-8[8:1],E\n";
+        let baseline = super::from_maidata_level(body, 6).unwrap();
+        let timeline = super::simai_timeline(body, 6).unwrap();
+        assert_eq!(baseline.notes[0].time, 1.0);
+        for first in [0.125, -0.25, 2.5] {
+            let source = format!("&first={first}\n{body}");
+            let chart = super::from_maidata_level(&source, 6).unwrap();
+            assert_eq!(chart.audio_offset, first);
+            assert_eq!(chart.bpms, baseline.bpms, "first={first} changed BPM positions");
+            assert_eq!(chart.notes, baseline.notes, "first={first} moved chart notes");
+            assert_eq!(super::simai_timeline(&source, 6).unwrap(), timeline);
+        }
     }
 
     #[test]

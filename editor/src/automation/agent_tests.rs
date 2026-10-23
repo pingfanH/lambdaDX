@@ -36,6 +36,70 @@ fn fixture() -> (Service, EditorState, PadPreviewState) {
         PadPreviewState::new_at(chart, None, None, 0.0, None),
     )
 }
+
+#[test]
+fn annotation_cancels_agent_preview_without_changing_its_own_diff() {
+    let (mut service, mut editor, mut app) = fixture();
+    let mut sync = crate::runtime::ChartSync::new(&mut app.chart);
+    let client = service.client();
+    let cursor = service.prepare_cursor(&client, &mut editor, &app).unwrap();
+    let request = agent::cursor::proposal(json!({
+        "operation_id": "preview", "summary": "Preview one tap",
+        "notes": [{"offset_measures": 0.0}]
+    }), &cursor).unwrap();
+    let proposal = service.proposals.create(request, client.session(), &service.snapshots, &editor, &app, true).unwrap();
+    let original = app.chart.clone();
+    service.maintenance(&mut editor, &mut app, &mut sync, true);
+    assert_eq!(app.preview_notes().len(), 1);
+    assert_eq!(app.chart, original, "Agent preview must not edit the document");
+    assert!(!editor.mairis.annotation.active);
+    assert!(editor.mairis.annotation.review_added.is_empty());
+
+    editor.mairis.annotation.active = true;
+    editor.mairis.annotation.set_original(&app.chart.notes);
+    let added = crate::app::types::Note { id: 99, time: 3.0, lane: 4, ..Default::default() };
+    app.chart.notes.push(added.clone());
+    editor.mairis.annotation.sync_preview(&app.chart.notes);
+    let annotated = app.chart.clone();
+    app.mode = crate::app::types::Mode::Playing;
+    service.approve_requested = true;
+    service.maintenance(&mut editor, &mut app, &mut sync, false);
+    assert!(!app.has_chart_preview(), "Switching mode must also clear previews during playback");
+    assert_eq!(service.proposals.status(&proposal.proposal_id, &client.session()).unwrap().state, ProposalState::Cancelled);
+    assert_eq!(app.chart, annotated, "A pending Agent approval must not replace the annotation chart");
+    assert_eq!(editor.mairis.annotation.review_added, vec![added]);
+    assert!(editor.mairis.annotation.review_deleted.is_empty());
+    assert!(editor.mairis.annotation.review_moved.is_empty());
+    assert!(editor.undo.is_empty());
+}
+
+#[test]
+fn annotation_and_viewer_modes_reject_new_agent_work_and_regular_editing_resumes() {
+    for annotation in [true, false] {
+        let (mut service, mut editor, app) = fixture();
+        let client = service.client();
+        let cursor = service.prepare_cursor(&client, &mut editor, &app).unwrap();
+        let request = agent::cursor::proposal(json!({
+            "operation_id": "blocked", "summary": "One tap",
+            "notes": [{"offset_measures": 0.0}]
+        }), &cursor).unwrap();
+        editor.mairis.annotation.active = annotation;
+        editor.workspace = if annotation { crate::state::Workspace::Chart } else { crate::state::Workspace::Viewer };
+        assert_eq!(service.prepare_cursor(&client, &mut editor, &app).unwrap_err().code, ErrorCode::UnsupportedOperation);
+        assert_eq!(service.proposals.create(request, client.session(), &service.snapshots, &editor, &app, true).unwrap_err().code, ErrorCode::UnsupportedOperation);
+        let pending = client.call("chart_get_context", json!({"schema_version": 1}), Permissions {
+            read: true, focus: false, propose: false,
+        }, Duration::from_secs(1)).unwrap();
+        service.tick(&mut editor, &app, true, true);
+        assert_eq!(pending.poll().unwrap().unwrap_err().code, ErrorCode::UnsupportedOperation);
+        assert!(service.proposals.pending().is_none());
+
+        editor.mairis.annotation.active = false;
+        editor.workspace = crate::state::Workspace::Chart;
+        assert!(service.prepare_cursor(&client, &mut editor, &app).is_ok());
+    }
+}
+
 fn tool(id: &str, name: &str, args: Value) -> Message {
     Message::assistant(agent::ToolCall {
         call_id: id.into(),

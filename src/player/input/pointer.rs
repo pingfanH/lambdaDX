@@ -155,9 +155,10 @@ fn sampled_motion_path(prev: Option<Vec2>, position: Vec2) -> Vec<Vec2> {
 /// lane keys.
 ///
 /// When the sensor range trigger is on a pointer can hold several zones at
-/// once, so this works on sets: newly-entered zones are pressed (a click + hold
-/// on first contact, a hold-only slide when moving between zones) and left
-/// zones are released.
+/// once, so this works on sets: every newly-entered zone gets a complete press
+/// (click + hold-down), and every left zone gets a release. Entering a zone
+/// after crossing from another zone is still a new sensor contact; it must not
+/// be downgraded to hold-only merely because the pointer remains down.
 pub(super) fn update_pointer_zones(
     app: &mut PadPreviewState,
     pointer_id: u64,
@@ -174,8 +175,7 @@ pub(super) fn update_pointer_zones(
         return;
     }
 
-    let tp = (app.song_time().max(0.0) * 1e6) as i64;
-    let was_empty = old.is_empty();
+    let tp = (app.song_time() * 1e6) as i64;
 
     // Zones the pointer left: release them.
     for &prev in &old {
@@ -194,15 +194,13 @@ pub(super) fn update_pointer_zones(
         }
         app.push_feedback(zone, 0.12);
         if app.use_core() {
-            if was_empty {
-                // First contact: a click (head tap / slide star) + hold.
-                app.queue_engine_press(zone, tp);
-            } else {
-                // Sliding onto another sensor: hold-only — no click (the core's
-                // slide body areas are hold-only; a click there advances an area
-                // too early).
-                app.queue_engine_hold(zone, tp);
-            }
+            // A contact entering this sensor is a press regardless of whether
+            // the finger started on the pad or moved here from another sensor.
+            // The physical pointer state must not decide whether this is a
+            // click: outside -> sensor and sensor A -> sensor B are the same
+            // sensor transition. The core decides whether the click belongs to
+            // a tap/hold head or a slide at the current chart position.
+            app.queue_engine_press(zone, tp);
         } else if let Some((note, label)) = judgement_for_zone(app, zone) {
             use crate::player::feedback::{FeedbackGrade, HitEffect};
             let (id, is_touch, is_break, is_ex, is_hanabi) = (note.id, crate::app::types::note_is_touch(note), note.is_break, note.is_ex, note.is_hanabi);

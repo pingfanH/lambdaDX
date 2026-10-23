@@ -77,12 +77,17 @@ pub fn handle_edit_shortcuts(
     }
 
     if cmd && !shift && pressed(egui::Key::Z) {
-        editor.star_placement = None;
         editor.hold_placement = None;
         editor.undo(chart);
+        return true;
     }
     if (cmd && shift && pressed(egui::Key::Z)) || (cmd && pressed(egui::Key::Y)) {
         editor.redo(chart);
+        return true;
+    }
+    if editor.check_slide_placement_finished().is_err() && cmd {
+        if pressed(egui::Key::S) { save_document(editor, chart); }
+        return true;
     }
     if cmd && pressed(egui::Key::C) {
         editor.copy_selection(chart);
@@ -136,8 +141,7 @@ pub fn handle_edit_shortcuts(
     }
     if plain && pressed(egui::Key::E) {
         if editor.is_slide_edit() {
-            editor.editing_slide = None;
-            editor.pending_shape = None;
+            editor.exit_slide_edit(chart);
             return true;
         }
         if let Some(id) = editor.single_selected() {
@@ -159,6 +163,8 @@ pub fn handle_edit_shortcuts(
         || (plain && pressed(egui::Key::D))
         || (pressed(egui::Key::Backspace) && !editor.is_slide_edit()))
         && !editor.selected.is_empty()
+        && editor.slide_draft.is_none()
+        && !editor.is_slide_edit()
     {
         editor.delete_selection(chart);
         return true;
@@ -174,6 +180,14 @@ pub fn handle_edit_shortcuts(
     // it, lane keys append waypoints, `⌫` undoes the last waypoint and `Esc`
     // exits. Editing the path takes over the plain keys, so it returns early.
     if editor.is_slide_edit() {
+        if pressed(egui::Key::Delete) {
+            editor.remove_sub_slide(chart);
+            return true;
+        }
+        if pressed(egui::Key::Enter) {
+            editor.confirm_slide_edit(chart);
+            return true;
+        }
         use crate::app::types::SlideShape;
         // Shape keys (with their shifted / punctuation variants), then `1-8`
         // picks the end lane and applies the shape.
@@ -244,9 +258,7 @@ pub fn handle_edit_shortcuts(
             editor.status = Some("Removed last waypoint".to_string());
         }
         if pressed(egui::Key::Escape) {
-            editor.editing_slide = None;
-            editor.pending_shape = None;
-            editor.status = Some("Slide edit: off".to_string());
+            editor.exit_slide_edit(chart);
         }
         return true;
     }
@@ -597,6 +609,9 @@ fn interact(
             return;
         }
     }
+    if editor.slide_draft.is_some() {
+        return;
+    }
     // Note under the pointer, for the hover ring + read-out. Skipped mid-drag so
     // the read-out tracks the dragged note rather than the raw cursor.
     if !response.dragged_by(egui::PointerButton::Primary) {
@@ -708,7 +723,7 @@ fn interact(
         && (response.dragged_by(egui::PointerButton::Primary)
             || response.drag_stopped_by(egui::PointerButton::Primary))
     {
-        editor.pending_seek = Some(cursor.time.max(0.0));
+        editor.pending_seek = Some(cursor.time.max(chart.playback_start_time()));
         if response.dragged_by(egui::PointerButton::Primary) {
             return;
         }
@@ -860,7 +875,7 @@ fn interact(
             editor.selected_instance = None;
         }
         if cursor.on_playhead && hit.is_none() && editor.tool == Tool::Select {
-            editor.pending_seek = Some(cursor.time.max(0.0));
+            editor.pending_seek = Some(cursor.time.max(chart.playback_start_time()));
             return;
         }
         // A note that only exists through a template instance cannot be edited
@@ -1108,14 +1123,14 @@ fn view_time(editor: &EditorState, now: f32) -> f32 {
     super::geometry::view_reference(editor, now)
 }
 
-fn pan_view(editor: &mut EditorState, delta: f32, now: f32) {
+fn pan_view(editor: &mut EditorState, delta: f32, now: f32, playback_start: f32) {
     if delta == 0.0 {
         return;
     }
     let view = view_time(editor, now);
     if editor.follow_playhead && !editor.keyboard.detached {
         let now = editor.pending_seek.unwrap_or(now);
-        let target = (now + delta).max(0.0);
+        let target = (now + delta).max(playback_start);
         editor.follow_view_offset = Some(now - view);
         editor.view_start = view + target - now;
         if target != now {
@@ -1218,7 +1233,7 @@ pub fn horizontal(
         if let Some(p) = response.interact_pointer_pos() {
             let f = edge_pan(p.x, rect.left(), rect.right());
             if f != 0.0 {
-                pan_view(editor, f * AUTOSCROLL_SECS, current_time);
+                pan_view(editor, f * AUTOSCROLL_SECS, current_time, chart.playback_start_time());
             }
         }
     }
@@ -1282,7 +1297,7 @@ pub fn vertical(
         if let Some(p) = response.interact_pointer_pos() {
             let f = edge_pan(p.y, rect.top(), rect.bottom());
             if f != 0.0 {
-                pan_view(editor, -f * AUTOSCROLL_SECS, current_time);
+                pan_view(editor, -f * AUTOSCROLL_SECS, current_time, chart.playback_start_time());
             }
         }
     }
@@ -1304,6 +1319,7 @@ pub fn navigate(
     editor: &mut EditorState,
     current_time: f32,
     raw_wheel: f32,
+    playback_start: f32,
 ) -> bool {
     let middle = egui::PointerButton::Middle;
     let pointer = ui.input(|i| i.pointer.latest_pos());
@@ -1341,7 +1357,7 @@ pub fn navigate(
             rate_pan_step(axis(pos) - origin, ui.input(|i| i.stable_dt))
         });
         editor.timeline_pan = Some((origin, moved || step != 0.0));
-        pan_view(editor, step / editor.pixels_per_second, current_time);
+        pan_view(editor, step / editor.pixels_per_second, current_time, playback_start);
         if editor.pending_seek.is_some() {
             editor.scrubbing = true;
         }
@@ -1420,7 +1436,7 @@ pub fn navigate(
         } else {
             wheel * 0.002
         };
-        pan_view(editor, -seconds * direction, current_time);
+        pan_view(editor, -seconds * direction, current_time, playback_start);
     } else {
         return false;
     }

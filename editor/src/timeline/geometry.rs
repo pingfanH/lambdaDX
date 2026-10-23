@@ -31,7 +31,7 @@ pub fn default_view_reference(editor: &EditorState, playhead: f32) -> f32 {
     } else {
         2.0
     };
-    (playhead - lead).max(0.0)
+    (playhead - lead).max(playhead.min(0.0))
 }
 
 pub fn playhead_in_view(editor: &EditorState, reference: f32, playhead: f32) -> bool {
@@ -187,6 +187,20 @@ pub fn paint_marquee(ui: &egui::Ui, rect: egui::Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn measure_zero_playhead_stays_visible_in_both_layouts() {
+        for layout in [EditorLayout::Horizontal, EditorLayout::Vertical] {
+            let mut editor = EditorState { layout, ..Default::default() };
+            editor.keyboard.rect = egui::Rect::from_min_size(
+                egui::Pos2::ZERO, egui::vec2(640.0, 480.0),
+            );
+            for time in [-2.0, -1.0, -0.01, 0.0] {
+                crate::runtime::follow_playhead_during_playback(&mut editor, time, true);
+                assert!(playhead_in_view(&editor, editor.view_start, time), "{layout:?}: {time}");
+            }
+        }
+    }
 
     #[test]
     fn requested_timeline_zoom_keeps_red_line_fixed() {

@@ -58,6 +58,19 @@ pub fn draw(
     editable: bool,
     autoplay: bool,
 ) {
+    if !autoplay && (editor.is_slide_edit() || editor.star_placement.is_some()) {
+        let rect = ui.max_rect().shrink(3.0);
+        ui.painter().rect_stroke(
+            rect, 4.0, Stroke::new(2.0_f32, ACCENT_BLUE), egui::StrokeKind::Inside,
+        );
+        ui.painter().text(
+            rect.left_top() + egui::vec2(10.0, 10.0),
+            egui::Align2::LEFT_TOP,
+            if editor.check_slide_placement_finished().is_err() { "Slide · 放置中" } else { "Slide · 编辑中" },
+            egui::FontId::proportional(14.0), ACCENT_BLUE,
+        );
+        return;
+    }
     if autoplay && crate::autoplay_editor::curves::pad(ui, editor, app, pad, editable) { return; }
     let editable =
         editable && (!autoplay || app.has_engine() && editor.autoplay_editor.can_pick_zone());

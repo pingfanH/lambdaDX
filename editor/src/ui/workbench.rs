@@ -132,6 +132,8 @@ pub struct Workbench {
     dragging: Option<u64>,
     drag_owned: bool,
     applied_views: Vec<(PaneKind, u64)>,
+    preview_mode: Option<u8>,
+    preview_mode_applied: bool,
     persistence: persistence::Persistence,
     remember_requested: bool,
 }
@@ -153,6 +155,8 @@ impl Default for Workbench {
             dragging: None,
             drag_owned: false,
             applied_views: Vec::new(),
+            preview_mode: None,
+            preview_mode_applied: false,
             persistence: Default::default(),
             remember_requested: false,
         }

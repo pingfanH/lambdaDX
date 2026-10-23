@@ -17,6 +17,11 @@ use crate::player::state::PadPreviewState;
 /// never reports as hidden).
 const CORE_SLIDE_FALLBACK_GRACE: f32 = 0.35;
 
+/// Timing snapshots shared by all note layers in one rendered frame.
+pub struct NoteFrame<'a> {
+    visible: Vec<(&'a Note, NoteTiming)>,
+}
+
 pub fn is_visible(app: &PadPreviewState, note: &Note, t: &NoteTiming) -> bool {
     if let Some((solo, _)) = app.edit_solo_slide { return note.id == solo; }
     if app.hidden_notes.contains(&note.id) { return false; }
@@ -36,18 +41,38 @@ pub fn is_visible(app: &PadPreviewState, note: &Note, t: &NoteTiming) -> bool {
 /// Notes therefore always sit **above** slides. `note_earlier_on_top` only
 /// orders items *within* each pass (slide vs slide, note vs note); it no longer
 /// interleaves the two kinds.
-pub fn draw_notes(
-    app: &PadPreviewState,
+pub fn draw_notes<'a>(
+    app: &'a PadPreviewState,
     pad: &PadGeom,
     scale: f32,
     spawn_cx: Vec2,
     current_t: f32,
     speed_scale: f32,
-) {
+) -> NoteFrame<'a> {
+    let frame = prepare(app, current_t, speed_scale);
     // Guides first, so every guide sits under every note sprite.
-    draw_guide_pass(app, pad, scale, spawn_cx, current_t, speed_scale);
-    draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, true);
-    draw_pass(app, pad, scale, spawn_cx, current_t, speed_scale, false);
+    draw_guide_pass(app, pad, scale, spawn_cx, &frame);
+    draw_pass(app, pad, scale, spawn_cx, current_t, &frame, true);
+    draw_pass(app, pad, scale, spawn_cx, current_t, &frame, false);
+    frame
+}
+
+fn prepare<'a>(app: &'a PadPreviewState, current_t: f32, speed_scale: f32) -> NoteFrame<'a> {
+    let bpms = &app.chart.bpms;
+    let chart = if app.edit_solo_slide.is_some() { &app.chart } else { app.playback_chart() };
+    let mut visible = Vec::new();
+    for note in &chart.notes {
+        if app.edit_solo_slide.is_none() && app.hidden_notes.contains(&note.id) {
+            continue;
+        }
+        let t = timing::compute(note, app, bpms, current_t, speed_scale);
+        if is_visible(app, note, &t) {
+            visible.push((note, t));
+        }
+    }
+    let earlier_on_top = params::note_earlier_on_top();
+    visible.sort_by(|(a, _), (b, _)| crate::app::types::note_draw_order(a, b, earlier_on_top));
+    NoteFrame { visible }
 }
 
 /// Draw only the tap / hold guides (slides draw theirs in the trail layer).
@@ -56,25 +81,16 @@ fn draw_guide_pass(
     pad: &PadGeom,
     scale: f32,
     spawn_cx: Vec2,
-    current_t: f32,
-    speed_scale: f32,
+    frame: &NoteFrame<'_>,
 ) {
     if app.edit_solo_slide.is_some() {
         return;
     }
-    let bpms = &app.chart.bpms;
-    for note in app.playback_chart().notes.iter() {
+    for (note, t) in &frame.visible {
         if matches!(note.note_type, NoteType::Slide) || note_is_touch(note) {
             continue;
         }
-        if app.hidden_notes.contains(&note.id) {
-            continue;
-        }
-        let t: NoteTiming = timing::compute(note, app, bpms, current_t, speed_scale);
-        if !t.visible() {
-            continue;
-        }
-        ring::draw_guides(app, note, &t, scale, spawn_cx, pad.outer_r);
+        ring::draw_guides(app, note, t, scale, spawn_cx, pad.outer_r);
     }
 }
 
@@ -84,27 +100,18 @@ pub fn draw_judge_dots(
     pad: &PadGeom,
     scale: f32,
     spawn_cx: Vec2,
-    current_t: f32,
-    speed_scale: f32,
+    frame: &NoteFrame<'_>,
 ) {
     if !params::judge_dot() {
         return;
     }
-    let bpms = &app.chart.bpms;
     let r = params::judge_dot_size() * scale;
     if r <= 0.0 {
         return;
     }
     let color = Color::from_rgba(0, 0, 0, 255);
-    for note in app.playback_chart().notes.iter() {
-        if app.hidden_notes.contains(&note.id) {
-            continue;
-        }
-        let t: NoteTiming = timing::compute(note, app, bpms, current_t, speed_scale);
-        if !t.visible() {
-            continue;
-        }
-        for p in ring::judge_points(note, &t, scale, spawn_cx, pad.outer_r) {
+    for (note, t) in &frame.visible {
+        for p in ring::judge_points(note, t, scale, spawn_cx, pad.outer_r) {
             draw_circle(p.x, p.y, r, color);
         }
     }
@@ -122,39 +129,17 @@ fn draw_pass(
     scale: f32,
     spawn_cx: Vec2,
     current_t: f32,
-    speed_scale: f32,
+    frame: &NoteFrame<'_>,
     slides: bool,
 ) {
-    let bpms = &app.chart.bpms;
-    // Resolve visibility once, then draw per layer.
-    let mut visible: Vec<(&Note, NoteTiming)> = Vec::new();
-    for note in &app.playback_chart().notes {
-        let is_slide = matches!(note.note_type, NoteType::Slide);
-        if is_slide != slides {
-            continue;
-        }
-        if app.edit_solo_slide.is_none() && app.hidden_notes.contains(&note.id) {
-            continue;
-        }
-        let t: NoteTiming = timing::compute(note, app, bpms, current_t, speed_scale);
-        // Slides owned by lnmai-core stay on screen past their local tail until
-        // the core's `HideSlideBars`/`HideAllSlideBars` ends them. A **missed
-        // conslide** may never get such a command (the core only ends a chain
-        // once its head is touched), so fall back to a local tail cull a short
-        // grace after the slide's end. Without an engine, use the local cull.
-        // Editor solo view: render only the slide being edited (no time culling,
-        // so its whole trail stays visible).
-        if !is_visible(app, note, &t) {
-            continue;
-        }
-        visible.push((note, t));
-    }
-    let earlier_on_top = params::note_earlier_on_top();
-    visible.sort_by(|(a, _), (b, _)| crate::app::types::note_draw_order(a, b, earlier_on_top));
+    let visible = frame
+        .visible
+        .iter()
+        .filter(|(note, _)| matches!(note.note_type, NoteType::Slide) == slides);
 
     if slides {
         // Trails (plus each slide's on-hit ring) first...
-        for (note, t) in &visible {
+        for (note, t) in visible {
             slide::draw(
                 app,
                 note,
@@ -171,7 +156,11 @@ fn draw_pass(
             }
         }
         // ...then every star, so no trail covers another slide's star.
-        for (note, t) in &visible {
+        for (note, t) in frame
+            .visible
+            .iter()
+            .filter(|(note, _)| matches!(note.note_type, NoteType::Slide))
+        {
             slide::draw(
                 app,
                 note,
@@ -185,7 +174,11 @@ fn draw_pass(
             );
         }
     } else {
-        for (note, t) in &visible {
+        for (note, t) in frame
+            .visible
+            .iter()
+            .filter(|(note, _)| !matches!(note.note_type, NoteType::Slide))
+        {
             // Touch / touch-hold render on the screen zones (A-zone touch notes
             // share zone 1..=8 with the ring but are still touch notes).
             if note_is_touch(note) {

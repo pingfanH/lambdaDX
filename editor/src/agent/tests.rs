@@ -237,6 +237,7 @@ fn restart_restores_transcript_and_enabled_without_reviving_model_or_proposals()
         settings::Saved {
             connection: Settings::default(),
             enabled: true,
+            insert_at_cursor: false,
         },
         store,
     );

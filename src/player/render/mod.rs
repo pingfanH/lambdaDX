@@ -63,6 +63,7 @@
 //! Handled by [`slide`] / `app::slide_render`: trail tiles are sampled along the
 //! path and a star flies the path from start-delay to duration.
 
+pub mod center;
 pub mod feedback;
 pub mod hit_fx;
 pub mod judgment;
@@ -138,8 +139,19 @@ pub fn draw_pad_panel(
     pad: PadGeom,
     surface: PadSurface,
 ) {
+    draw_pad_panel_oriented(app, rect, pad, surface, 0.0);
+}
+
+/// Rotate the playfield, leaving window-anchored score and Simai text upright.
+pub fn draw_pad_panel_oriented(
+    app: &PadPreviewState,
+    rect: RectF,
+    pad: PadGeom,
+    surface: PadSurface,
+    rotation_deg: f32,
+) {
     // Overall pad zoom scales the sprites/labels with the pad radius.
-    let scale = ui_scale(app) * params::pad_zoom();
+    let scale = scale::pad_scale(pad);
     // Publish the pad scale so px-valued offsets (judge ring, A-dots) track the
     // pad across window resizes / DPI changes.
     params::set_pad_scale(scale);
@@ -152,6 +164,14 @@ pub fn draw_pad_panel(
         pad::draw_video_background(app, rect, scale);
     } else {
         pad::draw_surface(rect, surface, scale);
+    }
+    let center = vec2(pad.cx, pad.cy).extend(0.0);
+    unsafe {
+        macroquad::window::get_internal_gl().quad_gl.push_model_matrix(
+            macroquad::math::Mat4::from_translation(center)
+                * macroquad::math::Mat4::from_rotation_z(rotation_deg.to_radians())
+                * macroquad::math::Mat4::from_translation(-center),
+        );
     }
     // Background (disc + circular cover) sized like the occlusion circle.
     let bg_r = pad.outer_r * params::pad_bg_scale();
@@ -173,6 +193,7 @@ pub fn draw_pad_panel(
         pad::draw_zones(app, &pad, scale);
         pad::draw_ring_indicators(spawn_cx, pad.outer_r, scale);
     }
+    center::draw(app, pad, scale);
 
     // Note layer (notes, slide trails, judgment text). Can be hidden too.
     let current_t = match app.mode {
@@ -187,11 +208,13 @@ pub fn draw_pad_panel(
     } else {
         app.play_speed.max(0.1)
     };
-    if !params::hide_notes() {
+    let note_frame = if !params::hide_notes() {
         // Effects sit behind note sprites and share their circular mask.
         hit_fx::draw(app, &pad, pad.outer_r, spawn_cx, scale);
-        notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale);
-    }
+        Some(notes::draw_notes(app, &pad, scale, spawn_cx, current_t, speed_scale))
+    } else {
+        None
+    };
 
     // Big sensor circle + occluding ring on top of notes and effects. The outside
     // occlusion stays on even with a video; only the inner disc is skipped.
@@ -203,9 +226,13 @@ pub fn draw_pad_panel(
         judgment::draw(app, &pad, scale, spawn_cx, current_t, speed_scale);
         slide::draw_just_overlays(app, &pad, scale, spawn_cx);
         feedback::draw(app, &pad, pad.outer_r, spawn_cx, scale);
-        // Judgment-point dots on the very top.
-        notes::draw_judge_dots(app, &pad, scale, spawn_cx, current_t, speed_scale);
+        // Judgment-point dots on the very top, reusing the timing snapshots.
+        if let Some(frame) = note_frame.as_ref() {
+            notes::draw_judge_dots(app, &pad, scale, spawn_cx, frame);
+        }
     }
+
+    unsafe { macroquad::window::get_internal_gl().quad_gl.pop_model_matrix(); }
 
     // lnmai-core score parameters down the bottom-left of the pad panel.
     crate::player::hud::draw_score_block(app, rect, scale);

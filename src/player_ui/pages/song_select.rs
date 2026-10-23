@@ -131,11 +131,19 @@ fn draw_list(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx, list_w: f32,
     let row_total = ROW_H * ctx.scale + 10.0 * ctx.scale;
     let content_h = app.library.songs.len() as f32 * row_total + 16.0 * ctx.scale;
     let max_scroll = (content_h - view.h).max(0.0);
-    app.list_scroll_target =
-        (app.list_scroll_target - input.scroll(view) * 40.0 * ctx.scale).clamp(0.0, max_scroll);
+    // A touch drag follows the finger. A downward finger movement therefore
+    // moves the content upward, matching the mouse-wheel direction below.
+    let touch_delta = input.touch_scroll(view);
+    app.list_scroll_target = (app.list_scroll_target
+        - touch_delta
+        - input.scroll(view) * 40.0 * ctx.scale)
+        .clamp(0.0, max_scroll);
     app.list_scroll = anim::approach(&mut app.list_scroll, app.list_scroll_target, 18.0, ctx.dt);
 
     let count = app.library.songs.len();
+    // Rows can extend past the list on the compact layout. Clip the moving
+    // content so a drag never paints over the detail panel below it.
+    let clip = draw::clip(view);
     for i in 0..count {
         let y = view.y + 8.0 * ctx.scale + i as f32 * row_total - app.list_scroll;
         if y + row_total < view.y - 4.0 || y > view.y + view.h + 4.0 {
@@ -143,6 +151,7 @@ fn draw_list(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx, list_w: f32,
         }
         draw_row(app, input, ctx, i, y, list_w);
     }
+    drop(clip);
 
     // Header mask (covers rows scrolled behind it).
     draw::rect(header, theme::PANEL);
@@ -425,8 +434,8 @@ fn draw_detail_in(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx, area: R
 }
 
 /// Draw a cover, letterboxed inside `box`.
-fn draw_cover(app: &PlayerUiApp, ctx: &UiCtx, index: usize, box_r: RectF, alpha: f32) {
-    let tex = app.library.covers.get(index).and_then(|t| t.as_ref());
+fn draw_cover(app: &mut PlayerUiApp, ctx: &UiCtx, index: usize, box_r: RectF, alpha: f32) {
+    let tex = app.library.ensure_cover(index);
     match tex {
         Some(tex) => {
             let (tw, th) = (tex.width(), tex.height());

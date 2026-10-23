@@ -482,6 +482,7 @@ fn enter(
 
 pub fn cancel_interaction(editor: &mut EditorState, chart: &mut ChartDoc) {
     crate::keyboard::edit::cancel(editor, chart);
+    editor.exit_slide_edit(chart);
     crate::timeline::transform::finish(editor, chart, false);
     editor.keyboard.reset_document();
     editor.dragging = None;

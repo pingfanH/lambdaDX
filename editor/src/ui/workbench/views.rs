@@ -56,6 +56,9 @@ impl Default for PaneView {
 
 impl Workbench {
     pub fn capture_views(&mut self, editor: &EditorState, pad_scale: f32) {
+        if self.preview_mode_applied {
+            self.preview_mode = Some(editor.autoplay_mode.min(3));
+        }
         for dock in &mut self.docks {
             for (_, pane) in dock.iter_all_tabs_mut() {
                 if !self.applied_views.contains(&(pane.kind, pane.id)) {
@@ -99,6 +102,13 @@ impl Workbench {
     }
 
     pub fn activate_views(&mut self, editor: &mut EditorState, pad_scale: &mut f32) {
+        if !self.preview_mode_applied {
+            if let Some(mode) = self.preview_mode {
+                editor.mode_dirty = true;
+                editor.autoplay_mode = mode;
+            }
+            self.preview_mode_applied = true;
+        }
         let mut active = Vec::new();
         for (_, pane) in self.docks[self.workspace].iter_all_tabs() {
             active.push((pane.kind, pane.id));

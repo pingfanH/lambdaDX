@@ -83,11 +83,11 @@ fn collect_conn_group(
     expected_size: Natural,
     mut acc: Vec<TypedSlidePart>,
     remaining: &[RawNoteToken],
-) -> Result<(Vec<TypedSlidePart>, Vec<RawNoteToken>), ParseError> {
+) -> Result<(Vec<TypedSlidePart>, usize), ParseError> {
     let mut i = 0usize;
     loop {
         if acc.len() == expected_size {
-            return Ok((acc, remaining[i..].to_vec()));
+            return Ok((acc, i));
         }
         match remaining.get(i) {
             None => {
@@ -146,12 +146,11 @@ fn build_typed_slides(tokens: &[RawNoteToken]) -> Result<Vec<TypedSlideExpr>, Pa
                     out.push(TypedSlideExpr::Single(part));
                     i += 1;
                 } else {
-                    let (parts, remaining) =
+                    let (parts, consumed) =
                         collect_conn_group(gid, size, vec![part], &tokens[i + 1..])?;
                     let expr = validate_conn_group(parts)?;
                     out.push(expr);
                     // Advance past the tokens consumed by the group.
-                    let consumed = tokens.len() - (i + 1) - remaining.len();
                     i += 1 + consumed;
                 }
             }

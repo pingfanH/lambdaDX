@@ -171,7 +171,6 @@ fn bind_notes(cells: &mut [TimedCell], chart: &ChartDoc) {
 
 pub(super) fn mapped_timeline(text: &str, chart: &ChartDoc) -> Result<Vec<TimedCell>, String> {
     let mut cells = timeline(text, chart.bpm)?;
-    for cell in &mut cells { cell.time += chart.audio_offset; }
     bind_notes(&mut cells, chart);
     Ok(cells)
 }

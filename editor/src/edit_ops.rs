@@ -80,6 +80,11 @@ impl EditorState {
     }
 
     pub fn undo(&mut self, chart: &mut ChartDoc) {
+        if self.check_slide_placement_finished().is_err() {
+            crate::keyboard::edit::cancel(self, chart);
+            self.exit_slide_edit(chart);
+            return;
+        }
         self.simai_editor.history_boundary();
         if let Some(previous) = self.undo.pop() {
             if self.template_session.is_none() && !self.mairis.annotation.active { self.simai_editor.sync(chart); }
@@ -95,6 +100,11 @@ impl EditorState {
     }
 
     pub fn redo(&mut self, chart: &mut ChartDoc) {
+        if self.check_slide_placement_finished().is_err() {
+            crate::keyboard::edit::cancel(self, chart);
+            self.exit_slide_edit(chart);
+            return;
+        }
         self.simai_editor.history_boundary();
         if let Some(next) = self.redo.pop() {
             if self.template_session.is_none() && !self.mairis.annotation.active { self.simai_editor.sync(chart); }
@@ -324,13 +334,14 @@ impl EditorState {
         self.status = Some("Repeated placement".into());
     }
 
-    /// Three-click star placement: head, motion start, then tail. Pending
-    /// geometry never enters the chart or history until all three are valid.
+    /// Three-click timing placement enters path editing. Without a default
+    /// path the whole placement stays provisional until confirmation.
     pub fn place_star_step(&mut self, chart: &mut ChartDoc, time: f32, lane: u8) {
         use super::state::StarPlacement;
         match self.star_placement {
             None => {
                 self.star_placement = Some(StarPlacement {
+                    tool: self.tool,
                     note_id: None,
                     head: time,
                     lane: lane.clamp(1, 8),
@@ -348,37 +359,10 @@ impl EditorState {
                 if time <= delay {
                     return;
                 }
-                let id = if let Some(id) = pending.note_id {
-                    if !chart
-                        .notes
-                        .iter()
-                        .any(|n| n.id == id && n.note_type == NoteType::Slide)
-                    {
-                        self.star_placement = None;
-                        return;
-                    }
-                    self.push_history(chart);
-                    id
-                } else {
-                    self.place_note(chart, pending.head, pending.lane)
-                };
-                let note = chart.notes.iter_mut().find(|n| n.id == id).unwrap();
                 let mut slide = default_slide();
                 slide.slide_start_delay = delay - pending.head;
                 slide.slide_duration = time - pending.head;
-                note.slide.push(slide);
-                if pending.note_id.is_some() {
-                    self.editing_slide_idx = note.slide.len() - 1;
-                    self.editing_slide = Some(id);
-                    self.pending_shape = None;
-                    self.select_only(id);
-                }
-                crate::app::maichart::mark_double_stars(&mut chart.notes);
-                if pending.note_id.is_none() {
-                    if let Some(last) = self.placement_sequence.last_mut() {
-                        *last = chart.notes.iter().find(|n| n.id == id).unwrap().clone();
-                    }
-                }
+                self.place_slide_path(chart, pending.note_id, pending.head, pending.lane, slide);
                 self.star_placement = None;
             }
         }
@@ -393,6 +377,7 @@ impl EditorState {
             return false;
         };
         self.star_placement = Some(super::state::StarPlacement {
+            tool: self.tool,
             note_id: Some(id),
             head: note.time,
             lane: note.lane,
@@ -415,6 +400,7 @@ impl EditorState {
 
     /// Add an independent trajectory to a star and enter editing on it.
     pub fn add_sub_slide(&mut self, chart: &mut ChartDoc, id: u64) -> bool {
+        self.exit_slide_edit(chart);
         let Some(idx) = chart
             .notes
             .iter()
@@ -422,19 +408,13 @@ impl EditorState {
         else {
             return false;
         };
-        self.push_history(chart);
-        let note = &mut chart.notes[idx];
-        note.slide.push(default_slide());
-        self.editing_slide_idx = note.slide.len() - 1;
-        crate::app::maichart::mark_double_stars(&mut chart.notes);
-        self.editing_slide = Some(id);
-        self.pending_shape = None;
-        self.select_only(id);
-        true
+        let note = &chart.notes[idx];
+        self.place_slide_path(chart, Some(id), note.time, note.lane, default_slide())
     }
 
-    /// Delete only the active trajectory, leaving the star and other paths intact.
+    /// Delete the active trajectory while preserving the note head and other paths.
     pub fn remove_sub_slide(&mut self, chart: &mut ChartDoc) -> bool {
+        if self.slide_draft.is_some() { self.exit_slide_edit(chart); return true; }
         let Some((idx, sub)) = self.editing_target(chart) else {
             return false;
         };
@@ -443,6 +423,10 @@ impl EditorState {
         }
         self.push_history(chart);
         chart.notes[idx].slide.remove(sub);
+        if chart.notes[idx].slide.is_empty() {
+            chart.notes[idx].note_type = NoteType::Tap;
+            chart.notes[idx].is_star = false;
+        }
         crate::app::maichart::mark_double_stars(&mut chart.notes);
         self.pending_shape = None;
         self.reconcile_slide_target(chart);
@@ -477,55 +461,61 @@ impl EditorState {
     /// the slide/segment as needed (a freshly placed slide has neither). Returns
     /// whether anything changed. One undoable step.
     ///
-    /// Mirrors the original editor: the segment is kept free-form (its shape is
-    /// re-inferred from the whole waypoint list) so every waypoint stays on the
-    /// visible path instead of collapsing to a start→end arc.
+    /// Free-form segments are inferred from their waypoints. Explicit shapes
+    /// keep their geometry; further waypoints start a new connected segment.
     pub fn append_slide_waypoint(&mut self, chart: &mut ChartDoc, zone: PadZone) -> bool {
-        let Some((idx, sub)) = self.editing_target(chart) else {
+        let Some((note, sub)) = self.editing_slide_target(chart) else {
             return false;
         };
-        let start_lane = chart.notes[idx].lane;
         // Ignore a repeat of the current tail (matches the original's dedup).
-        let is_dup = chart.notes[idx]
-            .slide
-            .get(sub)
-            .and_then(|sl| sl.segments.last())
-            .and_then(|seg| seg.points.last())
-            .map(|p| p.zone == zone)
-            .unwrap_or(false);
+        let is_dup = note.slide.get(sub)
+            .and_then(|slide| slide.segments.last())
+            .and_then(|segment| segment.points.last())
+            .is_some_and(|point| point.zone == zone);
         if is_dup {
             return false;
         }
-        self.push_history(chart);
-        let sl = slide_mut(&mut chart.notes[idx], sub);
-        let seg = ensure_last_segment(sl);
-        seg.points.push(SlidePoint {
-            zone,
-            beat_offset: 0.0,
-        });
-        seg.shape = infer_segment_shape(start_lane, &seg.points);
-        true
+        self.slide_path_history(chart);
+        self.with_editing_slide_mut(chart, |note, sub| {
+            let start_lane = note.lane;
+            let sl = slide_mut(note, sub);
+            let starts_new_segment = sl.segments.last().is_some_and(|segment| {
+                !matches!(segment.shape, SlideShape::Line | SlideShape::VShape)
+                    && !segment.points.is_empty()
+            });
+            if starts_new_segment {
+                sl.segments.push(SlideSegment {
+                    points: Vec::new(),
+                    shape: SlideShape::Line,
+                });
+            }
+            let segment_start = sl.segments.iter().rev().nth(1)
+                .and_then(|segment| segment.points.last())
+                .map(|point| point.zone.to_id())
+                .unwrap_or(start_lane);
+            let seg = ensure_last_segment(sl);
+            seg.points.push(SlidePoint { zone, beat_offset: 0.0 });
+            seg.shape = infer_segment_shape(segment_start, &seg.points);
+            true
+        })
     }
 
     /// Remove the last waypoint of the editing slide's last segment (Backspace),
     /// dropping the segment once it becomes empty. Returns whether anything
     /// changed. One undoable step.
     pub fn pop_slide_waypoint(&mut self, chart: &mut ChartDoc) -> bool {
-        let Some((idx, sub)) = self.editing_target(chart) else {
+        let Some((note, sub)) = self.editing_slide_target(chart) else {
             return false;
         };
-        let has_point = chart.notes[idx]
-            .slide
-            .get(sub)
-            .and_then(|sl| sl.segments.last())
-            .map(|seg| !seg.points.is_empty())
-            .unwrap_or(false);
-        if !has_point {
+        if !note.slide.get(sub).and_then(|slide| slide.segments.last())
+            .is_some_and(|segment| !segment.points.is_empty())
+        {
             return false;
         }
-        self.push_history(chart);
-        let start_lane = chart.notes[idx].lane;
-        if let Some(sl) = chart.notes[idx].slide.get_mut(sub) {
+        self.slide_path_history(chart);
+        self.with_editing_slide_mut(chart, |note, sub| {
+            let start_lane = note.lane;
+            let sl = note.slide.get_mut(sub).unwrap();
             let segment_start = sl
                 .segments
                 .iter()
@@ -542,13 +532,13 @@ impl EditorState {
                     seg.shape = infer_segment_shape(segment_start, &seg.points);
                 }
             }
-        }
-        true
+            true
+        })
     }
 
     /// Append `shape` (ending at `end_lane`, 1..=8) as a new segment on the
     /// editing sub-slide, chaining it after any existing arcs (mirroring the
-    /// original editor). Rejected when invalid for the slide's start lane. One
+    /// original editor). Rejected when invalid for the segment's start lane. One
     /// undoable step.
     pub fn apply_slide_shape(
         &mut self,
@@ -556,31 +546,28 @@ impl EditorState {
         shape: SlideShape,
         end_lane: u8,
     ) -> bool {
-        let Some((idx, sub)) = self.editing_target(chart) else {
+        let Some((note, sub)) = self.editing_slide_target(chart) else {
             return false;
         };
-        let start_lane = chart.notes[idx].lane;
+        let start_lane = note.slide.get(sub)
+            .and_then(|slide| slide.segments.last())
+            .and_then(|segment| segment.points.last())
+            .map(|point| point.zone.to_id())
+            .unwrap_or(note.lane);
         if end_lane < 1
             || end_lane > 8
             || validate_slide_shape(shape, start_lane, end_lane).is_err()
         {
             return false;
         }
-        self.push_history(chart);
-        let seg = SlideSegment {
-            points: shape_waypoints(shape, end_lane),
-            shape,
-        };
-        let note = &mut chart.notes[idx];
-        if note.slide.is_empty() {
-            let mut sl = default_slide();
-            sl.segments.push(seg);
-            note.slide.push(sl);
-        } else {
-            let sub = sub.min(note.slide.len() - 1);
-            note.slide[sub].segments.push(seg);
-        }
-        true
+        self.slide_path_history(chart);
+        self.with_editing_slide_mut(chart, |note, sub| {
+            slide_mut(note, sub).segments.push(SlideSegment {
+                points: shape_waypoints(shape, end_lane),
+                shape,
+            });
+            true
+        })
     }
 }
 
@@ -850,6 +837,8 @@ mod tests {
             editor.place_star_step(&mut chart, time, lane);
             editor.place_star_step(&mut chart, time + 0.25, lane);
             editor.place_star_step(&mut chart, time + 0.75, lane);
+            assert!(editor.append_slide_waypoint(&mut chart, PadZone::from(lane + 4)));
+            assert!(editor.confirm_slide_edit(&mut chart));
         }
         crate::timeline::transform::repeat(&mut editor, &mut chart);
         assert_eq!(chart.notes.len(), 4);
@@ -890,6 +879,37 @@ mod tests {
     }
 
     #[test]
+    fn switching_tools_cancels_slide_timing_placement() {
+        let mut editor = EditorState { tool: crate::state::Tool::Slide, ..Default::default() };
+        let mut chart = chart(Vec::new());
+        editor.place_star_step(&mut chart, 2.0, 3);
+        editor.tool = crate::state::Tool::Tap;
+        editor.reconcile_slide_edit(&mut chart);
+        assert!(editor.star_placement.is_none());
+        assert!(chart.notes.is_empty());
+        assert!(editor.undo.is_empty());
+        assert!(!editor.dirty);
+    }
+
+    #[test]
+    fn unfinished_star_path_is_provisional() {
+        let mut editor = EditorState { tool: super::super::state::Tool::Slide, ..Default::default() };
+        let mut chart = chart(Vec::new());
+        for time in [2.0, 2.25, 3.0] {
+            editor.place_star_step(&mut chart, time, 3);
+        }
+        assert!(chart.notes.is_empty());
+        assert!(editor.editing_slide.is_some());
+        assert!(editor.slide_draft.is_some());
+        assert!(editor.undo.is_empty(), "timing alone must not commit a pathless Slide");
+        assert!(!editor.dirty);
+        assert!(editor.append_slide_waypoint(&mut chart, PadZone::from(7)));
+        assert!(chart.notes.is_empty());
+        assert!(editor.undo.is_empty(), "draft path edits belong to one placement");
+        assert!(!editor.dirty);
+    }
+
+    #[test]
     fn star_placement_requires_increasing_times_and_commits_one_history_step() {
         let mut editor = EditorState::default();
         editor.tool = super::super::state::Tool::Slide;
@@ -905,10 +925,16 @@ mod tests {
         assert!(chart.notes.is_empty());
         editor.place_star_step(&mut chart, 3.0, 8);
         assert!(editor.star_placement.is_none());
+        assert!(chart.notes.is_empty());
+        let preview = editor.slide_preview_note(&chart).unwrap();
+        assert_eq!((preview.time, preview.lane), (2.0, 3));
+        assert_eq!(preview.slide[0].slide_start_delay, 0.25);
+        assert_eq!(preview.slide[0].slide_duration, 1.0);
+        assert_eq!(editor.editing_slide, Some(preview.id));
+        assert!(editor.undo.is_empty());
+        assert!(editor.append_slide_waypoint(&mut chart, PadZone::from(7)));
+        assert!(editor.confirm_slide_edit(&mut chart));
         assert_eq!(chart.notes.len(), 1);
-        assert_eq!((chart.notes[0].time, chart.notes[0].lane), (2.0, 3));
-        assert_eq!(chart.notes[0].slide[0].slide_start_delay, 0.25);
-        assert_eq!(chart.notes[0].slide[0].slide_duration, 1.0);
         assert_eq!(editor.editing_slide, None);
         assert_eq!(editor.undo.len(), 1);
         editor.undo(&mut chart);
@@ -1093,6 +1119,45 @@ mod tests {
     }
 
     #[test]
+    fn appending_during_a_later_edit_preserves_explicit_shape_segments() {
+        use crate::app::types::{Slide, SlidePoint, SlideSegment};
+
+        let mut editor = EditorState::default();
+        let mut note = slide_note(1, 4.0, 1);
+        note.slide = vec![Slide {
+            slide_start_delay: 0.25,
+            slide_duration: 1.0,
+            segments: vec![SlideSegment {
+                shape: SlideShape::Right,
+                points: vec![SlidePoint::from(PadZone::from(3u8))],
+            }],
+            slide_is_break: false,
+            runtime_parts: 1,
+        }];
+        let mut chart = chart(vec![note]);
+        editor.editing_slide = Some(1);
+
+        assert!(editor.append_slide_waypoint(&mut chart, PadZone::from(5u8)));
+
+        let segments = &chart.notes[0].slide[0].segments;
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].shape, SlideShape::Right);
+        assert_eq!(segments[0].points[0].zone, PadZone::from(3u8));
+        assert_eq!(segments[1].shape, SlideShape::Line);
+        assert_eq!(segments[1].points[0].zone, PadZone::from(5u8));
+
+        assert!(editor.append_slide_waypoint(&mut chart, PadZone::from(7u8)));
+        assert_eq!(chart.notes[0].slide[0].segments[0].shape, SlideShape::Right);
+        assert_eq!(chart.notes[0].slide[0].segments[1].shape, SlideShape::Line);
+        assert_eq!(chart.notes[0].slide[0].segments[1].points.len(), 2);
+
+        assert!(editor.pop_slide_waypoint(&mut chart));
+        assert!(editor.pop_slide_waypoint(&mut chart));
+        assert_eq!(chart.notes[0].slide[0].segments.len(), 1);
+        assert_eq!(chart.notes[0].slide[0].segments[0].shape, SlideShape::Right);
+    }
+
+    #[test]
     fn apply_slide_shape_sets_waypoints_and_rejects_invalid() {
         let mut editor = EditorState::default();
         let mut chart = chart(vec![slide_note(1, 4.0, 1)]);
@@ -1114,6 +1179,11 @@ mod tests {
         assert_eq!(segs[1].shape, SlideShape::VShape);
         assert_eq!(segs[1].points.len(), 2);
         assert_eq!(segs[1].points[0].zone, PadZone::from(17u8));
+        // A chained shape starts at the preceding endpoint (3), not the head (1).
+        assert!(!editor.apply_slide_shape(&mut chart, SlideShape::S, 5));
+        assert!(editor.apply_slide_shape(&mut chart, SlideShape::S, 7));
+        assert_eq!(chart.notes[0].slide[0].segments.len(), 3);
+        assert_eq!(chart.notes[0].slide[0].segments[2].shape, SlideShape::S);
     }
 
     #[test]
@@ -1196,8 +1266,12 @@ mod tests {
         assert!(editor.add_sub_slide(&mut chart, 1));
         assert_eq!(editor.single_selected(), Some(1));
         assert_eq!(editor.editing_slide_idx, 1);
-        assert_eq!(chart.notes[0].slide.len(), 2);
+        assert_eq!(chart.notes[0].slide.len(), 1);
+        assert_eq!(editor.slide_preview_note(&chart).unwrap().slide.len(), 2);
         editor.append_slide_waypoint(&mut chart, PadZone::from(6u8));
+        assert!(editor.confirm_slide_edit(&mut chart));
+        editor.editing_slide = Some(1);
+        editor.editing_slide_idx = 1;
         assert!(chart.notes[0].is_star, "same-head trajectories use a double star");
         assert_eq!(
             serde_json::to_value(&chart.notes[0].slide[0]).unwrap(),
@@ -1219,10 +1293,13 @@ mod tests {
             serde_json::to_value(&chart.notes[0].slide[0]).unwrap(),
             original
         );
+        editor.editing_slide = Some(1);
+        editor.editing_slide_idx = 0;
         assert!(editor.remove_sub_slide(&mut chart));
         assert!(!editor.remove_sub_slide(&mut chart));
-        assert_eq!(chart.notes.len(), 2, "deleting a trajectory keeps the star");
-        assert!(editor.append_slide_waypoint(&mut chart, PadZone::from(4u8)));
+        assert_eq!(chart.notes.len(), 2, "deleting a trajectory keeps the note");
+        assert_eq!(chart.notes[0].note_type, NoteType::Tap);
+        assert_eq!(editor.editing_slide, None);
     }
 
     #[test]
@@ -1230,7 +1307,13 @@ mod tests {
         let mut editor = EditorState::default();
         let mut chart = chart(vec![slide_note(1, 4.0, 1)]);
         editor.add_sub_slide(&mut chart, 1);
+        editor.append_slide_waypoint(&mut chart, PadZone::from(5));
+        assert!(editor.confirm_slide_edit(&mut chart));
         editor.add_sub_slide(&mut chart, 1);
+        editor.append_slide_waypoint(&mut chart, PadZone::from(6));
+        assert!(editor.confirm_slide_edit(&mut chart));
+        editor.editing_slide = Some(1);
+        editor.editing_slide_idx = 1;
         editor.undo(&mut chart);
         assert_eq!(editor.editing_slide_idx, 0);
         assert_eq!(chart.notes[0].slide.len(), 1);
@@ -1249,6 +1332,8 @@ mod tests {
         let mut chart = chart(vec![slide_note(1, 4.0, 1)]);
         for _ in 0..70 {
             assert!(editor.add_sub_slide(&mut chart, 1));
+            editor.append_slide_waypoint(&mut chart, PadZone::from(5));
+            assert!(editor.confirm_slide_edit(&mut chart));
         }
         assert_eq!(editor.undo.len(), 64);
         editor.undo(&mut chart);

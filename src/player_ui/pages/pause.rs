@@ -125,6 +125,7 @@ pub fn draw(app: &mut PlayerUiApp, input: &mut Input, ctx: &UiCtx) {
 }
 
 fn format_time(seconds: f32) -> String {
-    let total = seconds.max(0.0) as u32;
-    format!("{:02}:{:02}", total / 60, total % 60)
+    let total = if seconds < 0.0 { seconds.abs().ceil() } else { seconds } as u32;
+    let sign = if seconds < 0.0 { "-" } else { "" };
+    format!("{sign}{:02}:{:02}", total / 60, total % 60)
 }

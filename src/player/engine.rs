@@ -181,6 +181,7 @@ pub fn zone_for_sensor(area: SensorArea) -> PadZone {
 pub struct JudgeEngine {
     session: Session<Loaded>,
     chart_spec: ChartSpec,
+    simai_fragments: Vec<crate::app::maidata::SimaiFragment>,
     /// Last time successfully accepted by lnmai-core.
     ///
     /// Playback can deliver an autoplay event a frame late after a render or
@@ -240,21 +241,66 @@ impl JudgeEngine {
     /// Simai text.
     pub fn load(simai_text: &str, level_index: u32) -> Result<Self, String> {
         ensure_runtime();
+        #[cfg(feature = "backend-rust")]
+        let (loaded, tokens) = Session::<Empty>::create_native()
+            .map_err(|e| e.json)?
+            .load_chart_text_native_with_timeline(simai_text, level_index)
+            .map_err(|e| e.json)?;
+        #[cfg(feature = "backend-rust")]
+        let simai_fragments = tokens
+            .into_iter()
+            .map(|token| crate::app::maidata::SimaiFragment {
+                time: token.time_us as f32 / 1e6,
+                text: token.text,
+            })
+            .collect();
+        #[cfg(not(feature = "backend-rust"))]
         let loaded = Session::<Empty>::create_native()
             .map_err(|e| e.json)?
             .load_chart_text_native(simai_text, level_index)
             .map_err(|e| e.json)?;
+        #[cfg(not(feature = "backend-rust"))]
+        let simai_fragments = crate::app::maidata::simai_timeline(simai_text, level_index)
+            .unwrap_or_default();
+        Self::from_loaded(loaded, simai_fragments, simai_text, level_index)
+    }
+
+    /// Initialize judgment from the same frontend result used by the renderer.
+    #[cfg(feature = "backend-rust")]
+    pub fn load_parsed(
+        parsed: crate::core::frontend::FrontendChartResult,
+        simai_text: &str,
+        level_index: u32,
+    ) -> Result<Self, String> {
+        let (loaded, tokens) = Session::<Empty>::create_native().map_err(|e| e.json)?
+            .load_parsed_native(parsed).map_err(|e| e.json)?;
+        let fragments = tokens.into_iter().map(|token| crate::app::maidata::SimaiFragment {
+            time: token.time_us as f32 / 1e6, text: token.text,
+        }).collect();
+        Self::from_loaded(loaded, fragments, simai_text, level_index)
+    }
+
+    fn from_loaded(
+        loaded: Session<Loaded>,
+        simai_fragments: Vec<crate::app::maidata::SimaiFragment>,
+        simai_text: &str,
+        level_index: u32,
+    ) -> Result<Self, String> {
         let (slide_bindings, slide_head_timings, slide_totals) = runtime_slide_bindings(&loaded)?;
         let chart_spec = loaded.chart_spec_native().map_err(|e| e.json)?;
         #[cfg(feature = "backend-rust")]
-        let sdez = if std::env::var("MAI2_JUDGE_MODE").ok().as_deref() == Some("legacy") {
-            None
+        // Keep the established scheduler as the safe default. SDEZ is an
+        // explicit opt-in so a missing or misspelled environment setting
+        // cannot silently change judgment semantics.
+        let sdez = if std::env::var("MAI2_JUDGE_MODE").ok().as_deref() == Some("sdez") {
+            Some(SdezEngine::from_session(&loaded)?)
         } else {
-            Some(SdezEngine::load(simai_text, level_index)?)
+            None
         };
         Ok(JudgeEngine {
             session: loaded,
             chart_spec,
+            simai_fragments,
             last_step_time_us: 0,
             slide_bindings,
             slide_head_timings,
@@ -267,6 +313,11 @@ impl JudgeEngine {
             #[cfg(feature = "backend-rust")]
             sdez_progress: Vec::new(),
         })
+    }
+
+    /// Source highlighting shares the frontend parse used by the runtime.
+    pub fn simai_fragments(&self) -> &[crate::app::maidata::SimaiFragment] {
+        &self.simai_fragments
     }
 
     /// Bind a recompiled editor chart without changing its stable note IDs.
@@ -386,7 +437,7 @@ impl JudgeEngine {
         current_secs: f32,
         events: Vec<TimedInputEvent>,
     ) -> Result<RuntimeStepLightResult, String> {
-        self.step_us((current_secs.max(0.0) as f64 * 1e6).round() as i64, events)
+        self.step_us((current_secs as f64 * 1e6).round() as i64, events)
     }
 
     /// Event timestamps must never round-trip through f32 seconds: a clock a
@@ -487,6 +538,7 @@ impl JudgeEngine {
                         track_index: Some(track as u64),
                         frac: frac.clamp(0.0, 1.0),
                         hidden_until_bar: None,
+                        hidden_frac: None,
                         // SDEZ reports a real per-track fraction, not the
                         // legacy shared cursor.
                         shared_frac: None,
@@ -498,6 +550,7 @@ impl JudgeEngine {
                     track_index: None,
                     frac: slide.progress.clamp(0.0, 1.0),
                     hidden_until_bar: None,
+                    hidden_frac: None,
                     shared_frac: None,
                 });
             }
@@ -546,7 +599,7 @@ impl JudgeEngine {
         }
         #[cfg(feature = "backend-rust")]
         if let Some(sdez) = &mut self.sdez {
-            let result = sdez.seek((seconds.max(0.0) * 1e6) as i64, events, keep_held)?;
+            let result = sdez.seek((seconds * 1e6) as i64, events, keep_held)?;
             let progress = sdez.take_slide_progress();
             self.last_step_time_us = result.current_time;
             self.map_sdez_progress(progress);
@@ -554,7 +607,7 @@ impl JudgeEngine {
         }
         let result = self
             .session
-            .seek_with_events((seconds.max(0.0) * 1e6) as i64, events, keep_held)
+            .seek_with_events((seconds * 1e6) as i64, events, keep_held)
             .map_err(|e| e.json);
         if let Ok(result) = &result {
             self.last_step_time_us = result.current_time;
@@ -598,6 +651,7 @@ impl JudgeEngine {
                     track_index: update.track_index,
                     frac: 0.0,
                     hidden_until_bar: None,
+                    hidden_frac: None,
                     shared_frac: None,
                 });
             entry.frac = entry.frac.max(update.frac);
@@ -606,6 +660,10 @@ impl JudgeEngine {
                 (a, b) => a.or(b),
             };
             entry.hidden_until_bar = match (entry.hidden_until_bar, update.hidden_until_bar) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            };
+            entry.hidden_frac = match (entry.hidden_frac, update.hidden_frac) {
                 (Some(a), Some(b)) => Some(a.max(b)),
                 (a, b) => a.or(b),
             };
@@ -645,8 +703,8 @@ impl JudgeEngine {
             ),
             // A miss hides the whole arc.
             RenderCommand::HideAllSlideBars { note_index } => (*note_index, None, 1.0, None),
-            // `HideSlideBars`/`HideSlideTrackBars.endIndex` is in trail-tile
-            // units (0..sprite count), which is exactly what the renderer hides.
+            // Cutoffs use the kernel's reference arrow table. Local tile counts
+            // vary with spacing and viewport size; normalize separately below.
             RenderCommand::HideSlideBars { note_index, end_index } => (
                 *note_index, None, 0.0, Some(*end_index as usize),
             ),
@@ -663,6 +721,13 @@ impl JudgeEngine {
             RenderCommand::ShowJudgeResult { .. } => return None,
         };
         let runtime_slide_index = self.runtime_slide_index(note_index)?;
+        let hidden_frac = match command {
+            RenderCommand::HideSlideBars { end_index, .. } =>
+                self.bar_fraction(note_index, 0, *end_index),
+            RenderCommand::HideSlideTrackBars { track_index, end_index, .. } =>
+                self.bar_fraction(note_index, *track_index, *end_index),
+            _ => None,
+        };
         let shared_frac = match command {
             RenderCommand::UpdateSlideTrackProgress { remaining, .. } if self.is_wifi(note_index)? =>
                 Some(self.frac_from_track_progress(note_index, *remaining)?),
@@ -673,6 +738,7 @@ impl JudgeEngine {
             track_index,
             frac: frac.clamp(0.0, 1.0),
             hidden_until_bar,
+            hidden_frac,
             shared_frac,
         })
     }
@@ -722,8 +788,12 @@ pub struct SlideArcProgress {
     pub track_index: Option<u64>,
     /// Consumed fraction from the `*Progress` commands (0..1).
     pub frac: f32,
-    /// Explicit trail-bar cutoff from `HideSlideTrackBars` (0..sprite count).
+    /// Raw cutoff in the kernel's reference arrow units, retained for diagnostics
+    /// and WiFi's separate per-track mapping. Never a local renderer tile index.
     pub hidden_until_bar: Option<usize>,
+    /// Explicit hide frontier normalized by this runtime arc/track's arrow table.
+    /// Separate from `frac`, which counts consumed judge areas.
+    pub hidden_frac: Option<f32>,
     /// WiFi shared cursor, distinct from a branch's explicit hide frontier.
     pub shared_frac: Option<f32>,
 }
@@ -982,7 +1052,7 @@ pub(crate) fn step_engine_events(
         // its own time: stepping the batch at `now` would judge it late, which
         // costs score for a short hitch and misses the note for a long one.
         span > FRAME_INPUT_BATCH_SPAN_US
-            || (now.max(0.0) * 1e6) as i64 - oldest > FRAME_INPUT_BATCH_SPAN_US
+            || (now * 1e6) as i64 - oldest > FRAME_INPUT_BATCH_SPAN_US
     };
     if !per_event {
         return vec![engine.step(now, events)];
@@ -1581,6 +1651,24 @@ mod tests {
     }
 
     #[test]
+    fn cached_source_timeline_matches_highlighting_across_clock_changes() {
+        for source in [
+            "&first=0.125\n&wholebpm=120\n&inote_6={4},,(180),,1/2,3h[4:1],A1/B1,4-8[8:1],E",
+            "&first=-0.25\n&inote_6=(210){7}1,2,(228)3,1v4>3>2[4:1],E",
+            "&inote_6=(120){4}1`2,A1/B1,Ch[4:1],E",
+        ] {
+            let engine = JudgeEngine::load(source, 6).unwrap();
+            let expected = crate::app::maidata::simai_timeline(source, 6).unwrap();
+            assert_eq!(engine.simai_fragments().len(), expected.len());
+            for (cached, original) in engine.simai_fragments().iter().zip(expected) {
+                assert_eq!(cached.text, original.text);
+                assert!((cached.time - original.time).abs() < 0.00002,
+                    "{source}: {cached:?} vs {original:?}");
+            }
+        }
+    }
+
+    #[test]
     fn slide_completion_uses_slide_judgment_without_tap_particles() {
         for source in ["&inote_1=(120){4}1-5[4:1],,,,E", "&inote_1=(120){4}1-5b[4:1],,,,E"] {
             let chart = crate::app::maidata::from_maidata(source, None).unwrap();
@@ -1894,6 +1982,102 @@ mod tests {
         engine
             .step(5.0, press_events_for_zone(PadZone::from(1), 5_000_000))
             .expect("press frame steps");
+    }
+
+    #[test]
+    fn reference_arrow_progress_matches_rendered_trail_at_any_density() {
+        use crate::app::slide::segmentation;
+        use crate::app::slide_render::{build_slide_path, core_trail_cutoff};
+        use crate::app::types::{PadGeom, Slide};
+        use macroquad::math::vec2;
+
+        // The first arc and q variants come from Hello, SEKAI. Include both
+        // chain encodings so a completed arc cannot clear another arc's trail.
+        let source = "&inote_1=(148){1}4>5[4:15],5q1[4:1],1q5[4:1],2q6[8:1],4q8[8:1],1v4>3>2[4:1],2-4[4:1]-6[4:1],E";
+        let chart = crate::app::maidata::from_maidata(source, None).unwrap();
+        let mut app = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        app.load_engine(source, 1).unwrap();
+        let spec = app.judge_engine.as_ref().unwrap().chart_spec().unwrap();
+        let svg = crate::app::pad_svg::PadSvgDef::from_svg_str(
+            include_str!("../../assets/pad.svg"),
+        ).unwrap();
+        let mut checked_partial = 0;
+        for (runtime, arc) in spec.slides.iter().enumerate() {
+            let (id, sub, segment, _) = app.judge_engine.as_ref().unwrap()
+                .slide_position(&app.chart, runtime).unwrap();
+            let mut note = app.chart.notes.iter().find(|note| note.id == id).unwrap().clone();
+            let slide = crate::app::slide_render::render_slide_legs(&note.slide[sub]);
+            let segment_def = slide.segments[segment].clone();
+            let lane = crate::app::slide_render::segment_start_lanes(&note, &slide)[segment];
+            let slide = Slide { segments: vec![segment_def], ..slide.into_owned() };
+            note.lane = lane;
+            let queue = &arc.judge_queues[0];
+            let total = queue.iter().map(|a|
+                a.arrow_progress_when_finished.max(a.arrow_progress_when_on)
+            ).max().unwrap();
+            assert!(total > 0);
+            let mut cutoffs: Vec<_> = queue.iter().flat_map(|a|
+                [a.arrow_progress_when_on, a.arrow_progress_when_finished]
+            ).collect();
+            cutoffs.sort_unstable();
+            cutoffs.dedup();
+            app.slide_progress.clear();
+            for cutoff in cutoffs {
+                let command = if arc.is_conn_slide {
+                    RenderCommand::HideSlideTrackBars {
+                        note_index: arc.note_index, track_index: 0, end_index: cutoff,
+                    }
+                } else {
+                    RenderCommand::HideSlideBars { note_index: arc.note_index, end_index: cutoff }
+                };
+                let updates = app.judge_engine.as_ref().unwrap().slide_progress_updates(&[command]);
+                app.apply_core_slide_progress_updates(&updates);
+                let progress = &app.slide_progress[&(id, sub)];
+                let frontier = progress.seg_hidden_frac[segment];
+                let expected = cutoff as f32 / total as f32;
+                assert!((frontier.unwrap() - expected).abs() < 1e-6, "arc {runtime}");
+                for (radius, scale) in [(326.57, 1.0), (180.0, 1.35)] {
+                    let pad = PadGeom { cx: 400.0, cy: 400.0, outer_r: radius };
+                    let path = build_slide_path(&note, &slide, &pad, &svg, scale,
+                        vec2(pad.cx, pad.cy), radius);
+                    for spacing in [28.0, 35.0, 46.0, 80.0] {
+                        let tiles = segmentation::build(&path, spacing * scale,
+                            10.0 * scale, 30.0 * scale, &svg, &pad).bars.len();
+                        assert!(tiles > 0);
+                        let hidden = core_trail_cutoff(tiles, frontier, 0);
+                        let visible_ratio = (tiles - hidden) as f32 / tiles as f32;
+                        assert!((visible_ratio - (1.0 - expected)).abs() <= 1.0 / tiles as f32 + 1e-6,
+                            "arc {runtime}: {hidden}/{tiles} hidden for {cutoff}/{total}");
+                        if cutoff < total {
+                            assert!(hidden < tiles, "arc {runtime} cleared before its terminal hide");
+                            checked_partial += 1;
+                        } else {
+                            assert_eq!(hidden, tiles);
+                        }
+                    }
+                }
+            }
+            // A miss/finish without another explicit cutoff must also clear
+            // this arc even if its last hide command was only partial.
+            app.slide_progress.clear();
+            let partial = queue.iter().flat_map(|area|
+                [area.arrow_progress_when_on, area.arrow_progress_when_finished]
+            ).find(|&cutoff| cutoff > 0 && cutoff < total).unwrap();
+            let updates = app.judge_engine.as_ref().unwrap().slide_progress_updates(
+                &[RenderCommand::HideSlideBars { note_index: arc.note_index, end_index: partial }],
+            );
+            app.apply_core_slide_progress_updates(&updates);
+            assert!(app.slide_progress[&(id, sub)].seg_hidden_frac[segment].unwrap() < 1.0);
+            let updates = app.judge_engine.as_ref().unwrap().slide_progress_updates(
+                &[RenderCommand::HideAllSlideBars { note_index: arc.note_index }],
+            );
+            app.apply_core_slide_progress_updates(&updates);
+            let state = &app.slide_progress[&(id, sub)];
+            assert_eq!(state.seg_hidden_frac[segment], Some(1.0));
+            assert!(state.seg_hidden_frac.iter().enumerate()
+                .all(|(index, value)| index == segment || value.is_none()));
+        }
+        assert!(checked_partial > 100);
     }
 
     #[test]

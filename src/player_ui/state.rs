@@ -23,6 +23,8 @@ struct LoadedChart {
     levels: Vec<(u32, String)>,
     key: Option<u32>,
     chart: ChartDoc,
+    #[cfg(feature = "backend-rust")]
+    engine: Result<crate::player::engine::JudgeEngine, String>,
     audio_path: Option<std::path::PathBuf>,
 }
 
@@ -35,7 +37,10 @@ fn load_chart_job(song: &library::LibrarySong, index: usize) -> ChartResult {
         .map_err(|e| format!("读取 {}: {e}", song.chart_path.display()))?;
     let levels = song.levels.clone();
     let key = library::default_level(&levels);
-    let chart = library::chart_for_level(&text, key).map_err(|e| e.to_string())?;
+    #[cfg(feature = "backend-rust")]
+    let (chart, engine) = prepare_chart(&text, key)?;
+    #[cfg(not(feature = "backend-rust"))]
+    let chart = library::chart_for_level(&text, key)?;
     let audio_path = crate::app::chart::find_audio_in_dir(&song.folder);
     Ok(LoadedChart {
         index,
@@ -43,8 +48,25 @@ fn load_chart_job(song: &library::LibrarySong, index: usize) -> ChartResult {
         levels,
         key,
         chart,
+        #[cfg(feature = "backend-rust")]
+        engine,
         audio_path,
     })
+}
+
+#[cfg(feature = "backend-rust")]
+fn prepare_chart(
+    text: &str, key: Option<u32>,
+) -> Result<(ChartDoc, Result<crate::player::engine::JudgeEngine, String>), String> {
+    let level = key.or_else(|| crate::app::maidata::inote_key(text, None))
+        .ok_or("chart has no &inote_N level")?;
+    let (chart, parsed) = crate::player_ui::perf::time("chart.parse+convert", || {
+        crate::app::maidata::from_maidata_prepared(text, level)
+    })?;
+    let engine = crate::player_ui::perf::time("chart.prepare_engine", || {
+        crate::player::engine::JudgeEngine::load_parsed(parsed, text, level)
+    });
+    Ok((chart, engine))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +124,11 @@ pub struct PlayerUiApp {
 
     // ── Settings tab ──────────────────────────────────────────────────
     pub settings_section: usize,
+    /// Content offset for the settings detail list.
+    pub settings_scroll: f32,
+    pub settings_scroll_target: f32,
+    /// Player settings changed since the last explicit save.
+    pub settings_params_dirty: bool,
 
     // ── List interaction ──────────────────────────────────────────────
     pub list_scroll: f32,
@@ -113,6 +140,13 @@ pub struct PlayerUiApp {
 
     /// Set once the gameplay frame has been presented (audio gate).
     pub gameplay_presented: bool,
+    /// A chart delivered by a remote Editor, independent of the local library.
+    pub remote_preview: bool,
+    pub link_ui: crate::player_ui::remote::UiState,
+    /// Restart point for a preview begun partway through a chart.
+    pub gameplay_start: f32,
+    pub backgrounded: bool,
+    pub lifecycle_paused: bool,
 }
 
 impl PlayerUiApp {
@@ -125,8 +159,17 @@ impl PlayerUiApp {
         // Menus do not play audio. Opening the system output device can take
         // over a second, so leave it closed until the first gameplay request.
         let pad = PadPreviewState::new_at(chart, audio_source_name, audio_wav_pcm, now, None);
+        Self::from_pad(pad)
+    }
+
+    /// Construct the UI around an initialized pad.
+    pub fn from_pad(pad: PadPreviewState) -> Self {
+        let now = pad.now();
+        let audio_output_initialized = pad.bgm_player.is_some();
         Self {
             pad,
+            backgrounded: false,
+            lifecycle_paused: false,
             page: Page::Start,
             prev_page: Page::Start,
             settings_return: Page::Start,
@@ -145,18 +188,24 @@ impl PlayerUiApp {
             audio_rx: None,
             audio_for: None,
             audio_ready_for: None,
-            audio_output_initialized: false,
+            audio_output_initialized,
             preparing: false,
             scrubbing: false,
             chart_rx: None,
             loading_song: false,
             loading_song_index: None,
             settings_section: 0,
+            settings_scroll: 0.0,
+            settings_scroll_target: 0.0,
+            settings_params_dirty: false,
             list_scroll: 0.0,
             list_scroll_target: 0.0,
             status: "Ready".to_string(),
             error: None,
             gameplay_presented: false,
+            remote_preview: false,
+            link_ui: Default::default(),
+            gameplay_start: 0.0,
         }
     }
 
@@ -164,12 +213,12 @@ impl PlayerUiApp {
         if self.page == page {
             return;
         }
-        if page != Page::Gameplay {
+        if page != Page::Gameplay && !self.remote_preview {
             self.preparing = false;
         }
         self.prev_page = self.page;
         self.page = page;
-        let now = get_time();
+        let now = self.pad.now();
         self.page_born = now;
         self.transition_at = now;
         self.list_scroll_target = self.list_scroll;
@@ -181,12 +230,12 @@ impl PlayerUiApp {
         if self.page == page {
             return;
         }
-        if page != Page::Gameplay {
+        if page != Page::Gameplay && !self.remote_preview {
             self.preparing = false;
         }
         self.prev_page = self.page;
         self.page = page;
-        self.page_born = get_time();
+        self.page_born = self.pad.now();
         self.transition_tex = None;
         self.transition_snap = None;
         self.list_scroll_target = self.list_scroll;
@@ -195,6 +244,9 @@ impl PlayerUiApp {
     pub fn open_settings(&mut self) {
         if self.page == Page::Settings {
             return;
+        }
+        if self.page == Page::Gameplay {
+            self.pause();
         }
         self.settings_return = self.page;
         self.go(Page::Settings);
@@ -214,10 +266,23 @@ impl PlayerUiApp {
         };
     }
 
-    /// True when the pad should be drawn under the current page. Settings is a
-    /// full opaque page (it never reveals the pad behind it).
+    /// Settings also reveals the pad behind its controls.
     pub fn shows_gameplay_background(&self) -> bool {
-        matches!(self.page, Page::Gameplay | Page::Pause)
+        matches!(self.page, Page::Gameplay | Page::Pause | Page::Settings)
+    }
+
+    pub fn updates_gameplay(&self) -> bool {
+        !self.preparing && (matches!(self.page, Page::Gameplay | Page::Pause)
+            || self.remote_preview && self.page == Page::Settings
+                && self.pad.mode == crate::app::types::Mode::Playing)
+    }
+
+    pub fn finish_gameplay_frame(&mut self) {
+        let presented = !self.preparing && self.shows_gameplay_background();
+        if presented && self.pad.playback_pending && self.gameplay_presented {
+            self.pad.finalize_playback_start();
+        }
+        self.gameplay_presented = presented;
     }
 
     // ── Song loading ──────────────────────────────────────────────────
@@ -285,10 +350,21 @@ impl PlayerUiApp {
     }
 
     fn install_loaded(&mut self, loaded: LoadedChart) {
+        self.remote_preview = false;
+        self.error = None;
         self.chart_text = Some(loaded.text);
         self.levels = loaded.levels;
         self.selected_level = loaded.key;
         self.apply_chart(loaded.chart);
+        #[cfg(feature = "backend-rust")]
+        {
+            let result = loaded.engine.and_then(|engine| self.pad.install_engine(
+                engine, self.chart_text.as_deref().unwrap(),
+                self.selected_level.or_else(|| crate::app::maidata::inote_key(self.chart_text.as_deref().unwrap(), None)).unwrap(),
+            ));
+            self.finish_core_engine(result);
+        }
+        #[cfg(not(feature = "backend-rust"))]
         self.load_core_engine();
 
         self.audio_path = loaded.audio_path;
@@ -305,7 +381,6 @@ impl PlayerUiApp {
         self.loaded = Some(loaded.index);
         self.selected = loaded.index;
         self.using_custom = false;
-        self.error = None;
         self.status = format!(
             "已载入 {} · {} notes",
             self.pad.chart.title,
@@ -331,6 +406,10 @@ impl PlayerUiApp {
     /// Re-read the current song's `maidata.txt` from disk and reinstall it,
     /// restarting playback. Picks up chart edits without leaving the app.
     pub fn reload_current_song(&mut self) -> Result<(), String> {
+        if self.remote_preview {
+            self.restart();
+            return Ok(());
+        }
         let index = self.loaded.unwrap_or(self.selected);
         let song = self
             .library
@@ -352,13 +431,22 @@ impl PlayerUiApp {
     pub fn select_level(&mut self, key: u32) -> Result<(), String> {
         let _s = crate::player_ui::perf::Scope::new(format!("select_level[{key}]"));
         let text = self.chart_text.clone().ok_or("当前歌曲没有可切换的难度")?;
+        #[cfg(feature = "backend-rust")]
+        let (chart, engine) = prepare_chart(&text, Some(key))?;
+        #[cfg(not(feature = "backend-rust"))]
         let chart = crate::player_ui::perf::time("  parse+convert chart", || {
             library::chart_for_level(&text, Some(key)).map_err(|e| e.to_string())
         })?;
         self.selected_level = Some(key);
         self.apply_chart(chart);
-        self.load_core_engine();
         self.error = None;
+        #[cfg(feature = "backend-rust")]
+        {
+            let result = engine.and_then(|engine| self.pad.install_engine(engine, &text, key));
+            self.finish_core_engine(result);
+        }
+        #[cfg(not(feature = "backend-rust"))]
+        self.load_core_engine();
         self.status = format!("难度已切换至 Lv.{key}");
         Ok(())
     }
@@ -369,8 +457,8 @@ impl PlayerUiApp {
         self.pad.mode = crate::app::types::Mode::Idle;
         self.pad.playback_pending = false;
         self.pad.audio_start_pending = false;
-        self.pad.mode_song_offset = 0.0;
-        self.pad.timeline_view_time = 0.0;
+        self.pad.mode_song_offset = chart.playback_start_time();
+        self.pad.timeline_view_time = self.pad.mode_song_offset;
         self.pad.mode_wall_anchor = get_time();
         self.pad.chart = chart;
         // Simai-converted notes all default to id 0; give them unique ids so
@@ -411,7 +499,12 @@ impl PlayerUiApp {
             self.error = Some("lnmai-core: chart has no &inote_N level".to_string());
             return;
         };
-        match self.pad.load_engine(text, level) {
+        let result = self.pad.load_engine(text, level);
+        self.finish_core_engine(result);
+    }
+
+    fn finish_core_engine(&mut self, result: Result<(), String>) {
+        match result {
             Ok(()) => {
                 self.status = format!(
                     "lnmai-core ready · {} tactic events · {} slides",
@@ -454,7 +547,7 @@ impl PlayerUiApp {
         }
         // Audio already installed (or there is no track): start straight away.
         if self.pad.audio_wav_pcm.is_some() || self.audio_path.is_none() {
-            self.pad.start_playback_at(0.0);
+            self.pad.start_playback_at(self.pad.chart.playback_start_time());
             self.go(Page::Gameplay);
             return Ok(());
         }
@@ -496,11 +589,8 @@ impl PlayerUiApp {
     /// Install a finished background decode; if playback was waiting on it,
     /// start now. Call once per frame.
     pub fn poll_audio(&mut self) {
-        let Some(rx) = &self.audio_rx else {
-            return;
-        };
-        let ready = match rx.try_recv() {
-            Ok((name, pcm)) => {
+        let ready = match self.audio_rx.as_ref().map(|rx| rx.try_recv()) {
+            Some(Ok((name, pcm))) => {
                 let index = self.audio_for;
                 if index == self.loaded && pcm.is_some() {
                     self.pad.audio_source_name = name;
@@ -510,16 +600,17 @@ impl PlayerUiApp {
                 }
                 true
             }
-            Err(TryRecvError::Empty) => false,
-            Err(TryRecvError::Disconnected) => true,
+            Some(Err(TryRecvError::Empty)) => false,
+            Some(Err(TryRecvError::Disconnected)) | None => true,
         };
         if !ready {
             return;
         }
         self.audio_rx = None;
-        if self.preparing && self.page == Page::Gameplay {
+        if !self.remote_preview && self.preparing && self.page == Page::Gameplay
+            && !self.backgrounded && !self.lifecycle_paused {
             self.preparing = false;
-            self.pad.start_playback_at(0.0);
+            self.pad.start_playback_at(self.pad.chart.playback_start_time());
         }
     }
 
@@ -549,12 +640,39 @@ impl PlayerUiApp {
         self.go_instant(Page::Pause);
     }
 
+    pub fn sync_lifecycle(&mut self, lifecycle: &crate::app::lifecycle::Lifecycle, now: f64) -> bool {
+        self.backgrounded = lifecycle.is_background();
+        let paused = lifecycle.take_pause().map(|at| {
+            self.lifecycle_paused = true;
+            self.pad.pause_at_wall_time(now - at.elapsed().as_secs_f64());
+            self.scrubbing = false;
+            self.gameplay_presented = false;
+            if self.page == Page::Gameplay { self.go_instant(Page::Pause); }
+        }).is_some();
+        if self.backgrounded && self.pad.mode != crate::app::types::Mode::Idle {
+            self.pad.pause_at_wall_time(now);
+            self.lifecycle_paused = true;
+            if self.page == Page::Gameplay { self.go_instant(Page::Pause); }
+        }
+        lifecycle.acknowledge_pause();
+        paused
+    }
+
     pub fn resume(&mut self) {
-        self.pad.toggle_play();
+        if self.backgrounded { return; }
+        self.lifecycle_paused = false;
+        if !self.preparing { self.pad.toggle_play(); }
         self.go_instant(Page::Gameplay);
     }
 
     pub fn restart(&mut self) {
+        if self.remote_preview {
+            if !self.preparing {
+                self.pad.start_playback_at(self.gameplay_start);
+            }
+            self.go_instant(Page::Gameplay);
+            return;
+        }
         // If the audio has not finished decoding yet, go through "preparing".
         if self.pad.audio_wav_pcm.is_none() && self.audio_path.is_some() {
             if let Some(index) = self.loaded {
@@ -564,11 +682,12 @@ impl PlayerUiApp {
             self.go(Page::Gameplay);
             return;
         }
-        self.pad.start_playback_at(0.0);
+        self.pad.start_playback_at(self.pad.chart.playback_start_time());
         self.go(Page::Gameplay);
     }
 
     pub fn exit_to_select(&mut self) {
+        self.remote_preview = false;
         self.pad.stop_audio_if_any();
         self.pad.mode = crate::app::types::Mode::Idle;
         self.pad.playback_pending = false;
@@ -578,11 +697,61 @@ impl PlayerUiApp {
         self.pad.scrubbing = false;
         // The core also ticks on non-gameplay pages at the paused clock.
         // Reset through the same transaction instead of rewinding only the UI.
-        self.pad.seek_to(0.0);
+        self.pad.seek_to(self.pad.chart.playback_start_time());
         self.go(Page::SongSelect);
+    }
+
+    pub fn audio_reset_for_remote(&mut self) {
+        self.chart_rx = None; self.loading_song = false; self.loading_song_index = None;
+        self.audio_rx = None; self.audio_for = None; self.audio_ready_for = None;
+        self.audio_path = None; self.loaded = None; self.chart_text = None; self.levels.clear();
+        self.using_custom = true;
+        if !self.audio_output_initialized {
+            self.audio_output_initialized = true; self.pad.bgm_player = audio::BgmPlayer::new().ok();
+        }
     }
 
     pub fn song_duration(&self) -> f32 {
         self.pad.song_duration()
+    }
+}
+
+#[cfg(test)]
+mod loading_tests {
+    use super::*;
+    use std::time::Instant;
+
+    /// Run with LDX_PROFILE_CHART=/path/to/maidata.txt and --ignored --nocapture.
+    #[test]
+    #[ignore = "manual chart/audio loading benchmark"]
+    fn profile_song_loading() {
+        let path = std::path::PathBuf::from(std::env::var_os("LDX_PROFILE_CHART").expect("LDX_PROFILE_CHART"));
+        let folder = path.parent().unwrap().to_path_buf();
+        let song = library::scan(folder.parent().unwrap()).unwrap().into_iter()
+            .find(|song| song.chart_path == path).expect("chart in library");
+        let started = Instant::now();
+        let loaded = load_chart_job(&song, 0).unwrap();
+        let chart_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let now = Instant::now();
+        let mut pad = PadPreviewState::new_at(loaded.chart, None, None, 0.0, None);
+        autoplay::rebuild(&mut pad);
+        let view_ms = now.elapsed().as_secs_f64() * 1000.0;
+        let now = Instant::now();
+        #[cfg(feature = "backend-rust")]
+        pad.install_engine(loaded.engine.unwrap(), &loaded.text, loaded.key.unwrap()).unwrap();
+        #[cfg(not(feature = "backend-rust"))]
+        pad.load_engine(&loaded.text, loaded.key.unwrap()).unwrap();
+        let engine_ms = now.elapsed().as_secs_f64() * 1000.0;
+        let chart_ready_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let now = Instant::now();
+        let audio_ok = loaded.audio_path.as_ref()
+            .is_some_and(|path| audio::load_audio_from_path(path).1.is_some());
+        eprintln!("[load-bench] {}: chart={chart_ms:.2}ms view={view_ms:.2}ms engine={engine_ms:.2}ms chart_ready={chart_ready_ms:.2}ms audio={:.2}ms audio_ok={audio_ok} total={:.2}ms notes={} slides={}",
+            pad.chart.title, now.elapsed().as_secs_f64() * 1000.0,
+            started.elapsed().as_secs_f64() * 1000.0, pad.chart.notes.len(),
+            pad.judge_engine.as_ref().unwrap().slide_count());
+        if let Ok(budget) = std::env::var("LDX_PROFILE_CHART_BUDGET_MS") {
+            assert!(chart_ready_ms <= budget.parse::<f64>().unwrap(), "chart ready took {chart_ready_ms:.2}ms");
+        }
     }
 }

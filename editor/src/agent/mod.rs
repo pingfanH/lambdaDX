@@ -20,6 +20,7 @@ pub struct Session {
     draft: Settings,
     applied: Settings,
     enabled: bool,
+    insert_at_cursor: bool,
     input: String,
     messages: Vec<Message>,
     log: Vec<(String, String)>,
@@ -59,6 +60,7 @@ impl Session {
             draft: applied.clone(),
             applied,
             enabled: saved.enabled,
+            insert_at_cursor: saved.insert_at_cursor,
             input: String::new(),
             messages: Vec::new(),
             log: saved_history.log,
@@ -169,7 +171,7 @@ impl Session {
             self.stop();
         }
         // Persist only confirmed settings, never an unfinished connection draft.
-        if let Err(error) = settings::save(&self.applied, enabled) {
+        if let Err(error) = settings::save(&self.applied, enabled, self.insert_at_cursor) {
             self.error = Some(error);
         }
     }
@@ -210,7 +212,7 @@ impl Session {
                 Event::Tool { id, name, result } => {
                     save_now = true;
                     self.flush_stream("助手");
-                    if name == "chart_propose_edit" {
+                    if matches!(name.as_str(), "chart_propose_edit" | "cursor_insert_notes") {
                         if let Ok(value) = &result {
                             self.proposal = value
                                 .get("proposal_id")
@@ -276,10 +278,11 @@ impl Session {
         self.messages.push(Message::user(compact_review(&result)));
         let event = serde_json::json!({"editor_review":result});
         self.record(
-            "编辑器审核结果（再次发送才会调用模型）",
+            if self.insert_at_cursor { "光标生成结果（再次发送才会调用模型）" } else { "编辑器审核结果（再次发送才会调用模型）" },
             serde_json::to_string_pretty(&event).unwrap_or_default(),
         );
-        self.state = State::Completed;
+        self.error = result.error.as_ref().map(|e| e.message.clone());
+        self.state = if result.state == ProposalState::Failed { State::Failed } else { State::Completed };
         self.proposal = None;
         self.run = None;
         self.save_history(true);
@@ -328,7 +331,7 @@ impl Session {
             ui.label("兼容端点与本地模型的工具支持取决于实际模型。更改连接或权限后需确认设置。");
             if ui.button("确认 endpoint 与权限并保存配置").clicked() {
                 match self.draft.validate().and_then(|()| {
-                    settings::save(&self.draft, self.enabled)
+                    settings::save(&self.draft, self.enabled, self.insert_at_cursor)
                         .map_err(lambdadx_automation::contract::ToolError::invalid)
                 }) {
                     Ok(()) => {
@@ -350,8 +353,8 @@ impl Session {
         &mut self,
         ui: &mut egui::Ui,
         host: &mut Service,
-        editor: &EditorState,
-        _app: &PadPreviewState,
+        editor: &mut EditorState,
+        app: &PadPreviewState,
     ) {
         ui.label(format!("Agent · {:?}", self.state));
         ui.small(format!(
@@ -374,7 +377,7 @@ impl Session {
         if !self.enabled {
             ui.label("请在设置 → 模型连接中启用 Agent 并确认 endpoint");
         }
-        let log_height = (ui.available_height() - 170.0).max(60.0);
+        let log_height = (ui.available_height() - if self.insert_at_cursor { 230.0 } else { 195.0 }).max(60.0);
         egui::ScrollArea::vertical()
             .id_salt("agent-log")
             .max_height(log_height)
@@ -403,6 +406,13 @@ impl Session {
         if self.state == State::AwaitingApproval {
             host.proposal_ui(ui, editor);
         }
+        let mode_enabled = !self.busy() && self.state != State::AwaitingApproval;
+        if ui.add_enabled(mode_enabled, egui::Checkbox::new(&mut self.insert_at_cursor, "直接生成到光标（虚影预览，接受后选中）")).changed() {
+            if let Err(error) = settings::save(&self.applied, self.enabled, self.insert_at_cursor) { self.error = Some(error); }
+        }
+        if self.insert_at_cursor {
+            ui.small(format!("光标：第 {:.3} 小节 · 区域 {} · 步长 1/{} 小节。本地准备配置，一次模型请求生成可试听虚影；接受后选中并推进光标，可一次撤销。", editor.keyboard.cursor.measure, editor.keyboard.cursor.zone, editor.snap_division.max(1)));
+        }
         ui.add(
             egui::TextEdit::multiline(&mut self.input)
                 .desired_rows(3)
@@ -414,19 +424,21 @@ impl Session {
             && !self.busy()
             && self.state != State::AwaitingApproval
             && self.draft == self.applied
-            && !self.input.trim().is_empty();
+            && !self.input.trim().is_empty()
+            && (!self.insert_at_cursor || self.applied.allow_proposals);
+        if self.insert_at_cursor && !self.applied.allow_proposals { ui.small("直接生成需要先在模型连接设置中允许创建提案。"); }
         if ui
             .add_enabled(ready, egui::Button::new("发送到所选 endpoint"))
             .clicked()
         {
-            if let Err(error) = self.send(host) {
+            if let Err(error) = self.send(host, editor, app) {
                 self.record("错误", error.clone());
                 self.error = Some(error);
                 self.save_history(true);
             }
         }
     }
-    fn send(&mut self, host: &mut Service) -> Result<(), String> {
+    fn send(&mut self, host: &mut Service, editor: &mut EditorState, app: &PadPreviewState) -> Result<(), String> {
         let prompt = self.input.trim().to_owned();
         let mut messages = compact_for_next_run(&self.messages);
         if messages.iter().map(Message::size).sum::<usize>() + prompt.len() > MAX_CONTEXT_BYTES {
@@ -435,6 +447,10 @@ impl Session {
         let provider = Genai::new(&self.applied).map_err(|e| e.message)?;
         let runtime = host.background().map_err(|e| e.to_string())?;
         self.stop();
+        let client = host.client().scoped();
+        let cursor = if self.insert_at_cursor {
+            Some(host.prepare_cursor(&client, editor, app).map_err(|e| e.message)?)
+        } else { None };
         messages.push(Message::user(prompt));
         self.messages = messages;
         let text = std::mem::take(&mut self.input);
@@ -443,13 +459,15 @@ impl Session {
         self.stream.clear();
         self.state = State::Requesting;
         self.save_history(true);
-        self.run = Some(Run::start_with_context(
+        self.run = Some(if let Some(cursor) = cursor {
+            Run::start_at_cursor(&runtime, provider, client, self.messages.clone(), self.applied.permissions(), cursor)
+        } else { Run::start_with_context(
             &runtime,
             provider,
             host.client(),
             self.messages.clone(),
             self.applied.permissions(),
-        ));
+        ) });
         Ok(())
     }
 }

@@ -22,9 +22,15 @@ mod core;
 mod player;
 #[path = "player_ui/mod.rs"]
 mod player_ui;
+mod preview_link;
 
 use macroquad::Window;
 
 fn main() {
+    #[cfg(target_os = "android")]
+    if let Err(error) = player_ui::android::initialize() {
+        macroquad::miniquad::error!("Android player initialization failed: {error}");
+        return;
+    }
     Window::from_config(player_ui::window_conf(), player_ui::run());
 }

@@ -16,23 +16,54 @@ pub(super) struct Proposal {
     format: Option<mpsc::Receiver<Result<String, String>>>,
     source: Option<crate::io::ChartSource>,
     auto_save: bool,
+    previewing: bool,
+    #[cfg(feature = "editor-agent")]
+    cursor: Option<lambdadx_automation::agent::cursor::Context>,
 }
 impl Proposal {
+    pub fn immediate(&self) -> bool {
+        #[cfg(feature = "editor-agent")]
+        { return self.cursor.is_some(); }
+        #[cfg(not(feature = "editor-agent"))]
+        { false }
+    }
     pub fn source_diff(&self) -> Option<(&str, &str)> { Some((self.baseline.as_ref()?.text.as_deref()?, self.text.as_deref()?)) }
+    pub fn previewing(&self) -> bool { self.previewing }
     fn pending(&self) -> bool { matches!(self.result.state, ProposalState::Preparing | ProposalState::AwaitingApproval) }
     fn finish(&mut self, state: ProposalState, error: Option<ToolError>) {
         self.result.state = state; self.result.error = error;
         self.baseline = None; self.candidate = None; self.text = None; self.format = None;
+        self.previewing = false;
     }
 }
 #[derive(Default)]
-pub(super) struct Store { records: VecDeque<Proposal>, next: u64 }
+pub(super) struct Store {
+    records: VecDeque<Proposal>, next: u64,
+    #[cfg(feature = "editor-agent")]
+    cursor_grant: Option<(Session, lambdadx_automation::agent::cursor::Context)>,
+}
 fn err(code: ErrorCode, message: &str) -> ToolError { ToolError::new(code, message) }
 pub(super) fn matches(s: &snapshot::Snapshot, editor: &EditorState, app: &PadPreviewState) -> bool {
     s.chart == app.chart && !editor.simai_editor.modified()
         && s.text.as_deref() == editor.simai_editor.automation_source(&app.chart).0.then_some(editor.simai_editor.text.as_str())
 }
 impl Store {
+    #[cfg(feature = "editor-agent")]
+    pub fn arm_cursor(&mut self, session: Session, context: lambdadx_automation::agent::cursor::Context) {
+        self.cursor_grant = Some((session, context));
+    }
+    pub fn preview(&mut self, app: &mut PadPreviewState, idle: bool) {
+        // Terminal proposals (reject, stop, expiry or document conflict) remove
+        // only the playback layer; the canonical chart is never rolled back.
+        if app.has_chart_preview() && !self.pending().is_some_and(|p| p.previewing) {
+            app.set_chart_preview(None);
+        }
+        if !idle || app.mode != types::Mode::Idle { return; }
+        let Some(p) = self.records.iter_mut().find(|p| p.immediate() && !p.previewing
+            && p.result.state == ProposalState::AwaitingApproval) else { return; };
+        app.set_chart_preview(p.candidate.clone());
+        p.previewing = true;
+    }
     pub fn pending(&self) -> Option<&Proposal> { self.records.iter().find(|p| p.pending()) }
     pub fn status(&self, id: &str, session: &Session) -> ToolResult<ProposalResult> {
         self.records.iter().find(|p| p.result.proposal_id == id && p.session.id() == session.id())
@@ -40,6 +71,17 @@ impl Store {
     }
     pub fn create(&mut self, request: ProposeRequest, session: Session, snapshots: &snapshot::Store, editor: &EditorState, app: &PadPreviewState, idle: bool) -> ToolResult<ProposalResult> {
         request.validate()?;
+        if !editor.automation_available() {
+            return Err(err(ErrorCode::UnsupportedOperation, "Automation is only available in regular chart editing"));
+        }
+        #[cfg(feature = "editor-agent")]
+        let cursor = self.cursor_grant.as_ref().filter(|(owner, _)| owner.id() == session.id() && owner.active()).map(|(_, c)| c.clone());
+        #[cfg(feature = "editor-agent")]
+        if let Some(context) = &cursor {
+            if request.target != context.target || request.edits.iter().any(|edit| !matches!(edit, Edit::AddNotes { notes } if notes.iter().all(|n| n.measure >= context.measure))) {
+                return Err(err(ErrorCode::PermissionDenied, "Cursor insertion can only add notes at the pinned destination"));
+            }
+        }
         let payload = serde_json::to_value(&request).map_err(|e| ToolError::invalid(e.to_string()))?;
         if let Some(p) = self.records.iter().find(|p| p.session.id() == session.id() && p.operation == request.operation_id) {
             return if p.payload == payload { Ok(p.result.clone()) } else { Err(ToolError::invalid("operation_id already used with different arguments")) };
@@ -53,17 +95,27 @@ impl Store {
         if !matches(baseline, editor, app) { return Err(err(ErrorCode::DocumentChanged, "Document differs from proposal snapshot")); }
         if baseline.text.is_some() && !baseline.matches_chart { return Err(err(ErrorCode::DocumentChanged, "Simai source is not synchronized")); }
         let (candidate, changes, removed_overrides) = construct(&baseline.chart, &request.edits)?;
+        #[cfg(feature = "editor-agent")]
+        if let Some(context) = &cursor {
+            cursor_end(&changes, context.step_measures)?;
+        }
         if changes.is_empty() { return Err(ToolError::invalid("Proposal makes no changes")); }
         self.next += 1;
         let result = ProposalResult { proposal_id: format!("proposal-{}-{}", session.id(), self.next), target: request.target, state: if baseline.text.is_some() { ProposalState::Preparing } else { ProposalState::AwaitingApproval }, summary: request.summary, changes, warnings: vec![format!("Removed {removed_overrides} note-owned Autoplay overrides. No file is saved until existing save rules run after user approval.")], error: None, applied_target: None };
         if serde_json::to_vec(&result).map_err(|e| ToolError::invalid(e.to_string()))?.len() > MAX_RESULT_BYTES { return Err(ToolError::invalid("Proposal diff exceeds 64 KiB; use a smaller batch")); }
         while self.records.len() >= 32 { self.records.pop_front(); }
-        self.records.push_back(Proposal { result: result.clone(), session, payload, operation: request.operation_id, created: Instant::now(), baseline: Some(baseline.clone()), candidate: Some(candidate), text: None, format: None, source: editor.source.clone(), auto_save: editor.auto_save });
+        self.records.push_back(Proposal { result: result.clone(), session, payload, operation: request.operation_id, created: Instant::now(), baseline: Some(baseline.clone()), candidate: Some(candidate), text: None, format: None, source: editor.source.clone(), auto_save: editor.auto_save, previewing: false,
+            #[cfg(feature = "editor-agent")]
+            cursor,
+        });
         Ok(result)
     }
     pub fn tick(&mut self, snapshots: &snapshot::Store, editor: &EditorState, app: &PadPreviewState) {
+        #[cfg(feature = "editor-agent")]
+        if !editor.automation_available() { self.cursor_grant = None; }
         for p in &mut self.records {
             if !p.pending() { continue; }
+            if !editor.automation_available() { p.finish(ProposalState::Cancelled, None); continue; }
             if !p.session.active() { p.finish(ProposalState::Cancelled, None); continue; }
             if p.created.elapsed() >= TTL { p.finish(ProposalState::Expired, None); continue; }
             if !snapshots.owns_document(&p.result.target) || p.baseline.as_ref().is_none_or(|s| !matches(s, editor, app)) {
@@ -93,12 +145,26 @@ impl Store {
         if !idle || editor.file_dialog_active || editor.keyboard.ime || editor.keyboard.owns_input() || editor.template_session.is_some() || app.mode != types::Mode::Idle { return Err(err(ErrorCode::EditorBusy, "Finish active input and pause before applying")); }
         if p.source != editor.source || p.auto_save != editor.auto_save { p.source = editor.source.clone(); p.auto_save = editor.auto_save; return Err(err(ErrorCode::DocumentChanged, "Save target or auto-save setting changed; review and confirm again")); }
         if editor.auto_save && !allow_auto_save { return Err(err(ErrorCode::PermissionDenied, "Explicit auto-save consent required")); }
+        #[cfg(feature = "editor-agent")]
+        let cursor_end = p.cursor.as_ref().map(|c| cursor_end(&p.result.changes, c.step_measures)).transpose()?;
         let candidate = p.candidate.take().unwrap();
         editor.push_history_entry(app.chart.clone().into());
         editor.placement_sequence.clear(); editor.last_edit = None;
         app.chart = candidate;
+        if p.previewing { app.set_chart_preview(None); }
         if let Some(text) = p.text.take() { editor.simai_editor.install_validated(&app.chart, text); }
         editor.selected.retain(|id| app.chart.notes.iter().any(|n| n.id == *id));
+        #[cfg(feature = "editor-agent")]
+        if let Some(end) = cursor_end {
+            editor.selected = p.result.changes.iter().filter(|d| d.before.is_none() && d.after.is_some())
+                .map(|d| note_id(&d.id).expect("validated note ID")).collect();
+            editor.keyboard.cursor.measure = end;
+            editor.keyboard.initialized = true;
+            editor.keyboard.detached = true;
+            editor.keyboard.range = None;
+            editor.editing_slide = None;
+            editor.status = Some(format!("已在光标处生成并选中 {} 个音符（可撤销）", editor.selected.len()));
+        }
         editor.hovered = None; editor.keyboard.candidate = None;
         if editor.editing_slide.is_some_and(|id| !app.chart.notes.iter().any(|n| n.id == id && n.note_type == NoteType::Slide)) {
             editor.editing_slide = None;
@@ -111,6 +177,16 @@ impl Store {
         p.finish(ProposalState::Applied, None);
         Ok(())
     }
+}
+#[cfg(feature = "editor-agent")]
+fn cursor_end(changes: &[NoteDiff], step: f64) -> ToolResult<f32> {
+    let last = changes.iter().filter(|d| d.before.is_none()).filter_map(|d| d.after.as_ref())
+        .map(|n| n.measure).max_by(f64::total_cmp).ok_or_else(|| ToolError::invalid("No new notes"))?;
+    let end = number(last + step)?;
+    if !step.is_finite() || step <= 0.0 || end as f64 <= last {
+        return Err(ToolError::invalid("Cursor cannot advance beyond the inserted notes"));
+    }
+    Ok(end)
 }
 fn zone_id(name: &str) -> ToolResult<u8> {
     (1..=33).find(|id| zone::id_to_zone(*id).is_some_and(|z| z.to_string() == name)).ok_or_else(|| ToolError::invalid("Unknown touch/waypoint zone"))

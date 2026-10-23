@@ -94,6 +94,7 @@ pub struct SlideArcProgress {
     pub frac: f32,
     /// Explicit wifi trail-bar cutoff (`HideSlideTrackBars`), if any.
     pub hidden_until_bar: Option<usize>,
+    pub hidden_frac: Option<f32>,
     pub shared_frac: Option<f32>,
 }
 

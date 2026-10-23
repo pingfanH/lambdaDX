@@ -573,7 +573,13 @@ pub fn load_sdez_chart_text(
         Ok(chart) => chart,
         Err(error) => return error_json("parse_error", &error.message),
     };
-    let mut runtime = crate::sdez::SdezRuntime::from_chart(&chart);
+    load_sdez_chart(handle, &chart, autoplay)
+}
+
+/// Build a fresh SDEZ runtime from an already parsed chart. Hosts can reuse
+/// their loaded chart for playback and seeks without parsing its text again.
+pub fn load_sdez_chart(handle: u64, chart: &ChartSpec, autoplay: u8) -> String {
+    let mut runtime = crate::sdez::SdezRuntime::from_chart(chart);
     runtime.autoplay = match autoplay {
         1 => crate::sdez::AutoplayMode::Critical,
         2 => crate::sdez::AutoplayMode::Perfect,
@@ -586,7 +592,7 @@ pub fn load_sdez_chart_text(
         .lock()
         .unwrap()
         .sessions
-        .insert(handle, SdezLoaded { chart, runtime });
+        .insert(handle, SdezLoaded { chart: chart.clone(), runtime });
     ok_json(json!({ "handle": handle.to_string(), "state": "loaded" }))
 }
 
@@ -916,7 +922,8 @@ pub fn step_game_state_handle_light(handle: u64, batch_json: &str) -> String {
     let mut reg = registry().lock().unwrap();
     match reg.sessions.get_mut(&handle) {
         Some(Session::Loaded { state, .. }) => {
-            let (next, events, audio, render) = crate::scheduler::step_frame_timed(state, &batch);
+            let (next, events, audio, render) =
+                crate::scheduler::step_frame_timed_owned(std::mem::take(state), &batch);
             let result = step_result_json(
                 &events,
                 &audio,
@@ -1147,7 +1154,8 @@ fn span_json(span: &crate::simai::syntax::SourceSpan) -> Value {
         "stop": {"line": span.stop.line, "column": span.stop.column}})
 }
 
-fn parse_error_json(error: &crate::simai::syntax::ParseError) -> String {
+/// Preserve source spans and syntax details for in-process frontend callers.
+pub fn parse_error_json(error: &crate::simai::syntax::ParseError) -> String {
     use crate::simai::syntax::ParseErrorKind::*;
     let kind = match error.kind {
         InvalidSyntax => "invalidSyntax",
@@ -1273,6 +1281,45 @@ mod tests {
         assert_eq!(unloaded["result"]["state"], "empty");
         let freed = parse(&free_game_state_handle(handle));
         assert_eq!(freed["result"]["freed"], true);
+    }
+
+    #[test]
+    fn light_session_preserves_owned_state_across_mixed_note_frames() {
+        let spec = crate::simai::frontend::frontend_lowered_chart(
+            "&inote_1=(120){4}1,2h[4:1],A1/B1,C2h[4:1],3-7[4:1],5w1[4:1],E",
+            1.into(),
+        ).unwrap();
+        let events = crate::default_tactic::autoplay_plan_from_chart(&spec).events();
+        let handle = registry().lock().unwrap().insert_loaded_handle(spec.clone());
+        let mut expected = crate::chart_loader::build_game_state(&spec);
+        let mut cursor = 0;
+        let mut completed = false;
+        for frame in 0..160 {
+            let now = crate::time::TimePoint::from_micros(frame * 50_000);
+            let start = cursor;
+            while cursor < events.len() && events[cursor].at().micros <= now.micros {
+                cursor += 1;
+            }
+            let batch = TimedInputBatch {
+                current_time: now,
+                events: events[start..cursor].to_vec(),
+            };
+            let (next, judged, audio, render) = crate::scheduler::step_frame_timed(&expected, &batch);
+            let expected_result = step_result_json(
+                &judged, &audio, &render, &next.score, next.current_time.clone(),
+                crate::scheduler::is_terminated(&next),
+            );
+            let actual = parse(&step_game_state_handle_light(
+                handle, &crate::json_encode::Encode::to_json(&batch).to_string(),
+            ));
+            assert_eq!(actual["ok"], true);
+            assert_eq!(actual["result"], expected_result, "frame {frame}");
+            assert_eq!(registry().lock().unwrap().get_handle_state(handle).unwrap(), &next);
+            completed |= crate::scheduler::is_terminated(&next);
+            expected = next;
+        }
+        assert!(completed);
+        assert_eq!(parse(&free_game_state_handle(handle))["ok"], true);
     }
 
     #[test]

@@ -114,6 +114,7 @@ pub fn draw(
     let backdrop = editor.template_session.as_ref().map(|session| session.backdrop.notes.as_slice()).unwrap_or(&[]);
     for (notes, is_backdrop) in [(backdrop, true), (chart.notes.as_slice(), false)] {
     for note in super::notes::draw_order(notes) {
+        let preview = !is_backdrop && editor.automation_available() && app.is_preview_note(note.id);
         ctx.tint = draw::note_tint(note, is_backdrop);
         if !is_backdrop
             && editor.mairis.annotation.active
@@ -125,6 +126,8 @@ pub fn draw(
             && editor.mairis.annotation.moved_ids.contains(&note.id)
         {
             ctx.tint = mq::Color::new(1.0, 0.72, 0.25, 1.0);
+        } else if preview {
+            ctx.tint = draw::ca(150, 220, 255, 125);
         }
         let head = note_secs(note, bpms);
         let x = ctx.x_of(head);
@@ -138,7 +141,7 @@ pub fn draw(
         if x_tail < plot_left - 80.0 * g || x > plot_right + 80.0 * g {
             continue;
         }
-        draw_note(&ctx, note, x, x_tail, y, !is_backdrop && editor.selected.contains(&note.id));
+        draw_note(&ctx, note, x, x_tail, y, !is_backdrop && !preview && editor.selected.contains(&note.id));
     }
     }
 

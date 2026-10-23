@@ -79,7 +79,7 @@ impl SdezSession {
         level_index: u32,
         autoplay: u8,
     ) -> Result<()> {
-        let chart = lnmai_core_rs::simai::frontend::frontend_lowered_chart(
+        let chart = lnmai_core_rs::simai::frontend::frontend_lowered_chart_chart_clock(
             content,
             (level_index as usize).into(),
         )
@@ -124,6 +124,17 @@ impl SdezSession {
             slides,
             score: Some(score),
         })
+    }
+
+    /// Reuse the chart already installed in the legacy runtime.
+    pub fn load_session(&mut self, handle: u64, autoplay: u8) -> Result<()> {
+        let chart = lnmai_core_rs::direct::chart(handle)
+            .map_err(|error| LnmaiError { json: error })?;
+        let mut runtime = lnmai_core_rs::sdez::SdezRuntime::from_chart(&chart);
+        runtime.autoplay = autoplay_mode(autoplay);
+        self.chart = Some(chart);
+        self.runtime = Some(runtime);
+        Ok(())
     }
 
     pub fn set_autoplay(&mut self, autoplay: u8) -> Result<()> {

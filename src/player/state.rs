@@ -21,6 +21,9 @@ pub struct SlideProgress {
     pub seg_frac: Vec<f32>,
     /// Exact HideSlideBars cutoffs, indexed by runtime arc.
     pub seg_hidden_until: Vec<Option<usize>>,
+    /// Explicit hide frontier in normalized reference-arrow units, independent
+    /// of the renderer's tile density and of the consumed judge-area fraction.
+    pub seg_hidden_frac: Vec<Option<f32>>,
     /// WiFi shared bar cursor; not an individual branch's consumed fraction.
     pub shared_frac: f32,
     /// Wifi per-track consumed fractions (track index → 0..1), so the three
@@ -194,7 +197,7 @@ impl PreparedEditedEngine {
         let note_ends = chart.notes.iter()
             .map(|note| (note.id, note_end_seconds(note, &chart.bpms))).collect();
         let cues = CueTrack::from_chart(chart);
-        let fragments = crate::app::maidata::simai_timeline(&source, level).unwrap_or_default();
+        let fragments = engine.simai_fragments().to_vec();
         let mut prepared = Self {
             engine, context, source, level, plan, inner_plan, default_plan, events, normalized_events, windows, note_ends, cues, fragments,
             tactic: Vec::new(), tactic_cursor: 0, score: None, progress: Vec::new(), hidden_notes: HashSet::new(),
@@ -257,6 +260,8 @@ pub struct PadPreviewState {
 
     // ── Chart ────────────────────────────────────────────────────────
     pub chart: ChartDoc,
+    /// Candidate playback stays separate from the document used by saves and undo.
+    chart_preview: Option<ChartPreview>,
     expanded_chart: Option<ChartDoc>,
     expanded_source: Option<ChartDoc>,
     pub hidden_notes: HashSet<u64>,
@@ -431,19 +436,51 @@ pub struct PadPreviewState {
     document_revision: u64,
 }
 
+struct ChartPreview {
+    chart: ChartDoc,
+    notes: Vec<crate::app::types::Note>,
+    ids: HashSet<u64>,
+}
+
 impl PadPreviewState {
+    /// Chart used to compile playback, including an unaccepted editor preview.
+    pub fn engine_chart(&self) -> &ChartDoc {
+        self.chart_preview.as_ref().map_or(&self.chart, |p| &p.chart)
+    }
+
+    pub fn has_chart_preview(&self) -> bool { self.chart_preview.is_some() }
+
+    pub fn preview_notes(&self) -> &[crate::app::types::Note] {
+        self.chart_preview.as_ref().map_or(&[], |p| p.notes.as_slice())
+    }
+
+    pub fn is_preview_note(&self, id: u64) -> bool {
+        self.chart_preview.as_ref().is_some_and(|p| p.ids.contains(&id))
+    }
+
+    pub fn set_chart_preview(&mut self, candidate: Option<ChartDoc>) {
+        self.chart_preview = candidate.map(|chart| {
+            let existing: HashSet<_> = self.chart.notes.iter().map(|n| n.id).collect();
+            let notes: Vec<_> = chart.notes.iter().filter(|n| !existing.contains(&n.id)).cloned().collect();
+            let ids = notes.iter().map(|n| n.id).collect();
+            ChartPreview { chart, notes, ids }
+        });
+        self.expanded_source = None;
+        self.refresh_playback_chart();
+    }
+
     pub fn playback_chart(&self) -> &ChartDoc {
-        self.expanded_chart.as_ref().unwrap_or(&self.chart)
+        self.expanded_chart.as_ref().unwrap_or_else(|| self.engine_chart())
     }
 
     pub fn refresh_playback_chart(&mut self) {
-        if self.chart.template_instances.is_empty() {
+        if self.engine_chart().template_instances.is_empty() {
             self.expanded_chart = None;
             self.expanded_source = None;
         } else if !self.expanded_source.as_ref().is_some_and(|source|
-            crate::app::templates::same_inputs(source, &self.chart)) {
-            self.expanded_chart = Some(crate::app::templates::expand(&self.chart));
-            self.expanded_source = Some(self.chart.clone());
+            crate::app::templates::same_inputs(source, self.engine_chart())) {
+            self.expanded_chart = Some(crate::app::templates::expand(self.engine_chart()));
+            self.expanded_source = Some(self.engine_chart().clone());
         }
     }
 
@@ -479,20 +516,23 @@ impl PadPreviewState {
         let ui_scale_override = std::env::var("MAI2_UI_SCALE")
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
-            .map(|v| v.clamp(0.7, 2.4));
+            .filter(|v| v.is_finite())
+            .map(|v| v.clamp(crate::player::render::scale::UI_SCALE_MIN,
+                crate::player::render::scale::UI_SCALE_MAX));
 
         let expanded_chart = (!chart.template_instances.is_empty()).then(|| crate::app::templates::expand(&chart));
         let expanded_source = expanded_chart.as_ref().map(|_| chart.clone());
         let cue_track = Some(CueTrack::from_chart(expanded_chart.as_ref().unwrap_or(&chart)));
+        let playback_start = chart.playback_start_time();
 
         Self {
             mode: Mode::Idle,
             mode_wall_anchor: wall_anchor,
-            mode_song_offset: 0.0,
+            mode_song_offset: playback_start,
             playback_pending: false,
             audio_start_pending: false,
             play_speed: 1.0,
-            timeline_view_time: 0.0,
+            timeline_view_time: playback_start,
             forced_time: None,
             note_speed: NOTE_SPEED,
             touch_speed: NOTE_SPEED,
@@ -500,6 +540,7 @@ impl PadPreviewState {
             chart,
             expanded_chart,
             expanded_source,
+            chart_preview: None,
             hidden_notes: HashSet::new(),
             hold_head_hits: HashSet::new(),
             slide_progress: HashMap::new(),
@@ -642,6 +683,29 @@ impl PadPreviewState {
         self.pending_audio_start = true;
     }
 
+    /// Freeze at the lifecycle event, not the first frame after returning.
+    pub fn pause_at_wall_time(&mut self, wall_time: f64) {
+        let time = if self.scrubbing { self.timeline_view_time }
+            else if matches!(self.mode, Mode::Playing | Mode::Recording)
+                && !self.playback_pending && !self.audio_start_pending {
+                self.mode_song_offset
+                    + (wall_time - self.mode_wall_anchor).max(0.0) as f32 * self.play_speed
+            } else { self.mode_song_offset };
+        self.mode = Mode::Idle;
+        self.mode_song_offset = time;
+        self.timeline_view_time = time;
+        self.mode_wall_anchor = wall_time;
+        self.playback_pending = false;
+        self.audio_start_pending = false;
+        self.pending_audio_start = false;
+        self.scrubbing = false;
+        self.scrub_origin = None;
+        self.scrub_pointer = None;
+        self.active_pointer_zones.clear();
+        self.prev_pointer_pos.clear();
+        if let Some(player) = &mut self.bgm_player { player.stop_all(); }
+    }
+
     pub fn toggle_play(&mut self) {
         if self.mode == Mode::Playing {
             self.mode_song_offset = self.song_time();
@@ -751,6 +815,16 @@ impl PadPreviewState {
             .max(1.0)
     }
 
+    pub fn playback_progress(&self) -> f32 {
+        let start = self.chart.playback_start_time();
+        ((self.song_time() - start) / (self.song_duration() - start)).clamp(0.0, 1.0)
+    }
+
+    pub fn time_at_progress(&self, fraction: f32) -> f32 {
+        let start = self.chart.playback_start_time();
+        start + fraction.clamp(0.0, 1.0) * (self.song_duration() - start)
+    }
+
     /// Update the visible position while dragging the progress bar (no audio
     /// restart).
     pub fn scrub_to(&mut self, t: f32) {
@@ -771,7 +845,7 @@ impl PadPreviewState {
             self.pending_audio_start = false;
             self.stop_audio_if_any();
         }
-        let t = t.clamp(0.0, self.song_duration());
+        let t = t.clamp(self.chart.playback_start_time(), self.song_duration());
         if let Err(error) = self.seek_runtime_to(t) {
             self.set_status(format!("seek: {error}"));
             return;
@@ -798,7 +872,7 @@ impl PadPreviewState {
         if !t.is_finite() {
             return Err("invalid seek time".into());
         }
-        let t = t.clamp(0.0, self.song_duration());
+        let t = t.clamp(self.chart.playback_start_time(), self.song_duration());
         self.seek_runtime_to(t)?;
         self.seek_audio_to(t);
         self.mode_song_offset = t;
@@ -895,13 +969,15 @@ impl PadPreviewState {
 
     /// Fire the one-shot cue sound (`Sfx/answer.wav`).
     pub fn play_answer(&self) {
-        self.play_sfx(self.answer_sfx.as_ref());
+        if let (Some(player), Some(buf)) = (&self.bgm_player, &self.answer_sfx) {
+            player.play_once(buf, params::answer_sfx_volume());
+        }
     }
 
-    /// Play a one-shot sound effect, if the player and buffer are present.
+    /// Play a one-shot hit sound at the configured hit-effect volume.
     pub fn play_sfx(&self, buf: Option<&SfxBuffer>) {
         if let (Some(player), Some(buf)) = (&self.bgm_player, buf) {
-            player.play_once(buf, 1.0);
+            player.play_once(buf, params::hit_sfx_volume());
         }
     }
 
@@ -956,7 +1032,7 @@ impl PadPreviewState {
             // **every** cue — tap / touch / hold head+tail / touch-hold
             // head+tail / slide head. This is independent of `hit_sfx`.
             if params::answer_sfx() {
-                self.play_sfx(self.answer_sfx.as_ref());
+                self.play_answer();
             }
             if !params::hit_sfx() {
                 continue;
@@ -1097,6 +1173,16 @@ impl PadPreviewState {
     /// replay tactic used by autoplay.
     pub fn load_engine(&mut self, simai_text: &str, level_index: u32) -> Result<(), String> {
         let engine = crate::player::engine::JudgeEngine::load(simai_text, level_index)?;
+        self.install_engine(engine, simai_text, level_index)
+    }
+
+    /// Install a runtime prepared by the chart worker without reparsing Simai.
+    pub(crate) fn install_engine(
+        &mut self,
+        mut engine: crate::player::engine::JudgeEngine,
+        simai_text: &str,
+        level_index: u32,
+    ) -> Result<(), String> {
         if crate::player::engine::debug_slide_enabled() {
             let bpms = self.chart.bpms.clone();
             for note in &self.chart.notes {
@@ -1178,6 +1264,10 @@ impl PadPreviewState {
         self.autoplay_plan = selected_plan;
         self.autoplay_tactic_cursor = 0;
         self.judge_windows = engine.judgment_metadata(self.playback_chart());
+        self.simai_fragments = engine.simai_fragments().to_vec();
+        if self.mode_song_offset < 0.0 {
+            engine.seek_with_events(self.mode_song_offset, &[], self.autoplay)?;
+        }
         self.judge_engine = Some(engine);
         self.engine_events.clear();
         self.core_score = None;
@@ -1189,19 +1279,17 @@ impl PadPreviewState {
         self.judge_feedback.clear();
         self.hit_fx.clear();
         self.simai_level = level_index;
-        self.simai_fragments =
-            crate::app::maidata::simai_timeline(simai_text, level_index).unwrap_or_default();
         Ok(())
     }
 
-    /// Seek the existing runtime back to zero.
+    /// Seek the existing runtime back to measure zero.
     pub fn reset_engine(&mut self) {
-        self.seek_to(0.0);
+        self.seek_to(self.chart.playback_start_time());
     }
 
     pub fn edited_engine_context(&self) -> EditedEngineContext {
         EditedEngineContext {
-            time: self.timeline_time().max(0.0),
+            time: self.timeline_time(),
             revision: self.runtime_revision,
             autoplay: self.autoplay,
             direct: self.autoplay_direct_core,
@@ -1320,6 +1408,7 @@ impl PadPreviewState {
         self.runtime_revision = self.runtime_revision.wrapping_add(1);
         crate::app::maichart::assign_note_ids(&mut chart.notes);
         self.chart = chart;
+        self.chart_preview = None;
         self.expanded_source = None;
         self.refresh_playback_chart();
         self.cue_track = Some(CueTrack::from_chart(self.playback_chart()));
@@ -1332,9 +1421,9 @@ impl PadPreviewState {
         self.stop_audio_if_any();
 
         self.mode = Mode::Idle;
-        self.mode_song_offset = 0.0;
+        self.mode_song_offset = self.chart.playback_start_time();
         self.scrub_origin = None;
-        self.timeline_view_time = 0.0;
+        self.timeline_view_time = self.mode_song_offset;
         self.mode_wall_anchor = self.now();
         self.playback_pending = false;
         self.audio_start_pending = false;
@@ -1520,11 +1609,22 @@ impl PadPreviewState {
                 .or_insert_with(|| SlideProgress {
                     seg_frac: vec![0.0; seg_count],
                     seg_hidden_until: vec![None; seg_count],
+                    seg_hidden_frac: vec![None; seg_count],
                     shared_frac: 0.0,
                     track_frac: HashMap::new(),
                     track_hidden_until: HashMap::new(),
                 });
             if let Some(shared) = update.shared_frac { progress.shared_frac = progress.shared_frac.max(shared); }
+            if !is_wifi {
+                // Completion (including a miss) overrides a previous partial
+                // frontier even when other arcs of the same chain remain.
+                let hidden = if update.frac >= 1.0 { Some(1.0) } else { update.hidden_frac };
+                if let Some(hidden) = hidden {
+                    progress.seg_hidden_frac.resize(seg_count, None);
+                    let slot = &mut progress.seg_hidden_frac[seg_idx];
+                    *slot = Some(slot.unwrap_or(0.0).max(hidden));
+                }
+            }
             // Wifi per-track progress is kept separate so each track consumes on
             // its own; everything else slots into the sub-slide's segment range.
             if let Some(track) = update.track_index {
@@ -1633,6 +1733,85 @@ fn note_end_seconds(note: &crate::app::types::Note, bpms: &[crate::app::types::B
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn measure_zero_is_the_initial_position_without_moving_notes() {
+        for bpm in [60, 120, 240] {
+            let source = format!("&inote_1=({bpm}){{4}}1,2,E");
+            let chart = crate::app::maidata::from_maidata(&source, None).unwrap();
+            let expected = -240.0 / bpm as f32;
+            let pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+            assert_eq!(pad.mode_song_offset, expected);
+            assert_eq!(pad.timeline_view_time, expected);
+            assert_eq!(pad.chart.notes[0].time, 1.0);
+            assert_eq!(crate::app::types::note_secs(&pad.chart.notes[0], &pad.chart.bpms), 0.0);
+        }
+    }
+
+    #[test]
+    fn measure_zero_can_be_sought_scrubbed_and_restarted() {
+        let chart = crate::app::maidata::from_maidata("&inote_1=(120){4}1,2,E", None).unwrap();
+        let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        pad.forced_time = Some(-2.0);
+        pad.try_seek_to(-1.5).unwrap();
+        assert_eq!(pad.mode_song_offset, -1.5);
+        assert_eq!(pad.audio_seek_offset, Some(-1.5));
+        pad.scrub_to(-10.0);
+        assert_eq!(pad.timeline_view_time, -2.0);
+        pad.start_playback_at(-2.0);
+        assert_eq!(pad.mode_song_offset, -2.0);
+        assert_eq!(pad.timeline_view_time, -2.0);
+        assert!(pad.playback_pending);
+        assert!(pad.audio_start_pending);
+    }
+
+    #[cfg(feature = "backend-rust")]
+    #[test]
+    fn measure_zero_progress_roundtrips_through_the_entire_playback_range() {
+        let chart = crate::app::maidata::from_maidata("&inote_1=(120){4}1,2,E", None).unwrap();
+        let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        let start = pad.chart.playback_start_time();
+        let end = pad.song_duration();
+        for time in [start, -1.0, 0.0, end] {
+            pad.forced_time = Some(time);
+            assert!((pad.time_at_progress(pad.playback_progress()) - time).abs() < 1e-6);
+        }
+        assert_eq!(pad.time_at_progress(-1.0), start);
+        assert_eq!(pad.time_at_progress(2.0), end);
+    }
+
+    #[cfg(feature = "backend-rust")]
+    #[test]
+    fn measure_zero_preroll_does_not_judge_the_first_note_early() {
+        let source = "&inote_1=(120){4}1,2,3,4,E";
+        let chart = crate::app::maidata::from_maidata(source, None).unwrap();
+        let mut pad = PadPreviewState::new_at(chart, None, None, 0.0, None);
+        pad.forced_time = Some(-2.0);
+        pad.load_engine(source, 1).unwrap();
+        pad.autoplay = true;
+        pad.mode = Mode::Playing;
+        pad.try_seek_to(-2.0).unwrap();
+        pad.audio_start_pending = false;
+        pad.pending_audio_start = false;
+        for time in [-2.0, -1.0, -0.01] {
+            pad.forced_time = Some(time);
+            crate::player::autoplay::tick(&mut pad);
+            crate::player::engine::step_judge_engine(&mut pad);
+            assert_eq!(pad.autoplay_tactic_cursor, 0, "time={time}");
+            assert!(pad.hidden_notes.is_empty(), "time={time}");
+            let score = pad.core_score.as_ref().unwrap();
+            assert_eq!(score.earned_base, 0, "time={time}");
+            assert_eq!(score.lost_base, 0, "time={time}");
+        }
+        for frame in 0..=360 {
+            pad.forced_time = Some(frame as f32 / 120.0);
+            crate::player::autoplay::tick(&mut pad);
+            crate::player::engine::step_judge_engine(&mut pad);
+        }
+        let score = pad.core_score.as_ref().unwrap();
+        assert_eq!(score.lost_base, 0);
+        assert_eq!(score.earned_base, score.total_base);
+    }
 
     #[cfg(feature = "backend-lean")]
     #[test]

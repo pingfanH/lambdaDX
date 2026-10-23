@@ -1,5 +1,7 @@
 //! A single bounded run, independent of HTTP and editor UI.
 mod environment;
+mod generation;
+pub mod cursor;
 pub mod policy;
 pub mod provider;
 #[cfg(test)]
@@ -72,6 +74,16 @@ pub struct Run {
     stop: CancellationToken,
     task: tokio::task::JoinHandle<()>,
 }
+enum Mode {
+    Conversation,
+    Prefetch,
+    Cursor(cursor::Context),
+}
+impl From<bool> for Mode {
+    fn from(prefetch: bool) -> Self {
+        if prefetch { Self::Prefetch } else { Self::Conversation }
+    }
+}
 impl Run {
     pub fn start(
         runtime: &tokio::runtime::Handle,
@@ -80,7 +92,7 @@ impl Run {
         messages: Vec<ChatMessage>,
         permissions: Permissions,
     ) -> Self {
-        Self::start_inner(runtime, provider, client, messages, permissions, false)
+        Self::start_inner(runtime, provider, client.scoped(), messages, permissions, Mode::Conversation)
     }
     /// Capture fresh editor context through the same scoped host bridge before
     /// the first model request. No model/tool capability is reduced.
@@ -91,7 +103,18 @@ impl Run {
         messages: Vec<ChatMessage>,
         permissions: Permissions,
     ) -> Self {
-        Self::start_inner(runtime, provider, client, messages, permissions, true)
+        Self::start_inner(runtime, provider, client.scoped(), messages, permissions, Mode::Prefetch)
+    }
+    /// The editor supplies a scoped client with a cursor insertion grant.
+    pub fn start_at_cursor(
+        runtime: &tokio::runtime::Handle,
+        provider: impl Provider + 'static,
+        client: Client,
+        messages: Vec<ChatMessage>,
+        permissions: Permissions,
+        context: cursor::Context,
+    ) -> Self {
+        Self::start_inner(runtime, provider, client, messages, permissions, Mode::Cursor(context))
     }
     fn start_inner(
         runtime: &tokio::runtime::Handle,
@@ -99,9 +122,8 @@ impl Run {
         client: Client,
         messages: Vec<ChatMessage>,
         permissions: Permissions,
-        prefetch: bool,
+        mode: Mode,
     ) -> Self {
-        let client = client.scoped();
         let session = client.session();
         let stop = CancellationToken::new();
         let (sender, events) = mpsc::sync_channel(128);
@@ -122,7 +144,7 @@ impl Run {
                     Budget::default(),
                     stop,
                     &emit,
-                    prefetch,
+                    mode,
                 )
                 .await;
                 if report.state != State::AwaitingApproval {
@@ -191,11 +213,17 @@ async fn run_inner(
     budget: Budget,
     stop: CancellationToken,
     emit: &Emit<'_>,
-    prefetch: bool,
+    mode: impl Into<Mode>,
 ) -> Report {
+    let mode = mode.into();
+    let prefetch = matches!(&mode, Mode::Prefetch);
     let deadline = Instant::now() + budget.total.min(Duration::from_secs(120));
     let result = async {
         check_context_size(&messages)?;
+        if let Mode::Cursor(context) = &mode {
+            return generation::generate(&mut provider, &client, &mut messages, permissions,
+                budget, &stop, emit, deadline, context).await;
+        }
         if prefetch {
             if budget.tools == 0 || Instant::now() >= deadline {
                 return Err(exhausted());
@@ -277,18 +305,10 @@ async fn drive(
         if remaining.is_zero() {
             return Err(exhausted());
         }
-        emit(Event::State(State::Requesting))?;
         let request = ChatRequest::new(messages.clone())
             .with_system(policy::SYSTEM)
             .with_tools(policy::tools(permissions));
-        emit(Event::State(State::Streaming))?;
-        let turn = tokio::select! {
-            biased;
-            _ = stop.cancelled() => return Err(cancelled()),
-            _ = async { while client.session().active() { tokio::time::sleep(Duration::from_millis(10)).await; } } => return Err(cancelled()),
-            result = tokio::time::timeout(remaining.min(budget.network).min(Duration::from_secs(60)), provider.complete(request, emit)) => result.map_err(|_| exhausted())??,
-        };
-        emit(Event::Usage(turn.usage))?;
+        let turn = complete_turn(provider, client, request, budget, stop, emit, deadline).await?;
         let tool_calls: Vec<_> = turn
             .message
             .content
@@ -327,7 +347,7 @@ async fn drive(
             } else if proposal {
                 Err(ToolError::new(
                     ErrorCode::EditorBusy,
-                    "A proposal is awaiting editor review; remaining calls skipped",
+                    "An edit has been submitted to the editor; remaining calls skipped",
                 ))
             } else if call.call_id.is_empty()
                 || call.call_id.len() > 256
@@ -349,7 +369,7 @@ async fn drive(
                 )
                 .await
             };
-            if call.fn_name == "chart_propose_edit" && result.is_ok() {
+            if matches!(call.fn_name.as_str(), "chart_propose_edit" | cursor::TOOL) && result.is_ok() {
                 proposal = true;
             }
             let text = match &result {
@@ -380,6 +400,26 @@ async fn drive(
         }
     }
     Err(exhausted())
+}
+async fn complete_turn(
+    provider: &mut impl Provider, client: &Client, request: ChatRequest, budget: Budget,
+    stop: &CancellationToken, emit: &Emit<'_>, deadline: Instant,
+) -> ToolResult<provider::Turn> {
+    if stop.is_cancelled() || !client.session().active() { return Err(cancelled()); }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() { return Err(exhausted()); }
+    emit(Event::State(State::Requesting))?;
+    emit(Event::State(State::Streaming))?;
+    let mut turn = tokio::select! {
+        biased;
+        _ = stop.cancelled() => return Err(cancelled()),
+        _ = async { while client.session().active() { tokio::time::sleep(Duration::from_millis(10)).await; } } => return Err(cancelled()),
+        result = tokio::time::timeout(remaining.min(budget.network).min(Duration::from_secs(60)), provider.complete(request, emit)) => result.map_err(|_| exhausted())??,
+    };
+    if stop.is_cancelled() || !client.session().active() { return Err(cancelled()); }
+    if turn.message.size() > MAX_CONTEXT_BYTES { return Err(ToolError::invalid("Oversized model response")); }
+    emit(Event::Usage(turn.usage.take()))?;
+    Ok(turn)
 }
 fn check_context_size(messages: &[ChatMessage]) -> ToolResult<()> {
     if messages.iter().map(ChatMessage::size).sum::<usize>() > MAX_CONTEXT_BYTES {

@@ -25,6 +25,56 @@ impl std::fmt::Debug for Rat {
 }
 
 impl Rat {
+    /// Ordinary chart clocks fit in i128. Keep the same canonical kernel
+    /// representation, but avoid limb division/GCD when machine arithmetic
+    /// can compute the exact result. Overflow always uses the unbounded path.
+    fn small_parts(&self) -> Option<(i128, i128)> {
+        fn magnitude(value: &lnmai_core_verify::big_nat::BigNat) -> Option<u128> {
+            match value.limbs.as_slice() {
+                [] => Some(0),
+                [low] => Some(*low as u128),
+                [low, high] => Some((*high as u128) << 64 | *low as u128),
+                _ => None,
+            }
+        }
+        let abs = magnitude(&self.value.num.magnitude)?;
+        let num = if self.value.num.negative {
+            if abs == 1u128 << 127 { i128::MIN } else { i128::try_from(abs).ok()?.checked_neg()? }
+        } else { i128::try_from(abs).ok()? };
+        Some((num, i128::try_from(magnitude(&self.value.den)?).ok()?))
+    }
+
+    fn from_small_ratio(mut num: i128, mut den: i128) -> Option<Self> {
+        if den == 0 { return Some(Self::zero()); }
+        if den < 0 {
+            num = num.checked_neg()?;
+            den = den.checked_neg()?;
+        }
+        let mut a = num.unsigned_abs();
+        let mut b = den as u128;
+        while b != 0 { (a, b) = (b, a % b); }
+        let divisor = i128::try_from(a).ok()?;
+        let num = num / divisor;
+        let den = (den / divisor) as u128;
+        Some(Self { value: kernel::BigRat {
+            num: int_kernel::from_i128(num),
+            den: lnmai_core_verify::big_nat::from_u64_pair((den >> 64) as u64, den as u64),
+        } })
+    }
+
+    fn small_binary(&self, other: &Self, op: u8) -> Option<Self> {
+        let (a, b) = self.small_parts()?;
+        let (c, d) = other.small_parts()?;
+        let (num, den) = match op {
+            b'+' => (a.checked_mul(d)?.checked_add(c.checked_mul(b)?)?, b.checked_mul(d)?),
+            b'-' => (a.checked_mul(d)?.checked_sub(c.checked_mul(b)?)?, b.checked_mul(d)?),
+            b'*' => (a.checked_mul(c)?, b.checked_mul(d)?),
+            b'/' => (a.checked_mul(d)?, b.checked_mul(c)?),
+            _ => unreachable!(),
+        };
+        Self::from_small_ratio(num, den)
+    }
+
     /// Boundary constructor: the operands arrive as JSON integers.
     pub fn new(num: impl Into<BigInt>, den: impl Into<BigInt>) -> Self {
         let num = Integer::from(num.into());
@@ -34,6 +84,9 @@ impl Rat {
 
     /// Kernel-typed constructor: a zero denominator is zero.
     pub fn from_numeric(num: &Integer, den: &Integer) -> Self {
+        if let (Some(num), Some(den)) = (num.to_i64(), den.to_i64()) {
+            return Self::from_small_ratio(num as i128, den as i128).unwrap();
+        }
         Self {
             value: kernel::new(&num.kernel(), &den.kernel()),
         }
@@ -81,24 +134,28 @@ impl Rat {
     }
 
     pub fn add(&self, other: impl Borrow<Rat>) -> Self {
+        if let Some(value) = self.small_binary(other.borrow(), b'+') { return value; }
         Self {
             value: kernel::add(&self.value, &other.borrow().value),
         }
     }
 
     pub fn sub(&self, other: impl Borrow<Rat>) -> Self {
+        if let Some(value) = self.small_binary(other.borrow(), b'-') { return value; }
         Self {
             value: kernel::sub(&self.value, &other.borrow().value),
         }
     }
 
     pub fn mul(&self, other: impl Borrow<Rat>) -> Self {
+        if let Some(value) = self.small_binary(other.borrow(), b'*') { return value; }
         Self {
             value: kernel::mul(&self.value, &other.borrow().value),
         }
     }
 
     pub fn div(&self, other: impl Borrow<Rat>) -> Self {
+        if let Some(value) = self.small_binary(other.borrow(), b'/') { return value; }
         Self {
             value: kernel::div(&self.value, &other.borrow().value),
         }
@@ -106,6 +163,9 @@ impl Rat {
 
     /// Lean's decimal renderer uses at most twelve fractional digits.
     pub fn to_decimal_string(&self) -> String {
+        if let Some(text) = self.small_decimal_string() {
+            return text;
+        }
         let mut text = String::new();
         if kernel::is_negative(&self.value) {
             text.push('-');
@@ -127,10 +187,44 @@ impl Rat {
         }
         text
     }
+
+    fn small_decimal_string(&self) -> Option<String> {
+        let (num, den) = self.small_parts()?;
+        let magnitude = num.unsigned_abs();
+        let den = den as u128;
+        let mut text = (magnitude / den).to_string();
+        if num < 0 {
+            text.insert(0, '-');
+        }
+        let mut rest = magnitude % den;
+        if rest != 0 {
+            text.push('.');
+            for _ in 0..12 {
+                let scaled = rest.checked_mul(10)?;
+                text.push(b'0'.checked_add((scaled / den) as u8)? as char);
+                rest = scaled % den;
+                if rest == 0 {
+                    break;
+                }
+            }
+            while text.ends_with('0') {
+                text.pop();
+            }
+            if text.ends_with('.') {
+                text.pop();
+            }
+        }
+        Some(text)
+    }
 }
 
 impl Ord for Rat {
     fn cmp(&self, other: &Self) -> Ordering {
+        if let (Some((a, b)), Some((c, d))) = (self.small_parts(), other.small_parts()) {
+            if let (Some(left), Some(right)) = (a.checked_mul(d), c.checked_mul(b)) {
+                return left.cmp(&right);
+            }
+        }
         match kernel::compare(&self.value, &other.value) {
             -1 => Ordering::Less,
             1 => Ordering::Greater,
@@ -147,7 +241,7 @@ impl PartialOrd for Rat {
 
 impl PartialEq for Rat {
     fn eq(&self, other: &Self) -> bool {
-        kernel::equal(&self.value, &other.value)
+        self.cmp(other) == Ordering::Equal
     }
 }
 
@@ -172,6 +266,41 @@ pub fn integer_kernel(value: &Integer) -> int_kernel::BigIntKernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arithmetic_matches_exact_kernel_at_fast_path_boundaries() {
+        let huge = BigInt::from(1u8) << 256;
+        let values = [
+            Rat::zero(), Rat::one(), Rat::new(-7, 3), Rat::new(240_000_000, 167),
+            Rat::new(i64::MIN, 1000), Rat::new(u64::MAX, u64::MAX - 1),
+            Rat::new(i128::MIN, 3), Rat::new(i128::MAX, 5),
+            Rat::new(&huge + 1, &huge + 3),
+        ];
+        for left in &values {
+            let mut expected = String::new();
+            if kernel::is_negative(&left.value) { expected.push('-'); }
+            expected.extend(kernel::whole_digits(&left.value).into_iter().map(char::from));
+            let fraction = kernel::fraction_digits(&left.value);
+            if !fraction.is_empty() {
+                expected.push('.');
+                expected.extend(fraction.into_iter().map(char::from));
+            }
+            assert_eq!(left.to_decimal_string(), expected);
+            for right in &values {
+                for (actual, expected) in [
+                    (left.add(right), kernel::add(&left.value, &right.value)),
+                    (left.sub(right), kernel::sub(&left.value, &right.value)),
+                    (left.mul(right), kernel::mul(&left.value, &right.value)),
+                    (left.div(right), kernel::div(&left.value, &right.value)),
+                ] {
+                    assert!(kernel::equal(&actual.value, &expected));
+                    assert!(int_kernel::equal(&actual.value.num, &expected.num));
+                    assert!(lnmai_core_verify::big_nat::equal(&actual.value.den, &expected.den));
+                }
+                assert_eq!(left.cmp(right), kernel::compare(&left.value, &right.value).cmp(&0));
+            }
+        }
+    }
 
     #[test]
     fn normalizes() {

@@ -764,15 +764,21 @@ pub fn judge_queues_for_shape_key(
 ) -> Option<Vec<Vec<SlideAreaSpec>>> {
     let key = strip_mirror_prefix(shape_key);
     let sym = parse_shape_key_symmetry(shape_key);
-    let base: Option<Vec<Vec<SlideAreaSpec>>> =
-        if let Some((_, queues)) = ordinary().into_iter().find(|(k, _)| *k == key) {
-            Some(vec![queues.into_iter().flatten().collect()])
-        } else if key == "wifi" {
-            Some(vec![wifi_left(), wifi_center(is_classic), wifi_right()])
-        } else {
-            None
-        };
-    base.map(|b| transform_judge_queues(sym, &b))
+    // These tables are immutable. Constructing every shape's nested vectors
+    // for each slide dominates slide-heavy chart loading. Only the returned
+    // transformed queue belongs to the caller.
+    type Tables = Vec<(&'static str, Vec<Vec<SlideAreaSpec>>)>;
+    static TABLES: std::sync::OnceLock<Tables> = std::sync::OnceLock::new();
+    let tables = TABLES.get_or_init(|| ordinary().into_iter()
+        .map(|(key, queues)| (key, vec![queues.into_iter().flatten().collect()]))
+        .collect());
+    if let Some((_, queues)) = tables.iter().find(|(k, _)| *k == key) {
+        Some(transform_judge_queues(sym, queues))
+    } else if key == "wifi" {
+        Some(transform_judge_queues(sym, &[wifi_left(), wifi_center(is_classic), wifi_right()]))
+    } else {
+        None
+    }
 }
 
 /// `judgeQueuesForShape`.

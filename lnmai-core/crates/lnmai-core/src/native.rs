@@ -669,7 +669,6 @@ pub unsafe extern "C" fn lnmai_v3_call(
         || r.struct_size as usize != std::mem::size_of::<LnmaiRequest>()
         || r.reserved != 0
         || operation > 7
-        || (operation == 3 && r.time_us < 0)
         || (r.event_count != 0 && r.events.is_null())
         || (r.text_len != 0 && r.text.is_null())
         || r.event_count > (isize::MAX as usize / std::mem::size_of::<LnmaiInputEvent>()) as u64

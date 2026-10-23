@@ -38,6 +38,7 @@ use lnmai_core_verify::touch_hold_body_adapter::{
 };
 use lnmai_core_verify::touch_hold_rebuild as touch_hold_rebuild_kernel;
 use lnmai_core_verify::touch_schedule::{self as touch_schedule_kernel, TouchWork};
+use std::collections::HashMap;
 
 /// The public pooled note representation from `Scheduler.ActiveNote`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -310,18 +311,53 @@ fn append_parent_hide(mut commands: Vec<RenderCommand>, note_index: Natural) -> 
     commands
 }
 
+#[cfg(test)]
 fn update_slide_parent_flags(slides: &[SlideNote]) -> Vec<SlideNote> {
-    slide_parents_kernel::refresh_flags(
-        slides.len(),
-        &slides,
-        slides.to_vec(),
-        SlideParentRead,
-        SlideParentEqual,
-        |mut updated: Vec<SlideNote>, index, edit| {
-            apply_slide_parent_edit(&mut updated[index], edit);
-            updated
-        },
-    )
+    SlideFrameState::new(slides.to_vec()).refresh_flags().notes
+}
+
+/// Slot order and identifiers stay fixed throughout a slide pass. Cache the
+/// first matching parent (including duplicate IDs) once, then refresh flags
+/// only when a queue count changes. Flag writes cannot affect queue counts,
+/// so reading them in place observes the same snapshot as the reference pass.
+struct SlideFrameState {
+    notes: Vec<SlideNote>,
+    parent_slots: Vec<Option<usize>>,
+    flags_dirty: bool,
+}
+
+impl SlideFrameState {
+    fn new(notes: Vec<SlideNote>) -> Self {
+        let mut first_slots = HashMap::with_capacity(notes.len());
+        for (index, note) in notes.iter().enumerate() {
+            first_slots.entry(&note.params.note_index).or_insert(index);
+        }
+        let parent_slots = notes
+            .iter()
+            .map(|note| {
+                note.parent_note_index
+                    .as_ref()
+                    .and_then(|id| first_slots.get(id).copied())
+            })
+            .collect();
+        Self {
+            notes,
+            parent_slots,
+            flags_dirty: true,
+        }
+    }
+
+    fn refresh_flags(mut self) -> Self {
+        if self.flags_dirty {
+            for (index, parent) in self.parent_slots.iter().enumerate() {
+                let remaining = parent.map(|slot| slide_remaining(&self.notes[slot]));
+                self.notes[index].parent_finished = remaining == Some(0);
+                self.notes[index].parent_pending_finish = remaining == Some(1);
+            }
+            self.flags_dirty = false;
+        }
+        self
+    }
 }
 
 fn slide_sensor_phase(slide: &SlideNote) -> SensorPhase {
@@ -1978,15 +2014,15 @@ struct SlideScheduleFrame<'a> {
 
 impl
     slide_schedule_kernel::SlideSchedule<
-        Vec<SlideNote>,
+        SlideFrameState,
         SlideNote,
         Vec<JudgeEvent>,
         Vec<AudioCommand>,
         Vec<RenderCommand>,
     > for SlideScheduleFrame<'_>
 {
-    fn read(&self, slides: &Vec<SlideNote>, index: usize) -> SlideNote {
-        slides[index].clone()
+    fn read(&self, slides: &SlideFrameState, index: usize) -> SlideNote {
+        slides.notes[index].clone()
     }
 
     fn step(
@@ -2012,36 +2048,38 @@ impl
 
     fn replace(
         &self,
-        mut slides: Vec<SlideNote>,
+        mut slides: SlideFrameState,
         index: usize,
         note: &SlideNote,
-    ) -> Vec<SlideNote> {
-        slides[index] = note.clone();
+    ) -> SlideFrameState {
+        slides.flags_dirty |= slide_remaining(&slides.notes[index]) != slide_remaining(note);
+        slides.notes[index] = note.clone();
         slides
     }
 
     fn force_direct(
         &self,
-        mut slides: Vec<SlideNote>,
+        mut slides: SlideFrameState,
         before: &SlideNote,
         after: &SlideNote,
-    ) -> (Vec<SlideNote>, Vec<RenderCommand>) {
-        let commands = force_finish_direct_parent(&mut slides, before, after);
+    ) -> (SlideFrameState, Vec<RenderCommand>) {
+        let commands = force_finish_direct_parent(&mut slides.notes, before, after);
+        slides.flags_dirty |= !commands.is_empty();
         (slides, commands)
     }
 
     fn end_ancestors(
         &self,
-        mut slides: Vec<SlideNote>,
+        mut slides: SlideFrameState,
         before: &SlideNote,
         after: &SlideNote,
-    ) -> (Vec<SlideNote>, Vec<RenderCommand>) {
-        let commands = end_slide_ancestors(&mut slides, before, after);
+    ) -> (SlideFrameState, Vec<RenderCommand>) {
+        let commands = end_slide_ancestors(&mut slides.notes, before, after);
         (slides, commands)
     }
 
-    fn refresh(&self, slides: Vec<SlideNote>) -> Vec<SlideNote> {
-        update_slide_parent_flags(&slides)
+    fn refresh(&self, slides: SlideFrameState) -> SlideFrameState {
+        slides.refresh_flags()
     }
 
     fn append_events(
@@ -2096,15 +2134,12 @@ pub fn process_slide_notes_core(
 ) {
     let mut slides: Vec<_> = processed_rev.iter().rev().cloned().collect();
     slides.extend_from_slice(pending);
-    let work = slide_schedule_kernel::process(
-        slides.len(),
-        SlideWork {
-            slides,
-            events: events_rev.iter().rev().cloned().collect(),
-            audio: audio_rev.iter().rev().cloned().collect(),
-            render: render_rev.iter().rev().cloned().collect(),
-            index: processed_rev.len(),
-        },
+    run_slide_pass(
+        slides,
+        processed_rev.len(),
+        events_rev.iter().rev().cloned().collect(),
+        audio_rev.iter().rev().cloned().collect(),
+        render_rev.iter().rev().cloned().collect(),
         SlideScheduleFrame {
             input,
             current_time,
@@ -2113,8 +2148,29 @@ pub fn process_slide_notes_core(
             style,
             subdivide_slide_judge_grade,
         },
+    )
+}
+
+fn run_slide_pass(
+    slides: Vec<SlideNote>,
+    start_index: usize,
+    events: Vec<JudgeEvent>,
+    audio: Vec<AudioCommand>,
+    render: Vec<RenderCommand>,
+    frame: SlideScheduleFrame<'_>,
+) -> (Vec<SlideNote>, Vec<JudgeEvent>, Vec<AudioCommand>, Vec<RenderCommand>) {
+    let work = slide_schedule_kernel::process(
+        slides.len(),
+        SlideWork {
+            slides: SlideFrameState::new(slides),
+            events,
+            audio,
+            render,
+            index: start_index,
+        },
+        frame,
     );
-    (work.slides, work.events, work.audio, work.render)
+    (work.slides.notes, work.events, work.audio, work.render)
 }
 
 fn events_to_audio_commands(events: &[JudgeEvent], time_point: TimePoint) -> Vec<AudioCommand> {
@@ -2203,18 +2259,20 @@ fn process_frame_phase(phase: FramePhase, mut frame: FrameWork, input: &FrameInp
                 frame.events.slide,
                 frame.slide_audio,
                 frame.slide_render,
-            ) = process_slide_notes_core(
-                &[],
-                &st.slides,
-                input,
-                st.current_time.clone(),
-                st.touch_panel_offset.clone(),
-                input.delta.clone(),
-                st.judge_style,
-                st.subdivide_slide_judge_grade,
-                &[],
-                &[],
-                &[],
+            ) = run_slide_pass(
+                std::mem::take(&mut st.slides),
+                0,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                SlideScheduleFrame {
+                    input,
+                    current_time: st.current_time.clone(),
+                    touch_panel_offset: st.touch_panel_offset.clone(),
+                    delta: input.delta.clone(),
+                    style: st.judge_style,
+                    subdivide_slide_judge_grade: st.subdivide_slide_judge_grade,
+                },
             );
         }
         FramePhase::Touch => {
@@ -2281,21 +2339,22 @@ pub fn step_frame(
     Vec<AudioCommand>,
     Vec<RenderCommand>,
 ) {
+    step_frame_owned(st.clone(), input)
+}
+
+fn step_frame_owned(
+    mut st: GameState,
+    input: &FrameInput,
+) -> (GameState, Vec<JudgeEvent>, Vec<AudioCommand>, Vec<RenderCommand>) {
     let new_time = time_point_add_duration(st.current_time.clone(), input.delta.clone());
-    let resolved_slides = update_slide_parent_flags(&st.slides);
-    let touch_hold_body_groups = if st.touch_hold_group_states.is_empty() {
-        touch_hold_body_group_states_from_holds(&st.active_touch_holds)
-    } else {
-        st.touch_hold_group_states.clone()
-    };
+    st.slides = SlideFrameState::new(std::mem::take(&mut st.slides)).refresh_flags().notes;
+    if st.touch_hold_group_states.is_empty() {
+        st.touch_hold_group_states = touch_hold_body_group_states_from_holds(&st.active_touch_holds);
+    }
+    st.current_time = new_time.clone();
     let frame = scheduler_kernel::process_frame(
         FrameWork {
-            state: GameState {
-                current_time: new_time.clone(),
-                slides: resolved_slides,
-                touch_hold_group_states: touch_hold_body_groups,
-                ..st.clone()
-            },
+            state: st,
             cursor: ClickCursor::with_field_defaults(),
             events: FrameEvents {
                 tap: Vec::new(),
@@ -2312,9 +2371,9 @@ pub fn step_frame(
     let mut next_state = frame.state;
     let all_events = scheduler_kernel::combine_events(frame.events, append_frame_batch);
     let new_score = fold_events_into_score(
-        st.note_fast_late_display,
-        st.break_fast_late_display,
-        &st.score,
+        next_state.note_fast_late_display,
+        next_state.break_fast_late_display,
+        &next_state.score,
         &all_events,
     );
     let body_audio =
@@ -2341,7 +2400,7 @@ pub fn step_frame(
         body_audio,
         events_to_audio_commands(&all_events, new_time),
         frame.slide_render,
-        events_to_render_commands(&all_events, st.display_hold_head_judge_result),
+        events_to_render_commands(&all_events, next_state.display_hold_head_judge_result),
         append_frame_batch,
         append_frame_batch,
     );
@@ -2391,22 +2450,19 @@ pub fn step_frame_timed(
     Vec<AudioCommand>,
     Vec<RenderCommand>,
 ) {
+    step_frame_timed_owned(st.clone(), batch)
+}
+
+/// Loaded sessions own their state, so move it through a frame instead of
+/// cloning the full chart at the batch and frame boundaries.
+pub(crate) fn step_frame_timed_owned(
+    mut st: GameState,
+    batch: &TimedInputBatch,
+) -> (GameState, Vec<JudgeEvent>, Vec<AudioCommand>, Vec<RenderCommand>) {
     let delta = batch.current_time.clone() - st.current_time.clone();
     let input = batch.to_frame_input(delta, st.prev_button.clone(), st.prev_sensor.clone());
-    let st_with_batch = GameState {
-        current_batch: batch.clone(),
-        ..st.clone()
-    };
-    let (next_state, events, audio, render) = step_frame(&st_with_batch, &input);
-    (
-        GameState {
-            current_batch: batch.clone(),
-            ..next_state
-        },
-        events,
-        audio,
-        render,
-    )
+    st.current_batch = batch.clone();
+    step_frame_owned(st, &input)
 }
 
 /// `probeTouchHeadAt`. The probe uses the Lean diagnostic's sensor-only click
@@ -2611,6 +2667,102 @@ mod tests {
     use crate::simai::frontend::frontend_lowered_chart;
 
     const MAIDATA: &str = "&first=0\n&inote_1=\n(120)\n1,2,3,\n";
+
+    fn reference_parent_flags(slides: &[SlideNote]) -> Vec<SlideNote> {
+        slide_parents_kernel::refresh_flags(
+            slides.len(),
+            &slides,
+            slides.to_vec(),
+            SlideParentRead,
+            SlideParentEqual,
+            |mut updated: Vec<SlideNote>, index, edit| {
+                apply_slide_parent_edit(&mut updated[index], edit);
+                updated
+            },
+        )
+    }
+
+    #[test]
+    fn cached_parent_flags_match_snapshot_scan_with_duplicate_and_missing_ids() {
+        let mut slides = vec![SlideNote::default(); 5];
+        for (index, slide) in slides.iter_mut().enumerate() {
+            slide.params.note_index = index.into();
+        }
+        slides[0].params.note_index = 2.into();
+        slides[1].parent_note_index = Some(2.into());
+        slides[2].judge_queues = vec![vec![Default::default()]];
+        slides[3].parent_note_index = Some(99.into());
+        slides[4].parent_note_index = Some(4.into());
+        slides[4].judge_queues = vec![vec![Default::default()]];
+        assert_eq!(update_slide_parent_flags(&slides), reference_parent_flags(&slides));
+        assert!(update_slide_parent_flags(&slides)[1].parent_finished);
+    }
+
+    #[test]
+    fn cached_slide_pass_matches_reference_through_sensor_and_parent_changes() {
+        use lnmai_core_verify::slide_schedule::SlideSchedule;
+
+        let spec = frontend_lowered_chart(
+            "&inote_1=(120){4}1-5[4:1],3w7[4:1],5-1[4:1],7-3[4:1],E",
+            1.into(),
+        ).unwrap();
+        let initial = crate::chart_loader::build_game_state(&spec).slides;
+        let mut saw_events = false;
+        for variant in 0..4 {
+            let mut slides = initial.clone();
+            if variant > 0 {
+                for index in 1..slides.len() {
+                    slides[index].parent_note_index =
+                        Some(slides[index - 1].params.note_index.clone());
+                    slides[index].is_conn_slide = true;
+                    slides[index - 1].is_conn_slide = true;
+                    slides[index - 1].is_group_part_end = false;
+                }
+            }
+            if variant == 2 {
+                slides[0].parent_note_index = Some(slides.last().unwrap().params.note_index.clone());
+            } else if variant == 3 {
+                slides[1].params.note_index = slides[0].params.note_index.clone();
+                slides[2].parent_note_index = Some(99.into());
+            }
+            for frame in 0..100 {
+                let mut input = FrameInput::with_field_defaults();
+                input.delta = Duration::from_micros(50_000);
+                input.sensor_held = SensorVec::replicate(33, frame % 3 != 0);
+                let time = TimePoint::from_micros(frame * 50_000);
+                let ops = SlideScheduleFrame {
+                    input: &input,
+                    current_time: time.clone(),
+                    touch_panel_offset: Duration::zero(),
+                    delta: input.delta.clone(),
+                    style: Default::default(),
+                    subdivide_slide_judge_grade: true,
+                };
+                // The previous traversal refreshes a complete immutable
+                // snapshot after every body, even when no queue changed.
+                let mut expected = (slides.clone(), Vec::new(), Vec::new(), Vec::new());
+                for index in 0..expected.0.len() {
+                    let before = expected.0[index].clone();
+                    let (after, events, audio, render) = ops.step(&before);
+                    expected.0[index] = after.clone();
+                    expected.3.extend(render);
+                    expected.3.extend(force_finish_direct_parent(&mut expected.0, &before, &after));
+                    expected.3.extend(end_slide_ancestors(&mut expected.0, &before, &after));
+                    expected.0 = reference_parent_flags(&expected.0);
+                    expected.1.extend(events);
+                    expected.2.extend(audio);
+                }
+                let actual = process_slide_notes_core(
+                    &[], &slides, &input, time, Duration::zero(), input.delta.clone(),
+                    Default::default(), true, &[], &[], &[],
+                );
+                assert_eq!(actual, expected, "variant {variant}, frame {frame}");
+                saw_events |= !actual.1.is_empty();
+                slides = actual.0;
+            }
+        }
+        assert!(saw_events);
+    }
 
     #[test]
     fn step_frame_advances_time_and_scores_misses() {

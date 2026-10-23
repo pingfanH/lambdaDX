@@ -65,7 +65,8 @@ pub struct AutoSave {
 
 impl AutoSave {
     pub fn tick(&mut self, editor: &mut EditorState, chart: &ChartDoc, document: u64, enabled: bool) {
-        if !enabled || !editor.auto_save || !editor.dirty || editor.simai_editor.modified()
+        if !enabled || editor.check_slide_placement_finished().is_err()
+            || !editor.auto_save || !editor.dirty || editor.simai_editor.modified()
             || editor.keyboard.ime || editor.pending_action.is_some() || editor.source.is_none() {
             self.observed = None;
             self.pending = None;

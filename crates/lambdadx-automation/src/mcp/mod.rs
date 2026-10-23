@@ -43,7 +43,7 @@ impl ServerHandler for Handler {
         let mut info = ServerConfig::default();
         info.capabilities = ServerCapabilities::builder().enable_tools().enable_resources().build();
         info.server_info = Implementation::new("lambdadx", env!("CARGO_PKG_VERSION"));
-        info.instructions = Some("Use immutable snapshots. Tools cannot approve, apply or save. Proposals require editor UI review. For maimai composing, read lambdadx://reference/note-design-skill and search library_search for relevant definitions before designing a named pattern.".into());
+        info.instructions = Some("Use immutable snapshots. Tools cannot approve, apply or save. Proposals require editor UI review. For maimai composing, read lambdadx://reference/note-design-skill and prefer library_resolve to get complete named-pattern definitions in one call. Use library_search/library_read for discovery, large definitions or reference charts.".into());
         info
     }
     async fn list_tools(&self, _: Option<PaginatedRequestParams>, _: RequestContext<RoleServer>) -> Result<ListToolsResult, ErrorData> {

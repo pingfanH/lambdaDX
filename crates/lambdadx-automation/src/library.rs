@@ -14,6 +14,46 @@ pub const SKILL: &str = include_str!("../../../maimai-note-desinger-skill/SKILL.
 const MAX_INDEX_BYTES: usize = 32 * 1024 * 1024;
 const MAX_ENTRIES: usize = 50_000;
 pub const MAX_LIBRARY_TEXT: usize = 8192;
+const MAX_DEFINITIONS: usize = 8;
+const MAX_DEFINITION_BYTES: usize = 48 * 1024;
+
+/// Resolve named configurations and their complete definitions in one worker call.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryResolveRequest {
+    pub schema_version: u32,
+    pub prompt: String,
+    /// Newest first; consulted only when the current prompt names no configuration.
+    #[serde(default)]
+    pub previous_prompts: Vec<String>,
+}
+impl LibraryResolveRequest {
+    pub fn validate(&self) -> ToolResult<()> {
+        if self.previous_prompts.len() > 8
+            || self.prompt.len() + self.previous_prompts.iter().map(String::len).sum::<usize>()
+                > 64 * 1024
+        {
+            return Err(invalid(
+                "Resolve accepts at most 8 previous prompts and 64 KiB of prompt text",
+            ));
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Definition {
+    pub id: String,
+    pub name: String,
+    pub completeness: String,
+    pub text: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ResolvedLibrary {
+    pub revision: String,
+    pub definitions: Vec<Definition>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -155,6 +195,7 @@ struct Loaded {
     stamp: (u64, u128),
     index: Index,
     search: Vec<String>,
+    names: Vec<Vec<String>>,
 }
 pub struct Library {
     root: PathBuf,
@@ -259,7 +300,10 @@ impl Library {
                     || e.tags.len() > 16
                     || e.aliases.iter().chain(&e.tags).any(|s| s.len() > 128)
                     || e.source.len() > 256
-                    || !matches!(e.completeness.as_str(), "complete" | "partial" | "name_only")
+                    || !matches!(
+                        e.completeness.as_str(),
+                        "complete" | "partial" | "name_only"
+                    )
                     || e.references.len() > 32
                 {
                     return Err(invalid("Invalid or oversized catalog entry"));
@@ -290,13 +334,136 @@ impl Library {
                     .to_lowercase()
                 })
                 .collect();
+            let names = index
+                .entries
+                .iter()
+                .map(|e| {
+                    std::iter::once(&e.id)
+                        .chain(std::iter::once(&e.name))
+                        .chain(&e.aliases)
+                        .filter(|s| !s.trim().is_empty())
+                        .map(|s| s.to_lowercase())
+                        .collect()
+                })
+                .collect();
             self.loaded = Some(Loaded {
                 stamp: current,
                 index,
                 search,
+                names,
             });
         }
         Ok(self.loaded.as_ref().unwrap())
+    }
+    /// Match names/aliases in natural language, favoring the most specific name
+    /// at each position. Neither unrelated bodies nor reference Simai are opened.
+    pub fn resolve(&mut self, r: &LibraryResolveRequest) -> ToolResult<ResolvedLibrary> {
+        r.validate()?;
+        let loaded = self.load()?;
+        let mut selected = Vec::new();
+        for prompt in std::iter::once(&r.prompt).chain(&r.previous_prompts) {
+            let prompt = prompt.to_lowercase();
+            let mut matches = Vec::new();
+            for (i, names) in loaded.names.iter().enumerate() {
+                for name in names {
+                    for (start, _) in prompt.match_indices(name).take(16) {
+                        let end = start + name.len();
+                        // English IDs must be whole words; Chinese needs substring matching.
+                        if name.is_ascii()
+                            && (prompt[..start]
+                                .chars()
+                                .next_back()
+                                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '-')
+                                || prompt[end..]
+                                    .chars()
+                                    .next()
+                                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '-'))
+                        {
+                            continue;
+                        }
+                        matches.push((start, end, i));
+                        if matches.len() > 4096 {
+                            return Err(invalid(
+                                "Too many matching configurations; narrow the prompt",
+                            ));
+                        }
+                    }
+                }
+            }
+            matches.sort_unstable_by_key(|&(start, end, i)| {
+                (std::cmp::Reverse(end - start), start, i)
+            });
+            let mut spans = Vec::new();
+            for (start, end, i) in matches {
+                if spans
+                    .iter()
+                    .any(|&(a, b)| a <= start && end <= b && b - a > end - start)
+                {
+                    continue;
+                }
+                spans.push((start, end));
+                if !selected.contains(&i) {
+                    selected.push(i);
+                }
+                if selected.len() > MAX_DEFINITIONS {
+                    return Err(invalid(
+                        "More than 8 configurations matched; narrow the prompt or use library_search/library_read",
+                    ));
+                }
+            }
+            if !selected.is_empty() {
+                break;
+            }
+        }
+        let revision = loaded.index.revision.clone();
+        let entries: Vec<_> = selected
+            .into_iter()
+            .map(|i| loaded.index.entries[i].clone())
+            .collect();
+        let mut result = ResolvedLibrary {
+            revision: revision.clone(),
+            definitions: Vec::new(),
+        };
+        let mut remaining = MAX_DEFINITION_BYTES;
+        for entry in entries {
+            if entry.body.bytes > remaining as u64 {
+                return Err(invalid(
+                    "Complete definitions exceed 48 KiB; narrow the prompt or use library_read",
+                ));
+            }
+            let mut request = LibraryReadRequest {
+                schema_version: SCHEMA_VERSION,
+                revision: revision.clone(),
+                id: entry.id.clone(),
+                part: None,
+                offset: 0,
+                max_bytes: MAX_LIBRARY_TEXT,
+                file_revision: None,
+            };
+            let mut text = String::new();
+            loop {
+                let page = self.read(&request)?;
+                text.push_str(&page.text);
+                let Some(offset) = page.next_offset else {
+                    break;
+                };
+                request.offset = offset;
+                request.file_revision = Some(page.file_revision);
+            }
+            remaining -= text.len();
+            result.definitions.push(Definition {
+                id: entry.id,
+                name: entry.name,
+                completeness: entry.completeness,
+                text,
+            });
+        }
+        if serde_json::to_vec(&result).map_err(invalid)?.len() > MAX_RESULT_BYTES {
+            return Err(invalid(
+                "Serialized definitions exceed the result budget; narrow the prompt",
+            ));
+        }
+        Ok(result)
     }
     pub fn search(&mut self, r: &LibrarySearchRequest) -> ToolResult<SearchPage> {
         r.validate()?;
@@ -357,7 +524,9 @@ impl Library {
             hits.pop();
         }
         if hits.is_empty() && r.offset < total {
-            return Err(invalid("A catalog entry exceeds the result budget; shorten its metadata"));
+            return Err(invalid(
+                "A catalog entry exceeds the result budget; shorten its metadata",
+            ));
         }
         Ok(SearchPage {
             revision: loaded.index.revision.clone(),
@@ -436,6 +605,7 @@ impl Library {
     }
     pub(crate) fn execute(&mut self, request: Request) -> ToolResult<serde_json::Value> {
         match request {
+            Request::LibraryResolve(r) => serde_json::to_value(self.resolve(&r)?).map_err(invalid),
             Request::LibrarySearch(r) => serde_json::to_value(self.search(&r)?).map_err(invalid),
             Request::LibraryRead(r) => serde_json::to_value(self.read(&r)?).map_err(invalid),
             _ => Err(invalid("Not a library request")),

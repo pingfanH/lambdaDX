@@ -8,6 +8,8 @@ pub struct Saved {
     pub connection: Settings,
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub insert_at_cursor: bool,
 }
 
 #[derive(Deserialize)]
@@ -45,6 +47,7 @@ fn load_at(path: &Path) -> Result<Saved, String> {
                 Stored::Legacy(connection) => Saved {
                     connection,
                     enabled: false,
+                    insert_at_cursor: false,
                 },
             };
             saved.connection.validate().map_err(|e| e.message)?;
@@ -55,15 +58,15 @@ fn load_at(path: &Path) -> Result<Saved, String> {
     }
 }
 /// Settings contains only endpoint/model and an environment variable *name*.
-pub fn save(settings: &Settings, enabled: bool) -> Result<(), String> {
+pub fn save(settings: &Settings, enabled: bool, insert_at_cursor: bool) -> Result<(), String> {
     settings.validate().map_err(|e| e.message)?;
     if cfg!(test) {
         return Ok(());
     }
-    save_at(&path()?, settings, enabled)
+    save_at(&path()?, settings, enabled, insert_at_cursor)
 }
 
-fn save_at(path: &Path, settings: &Settings, enabled: bool) -> Result<(), String> {
+fn save_at(path: &Path, settings: &Settings, enabled: bool, insert_at_cursor: bool) -> Result<(), String> {
     settings.validate().map_err(|e| e.message)?;
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     let temp = path.with_extension(format!("{}.tmp", std::process::id()));
@@ -72,6 +75,7 @@ fn save_at(path: &Path, settings: &Settings, enabled: bool) -> Result<(), String
         serde_json::to_vec_pretty(&Saved {
             connection: settings.clone(),
             enabled,
+            insert_at_cursor,
         })
         .map_err(|e| e.to_string())?,
     )
@@ -98,11 +102,12 @@ mod tests {
             ..Settings::default()
         };
         for enabled in [true, false, true] {
-            save_at(&path, &connection, enabled).unwrap();
+            save_at(&path, &connection, enabled, enabled).unwrap();
             let saved = load_at(&path).unwrap();
             assert_eq!(saved.connection, connection);
             let session = Session::restore(saved, history::Store::default());
             assert_eq!(session.enabled, enabled);
+            assert_eq!(session.insert_at_cursor, enabled);
             assert_eq!(session.applied, connection);
             assert!(session.run.is_none());
         }
@@ -121,7 +126,8 @@ mod tests {
         let saved = load_at(&path).unwrap();
         assert!(!saved.enabled);
         assert_eq!(saved.connection, connection);
-        save_at(&path, &saved.connection, true).unwrap();
+        assert!(!saved.insert_at_cursor);
+        save_at(&path, &saved.connection, true, false).unwrap();
         let saved = load_at(&path).unwrap();
         assert!(saved.enabled);
         assert_eq!(saved.connection, connection);

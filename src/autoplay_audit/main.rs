@@ -69,6 +69,37 @@ fn check_progress(
             if update.hidden_until_bar.is_none_or(|value| value < bar) || stored.is_none_or(|value| value < bar) {
                 failures.push(format!("lost hide cutoff: {command:?}, update={update:?}, stored={stored:?}"));
             }
+            if !wifi {
+                let total = slide.judge_queues.get(track.unwrap_or(0) as usize)
+                    .and_then(|queue| queue.iter().map(|area|
+                        area.arrow_progress_when_on.max(area.arrow_progress_when_finished)
+                    ).max()).unwrap_or(0);
+                if total > 0 {
+                    let expected = (bar as f32 / total as f32).min(1.0);
+                    let frontier = state.seg_hidden_frac.get(segment).copied().flatten();
+                    if update.hidden_frac.is_none_or(|frac| frac + 1e-6 < expected)
+                        || frontier.is_none_or(|frac| frac + 1e-6 < expected)
+                    {
+                        failures.push(format!("lost normalized hide frontier: {command:?}, expected={expected}, stored={frontier:?}"));
+                    }
+                    // Exercise the actual renderer conversion at several tile
+                    // densities, including the 40 tiles of Hello, SEKAI's first
+                    // arc with the saved 46px spacing. Queue completion may
+                    // legitimately clear a trail before its terminal hide.
+                    if state.seg_frac[segment] < 1.0 {
+                        for tiles in [5, 17, 40, 71, 100] {
+                            let hidden = app::slide_render::core_trail_cutoff(tiles, frontier, 0);
+                            let explicit = update.hidden_frac.unwrap_or(0.0);
+                            if explicit < 1.0 && hidden == tiles {
+                                failures.push(format!("premature rendered trail disappearance: {command:?}, {hidden}/{tiles} tiles"));
+                            }
+                            if hidden as f32 + 1.0 + 1e-6 < expected * tiles as f32 {
+                                failures.push(format!("renderer lost hide progress: {command:?}, {hidden}/{tiles} tiles"));
+                            }
+                        }
+                    }
+                }
+            }
         }
         if let Some(value) = remaining.filter(|_| wifi) {
             let expected = value as f32 / if slide.is_classic { 8.0 } else { 9.0 };
@@ -168,6 +199,7 @@ fn replay(path: &Path, level: u32, output: &Path, inner: bool, stalled: bool, di
                 *slot = slot.max(update.frac);
                 mapped.push(json!({"runtime": update.runtime_slide_index, "track": update.track_index,
                     "fraction": update.frac, "sharedFraction": update.shared_frac,
+                    "hiddenFraction": update.hidden_frac,
                     "hiddenUntilBar": update.hidden_until_bar, "chartPosition": position}));
             }
             for command in &result.render_commands {
@@ -203,6 +235,7 @@ fn replay(path: &Path, level: u32, output: &Path, inner: bool, stalled: bool, di
                 "noteId": key.0, "slide": key.1, "segments": value.seg_frac,
                 "tracks": value.track_frac, "hiddenUntil": value.track_hidden_until,
                 "segmentHiddenUntil": value.seg_hidden_until, "sharedFraction": value.shared_frac,
+                "segmentHiddenFraction": value.seg_hidden_frac,
             })).collect();
             line(&mut frames, &json!({"frame": frame, "timeUs": now, "result": result,
                 "mappedProgress": mapped, "visualProgress": visual}))?;
